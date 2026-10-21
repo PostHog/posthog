@@ -1,7 +1,7 @@
 """The 5-minute schedule of the dashboard discovery, and the way the API starts one analysis now."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 
@@ -95,8 +95,11 @@ def start_regeneration(team_id: int, template_id: str, request: GenerationReques
     )
 
 
-def generation_running(key: str) -> bool | None:
-    """Whether the generate workflow of the template runs. None when Temporal does not answer."""
+def generation_running(key: str, *, started_after: datetime | None = None) -> bool | None:
+    """Whether a generate workflow of the template runs, and started after `started_after` when it is set.
+
+    None when Temporal does not answer.
+    """
     try:
         client = sync_connect()
         description = asyncio.run(client.get_workflow_handle(generate_workflow_id(key)).describe())
@@ -104,4 +107,6 @@ def generation_running(key: str) -> bool | None:
         return False if error.status == RPCStatusCode.NOT_FOUND else None
     except Exception:
         return None
-    return description.status == WorkflowExecutionStatus.RUNNING
+    if description.status != WorkflowExecutionStatus.RUNNING:
+        return False
+    return started_after is None or description.start_time >= started_after

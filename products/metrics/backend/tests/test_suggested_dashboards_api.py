@@ -360,7 +360,10 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
         with (
             patch("products.metrics.backend.temporal.schedule.start_regeneration", side_effect=start_error) as start,
-            patch("products.metrics.backend.temporal.schedule.generation_running", return_value=running),
+            patch(
+                "products.metrics.backend.temporal.schedule.generation_running",
+                side_effect=lambda key, started_after=None: running if started_after else False,
+            ),
             patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture"),
         ):
             response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/regenerate/")
@@ -378,6 +381,24 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert (saved.status, saved.panels, saved.name) == (expected_status, [], "Job queue")
         assert saved.preview_dashboard_id is None
         assert not Dashboard.objects.filter(id=preview.id, deleted=False).exists()
+
+    def test_regenerating_waits_for_the_previous_run_to_close(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", "queue_depth", source="generated")
+        template.source_team_id = self.team.id
+        template.save(update_fields=["source_team_id"])
+
+        with (
+            patch("products.metrics.backend.temporal.schedule.generation_running", return_value=True),
+            patch("products.metrics.backend.temporal.schedule.start_regeneration") as start,
+        ):
+            response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/regenerate/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
+        template.refresh_from_db()
+        assert (template.status, len(template.panels)) == ("pending_review", 1)
 
     def test_a_curated_template_comes_back_with_its_file(self) -> None:
         sync_curated_templates()

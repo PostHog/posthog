@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 from django.db.models import Count, QuerySet
+from django.utils import timezone
 
 import structlog
 
@@ -173,9 +176,18 @@ def reject(user: User, template_id: str) -> DashboardTemplateSummary:
     return get_template(str(template.id))
 
 
+# Allows for a clock difference between this server and Temporal when the run start times are compared.
+_START_CLOCK_MARGIN = dt.timedelta(seconds=5)
+
+
 def regenerate(user: User, template_id: str) -> DashboardTemplateSummary:
+    existing = _get_template(template_id)
+    # A finished generation saves its template before its workflow closes. A new run must wait for that close.
+    if schedule.generation_running(existing.key):
+        raise SuggestedDashboardError("The previous generation is still finishing. Try again in a minute.")
+    started_at = timezone.now() - _START_CLOCK_MARGIN
     try:
-        template = review.regenerate(template=_get_template(template_id), user=user)
+        template = review.regenerate(template=existing, user=user)
     except review.TemplateNotReviewable as error:
         raise SuggestedDashboardError(str(error)) from error
     assert template.source_team_id is not None
@@ -191,8 +203,9 @@ def regenerate(user: User, template_id: str) -> DashboardTemplateSummary:
             ),
         )
     except Exception as error:
-        # Temporal can start the workflow and lose only its answer, so the failure is recorded only when nothing runs.
-        running = schedule.generation_running(template.key)
+        # Temporal can start the workflow and lose only its answer, so the failure is recorded only when no run
+        # of this regeneration is going. A run that started before it is an earlier generation.
+        running = schedule.generation_running(template.key, started_after=started_at)
         if running:
             return get_template(str(template.id))
         logger.exception("metrics_suggested_dashboards_regeneration_not_started", template_id=str(template.id))
