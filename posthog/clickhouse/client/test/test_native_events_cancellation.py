@@ -139,7 +139,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         with (
             patch(
-                "posthog.clickhouse.cancel.get_new_events_cluster_host",
+                "posthog.models.event.new_events_schema.get_new_events_cluster_host",
                 side_effect=RuntimeError("settings unavailable"),
             ),
             patch("posthog.clickhouse.cancel.default_client"),
