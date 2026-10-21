@@ -1,6 +1,7 @@
 """Transactional emails: a template made sendable over the API. Each one is backed by a workflow that runs once
 per send, so sends get the workflow's metrics, run history and versions."""
 
+import re
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,9 @@ from posthog.plugins.plugin_server_api import (
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
+    IdempotencyKeyInFlight,
+    IdempotencyKeyReused,
+    InvalidIdempotencyKey,
     InvalidRecipient,
     MarketingTemplate,
     QueuedEmail,
@@ -37,6 +41,8 @@ from products.workflows.backend.facade.transactional_emails import (
 )
 
 logger = structlog.get_logger(__name__)
+
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -67,6 +73,7 @@ def _content(template: MessageTemplate, from_integration_id: int | None) -> Tran
         text=email.get("text") or "",
         from_integration_id=from_integration_id,
         message_category_id=template.message_category_id,
+        sensitive=template.sensitive,
     )
 
 
@@ -194,8 +201,18 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 
 def send_transactional_email(
-    team: Team, template_id: UUID, *, to: str, distinct_id: str | None, message_data: dict[str, Any]
+    team: Team,
+    template_id: UUID,
+    *,
+    to: str,
+    distinct_id: str | None,
+    message_data: dict[str, Any],
+    idempotency_key: str | None = None,
 ) -> QueuedEmail:
+    if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+        raise InvalidIdempotencyKey(
+            "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
+        )
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
@@ -207,6 +224,9 @@ def send_transactional_email(
         "distinct_id": distinct_id or to,
         "variables": message_data,
     }
+    if idempotency_key is not None:
+        # The CDP service holds the key, because only it knows whether the email was queued.
+        payload["idempotency_key"] = idempotency_key
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
     except Exception as e:
@@ -216,6 +236,14 @@ def send_transactional_email(
     if response.status_code != 202:
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")
+        if response.status_code == 409:
+            raise IdempotencyKeyInFlight(
+                "A request with this Idempotency-Key is still being processed. Retry in a few seconds."
+            )
+        if response.status_code == 422:
+            raise IdempotencyKeyReused(
+                "This Idempotency-Key was already used for a different request. Use a new key for a new email."
+            )
         logger.error(
             "transactional_email_queue_rejected",
             team_id=team.id,
@@ -224,4 +252,5 @@ def send_transactional_email(
         )
         raise DeliveryUnavailable()
 
-    return QueuedEmail(message_id=str(response.json()["invocation_id"]))
+    body = response.json()
+    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))

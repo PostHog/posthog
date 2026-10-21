@@ -28,6 +28,7 @@ export interface TodayWorkItem {
     createdById: number | null
     author: TaskUserBasicInfoApi | null
     latestRunId: string | null
+    runtime?: string | null
     runEnvironment: string | null
     originProduct: string | null
     /** What filed it: a session's origin product, or PostHog AI for a chat. */
@@ -142,6 +143,7 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         createdById: task.created_by?.id ?? null,
         author: task.created_by ?? null,
         latestRunId: task.latest_run?.id ?? null,
+        runtime: task.runtime ?? null,
         runEnvironment: task.latest_run?.environment ?? null,
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,

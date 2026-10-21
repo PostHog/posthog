@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 import time_machine
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
@@ -191,12 +193,50 @@ class TestListingEndpoints:
         assert result.saved_states == ([GenesysCloudResumeConfig(page_number=2)] if resume is None else [])
         assert result.final_state is None
 
+    @pytest.mark.parametrize(
+        "resume,expected_cursors",
+        [
+            (None, [None, "after-1"]),
+            (GenesysCloudResumeConfig(cursor="after-1"), ["after-1"]),
+        ],
+    )
+    def test_scan_pages_until_cursor_runs_out(self, resume, expected_cursors):
+        pages = {
+            None: ScriptedResponse(json={"entities": [{"id": "o1"}], "cursors": {"after": "after-1"}}),
+            "after-1": ScriptedResponse(json={"entities": [{"id": "o2"}], "cursors": {}}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return pages[request.param("cursor")]
+
+        result = _driver().run("external_organizations", respond, resume_state=resume)
+
+        assert result.raised is None
+        assert result.params("cursor")[1:] == expected_cursors
+        assert [row["id"] for row in result.rows] == ["o1", "o2"][-len(expected_cursors) :]
+        assert result.saved_states == ([GenesysCloudResumeConfig(cursor="after-1")] if resume is None else [])
+        assert result.final_state is None
+
+    def test_scan_drops_an_expired_resumed_cursor(self):
+        result = _driver().run(
+            "external_organizations",
+            [TOKEN, ScriptedResponse(status=422, json={"code": "bad.request"})],
+            resume_state=GenesysCloudResumeConfig(cursor="expired"),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
+        assert result.final_state is None
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "endpoint,status_code,expected_valid,expected_message",
         [
             (None, 200, True, None),
+            ("external_organizations", 200, True, None),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -217,6 +257,7 @@ class TestValidateCredentials:
                 "conversations": "/api/v2/analytics/conversations/details/query",
                 "users": "/api/v2/users",
                 "queues": "/api/v2/routing/queues",
+                "external_organizations": "/api/v2/externalcontacts/scan/organizations",
             }[endpoint]
         )
 

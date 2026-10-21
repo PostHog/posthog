@@ -198,6 +198,19 @@ If your source uses OAuth (SourceFieldOauthConfig):
        )
    ```
 
+   The settings and `oauth_config_for_kind()` entries are still required for the OAuth connect flow, which runs in the web app.
+   Source code that runs during a sync must not read `settings.YOUR_SOURCE_CLIENT_ID` directly.
+   It reads PostHog-owned credentials through the credentials service instead:
+
+   ```python
+   from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
+
+   secrets = credentials_service.get_secrets(["YOUR_SOURCE_CLIENT_ID", "YOUR_SOURCE_CLIENT_SECRET"])
+   ```
+
+   `get_secret(key)` and `get_secrets(keys)` fall back to the setting of the same name when the service does not hold the key yet.
+   They return an empty string when the key is configured nowhere. Resolve the keys inside the function that uses them, never at import time.
+
 3. **Redirect URI**: Configure in external service:
 
    ```text

@@ -467,10 +467,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
 
 # Sources whose probe raises for these answers. Each entry is a defect to fix: the probe must return
 # `(False, message)`. The value lists the answers that raise.
-RAISES: dict[str, str] = {
-    "AmazonS3": "401 500",
-    "GoogleCloudStorage": "401 500",
-}
+RAISES: dict[str, str] = {}
 
 # Sources whose probe returns no message for these answers. Each entry is a defect to fix: the person
 # sees a generic message that does not say what is wrong.

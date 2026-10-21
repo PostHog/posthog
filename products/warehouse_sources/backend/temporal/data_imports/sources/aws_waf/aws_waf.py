@@ -9,7 +9,7 @@ import requests
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     AwsService,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
@@ -150,7 +153,7 @@ class AwsWafClient:
     def close(self) -> None:
         self.session.close()
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((AwsWafRetryableError, requests.ConnectionError, requests.Timeout)),
         stop=stop_after_attempt(5),
         wait=retry_wait,
