@@ -18,6 +18,12 @@ PAYLOAD_VERSION = 1
 
 
 @frozen
+class SubjectKinds:
+    readable: frozenset[WarehouseSuggestionSubjectKind]
+    actionable: frozenset[WarehouseSuggestionSubjectKind]
+
+
+@frozen
 class SourceRef:
     name: str
     warehouse_table_id: UUID | None
@@ -111,7 +117,6 @@ class Suggestion:
     evidence_window_start: datetime
     evidence_window_end: datetime
     last_seen_at: datetime
-    score: float
     status: WarehouseSuggestionStatus
     surfaced_at: datetime | None
     reviewed_by: SuggestionReviewer | None

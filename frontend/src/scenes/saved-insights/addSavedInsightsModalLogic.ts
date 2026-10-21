@@ -12,11 +12,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import type { InsightModel } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -40,15 +40,6 @@ interface InsightListParams {
 }
 
 export const INSIGHTS_PER_PAGE = 15
-
-/**
- * The dashboards an insight currently sits on. Read off the tiles rather than off the deprecated
- * `dashboards` field: a PATCH of `dashboards` replaces the whole membership, so the list has to come
- * from something the API still serves the web app.
- */
-function currentDashboardIds(insight: InsightModel): number[] {
-    return (insight.dashboard_tiles || []).filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-}
 
 /**
  * Tell the user a membership update failed, and rethrow only what is worth filing. The listener has
@@ -273,10 +264,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 breakpoint()
 
-                return {
-                    ...response,
-                    results: response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
-                }
+                return response
             },
         },
         userInsights: {
@@ -401,7 +389,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
                 const response = await insightsApi.update(insight.id, {
-                    dashboards: [...currentDashboardIds(insight), dashboardId],
+                    dashboards: [...liveDashboardIds(insight.dashboard_tiles), dashboardId],
                 })
                 if (response) {
                     actions.updateInsight(response)
@@ -425,7 +413,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
                 const response = await insightsApi.update(insight.id, {
-                    dashboards: currentDashboardIds(insight).filter((d) => d !== dashboardId),
+                    dashboards: liveDashboardIds(insight.dashboard_tiles).filter((d) => d !== dashboardId),
                 })
                 if (response) {
                     actions.updateInsight(response)

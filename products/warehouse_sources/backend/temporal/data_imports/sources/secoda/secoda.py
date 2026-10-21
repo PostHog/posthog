@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +35,10 @@ class SecodaResumeConfig:
     next_url: str | None = None
 
 
+def _drop_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key not in fields}
+
+
 def secoda_source(
     api_key: str,
     endpoint: str,
@@ -44,6 +49,20 @@ def secoda_source(
 ) -> SourceResponse:
     config = SECODA_ENDPOINTS[endpoint]
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "data_selector": "results",
+            # A 200 whose body isn't the expected ``{"results": [...]}`` shape (bare list,
+            # dict without ``results``, or ``results`` not a list) is treated as transient
+            # and reissued — mirrors the old client raising a retryable error on it.
+            "data_selector_malformed_retryable": True,
+        },
+    }
+    if config.drop_fields:
+        resource_config["data_map"] = lambda row: _drop_fields(row, config.drop_fields)
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": SECODA_BASE_URL,
@@ -51,22 +70,14 @@ def secoda_source(
             # logs and raised errors; only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
+            # The bearer key must not follow a server-supplied `links.next` (or persisted resume
+            # URL) or a 3xx to another host. `allowed_hosts=[]` pins requests to SECODA_BASE_URL's host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
             "paginator": JSONResponsePaginator(next_url_path=NEXT_URL_PATH),
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "data_selector": "results",
-                    # A 200 whose body isn't the expected ``{"results": [...]}`` shape (bare list,
-                    # dict without ``results``, or ``results`` not a list) is treated as transient
-                    # and reissued — mirrors the old client raising a retryable error on it.
-                    "data_selector_malformed_retryable": True,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

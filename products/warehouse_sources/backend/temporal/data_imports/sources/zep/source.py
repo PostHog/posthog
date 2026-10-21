@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZepSource(ResumableSource[ZepSourceConfig, ZepResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZEP_API_KEY$", "^ZEP_API_URL$"),
+        npm=("@getzep/zep-cloud", "@getzep/zep-js"),
+        pypi=("zep-cloud", "zep-python"),
+        go=("github.com/getzep/zep-go",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
@@ -43,7 +51,7 @@ class ZepSource(ResumableSource[ZepSourceConfig, ZepResumeConfig]):
             name=ExternalDataSourceType.ZEP,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Zep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["agent memory", "llm", "knowledge graph", "ai"],
             caption="""Enter your Zep API key to sync your Zep agent-memory data into the PostHog Data warehouse.
 

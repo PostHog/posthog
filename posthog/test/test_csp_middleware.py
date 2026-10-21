@@ -2,7 +2,7 @@ from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import APIBaseTest, override_settings
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -10,13 +10,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.csp_middleware import (
-    CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
-    CSPMiddleware,
-    app_csp_header_name,
-    narrowed_app_policy,
-    object_storage_upload_source,
-)
+from posthog.csp_middleware import CSPMiddleware, app_csp_header_name, narrowed_app_policy, object_storage_upload_source
 
 
 def _parse_policies(header: str) -> list[dict[str, list[str]]]:
@@ -170,43 +164,47 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("app_root", "/", True),
             # No route serves this path, so the app catch-all answers it. It must keep the app
             # policy, because the frame policy is enforced and its script-src 'none' stops the app
             # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
-            # A customer's page frames this document, and the enforced list names only PostHog
-            # origins.
-            ("embeddable_document", "/shared/notarealtoken", False),
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame", 302),
+            # The status proves the page renders for a signed-out visitor. A path that redirects to
+            # /login only repeats the row above.
+            ("page_that_needs_no_login", "/preflight", 200),
         ]
     )
-    def test_signed_out_page_without_the_flag_enforces_only_frame_ancestors(
-        self, _name, path, enforces_frame_ancestors
-    ):
+    def test_signed_out_page_is_fully_enforced(self, _name: str, path: str, status: int) -> None:
         self.client.logout()
         response = self.client.get(path)
-        reported = response["Content-Security-Policy-Report-Only"]
-        assert "default-src 'self'" in reported
-        if not enforces_frame_ancestors:
-            assert "Content-Security-Policy" not in response
-            return
-        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
-        # The enforced list has to be the one the reported policy names, or the two drift apart.
-        enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors 'self' https://posthog.com")
-        assert "default-src" not in enforced
-        assert enforced in reported
+        assert response.status_code == status
+        assert "default-src 'self'" in response["Content-Security-Policy"]
+        assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self):
+    def test_enforcement_reaches_app_and_shared_pages_but_not_the_exporter(self):
         # The wiring guard for app_csp_header_name. The matrix of paths lives in
         # TestAppCspHeaderName, which needs no database.
         enforced = self.client.get("/")
         assert "default-src 'self'" in enforced["Content-Security-Policy"]
         assert "Content-Security-Policy-Report-Only" not in enforced
 
-        embedded = self.client.get("/shared/notarealtoken")
-        assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" not in embedded["Content-Security-Policy-Report-Only"]
+        for path in ("/shared/notarealtoken", "/exporter/notarealtoken"):
+            shared = self.client.get(path)
+            assert "default-src 'self'" in shared["Content-Security-Policy"], path
+            assert "frame-ancestors" not in shared["Content-Security-Policy"], path
+            assert "Content-Security-Policy-Report-Only" not in shared, path
+
+        exporter = self.client.get("/exporter")
+        assert "Content-Security-Policy" not in exporter
+        assert "frame-ancestors" not in exporter["Content-Security-Policy-Report-Only"]
+
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)  # As a self-hosted install
+    def test_self_hosted_install_enforces_only_frame_ancestors(self) -> None:
+        response = self.client.get("/")
+        enforced = response["Content-Security-Policy"]
+        # The enforced list has to be the one the reported policy names, or the two drift apart.
+        assert enforced.startswith("frame-ancestors 'self' https://posthog.com")
+        assert "default-src" not in enforced
+        assert enforced in response["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
@@ -363,17 +361,20 @@ class TestCSPMiddleware(APIBaseTest):
         policy = response["Content-Security-Policy" if regions else "Content-Security-Policy-Report-Only"]
         directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
         script_src, connect_src = directives["script-src"], directives["connect-src"]
+        style_src, font_src = directives["style-src"], directives["font-src"]
         (report_uri,) = directives["report-uri"]
         report_version = parse_qs(urlsplit(report_uri).query)["v"]
         wildcards = {"https://*.posthog.com", "https://*.i.posthog.com"}
         if not regions:
             assert wildcards <= set(script_src)
+            assert "https://*.posthog.com" in style_src
+            assert "https://*.posthog.com" in font_src
             # An operator's endpoint keeps the version they configured.
             assert report_version == ["2"]
             return
 
         region, other_region = regions
-        assert not wildcards & {*script_src, *connect_src}
+        assert not wildcards & {*script_src, *connect_src, *style_src, *font_src}
         # Under the wildcard policy's version, reports from the two policies mix in one query.
         assert report_version == ["4"]
         # The app cannot start without its bundle host.
@@ -388,6 +389,13 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
+        # The app loads its stylesheets and fonts from the bundle host, and the toolbar loads its own from
+        # /static/. Without either source the page renders unstyled, and the user sees no error.
+        assert {overrides["JS_URL"], "https://internal-cf.posthog.com/static/"} <= set(style_src)
+        assert {overrides["JS_URL"], "https://internal-cf.posthog.com/static/"} <= set(font_src)
+        # The swap must remove the wildcard alone. Inline styles, data: fonts and Google Fonts still load.
+        assert {"'self'", "'unsafe-inline'", "https://fonts.googleapis.com"} <= set(style_src)
+        assert {"'self'", "data:", "https://fonts.gstatic.com"} <= set(font_src)
 
     @parameterized.expand(
         [
@@ -397,9 +405,9 @@ class TestCSPMiddleware(APIBaseTest):
                 {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
             ),
-            # This document already sends the app policy report-only, so the shadows must join that header.
+            # This document enforces the app policy, and the shadows must stay in the report-only header.
             (
-                "report_only_embeddable_document",
+                "enforced_embeddable_document",
                 "/shared/notarealtoken",
                 {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
@@ -425,34 +433,30 @@ class TestCSPMiddleware(APIBaseTest):
         enforced = _parse_policies(response.get("Content-Security-Policy", ""))
         reported = _parse_policies(response.get("Content-Security-Policy-Report-Only", ""))
         (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
-        # The app policy keeps `https:`, so the shadow reports images without blocking any.
-        assert "https:" in app_policy["img-src"]
-        # The app policy keeps the wildcards until the v=6 reports show the named hosts are complete.
-        assert "https://*.posthog.com" in app_policy["style-src"]
-        assert "https://*.posthog.com" in app_policy["font-src"]
-        # Enforced, a shadow would block every image, stylesheet or font from a host it does not name.
-        assert [policy for policy in enforced if _report_version(policy) in (["5"], ["6"])] == []
-        image_shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
-        style_font_shadows = [policy for policy in reported if _report_version(policy) == ["6"]]
+        # The app policy keeps `https:` and the PostHog wildcard, so the shadow reports images without blocking any.
+        assert {"https:", "https://*.posthog.com"} <= set(app_policy["img-src"])
+        # Enforced, the shadow would block every image from a host it does not name.
+        assert [policy for policy in enforced if _report_version(policy) == ["7"]] == []
+        # A v=5 report names an image that only `https:` admits. The image shadow also reports PostHog hosts the
+        # named list misses, so under 5 its reports would mix with the old ones in one query.
+        assert [policy for policy in enforced + reported if _report_version(policy) == ["5"]] == []
+        # The app policy enforces the named stylesheet and font hosts, so a v=6 policy would report each miss twice.
+        assert [policy for policy in enforced + reported if _report_version(policy) == ["6"]] == []
+        image_shadows = [policy for policy in reported if _report_version(policy) == ["7"]]
         if not expects_shadows:
-            assert image_shadows == style_font_shadows == []
+            assert image_shadows == []
             return
 
         (image_shadow,) = image_shadows
-        # Any other directive would make a v=5 report mean something besides "this image needs https:".
+        # Any other directive would make a v=7 report mean something besides "this image host is not named".
         assert set(image_shadow) == {"img-src", "report-uri"}
-        assert "https:" not in image_shadow["img-src"]
-        assert "https://www.gravatar.com" in image_shadow["img-src"]
-
-        (style_font_shadow,) = style_font_shadows
-        # Any other directive would make a v=6 report mean something besides "this host is missing".
-        assert set(style_font_shadow) == {"style-src", "font-src", "report-uri"}
-        for sources in (style_font_shadow["style-src"], style_font_shadow["font-src"]):
-            # A wildcard admits every PostHog host, so a missed host would never report.
-            assert "https://*.posthog.com" not in sources
-            # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
-            assert _US_BUNDLE in sources
-            assert "https://internal-cf.posthog.com/static/" in sources
+        img_src = set(image_shadow["img-src"])
+        # `https:` admits every host and the wildcard every PostHog host, so with either one a miss never reports.
+        assert not {"https:", "https://*.posthog.com"} & img_src
+        # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
+        assert {_US_BUNDLE, "https://internal-cf.posthog.com/static/"} <= img_src
+        # The swap must remove those two sources alone, or every image the others admit reports as a miss.
+        assert {"'self'", "data:", "blob:", "https://posthog.com", "https://www.gravatar.com"} <= img_src
 
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",
@@ -473,94 +477,108 @@ class TestCSPMiddleware(APIBaseTest):
 
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestAppCspHeaderName(SimpleTestCase):
-    def _request(
-        self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"
-    ) -> HttpRequest:
-        request = RequestFactory().get(path)
-        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id, email=email)
-        return request
-
     @parameterized.expand(
         [
-            ("shared_dashboard", "/shared_dashboard/abc123"),
-            ("shared", "/shared/abc123"),
-            ("embedded", "/embedded/abc123"),
-            ("exporter_with_token", "/exporter/abc123"),
-            ("exporter_render", "/exporter"),
-            ("render_query", "/render_query"),
-            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
+            ("shared_dashboard", "/shared_dashboard/abc123", {}, True),
+            ("shared", "/shared/abc123", {}, True),
+            ("embedded", "/embedded/abc123", {}, True),
+            ("render_query", "/render_query", {}, True),
+            # A replay export can run an eval in a frame of this document, and an enforced policy refuses it.
+            ("exporter_render", "/exporter", {}, False),
+            # This route serves the shared page, so it enforces like /shared/.
+            ("exporter_with_token", "/exporter/abc123", {}, True),
+            # The survey view sets its own policy, so this is a response that the view did not build.
+            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177", {}, False),
+            # No route serves these, so the app catch-all answers them, and the app then runs in that
+            # document like on any other page.
+            ("unrouted_exporter_subpath", "/exporter/a/b", {}, True),
+            ("unrouted_survey_subpath", "/external_surveys/a/b", {}, True),
+            # A self-hosted install enforces nothing here, and that includes the frame-ancestors
+            # header that an app page gets on such an install.
+            ("shared_on_a_self_hosted_install", "/shared/abc123", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
+            # Cloud sends other report-only policies in the same header, and they must not replace
+            # the app policy there.
+            (
+                "exporter_on_cloud",
+                "/exporter",
+                {
+                    "TEST": False,
+                    "DEBUG": False,
+                    "E2E_TESTING": False,
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": _US_BUNDLE,
+                },
+                False,
+            ),
         ]
     )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_embeddable_document_stays_report_only_under_enforcement(self, _name, path, _mock_flag):
-        # A customer's site frames each of these. The app policy names only PostHog origins in
-        # frame-ancestors, so enforcing it here stops the document rendering on their page.
-        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
-        assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
+    def test_embeddable_document_sends_the_app_policy_without_frame_ancestors(
+        self, _name: str, path: str, overrides: dict[str, str | bool | None], expects_enforced: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>shared</body></html>", content_type="text/html; charset=utf-8")
+
+        with override_settings(**overrides):
+            response = CSPMiddleware(view)(RequestFactory().get(path))
+
+        enforced = response.get("Content-Security-Policy", "")
+        reported = response.get("Content-Security-Policy-Report-Only", "")
+        assert ("default-src" in enforced, "default-src" in reported) == (expects_enforced, not expects_enforced)
+        # A customer's site frames each of these, and the app policy names only PostHog origins in
+        # frame-ancestors. Enforced, the directive stops the document rendering on their page.
+        # Reported, it sends a report for every embed.
+        assert "frame-ancestors" not in enforced + reported
 
     @parameterized.expand(
         [
-            ("app_root", "/", "abc", False),
-            ("project_page", "/project/2/dashboard", "abc", False),
+            ("app_root", "/"),
+            ("project_page", "/project/2/dashboard"),
             # Neither prefix owns these. A shorter prefix match would hand the app catch-all the
             # carve-out and quietly exempt an ordinary page from enforcement.
-            ("shared_prefix_without_separator", "/sharedthing", "abc", False),
-            ("exporter_prefix_without_separator", "/exporterthing", "abc", False),
-            ("login", "/login", None, False),
-            ("signup", "/signup", None, False),
-            ("reset_link", "/reset/abc/def", None, False),
-            ("reset_2fa_link", "/reset_2fa/abc/def", None, False),
-            ("verify_email_link", "/verify_email/abc/def", None, False),
-            ("other_signed_out_page_with_the_flag", "/messaging-preferences/abc", None, True),
+            ("shared_prefix_without_separator", "/sharedthing"),
+            ("exporter_prefix_without_separator", "/exporterthing"),
         ]
     )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled")
-    def test_page_is_enforced(
-        self, _name: str, path: str, distinct_id: str | None, flag_enabled: bool, mock_flag: MagicMock
-    ) -> None:
-        mock_flag.side_effect = lambda key, *args, **kwargs: (
-            flag_enabled and key == CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG
-        )
-        assert app_csp_header_name(self._request(path, distinct_id=distinct_id)) == "Content-Security-Policy"
+    def test_page_is_enforced(self, _name: str, path: str) -> None:
+        assert app_csp_header_name(path) == "Content-Security-Policy"
 
     @parameterized.expand(
         [
-            ("other_signed_out_page", "/messaging-preferences/abc"),
-            ("login_prefix_without_separator", "/loginfoo"),
+            # A prefix match on /exporter would include this route, which serves the shared page.
+            ("exporter_with_token", "/exporter/abc123"),
+            ("shared", "/shared/abc123"),
+            ("app_root", "/"),
         ]
     )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=False)
-    def test_other_signed_out_page_stays_report_only_without_the_flag(self, _name: str, path: str, _mock_flag) -> None:
-        assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        E2E_TESTING=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL=_US_BUNDLE,
+    )
+    def test_only_the_exporter_render_asks_for_script_samples(self, _name: str, path: str) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>page</body></html>", content_type="text/html; charset=utf-8")
 
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=False)
-    def test_a_request_without_a_user_follows_the_signed_out_rules(self, _mock_flag: MagicMock) -> None:
-        # CSPMiddleware runs before AuthenticationMiddleware, so a response from a middleware between
-        # the two carries no request.user.
-        assert app_csp_header_name(RequestFactory().get("/login")) == "Content-Security-Policy"
-        assert (
-            app_csp_header_name(RequestFactory().get("/messaging-preferences/abc"))
-            == "Content-Security-Policy-Report-Only"
-        )
+        def script_src(request_path: str) -> list[str]:
+            response = CSPMiddleware(view)(RequestFactory().get(request_path))
+            policies = _parse_policies(response.get("Content-Security-Policy", "")) + _parse_policies(
+                response.get("Content-Security-Policy-Report-Only", "")
+            )
+            (app_policy,) = [policy for policy in policies if "default-src" in policy]
+            # Each response carries its own nonce.
+            return [source for source in app_policy["script-src"] if not source.startswith("'nonce-")]
 
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
-        app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-        app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-        # A fixed id would put every signed-out visitor in one bucket, so a rollout percentage
-        # would enforce for everyone or nobody.
-        first, second = (call.args[1] for call in mock_flag.call_args_list)
-        assert first != second
-        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
-        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
-
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag: MagicMock) -> None:
-        # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
-        assert (
-            app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-            == "Content-Security-Policy-Report-Only"
-        )
+        exporter, other = script_src("/exporter"), script_src(path)
+        # Without a sample, an eval report from a replay export render does not show which code ran.
+        assert "'report-sample'" in exporter
+        # A sample can carry page code to the report endpoint.
+        assert "'report-sample'" not in other
+        # Cloud rebuilds script-src when it narrows the wildcards, so the keyword must be the only difference.
+        assert [source for source in exporter if source != "'report-sample'"] == other
 
 
 class TestNarrowedAppPolicy(SimpleTestCase):

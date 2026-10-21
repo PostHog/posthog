@@ -15,12 +15,16 @@ It routes through `get_client_from_pool`, which uses the token-aware `get_pool` 
 The async temporal client `get_client` in `posthog/temporal/common/clickhouse.py` is token-aware too, because `_request_headers` calls `read_password` on each request.
 Use these paths and token auth is automatic.
 
-`get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the pod default user: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
+`get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the user that its `ch_user` argument resolves to, which is the pod's `CLICKHOUSE_USER` unless you set it: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
 Its bootstrap discovery client is long-lived, so each discovery attempt stamps the live token onto it first, including the discovery that `sibling()` runs hours into a job.
-A caller that connects as a different user through `connection_overrides` owns its own credential.
-The backups and part_breaker Dagster resources do this: each sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
+Pass `ch_user` to connect as a dedicated user, the way `get_migrations_cluster` does, because discovery and the pools then both use that user.
+A caller that connects as a different user through `connection_overrides` owns its own credential, and its discovery still runs as the pod's `CLICKHOUSE_USER`.
+The part_breaker Dagster resource does this: it sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
 
-Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, or build your own pool or client.
+`default_client()` without `user` and `password` reads the token for the pod's `CLICKHOUSE_USER` when it builds the client.
+It is a one-shot client: close it after one short task, because a retained client that reconnects after the token expires is rejected.
+
+Token-awareness is lost when you pass any other client as `sync_client` to `sync_execute`, or build your own pool or client.
 
 ## A custom pool or client must stay token-aware
 
@@ -41,20 +45,21 @@ Resolve the token once with `creds.read_password()` and pass it as the password,
 A client that is retained and reconnects is not one-shot: a token baked into it expires with no recovery, because `read_password`'s expired-token fallback only fires when it is called again.
 Stamp `read_password()` onto `client.connection.password` before each use, the way the `get_cluster` bootstrap does, or use a refreshing pool.
 
-## Wire the username, or the user falls back to the default user
+## Wire the username, or the user falls back to the pod's `CLICKHOUSE_USER`
 
 A dedicated user registers only when both its username env `CLICKHOUSE_<USER>_USER` and a secret are set.
 The secret is `CLICKHOUSE_<USER>_PASSWORD` or `CLICKHOUSE_<USER>_PASSWORD_FILE`.
-If the username env is missing, `get_clickhouse_creds` returns the default user's credentials.
-The query then runs as the pod default with no error.
+If the username env is missing, `get_clickhouse_creds` returns the credentials of the pod's `CLICKHOUSE_USER`.
+The query then runs as that user with no error.
+On many pods, including every Django app, `CLICKHOUSE_USER` is the literal `default` user.
 A new `ClickHouseUser` member needs its username wired, not only its token file.
 `get_clickhouse_creds` decides the missing-credential behavior per user, and some users raise instead of falling back.
 
 ## Deployment-default or enum user
 
-Deployment-default: the pod's default ClickHouse user is the service.
-Set the default `CLICKHOUSE_USER` and `CLICKHOUSE_PASSWORD_FILE`.
-The default user becomes token-aware because the resolved user matches.
+Deployment-default: the pod's `CLICKHOUSE_USER` is the service's own user.
+Set `CLICKHOUSE_USER` and `CLICKHOUSE_PASSWORD_FILE`.
+`ClickHouseUser.DEFAULT` then resolves to that user and reads its token.
 Enum user: add a `ClickHouseUser` member and wire its `CLICKHOUSE_<USER>_USER` and `CLICKHOUSE_<USER>_PASSWORD_FILE`.
 A token-first user needs no static password.
 The static fallback resolves to an empty string when none is set, so the token is the only working credential.

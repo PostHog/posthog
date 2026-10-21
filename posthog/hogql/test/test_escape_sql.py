@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+import pytest
+from posthog.test.base import ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -32,7 +35,7 @@ _ROUNDTRIP_IDENTIFIER_SAMPLES = [
 ]
 
 
-class TestPrintString(BaseTest):
+class TestPrintString(SimpleTestCase):
     def test_sanitize_hogql_identifier(self):
         self.assertEqual(escape_hogql_identifier("a"), "a")
         self.assertEqual(escape_hogql_identifier("$browser"), "$browser")
@@ -212,7 +215,8 @@ class TestPrintString(BaseTest):
         self.assertTrue("SQLValueEscaper has no method visit_dict" in str(context.exception))
 
 
-class TestClickHouseIdentifierExecution(ClickhouseTestMixin, BaseTest):
+@pytest.mark.usefixtures("clickhouse_database")
+class TestClickHouseIdentifierExecution(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand([(f"sample-{i}", sample) for i, sample in enumerate(_ROUNDTRIP_IDENTIFIER_SAMPLES)])
     def test_escaped_identifier_round_trips_through_clickhouse(self, _name, identifier):
         # ClickHouse, not just the HogQL parser, is the real consumer of escape_clickhouse_identifier:

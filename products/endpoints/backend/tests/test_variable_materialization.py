@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import DataWarehouseNode, TrendsQuery
@@ -16,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializableVariable,
     MaterializationNotSupportedError,
@@ -23,9 +26,9 @@ from products.endpoints.backend.materialization_transforms import (
     build_endpoint_hogql,
     transform_query_for_materialization,
 )
+from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-
-pytestmark = [pytest.mark.django_db]
 
 
 class TestVariableAnalysis(APIBaseTest):
@@ -1441,7 +1444,7 @@ class TestQueryTransformation(APIBaseTest):
         assert "event_name" in group_by_part
 
 
-class TestMaterializedQueryExecution(APIBaseTest):
+class TestMaterializedQueryExecution(SimpleTestCase):
     """Test that materialized queries handle pre-aggregated data correctly."""
 
     def test_materialized_query_selects_precomputed_columns(self):
@@ -1482,7 +1485,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         parsed = parse_select(query_str)
 
         assert isinstance(parsed, ast.SelectQuery)
-        transformed = transform_select_for_materialized_table(parsed.select, self.team)
+        transformed = transform_select_for_materialized_table(parsed.select, [])
 
         assert len(transformed) == 2
 
@@ -1504,7 +1507,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         parsed = parse_select(query_str)
 
         assert isinstance(parsed, ast.SelectQuery)
-        transformed = transform_select_for_materialized_table(parsed.select, self.team)
+        transformed = transform_select_for_materialized_table(parsed.select, [])
 
         assert len(transformed) == 1
 
@@ -2170,6 +2173,54 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
             {"var-1": {"code_name": "event_name", "value": "$pageview"}},
             {"event_name": "$pageview"},
         )
+
+    @parameterized.expand(
+        [
+            (
+                "qualified_field",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                True,
+                ["event"],
+            ),
+            (
+                "nested_properties",
+                "SELECT properties.foo.bar, properties.bar FROM events WHERE distinct_id = {variables.user_id}",
+                True,
+                ["foo__bar", "bar"],
+            ),
+            (
+                "unaliased_calls",
+                "SELECT toStartOfDay(timestamp), count() FROM events WHERE distinct_id = {variables.user_id} "
+                "GROUP BY toStartOfDay(timestamp)",
+                True,
+                ["`toStartOfDay(toTimeZone(timestamp, 'UTC'))` AS `toStartOfDay(timestamp)`", "`count()`"],
+            ),
+            (
+                "columns_not_computed",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                False,
+                ["`e.event`"],
+            ),
+        ]
+    )
+    def test_materialized_read_selects_stored_columns_under_declared_names(
+        self, name, query_str, columns_computed, expected_select
+    ):
+        query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {"var-1": {"code_name": "user_id", "value": "user_0"}},
+        }
+        endpoint = create_endpoint_with_version(name=name, team=self.team, query=query, created_by=self.user)
+        version = endpoint.versions.get()
+        if columns_computed:
+            version.columns = EndpointVersion.extract_columns(query, self.team.pk)
+            version.save()
+
+        select_query, _ = strategy_for(endpoint, version, self.team).build_materialized_select(table_name="mat")
+
+        assert [expr.to_hogql() for expr in select_query.select] == expected_select
+        assert (version.columns is not None) == columns_computed
 
 
 @pytest.mark.usefixtures("unittest_snapshot")

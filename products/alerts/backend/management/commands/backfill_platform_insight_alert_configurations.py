@@ -1,43 +1,25 @@
-from typing import Any
-
-from django.core.management.base import BaseCommand, CommandError
+from collections.abc import Collection
+from uuid import UUID
 
 from products.alerts.backend.platform_alert_backfill import (
+    BackfillCounts,
     backfill_platform_insight_alert_configurations,
     disable_platform_insight_alert_configurations,
 )
+from products.alerts_platform.backend.facade.backfill_command import PlatformBackfillCommand
 
 
-class Command(BaseCommand):
+class Command(PlatformBackfillCommand):
     help = "Copy insight alert configurations into the shared alert tables for a parallel evaluation."
+    source_name = "insight"
+    sample_unit = "alert"
 
-    def add_arguments(self, parser: Any) -> None:
-        parser.add_argument("--team-id", type=int, default=None, help="Copy one team's configurations only.")
-        parser.add_argument(
-            "--sample-percent",
-            type=int,
-            default=100,
-            help="Copy only this percentage of alerts, chosen by alert id so a rerun picks the same ones.",
-        )
-        parser.add_argument(
-            "--disable",
-            action="store_true",
-            help="Copy nothing. Switch off the existing insight copies instead, keeping their history.",
+    def backfill(
+        self, *, team_id: int | None, sample_percent: int, alert_ids: Collection[UUID] | None
+    ) -> BackfillCounts:
+        return backfill_platform_insight_alert_configurations(
+            team_id=team_id, sample_percent=sample_percent, alert_ids=alert_ids
         )
 
-    def handle(self, *args: Any, **options: Any) -> None:
-        if options["disable"]:
-            if options["sample_percent"] != 100:
-                raise CommandError("--disable switches off every copy in scope and takes no --sample-percent")
-            disabled = disable_platform_insight_alert_configurations(team_id=options["team_id"])
-            self.stdout.write(f"Disabled {disabled}")
-            return
-        try:
-            counts = backfill_platform_insight_alert_configurations(
-                team_id=options["team_id"], sample_percent=options["sample_percent"]
-            )
-        except ValueError as error:
-            raise CommandError(str(error)) from error
-        self.stdout.write(
-            f"Created {counts.created}, updated {counts.updated}, skipped {counts.skipped}, failed {counts.failed}"
-        )
+    def disable(self, *, team_id: int | None, alert_ids: Collection[UUID] | None) -> int:
+        return disable_platform_insight_alert_configurations(team_id=team_id, alert_ids=alert_ids)

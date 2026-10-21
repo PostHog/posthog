@@ -9,6 +9,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from '../../shared/components/DestinationIcon'
+import { DESTINATION_STATUS_TAGS } from '../../shared/components/destinationStatus'
 import { destinationTarget } from '../../shared/components/destinationTarget'
 import { SyncedSources } from './SyncedSources'
 
@@ -72,6 +73,25 @@ export function WarehouseDestinationsTable({
                     {destinationTypeLabel(destination.type)}
                 </LemonTag>
             ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, destination) => {
+                // The PostHog warehouse is written by the sync itself, so it has no delivery health of its own.
+                if (destination.is_posthog_warehouse) {
+                    return null
+                }
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
+                return (
+                    <div className="flex flex-col items-start gap-1 max-w-80">
+                        <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                        {destination.status !== 'healthy' && destination.latest_error ? (
+                            <span className="text-muted text-xs">{destination.latest_error}</span>
+                        ) : null}
+                    </div>
+                )
+            },
         },
         {
             title: 'Synced by',

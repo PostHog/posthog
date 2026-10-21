@@ -136,7 +136,10 @@ def _ensure_for_team(
 @dagster.op
 def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) -> dict[str, int]:
     """Drive `ensure_*_dimensional_precomputed` over the rolling window for each selected team."""
-    end = datetime.now(UTC)
+    # chunk_ranges slices backwards from `end`, so ending on a UTC midnight makes every chunk one UTC
+    # day. The framework builds one job per UTC day, and a chunk that straddles midnight merges two
+    # missing days into a single INSERT that reads twice the data.
+    end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
 
     team_ids = get_selected_team_ids()

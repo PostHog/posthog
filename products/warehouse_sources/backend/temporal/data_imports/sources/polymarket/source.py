@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeConfig]):
+    codebase_detection = detect(
+        env=("^POLYMARKET_",),
+        npm=("@polymarket/clob-client",),
+        pypi=("py-clob-client",),
+        cargo=("polymarket-client-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Gamma exposes no version token: no path segment, header, or version param. The framework
     # default sentinel applies.
@@ -48,7 +56,7 @@ class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeC
             name=ExternalDataSourceType.POLYMARKET,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Polymarket",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Polymarket's Gamma API is public, so this source needs no API key.
 
 It syncs events, markets, series, tags, and the all-time biggest wins board. Order books, price history, and wallet positions are not supported yet.""",

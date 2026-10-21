@@ -9,6 +9,8 @@ import { formatSqlSeriesValue, hasAxisTickFormatting } from './sqlLineGraphAdapt
  *  own column's currency/percent/prefix/suffix settings — the same trick the line path uses. */
 export interface SqlScatterPointMeta {
     settings?: AxisSeriesSettings
+    rowIndex?: number
+    rowKey?: string
 }
 
 export type SqlScatterSeries = ScatterSeries<SqlScatterPointMeta>

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]):
+    codebase_detection = detect(env=("^PROFOUND_API_KEY$",), npm=("@profoundai/client", "next-aeo"), pypi=("profound",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Profound versions purely by URL path segment (`/v1/...`, `/v2/...`) — no version header or
     # account setting. The source already reads the newer v2 report surface (`/v2/reports/*`)
@@ -55,7 +58,7 @@ class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]
             name=ExternalDataSourceType.PROFOUND,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Profound",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Profound answer engine data into the PostHog Data warehouse, so you can join brand visibility and citations to your product and web analytics.
 
 Create an API key under **Settings** then **API keys** in Profound. The API is available on Enterprise plans, and Profound has to enable it for your organization first.""",

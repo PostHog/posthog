@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetaplaneSource(ResumableSource[MetaplaneSourceConfig, MetaplaneResumeConfig]):
+    codebase_detection = detect(env=("^METAPLANE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -66,7 +69,7 @@ You can generate an API key in your Metaplane account settings. A paid Metaplane
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

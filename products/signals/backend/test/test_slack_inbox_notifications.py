@@ -3,8 +3,11 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 
+from rest_framework.exceptions import ValidationError
+from slack_sdk.errors import SlackApiError
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -18,6 +21,8 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -27,11 +32,11 @@ from products.signals.backend.slack_inbox_notifications import (
     _build_signal_thread_blocks,
     _meets_min_priority,
     _resolve_reviewer_mentions,
-    _resolve_suggested_reviewer_user_ids,
     _signal_source_line,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
+    resolve_suggested_reviewer_user_ids,
 )
 from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
@@ -120,7 +125,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -210,14 +215,29 @@ def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> 
         assert _resolve_reviewer_mentions(slack, [user]) == ["<@U_SLACK>"]
 
 
-def test_resolve_reviewer_mentions_falls_back_to_name_when_slack_user_not_found() -> None:
-    user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
+@pytest.mark.parametrize(
+    ("lookup_result", "expected_lookups"),
+    [
+        (None, 2),
+        # A lookup error stops the remaining lookups, because each one fails the same way.
+        (SlackApiError("missing_scope", {"ok": False, "error": "missing_scope"}), 1),
+        (ValidationError({"slack_notification_direct_message": "Slack is unavailable"}), 1),
+    ],
+    ids=["slack_user_not_found", "missing_scope", "lookup_budget_spent"],
+)
+def test_resolve_reviewer_mentions_falls_back_to_name(lookup_result: object, expected_lookups: int) -> None:
+    users = [
+        User(first_name="Marcus", last_name="Twix", email="marcus@example.com"),
+        User(first_name="Ada", last_name="Lime", email="ada@example.com"),
+    ]
     slack = MagicMock()
     with patch(
         "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
-        return_value=None,
-    ):
-        assert _resolve_reviewer_mentions(slack, [user]) == ["Marcus Twix"]
+        side_effect=lookup_result if isinstance(lookup_result, Exception) else None,
+        return_value=lookup_result,
+    ) as lookup:
+        assert _resolve_reviewer_mentions(slack, users) == ["Marcus Twix", "Ada Lime"]
+    assert lookup.call_count == expected_lookups
 
 
 def test_resolve_reviewer_mentions_caps_at_five() -> None:
@@ -356,7 +376,9 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
     else:
         assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == (
+        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    )
 
 
 @pytest.mark.django_db
@@ -376,6 +398,35 @@ def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         slack_cls.return_value.client = fake_client
         slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_report_authored_by_scout_kept_out_of_inbox(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "digest-reviewer@example.com", "digest-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["digest-bot"])
+    config = SignalScoutConfig.objects.for_team(team.id).create(
+        team=team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+    )
+    task = apps.get_model("tasks", "Task").objects.create(team=team, title="scout", description="d")
+    SignalScoutRun.objects.for_team(team.id).create(
+        team=team,
+        task_run=apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task),
+        scout_config=config,
+        skill_name=config.skill_name,
+        skill_version=1,
+        emitted_report_ids=[str(report.id)],
+    )
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 0
@@ -501,7 +552,7 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
         content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
     )
 
-    assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
+    assert resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
 
 
 @pytest.mark.django_db

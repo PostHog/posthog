@@ -123,6 +123,7 @@ class TestBuildDefaultSchemas:
         schema = SourceSchema(
             name="events",
             supports_incremental=True,
+            supports_append=True,
             incremental_fields=[_field("created_at")],
             detected_primary_keys=["id"],
         )
@@ -160,12 +161,13 @@ class TestBuildDefaultSchemas:
 
     @parameterized.expand(
         [
-            ("no_incremental_support", False, False, []),
-            ("incremental_support_but_no_field", True, True, []),
+            ("no_incremental_support", False, False, [], False),
+            ("incremental_support_but_no_field", True, True, [], False),
+            ("source_prefers_full_refresh", True, True, [_field("updated_at")], True),
         ]
     )
     def test_full_refresh_fallback(
-        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list
+        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list, prefers_full_refresh: bool
     ) -> None:
         schemas = build_default_schemas(
             [
@@ -174,6 +176,7 @@ class TestBuildDefaultSchemas:
                     supports_incremental=supports_incremental,
                     supports_append=supports_append,
                     incremental_fields=fields,
+                    prefers_full_refresh=prefers_full_refresh,
                 )
             ]
         )

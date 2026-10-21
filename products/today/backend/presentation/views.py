@@ -17,6 +17,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.utils import UUID_REGEX
 
@@ -24,15 +25,13 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import api, contracts
 from .serializers import (
-    BriefingSerializer,
-    CandidateListSerializer,
     ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
+    HighlightsSerializer,
     KeyClausesQuerySerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
-    TodayQuerySerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -72,15 +71,8 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates", "excerpt_choice"]
-    scope_object_write_actions = ["refresh"]
-
-    def _user(self) -> User:
-        user = cast(User, self.request.user)
-        # No briefing for this person: the page shows the report list instead.
-        if not api.may_get_briefing(user, self.team):
-            raise NotFound()
-        return user
+    scope_object_read_actions = ["excerpt_choice", "highlights"]
+    scope_object_write_actions: list[str] = []
 
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)
@@ -93,52 +85,18 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise PermissionDenied()
 
     @validated_request(
-        query_serializer=TodayQuerySerializer,
-        responses={200: OpenApiResponse(response=BriefingSerializer)},
-        summary="Get today's briefing",
-        description="Today's personal briefing: a short text about up to 5 items and the same items for the left bar. A new one is written every morning from 8:00 local time. Starts generating today's when there is none yet and returns it as 'collecting'. While a refresh is being written, the ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds. 404 when the person gets no briefing: the flag is off, the organization has not approved AI data processing, or it is out of AI credits.",
+        responses={200: OpenApiResponse(response=HighlightsSerializer)},
+        summary="Get today's highlights",
+        description="The project's key metrics and up to 6 ranked items, each labeled risk or opportunity. Queries, rules and copy templates make every item; no AI is used. The highlights are computed in the background and stay fresh for 15 minutes per person, or 1 minute when a source failed. The call never waits: while they are computed, it returns `computing` with the last ready highlights of the day, so poll every 2 seconds until the status is `ready` or `failed`. 404 when the person does not have the new navigation. A scoped key needs query:read as well, because every highlight runs a query.",
     )
-    @action(detail=False, methods=["get"], url_path="briefing")
-    def briefing(self, request: Request, **kwargs) -> Response:
-        user = self._user()
-        briefing = api.get_briefing(
-            team=self.team,
-            user=user,
-            timezone_name=request.validated_query_data.get("timezone"),
-            metric_access=signals.ReportMetricAccessPolicy(request=request, team=self.team),
-        )
-        return Response(BriefingSerializer(briefing).data)
-
-    @validated_request(
-        query_serializer=TodayQuerySerializer,
-        responses={200: OpenApiResponse(response=BriefingSerializer)},
-        summary="Refresh today's briefing",
-        description="Regenerate today's briefing. The ready briefing stays on screen until the new one is written.",
-    )
-    @action(detail=False, methods=["post"], url_path="briefing/refresh")
-    def refresh(self, request: Request, **kwargs) -> Response:
-        user = self._user()
-        briefing = api.refresh_briefing(
-            team=self.team,
-            user=user,
-            timezone_name=request.validated_query_data.get("timezone"),
-            metric_access=signals.ReportMetricAccessPolicy(request=request, team=self.team),
-        )
-        return Response(BriefingSerializer(briefing).data)
-
-    @validated_request(
-        query_serializer=TodayQuerySerializer,
-        responses={200: OpenApiResponse(response=CandidateListSerializer)},
-        summary="List today's ranked items",
-        description="The items behind today's briefing, with the facts and the reason for each, without the written text.",
-    )
-    @action(detail=False, methods=["get"], url_path="candidates")
-    def candidates(self, request: Request, **kwargs) -> Response:
-        user = self._user()
-        candidates = api.list_candidates(
-            team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
-        )
-        return Response(CandidateListSerializer(candidates).data)
+    @action(detail=False, methods=["get"], url_path="highlights", required_scopes=["today:read", "query:read"])
+    def highlights(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        found = api.get_highlights(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        return Response(HighlightsSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},

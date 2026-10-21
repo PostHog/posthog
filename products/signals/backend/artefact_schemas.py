@@ -29,7 +29,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
-from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -148,6 +149,12 @@ def priority_from_judgment(content: str | None) -> str | None:
     return priority if isinstance(priority, str) else None
 
 
+class PriorityAdjustment(BaseModel):
+    previous_priority: Priority | None
+    previous_judgment_id: UUID | None
+    source: Literal["inbox_sidebar"] = "inbox_sidebar"
+
+
 class PriorityAssessment(BaseModel):
     """Content schema for a `priority_judgment` artefact."""
 
@@ -160,6 +167,11 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    adjustment: PriorityAdjustment | None = Field(
+        default=None,
+        exclude_if=lambda adjustment: adjustment is None,
+        description="Correction metadata recorded when a person changes the priority in the inbox.",
+    )
     dollar_value: float | None = Field(
         default=None,
         description=(
@@ -237,6 +249,10 @@ class SuggestedReviewerEntry(BaseModel):
             "report but must never select the autostart task identity — otherwise a skill editor "
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
+    )
+    is_research_selected: bool = Field(
+        default=False,
+        description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
     )
     source_skill: str | None = Field(
         default=None,
@@ -1019,6 +1035,34 @@ class CheckResult(BaseModel):
         return self
 
 
+class CheckObservation(BaseModel):
+    explanation: str
+    check_id: str
+    title: str
+    monitoring_started_at: datetime
+    measured_at: datetime
+    monitoring_ends_at: datetime | None = None
+    value_format: ReportMetricValueFormat | None = None
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH)
+    comparison: CheckComparison | None = None
+    observed_value: float | None = Field(default=None, allow_inf_nan=False)
+    matches: bool | None = None
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def measurement_is_complete(self) -> CheckObservation:
+        if self.measured_at <= self.monitoring_started_at:
+            raise ValueError("An observation must end after Monitoring starts.")
+        if self.monitoring_ends_at is not None and self.measured_at >= self.monitoring_ends_at:
+            raise ValueError("An interim observation must precede the Monitoring deadline.")
+        if self.error is None:
+            if self.observed_value is None or self.matches is None or self.comparison is None:
+                raise ValueError("A measured observation needs its value, comparison, and match result.")
+        elif not self.error.strip() or self.observed_value is not None or self.matches is not None:
+            raise ValueError("An errored observation needs an error and no measured result.")
+        return self
+
+
 class CheckLifecycleEntry(BaseModel):
     """What every entry in a check's life carries, so the three cannot drift apart.
 
@@ -1071,9 +1115,9 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
-        description="Which path stopped the check."
-    )
+    reason: Literal[
+        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+    ] = Field(description="Which path stopped the check.")
 
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
@@ -1159,6 +1203,7 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | CheckObservation
     | CheckScheduled
     | CheckExpired
     | CheckCancelled
@@ -1195,6 +1240,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "check_observation": CheckObservation,
     "check_scheduled": CheckScheduled,
     "check_expired": CheckExpired,
     "check_cancelled": CheckCancelled,
@@ -1240,6 +1286,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "check_observation",
         "check_scheduled",
         "check_expired",
         "check_cancelled",

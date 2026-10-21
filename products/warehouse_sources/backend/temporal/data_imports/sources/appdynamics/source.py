@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResumeConfig]):
+    codebase_detection = detect(
+        env=("^APPDYNAMICS_",),
+        script_hosts=("cdn.appdynamics.com",),
+        npm=("appdynamics", "@appdynamics/react-native-agent"),
+        pypi=("appdynamics",),
+        cocoapods=("AppDynamicsAgent",),
+        maven=(
+            "com.appdynamics:appdynamics-runtime",
+            "com.appdynamics:appdynamics-gradle-plugin",
+            "com.appdynamics:appdynamics-injector",
+            "com.appdynamics:appdynamics-kotlin-compiler-plugin",
+            "com.appdynamics:appdynamics-maven-plugin",
+            "com.appdynamics:appdynamics-native-crash-handler",
+        ),
+        pub=("appdynamics_agent",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -58,7 +76,7 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
             name=ExternalDataSourceType.APPDYNAMICS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk AppDynamics (Cisco)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
             caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, backends, events, transaction snapshots, health rules, health rule violations, anomalies, metric paths, metric time series, and monitored database servers) into the PostHog Data warehouse.
 

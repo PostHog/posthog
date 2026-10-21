@@ -1,4 +1,4 @@
-import { MenuLabel, Skeleton, cn } from '@posthog/quill'
+import { MenuLabel, cn } from '@posthog/quill'
 
 import { CommandKSearchRow } from './CommandKSearchRow'
 import { CommandKSection } from './commandKSections'
@@ -27,15 +27,9 @@ export function CommandKSearchSection({
                 )}
                 aria-busy={section.state !== 'ready'}
             >
-                {section.state === 'loading'
-                    ? Array.from({ length: section.skeletonCount }, (_, index) => (
-                          <div key={index} className="flex h-8 items-center px-1">
-                              <Skeleton className="h-5 w-full" />
-                          </div>
-                      ))
-                    : section.rows.map((row) => (
-                          <CommandKSearchRow key={row.key} row={row} highlighted={row.key === highlightedKey} />
-                      ))}
+                {section.rows.map((row) => (
+                    <CommandKSearchRow key={row.key} row={row} highlighted={row.key === highlightedKey} />
+                ))}
             </div>
         </div>
     )

@@ -5,7 +5,8 @@ use std::sync::Arc;
 use crate::values::HogMap;
 use base64::Engine as _;
 use chrono::{
-    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset, TimeZone,
+    Timelike,
 };
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
@@ -414,6 +415,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         // `if(isNull(...), false, …)` guard yield `false` rather than erroring.
         ("toDateTime", native_func(err_to_null(to_datetime))),
         ("toDate", native_func(err_to_null(to_date))),
+        ("extract", native_func(extract)),
         (
             "multiSearchAnyCaseInsensitive",
             native_func(|vm, args| {
@@ -1617,6 +1619,113 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
         json!({ "__hogDate__": true, "year": dt.year(), "month": dt.month(), "day": dt.day() }),
         0,
     )
+}
+
+/// `extract(part, value)` → one calendar field of a Hog Date or DateTime, read in the DateTime's
+/// own zone. A value with no wall-clock yields NaN, as an invalid luxon DateTime does in the
+/// reference.
+fn extract(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
+    assert_argc(&args, 2, "extract")?;
+    let part = print_hog_string_output(&vm.heap, &args[0])?;
+    let field: fn(&NaiveDateTime) -> i64 = match part.as_str() {
+        "year" => |dt| dt.year().into(),
+        "month" => |dt| dt.month().into(),
+        "day" => |dt| dt.day().into(),
+        "hour" => |dt| dt.hour().into(),
+        "minute" => |dt| dt.minute().into(),
+        "second" => |dt| dt.second().into(),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unknown extract part: {part}"
+            )))
+        }
+    };
+    let number = match extract_wall_clock(vm, &args[1])? {
+        Some(dt) => Num::Integer(field(&dt)),
+        None => Num::Float(f64::NAN),
+    };
+    Ok(HogLiteral::Number(number).into())
+}
+
+// None where the reference's luxon DateTime is invalid. Luxon also reads values this VM cannot
+// (zones such as `UTC+5`, ISO forms such as `2024`, numbers as strings, years past 262142); those
+// return NotImplemented, which the transformation executor turns into a Node VM fallback
+// (`isUnsupportedByRustVm` in nodejs/src/cdp/hog-transformations/rust-vm.ts).
+fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTime>, VmError> {
+    let heap = &vm.heap;
+    let unsupported = || {
+        Err(VmError::NotImplemented(
+            "extract of a value only luxon reads".to_string(),
+        ))
+    };
+    match value.deref(heap)? {
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDateTime__")? => {
+            let Some(secs) = obj_number(heap, obj, "dt")? else {
+                return unsupported();
+            };
+            // Past the JavaScript Date range of ±8.64e15 ms, luxon marks the instant invalid.
+            if !secs.is_finite() || (secs * 1000.0).abs() > 8.64e15 {
+                return Ok(None);
+            }
+            let Some(tz) =
+                obj_string(heap, obj, "zone")?.and_then(|zone| zone.parse::<chrono_tz::Tz>().ok())
+            else {
+                return unsupported();
+            };
+            // luxon adds the zone offset to the millisecond timestamp, then truncates toward zero
+            // as a JavaScript Date does.
+            let utc_ms = (secs * 1000.0).trunc() as i64;
+            let Some(utc) = DateTime::from_timestamp(utc_ms.div_euclid(1000), 0) else {
+                return unsupported();
+            };
+            let offset_secs = tz
+                .offset_from_utc_datetime(&utc.naive_utc())
+                .fix()
+                .local_minus_utc();
+            let local_ms = (secs * 1000.0 + f64::from(offset_secs) * 1000.0).trunc() as i64;
+            match DateTime::from_timestamp(local_ms.div_euclid(1000), 0) {
+                Some(local) => Ok(Some(local.naive_utc())),
+                None => unsupported(),
+            }
+        }
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDate__")? => {
+            let (Some(year), Some(month), Some(day)) = (
+                obj_number(heap, obj, "year")?,
+                obj_number(heap, obj, "month")?,
+                obj_number(heap, obj, "day")?,
+            ) else {
+                return unsupported();
+            };
+            // Luxon rejects a fractional calendar field instead of truncating it.
+            if [year, month, day].iter().any(|f| f.fract() != 0.0) {
+                return Ok(None);
+            }
+            Ok(
+                NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0)),
+            )
+        }
+        HogLiteral::String(s) => {
+            // Luxon anchors its ISO grammar; every form starts with a digit or a sign.
+            let could_be_luxon_iso = s.trim() == s.as_str()
+                && s.starts_with(|c: char| c.is_ascii_digit() || c == '+' || c == '-');
+            if !could_be_luxon_iso {
+                return Ok(None);
+            }
+            // A `t` or space separator and a lowercase `z` parse here but not in luxon.
+            let shared_iso_form =
+                s.as_bytes().get(10).is_none_or(|sep| *sep == b'T') && !s.ends_with('z');
+            match parse_datetime_to_seconds(s, None) {
+                Ok(_) if !shared_iso_form => Ok(None),
+                Ok(secs) => {
+                    Ok(DateTime::from_timestamp(secs.floor() as i64, 0).map(|dt| dt.naive_utc()))
+                }
+                Err(_) => unsupported(),
+            }
+        }
+        HogLiteral::Null | HogLiteral::Boolean(_) => Ok(None),
+        _ => unsupported(),
+    }
 }
 
 /// The shared "date-like string" grammar, implemented identically by all three HogVMs. This is the

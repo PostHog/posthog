@@ -9,6 +9,7 @@ import { type RawStep, type Workflow, loadWorkflow, planWorkflow } from '../src/
 import { REPO_ROOT, allFiltersChanged, mergeQueue, pullRequest } from '../src/scenarios.ts'
 
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
+const [GITHUB_BACKEND, DEPOT_BACKEND] = WORKFLOWS
 const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
 const lowerFile = 'products/engineering_analytics/backend/lower.py'
 const layerFiles = [
@@ -220,7 +221,7 @@ describe('Backend CI comparison boundaries', () => {
         (failure) => {
             const repo = createGraph()
             try {
-                const wf = loadWorkflow(path.join(REPO_ROOT, WORKFLOWS[0]!))
+                const wf = loadWorkflow(path.join(REPO_ROOT, DEPOT_BACKEND!))
                 const context = prContext(repo.merge, failure === 'wrong-head' ? repo.lower : repo.head, 'lower')
                 if (failure === 'wrong-checkout') {
                     repo.git('checkout', '--detach', repo.head)
@@ -268,7 +269,7 @@ describe('Backend CI comparison boundaries', () => {
     ])('regenerates a missing verdict selection for $name', ({ queued }) => {
         const repo = createGraph()
         try {
-            const wf = loadWorkflow(path.join(REPO_ROOT, WORKFLOWS[0]!))
+            const wf = loadWorkflow(path.join(REPO_ROOT, GITHUB_BACKEND!))
             const sha = queued ? repo.queueMerge : repo.merge
             const context = prContext(sha, queued ? repo.merge : repo.head, queued ? 'master' : 'lower', queued)
             const target = wf.jobs['test-selection-verdict']!.steps!.find(

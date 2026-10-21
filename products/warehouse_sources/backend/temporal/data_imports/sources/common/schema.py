@@ -21,7 +21,7 @@ _INCREMENTAL_FIELD_PREFERENCE = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SourceSchema:
     name: str
     supports_incremental: bool
@@ -60,6 +60,10 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+    # Keeps full refresh as the default sync type for a table that also supports incremental or
+    # append. Sources set it when only a full refresh keeps the table equal to the origin, for
+    # example file imports, where the other sync types keep the rows of files deleted upstream.
+    prefers_full_refresh: bool = False
 
 
 def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
@@ -113,13 +117,16 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
 
     Picks ``incremental`` when the source supports it, a tracking column exists, and at least one
     primary key is detected (incremental syncs require a primary key to deduplicate/merge). Falls
-    back to ``append`` when supported and a tracking column exists, else ``full_refresh``. Never
-    picks ``cdc`` or ``webhook`` — both need prerequisites (Postgres setup, webhook registration)
-    and explicit opt-in.
+    back to ``append`` when supported and a tracking column exists, else ``full_refresh``. A table
+    that sets ``prefers_full_refresh`` always gets ``full_refresh``. Never picks ``cdc`` or
+    ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and explicit
+    opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
     has_primary_keys = has_usable_primary_key(source_schema)
-    if source_schema.supports_incremental and chosen is not None and has_primary_keys:
+    if source_schema.prefers_full_refresh:
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and chosen is not None and has_primary_keys:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"

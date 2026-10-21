@@ -13,13 +13,19 @@ export interface TraceIdentityChipsProps {
     identity: TraceIdentity
     /** Trace start, used to seek the recording to just before the trace ran. */
     timestamp: string | null
+    /** Where the recording opens. A host that stacks above the player modal should open it in a new tab. */
+    openRecordingIn?: RecordingPlayerType
 }
 
 // Who the open trace belongs to. The person and the recording are properties of the trace, not of
 // the inspected span, so this sits above the waterfall and does not change as the user walks spans.
 // Server-only traffic carries no identity, and then this renders nothing.
 // Modeled on AI Observability's trace-scene PersonChip.
-export function TraceIdentityChips({ identity, timestamp }: TraceIdentityChipsProps): JSX.Element | null {
+export function TraceIdentityChips({
+    identity,
+    timestamp,
+    openRecordingIn = RecordingPlayerType.Modal,
+}: TraceIdentityChipsProps): JSX.Element | null {
     if (!identity.distinctId && !identity.sessionId) {
         return null
     }
@@ -36,7 +42,7 @@ export function TraceIdentityChips({ identity, timestamp }: TraceIdentityChipsPr
                 <ViewRecordingButton
                     sessionId={identity.sessionId}
                     timestamp={timestamp ?? undefined}
-                    openPlayerIn={RecordingPlayerType.Modal}
+                    openPlayerIn={openRecordingIn}
                     variant={ViewRecordingButtonVariant.Link}
                     checkRecordingExists
                     data-attr="tracing-trace-view-recording"

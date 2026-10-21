@@ -3,7 +3,7 @@ import random
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -52,6 +52,7 @@ from products.signals.backend.report_generation.research import (
     PriorityUpdate,
     ReportPresentationOutput,
     ReportResearchOutput,
+    ResearchReviewerDecision,
     SignalFinding,
     _resolve_actionability_response,
     _resolve_priority_response,
@@ -601,7 +602,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -632,7 +633,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -661,7 +662,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -690,7 +691,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository is None
@@ -733,7 +734,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -1147,9 +1148,14 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 @pytest.mark.django_db
 @pytest.mark.parametrize("has_previous_research", [False, True])
 @pytest.mark.parametrize("has_query", [False, True])
+@pytest.mark.parametrize("monitoring_enabled", [False, True])
 async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
-    monkeypatch, ateam, has_previous_research, has_query
+    monkeypatch, ateam, has_previous_research, has_query, monitoring_enabled
 ):
+    monkeypatch.setattr(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        lambda flag, *args, **kwargs: monitoring_enabled if flag == "signals-report-monitoring" else False,
+    )
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -1162,6 +1168,11 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
             "query": _metric().query if has_query else None,
             "baseline_value": 40,
             "comparison": {"operator": "lte", "value": 0},
+            "monitoring": {
+                "reference_period_minutes": 10080,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 10080,
+            },
         },
         status=SignalReportCheck.Status.PENDING,
         next_run_at=timezone.now() + timedelta(days=7),
@@ -1185,6 +1196,9 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert previous_checks[0]["id"] == str(check.id)
     assert previous_checks[0]["approved"] is True
     assert ("baseline_value" in previous_checks[0]["config"]) is has_query
+    assert ("monitoring" in previous_checks[0]["config"]) is monitoring_enabled
+    assert research_kwargs["monitoring_enabled"] is monitoring_enabled
+    assert result.checks_monitoring_enabled is monitoring_enabled
     assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
@@ -1500,6 +1514,41 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         assert artefact_count == 0
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("selected", [False, True])
+async def test_research_returns_reviewer_decision_only_when_enabled(enabled: bool, selected: bool) -> None:
+    decision = ResearchReviewerDecision.model_validate(
+        {
+            "reviewers": [{"user_uuid": "00000000-0000-4000-8000-000000000001", "reason": "Owns this component."}]
+            if selected
+            else [],
+            "reason": "Checked ownership and corrections for this component.",
+        }
+    )
+    finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    session = Mock(task=Mock(id="research-task-id"), end=AsyncMock())
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="No change needed.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Report", summary="Summary", reviewer_decision=decision),
+        ]
+    )
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start", AsyncMock(return_value=(session, finding))
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(
+            _build_signals()[:1], Mock(team_id=1), reviewer_selection_enabled=enabled
+        )
+    assert result.reviewer_decision == (decision if enabled else None)
+
+
 @parameterized.expand(
     [
         ("immediately_actionable", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
@@ -1588,7 +1637,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         patch(
             "products.tasks.backend.facade.agents.MultiTurnSession.start",
             AsyncMock(return_value=(session, first_finding)),
-        ),
+        ) as start_session,
         patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
         patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
     ):
@@ -1602,6 +1651,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 Mock(team_id=1),
                 signal_report_id="report-id",
                 metrics_enabled=_name in ("malformed_optional_checks", "revised_metric_summary"),
+                monitoring_enabled=_name == "revised_metric_summary",
             )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
@@ -1627,10 +1677,16 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             else:
                 assert result.verification_note is None
 
+    preferred = _name in ("malformed_optional_checks", "revised_metric_summary")
+    assert ("## Prepare metric-based follow-up checks" in start_session.call_args.kwargs["prompt"]) is preferred
+    prompts = {call.kwargs["label"]: call.args[0] for call in session.send_followup.await_args_list}
+    assert ("## Metrics for follow-up checks" in prompts["presentation"]) is preferred
+    if "fix_verification" in prompts:
+        assert ("70-80% confidence" in prompts["fix_verification"]) is preferred
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
-        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error), error_type=None)
     else:
         session.end.assert_awaited_once_with()
     if failure is not None and failure is not asyncio.CancelledError:

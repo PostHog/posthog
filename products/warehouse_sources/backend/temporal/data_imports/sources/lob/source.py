@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOB_API_KEY$",),
+        npm=("lob", "@lob/lob-typescript-sdk"),
+        pypi=("lob", "lob-python"),
+        composer=("lob/lob-php",),
+        go=("github.com/lob/lob-go",),
+        maven=("com.lob:lob-java",),
+        rubygems=("lob",),
+    )
+
     api_docs_url = "https://docs.lob.com/"
 
     @property
@@ -43,7 +54,7 @@ class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
             name=ExternalDataSourceType.LOB,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Lob",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Lob secret API key to automatically pull your Lob data into the PostHog Data warehouse.
 
 You can find your API keys in your [Lob dashboard](https://dashboard.lob.com/settings/api-keys). Use a **secret** key (it starts with `live_` or `test_`) — publishable keys can only access address verification.

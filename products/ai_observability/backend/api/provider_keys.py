@@ -26,6 +26,10 @@ from products.access_control.backend.presentation.access_control import AccessCo
 
 from ..llm.client import Client
 from ..llm.decisions import DecisionClient, decision_evaluations_enabled
+from ..llm.providers.anthropic import (
+    DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE,
+    error_field_for_validation_message as anthropic_error_field,
+)
 from ..llm.providers.azure_openai import (
     DEFAULT_API_VERSION,
     DISALLOWED_ENDPOINT_MESSAGE,
@@ -91,13 +95,15 @@ def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs
 def _validation_error_field(provider: str, error_message: str | None) -> str | None:
     """Pick the form field a validation error belongs to, or None when it is unattributed.
 
-    Azure OpenAI and OpenAI-compatible providers may fail because of endpoint issues (unreachable,
-    wrong domain, 404), in which case the error is attributed to the endpoint field so the UI can
-    highlight the right input. Callers that must land the error on some field fall back to
+    Azure OpenAI, Anthropic on Microsoft Foundry, and OpenAI-compatible providers may fail because
+    of endpoint issues (unreachable, wrong domain, 404), in which case the error is attributed to the
+    endpoint field so the UI can highlight the right input. Callers that must land the error on some field fall back to
     `api_key`; the pre-validation endpoint reports the field separately and keeps the None.
     """
     if provider == LLMProvider.AZURE_OPENAI:
         return azure_error_field(error_message)
+    if provider == LLMProvider.ANTHROPIC:
+        return anthropic_error_field(error_message)
     if provider == LLMProvider.OPENAI_COMPATIBLE:
         return openai_compatible_error_field(error_message)
     return None
@@ -107,6 +113,7 @@ def _validation_error_field(provider: str, error_message: str | None) -> str | N
 # Fields for other providers are dropped on write so a stray value never persists.
 _PROVIDER_CONFIG_FIELDS: dict[str, tuple[str, ...]] = {
     LLMProvider.AZURE_OPENAI: ("azure_endpoint", "api_version"),
+    LLMProvider.ANTHROPIC: ("azure_endpoint",),
     LLMProvider.OPENAI_COMPATIBLE: ("base_url",),
 }
 _ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
@@ -124,7 +131,13 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     )
     system_one_model_display = serializers.SerializerMethodField(help_text="Configured System One model ID.")
     api_key_masked = serializers.SerializerMethodField()
-    azure_endpoint = serializers.URLField(write_only=True, required=False, help_text="Azure OpenAI endpoint URL")
+    azure_endpoint = serializers.URLField(
+        write_only=True,
+        required=False,
+        help_text="Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry "
+        "resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. "
+        "Omit it for a key from the Anthropic API.",
+    )
     api_version = serializers.CharField(
         write_only=True, required=False, max_length=20, help_text="Azure OpenAI API version"
     )
@@ -174,7 +187,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return obj.encrypted_config.get("model") if obj.provider == LLMProvider.SYSTEM_ONE else None
 
     def get_azure_endpoint_display(self, obj: LLMProviderKey) -> str | None:
-        if obj.provider != LLMProvider.AZURE_OPENAI:
+        if obj.provider not in (LLMProvider.AZURE_OPENAI, LLMProvider.ANTHROPIC):
             return None
         return obj.encrypted_config.get("azure_endpoint")
 
@@ -216,16 +229,18 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Invalid OpenAI API key format. Key should start with 'sk-' or 'sk-proj-'."
                 )
-        elif provider == LLMProvider.ANTHROPIC:
+        elif provider == LLMProvider.ANTHROPIC and not self._anthropic_uses_foundry():
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        elif provider == LLMProvider.ZEABUR:
-            if not value.startswith("sk-"):
-                raise serializers.ValidationError("Invalid Zeabur AI Hub API key format. Key should start with 'sk-'.")
-        # Azure, Gemini, Together AI, OpenRouter, Fireworks, MiniMax, and OpenAI-compatible keys
-        # have no standard prefix, so no format validation is enforced here.
+        # Azure, Microsoft Foundry, Gemini, Together AI, OpenRouter, Fireworks, MiniMax, and
+        # OpenAI-compatible keys have no standard prefix, so no format validation is enforced here.
 
         return value
+
+    def _anthropic_uses_foundry(self) -> bool:
+        if self.initial_data.get("azure_endpoint"):
+            return True
+        return bool(self.instance and self.instance.encrypted_config.get("azure_endpoint"))
 
     def validate(self, data):
         if self.instance is None and "api_key" not in data:
@@ -265,6 +280,17 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             # here so the error is attributed to the azure_endpoint field rather than api_key.
             if has_endpoint and not is_allowed_azure_endpoint(data["azure_endpoint"]):
                 raise serializers.ValidationError({"azure_endpoint": f"{DISALLOWED_ENDPOINT_MESSAGE}."})
+
+        if provider == LLMProvider.ANTHROPIC and data.get("azure_endpoint"):
+            if not is_allowed_azure_endpoint(data["azure_endpoint"]):
+                raise serializers.ValidationError({"azure_endpoint": f"{DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE}."})
+            # Same rule as the OpenAI-compatible base URL below: a stored key must never be sent
+            # to a new endpoint unless the caller proves they hold it.
+            current_endpoint = self.instance.encrypted_config.get("azure_endpoint") if self.instance else None
+            if self.instance and data["azure_endpoint"] != current_endpoint and not data.get("api_key"):
+                raise serializers.ValidationError(
+                    {"api_key": "Enter the API key again when you change the Microsoft Foundry endpoint."}
+                )
 
         if provider == LLMProvider.OPENAI_COMPATIBLE:
             has_base_url = bool(data.get("base_url"))
@@ -398,6 +424,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 encrypted_config["api_version"] = extra_kwargs.get("api_version", "")
             elif instance.provider == LLMProvider.OPENAI_COMPATIBLE:
                 encrypted_config["base_url"] = extra_kwargs.get("base_url", "")
+            elif instance.provider == LLMProvider.ANTHROPIC and extra_kwargs.get("azure_endpoint"):
+                encrypted_config["azure_endpoint"] = extra_kwargs["azure_endpoint"]
             instance.encrypted_config = encrypted_config
             instance.state = state
             instance.error_message = None
@@ -413,9 +441,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             instance.encrypted_config = config
             instance.state = LLMProviderKey.State.UNKNOWN
             instance.error_message = None
-        # No OpenAI-compatible branch here on purpose: `validate` rejects a base URL change
-        # that arrives without an API key, so every change to one runs through the branch
-        # above and is re-validated against the new endpoint before it is stored.
+        # No OpenAI-compatible or Anthropic branch here on purpose: `validate` rejects a base URL
+        # or Foundry endpoint change that arrives without an API key, so every change to one runs
+        # through the branch above and is re-validated against the new endpoint before it is stored.
 
         return super().update(instance, validated_data)
 
@@ -703,7 +731,11 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         extra_kwargs = {}
-        if provider == LLMProvider.AZURE_OPENAI:
+        if provider == LLMProvider.ANTHROPIC:
+            azure_endpoint = request.data.get("azure_endpoint")
+            if azure_endpoint:
+                extra_kwargs["azure_endpoint"] = azure_endpoint
+        elif provider == LLMProvider.AZURE_OPENAI:
             azure_endpoint = request.data.get("azure_endpoint")
             api_version = request.data.get("api_version")
             if azure_endpoint:

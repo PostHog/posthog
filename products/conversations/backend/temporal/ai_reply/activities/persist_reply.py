@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models import Q
 
@@ -39,21 +41,41 @@ def _followup_already_posted(*, team_id: int, ticket_id: str) -> bool:
     ).exists()
 
 
+def _lock_ticket(*, team_id: int, ticket_id: str) -> Ticket | None:
+    """Lock the ticket row, including a soft-deleted one, until the transaction ends.
+
+    The delete endpoint writes deleted_at on this row, so the lock keeps a delete from
+    committing between the deleted_at check and the comment insert.
+    """
+    try:
+        UUID(str(ticket_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    # of=("self",) so select_related("team") does not FOR UPDATE the Team parent row.
+    return (
+        Ticket.all_objects.select_related("team")
+        .select_for_update(of=("self",))
+        .filter(team_id=team_id, id=ticket_id)
+        .first()
+    )
+
+
 def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
     input = coerce_dataclass(PersistReplyInput, input)
     persist_as = input.persist_as
     is_private = True
 
     with transaction.atomic():
+        locked = _lock_ticket(team_id=input.team_id, ticket_id=input.ticket_id)
+        if locked is not None and locked.deleted_at is not None:
+            return PersistReplyOutput(posted=False)
+        # A purged ticket has no row, and Comment.item_id is a plain string, so the insert would
+        # leave an orphan note. The clarification path handles a missing row below.
+        if locked is None and not input.require_awaiting_clarification:
+            return PersistReplyOutput(posted=False)
         ticket = None
         if input.require_awaiting_clarification:
-            # of=("self",) so select_related("team") does not FOR UPDATE the Team parent row.
-            ticket = (
-                Ticket.objects.select_related("team")
-                .select_for_update(of=("self",))
-                .filter(team_id=input.team_id, id=input.ticket_id)
-                .first()
-            )
+            ticket = locked
             triage = ticket.ai_triage if ticket and isinstance(ticket.ai_triage, dict) else {}
             if triage.get("status") != "awaiting_clarification":
                 # Temporal can retry this activity after the first attempt already posted
@@ -62,7 +84,7 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
                     return PersistReplyOutput(posted=True)
                 return PersistReplyOutput(posted=False)
         elif persist_as != "findings" and input.allow_bot_reply:
-            ticket = Ticket.objects.select_related("team").filter(team_id=input.team_id, id=input.ticket_id).first()
+            ticket = locked
         # Only how_to replies may be published. diagnostic/account_billing draw on project data and
         # must stay private regardless of the team's ai_reply_modes — guards against stale settings
         # since validation now rejects bot_reply for those types. Controlled by team-level opt-in.

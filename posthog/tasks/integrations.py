@@ -1,16 +1,23 @@
-from celery import shared_task
+from celery import Task, shared_task
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    Integration,
     defer_repository_cache_fields,
     refresh_backoff_active,
 )
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.facade.api import delete_ses_identity
+
+GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -50,7 +57,9 @@ def refresh_integrations() -> int:
     github_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="github").all())
 
     for integration in github_integrations:
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(
+            integration, source="integration_token_refresh", priority=Priority.CRITICAL
+        )
 
         if not refresh_backoff_active(integration) and github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
@@ -96,7 +105,9 @@ def refresh_integration(id: int) -> int:
         if gcloud_integration.access_token_expired():
             gcloud_integration.refresh_access_token()
     elif integration.kind == "github":
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(
+            integration, source="integration_token_refresh", priority=Priority.CRITICAL
+        )
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
     elif integration.kind == "firebase":
@@ -135,3 +146,34 @@ def push_vercel_secrets(team_id: int) -> None:
 
     team = Team.objects.get(id=team_id)
     VercelIntegration.push_secrets_to_vercel(team)
+
+
+@shared_task(bind=True, ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, max_retries=5)
+@skip_team_scope_audit
+def refresh_github_branch_cache(
+    self: Task, integration_id: str, repo: str, is_user_integration: bool, lock_token: str
+) -> None:
+    """Refresh one repository's cached branch list for the branch picker, on the batch lane."""
+    github: GitHubIntegrationBase
+    if is_user_integration:
+        user_integration = UserIntegration.objects.filter(id=integration_id).first()
+        if user_integration is None:
+            return
+        github = UserGitHubIntegration(user_integration, source="github_branch_picker", priority=Priority.BATCH)
+    else:
+        integration = defer_repository_cache_fields(Integration.objects.filter(id=integration_id)).first()
+        if integration is None:
+            return
+        github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)
+    try:
+        github.refresh_branch_cache(repo, lock_token)
+    except GitHubEgressBudgetExhausted as error:
+        if self.request.retries < self.max_retries:
+            # The lock stays held, so picker views do not queue a second refresh while this one waits.
+            raise self.retry(exc=error, countdown=GITHUB_BRANCH_REFRESH_RETRY_SECONDS)
+        github.release_branch_refresh_lock(repo, lock_token)
+        raise
+    except Exception:
+        github.release_branch_refresh_lock(repo, lock_token)
+        raise
+    github.release_branch_refresh_lock(repo, lock_token)

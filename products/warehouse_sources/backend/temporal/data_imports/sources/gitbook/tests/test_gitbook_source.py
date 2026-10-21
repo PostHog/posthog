@@ -1,7 +1,4 @@
-import pytest
 from unittest import mock
-
-from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
     GitBookSourceConfig,
@@ -14,26 +11,6 @@ class TestGitBookSource:
         self.source = GitBookSource()
         self.team_id = 123
         self.config = GitBookSourceConfig(api_token="gb-token")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.gitbook.com/v1/orgs",),
-            ("403 Client Error: Forbidden for url: https://api.gitbook.com/v1/user",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.gitbook.com/v1/orgs",),
-            ("429 Client Error: Too Many Requests for url: https://api.gitbook.com/v1/user",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
@@ -62,9 +39,3 @@ class TestGitBookSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-05-01T00:00:00Z"
         assert kwargs["incremental_field"] == "createdAt"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown GitBook schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

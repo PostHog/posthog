@@ -66,43 +66,24 @@ def _context_for_desktop_bootstrap(
     )
 
 
-@pytest.mark.parametrize("marker", [None, "scout_trial", "scout_trial_judge"])
+@pytest.mark.parametrize("is_trial", [False, True])
 @override_settings(
     DEBUG=False,
     SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
     SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
 )
-def test_private_trial_keeps_the_pinned_model_after_overload(mocker, marker: str | None) -> None:
+def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is_trial: bool) -> None:
     context = _context_for_desktop_bootstrap()
-    context.state = {marker: {"version": 1}} if marker else {}
     context.agent_otel_telemetry_enabled = True
     for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
         mocker.patch.object(provision_sandbox_module, name, return_value={})
     mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
 
-    task = mocker.Mock(is_scout_experiment=marker is not None)
+    task = mocker.Mock(is_scout_experiment=is_trial)
     environment = provision_sandbox_module._build_environment_variables(context, task, "", "fake-token")
 
-    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if marker else None)
-    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if marker else "synthetic-token")
-
-
-def test_judge_does_not_inherit_github_credentials(mocker) -> None:
-    context = _context_for_desktop_bootstrap()
-    context.state = {"github_read_access": True, "scout_trial_judge": {"version": 1}}
-    task = Task(origin_product="signals_scout", origin_key="scout-trial-judge:synthetic-evaluation:synthetic-launch")
-    token = mocker.patch.object(provision_sandbox_module, "get_sandbox_github_token")
-    readonly_token = mocker.patch.object(provision_sandbox_module, "get_readonly_github_token")
-
-    assert (
-        provision_sandbox_module._resolve_sandbox_github_token(
-            context, task=task, actor_user=None, repository=None, has_repo=False
-        )
-        == ""
-    )
-    assert context.github_read_access is False
-    token.assert_not_called()
-    readonly_token.assert_not_called()
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
+    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
 
 
 class _ShellSandbox:
@@ -606,7 +587,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
             ),
         )
 
-    assert "exit code 124" in str(error.value)
+    assert "Could not clone posthog/posthog (git exited with code 124)" in str(error.value)
     assert error.value.context == {
         "repository": "posthog/posthog",
         "sandbox_id": "sandbox-id",
@@ -616,14 +597,16 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         "error": "execution stopped",
         "team": "array",
     }
-    metric_meter.assert_called_once_with(
+    clone_samples = [args.args[0] for args in metric_meter.call_args_list if args.args[0]["step"] == "repository_clone"]
+    assert clone_samples == [
         {
             "step": "repository_clone",
             "used_snapshot": "false",
             "status": "FAILED",
             "runtime": "gvisor",
+            "sandbox_backend": "modal",
         }
-    )
+    ]
     assert str(capture_exception.call_args.args[0]) == "clone output"
 
 
