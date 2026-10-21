@@ -9734,6 +9734,7 @@ export namespace Schemas {
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9749,7 +9750,8 @@ export namespace Schemas {
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
-        | "release_conditions_changed_mid_run";
+        | "release_conditions_changed_mid_run"
+        | "new_flag_no_traffic";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9796,6 +9798,7 @@ export namespace Schemas {
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `new_flag_no_traffic` - New Flag No Traffic
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9831,11 +9834,92 @@ export namespace Schemas {
          */
         diagnostic_ref: string | null;
     };
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum =
+        | "flag_state"
+        | "flag_history"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "flag_variants_mismatch"
+        | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
+        | "no_metric"
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    /**
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked
+     */
+    export type ExperimentHealthCheckStatusEnum =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentHealthCheckResult = {
+        /**
+         * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+         *
+         * * `flag_state` - Flag State
+         * * `flag_history` - Flag History
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `no_metric` - No Metric
+         * * `zero_exposures` - Zero Exposures
+         * * `srm` - Srm
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         */
+        key: ExperimentHealthCheckKeyEnum;
+        /**
+         * What the check looks at, for example 'Feature flag variants'.
+         */
+        name: string;
+        /**
+         * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+         *
+         * * `passed` - Passed
+         * * `finding` - Finding
+         * * `not_applicable` - Not Applicable
+         * * `not_checked` - Not Checked
+         */
+        status: ExperimentHealthCheckStatusEnum;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+    };
     export type ExperimentHealth = {
         /**
-         * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed.
+         * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`.
          */
         findings: Array<ExperimentHealthFinding>;
+        /**
+         * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
+         */
+        checks: Array<ExperimentHealthCheckResult>;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -10163,6 +10247,34 @@ export namespace Schemas {
          */
         tags?: Array<string> | undefined;
     };
+    export type ExperimentExposureHealthCheckKey =
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    export type ExperimentExposureHealthCheckStatus =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentExposureHealthCheck = {
+        /**
+         * Stable identifier of the check.
+         */
+        key: ExperimentExposureHealthCheckKey;
+        /**
+         * What the check looks at, as the health panel lists it.
+         */
+        name: string;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+        /**
+         * passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed.
+         */
+        status: ExperimentExposureHealthCheckStatus;
+    };
     export type ExperimentExposureHealthFindingActionKind =
         | "edit_exposure_criteria"
         | "adjust_distribution"
@@ -10222,6 +10334,9 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        health_checks?:
+            | (Array<ExperimentExposureHealthCheck> | null)
+            | undefined;
         health_findings?:
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
@@ -12119,6 +12234,7 @@ export namespace Schemas {
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13521,7 +13637,8 @@ export namespace Schemas {
         | "Testomatio"
         | "GoogleAdMob"
         | "Klar"
-        | "ConectoCRM";
+        | "ConectoCRM"
+        | "CloudflareR2";
     /**
      * * `web` - web
      * * `api` - api
@@ -14933,6 +15050,7 @@ export namespace Schemas {
          * * `GoogleAdMob` - GoogleAdMob
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
+         * * `CloudflareR2` - CloudflareR2
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -16691,12 +16809,14 @@ export namespace Schemas {
      * * `later` - Skipped for later
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
+     * * `connector` - Signed up through an OAuth connector
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
-        | "provisioned";
+        | "provisioned"
+        | "connector";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -18923,7 +19043,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         /**
-         * True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
+         * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
     };
@@ -20690,6 +20810,15 @@ export namespace Schemas {
      * * `link` - link
      */
     export type SurveyLinkQuestionSchemaTypeEnum = "link";
+    export type SurveyQuestionTranslationSchema = Partial<{
+        question: string;
+        description: string;
+        buttonText: string;
+        lowerBoundLabel: string;
+        upperBoundLabel: string;
+        choices: Array<string>;
+        link: string;
+    }>;
     export type SurveyLinkQuestionSchema = {
         id?: string | undefined;
         type: SurveyLinkQuestionSchemaTypeEnum;
@@ -20701,10 +20830,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * HTTPS or mailto URL for link questions.
          */
         link: string;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `multiple_choice` - multiple_choice
@@ -20721,6 +20854,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          */
@@ -20743,6 +20879,11 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
+        validation?: (Array<SurveyQuestionValidationRule> | null) | undefined;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `rating` - rating
@@ -20764,10 +20905,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         display?: SurveyRatingQuestionSchemaDisplayEnum | undefined;
         scale?: number | undefined;
         lowerBoundLabel?: string | undefined;
         upperBoundLabel?: string | undefined;
+        isNpsQuestion?: boolean | undefined;
         branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
@@ -20785,6 +20930,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          */
@@ -20799,6 +20947,26 @@ export namespace Schemas {
         | SurveyRatingQuestionSchema
         | SurveySingleChoiceQuestionSchema
         | SurveyMultipleChoiceQuestionSchema;
+    /**
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
+     */
+    export type SurveyQuestionValidationRuleTypeEnum =
+        | "min_length"
+        | "max_length"
+        | "email";
+    export type SurveyQuestionValidationRule = {
+        /**
+         * Validation rule type for open-text questions.
+         *
+         * * `min_length` - min_length
+         * * `max_length` - max_length
+         * * `email` - email
+         */
+        type: SurveyQuestionValidationRuleTypeEnum;
+        value?: (number | null) | undefined;
+    };
     export type SurveySerializerCreateUpdateOnly = {
         id: string;
         name: string;

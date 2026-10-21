@@ -1,6 +1,6 @@
 # Dockerfile for the base sandbox image.
 
-FROM golang:1.23 AS agent-shadow-builder
+FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
 COPY packages/agent/agent-shadow/ ./
