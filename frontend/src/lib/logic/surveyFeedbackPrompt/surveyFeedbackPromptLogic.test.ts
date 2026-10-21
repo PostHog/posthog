@@ -2,21 +2,32 @@ import posthog, { Survey, SurveyType, SurveyQuestionType } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
 import {
     FEEDBACK_PROMPT_COOLDOWN_MS,
     FEEDBACK_PROMPT_DELAY_MS,
-    mcpAnalyticsFeedbackLogic,
-} from './mcpAnalyticsFeedbackLogic'
+    SurveyFeedbackPromptConfig,
+    surveyFeedbackPromptLogic,
+} from './surveyFeedbackPromptLogic'
 
-describe('mcpAnalyticsFeedbackLogic', () => {
-    let logic: ReturnType<typeof mcpAnalyticsFeedbackLogic.build>
+const SURVEY_PROPS = { surveyId: 'example-survey', cooldownStorageKey: 'example-feedback-last-prompt' }
+
+const PROMPT: SurveyFeedbackPromptConfig = {
+    surface: 'example_surface',
+    entryPoint: 'session_review_prompt',
+    version: 1,
+    question: 'Did this session help you find what you needed?',
+    followUpQuestion: 'What did you learn, or what was missing?',
+    properties: { example_tab: 'sessions' },
+}
+
+describe('surveyFeedbackPromptLogic', () => {
+    let logic: ReturnType<typeof surveyFeedbackPromptLogic.build>
     let surveysLoaded: Parameters<typeof posthog.onSurveysLoaded>[0]
     let flagsLoaded: Parameters<typeof posthog.onFeatureFlags>[0]
     let unmount: () => void
 
     const survey: Survey = {
-        id: MCP_ANALYTICS_USEFULNESS_SURVEY_ID,
+        id: SURVEY_PROPS.surveyId,
         name: 'Session usefulness',
         type: SurveyType.API,
         start_date: '2026-01-01T00:00:00Z',
@@ -69,11 +80,12 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             surveysLoaded = callback
             return () => {}
         })
-        logic = mcpAnalyticsFeedbackLogic({
+        logic = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
             userId: 'example-user',
             contextKey: 'example-session',
             isImpersonated: false,
-            prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
+            prompt: PROMPT,
         })
         unmount = logic.mount()
     })
@@ -113,9 +125,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(posthog.capture).toHaveBeenCalledWith(
                 'survey shown',
                 expect.objectContaining({
-                    feedback_surface: 'mcp_analytics',
+                    feedback_surface: 'example_surface',
                     feedback_entry_point: 'session_review_prompt',
-                    mcp_analytics_tab: 'sessions',
+                    example_tab: 'sessions',
                     $survey_id: survey.id,
                     $survey_submission_id: expect.any(String),
                 })
@@ -125,6 +137,15 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
         }
     )
+
+    it('shows without a wait when the prompt sets no delay', () => {
+        unmount()
+        logic = surveyFeedbackPromptLogic({ ...logic.props, contextKey: 'no-delay', delayMs: 0 })
+        unmount = logic.mount()
+        loadSurvey()
+        jest.advanceTimersByTime(0)
+        expect(logic.values.visible).toBe(true)
+    })
 
     it('does not count an offscreen prompt or consume its cooldown', () => {
         loadSurvey()
@@ -167,13 +188,15 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     ])('captures one submission with consistent context: %j', ({ ending, detail }) => {
         unmount()
         const prompt = {
+            surface: 'example_surface',
             entryPoint: 'tool_review_prompt',
-            tab: 'tools',
+            properties: { example_tab: 'tools' },
             version: 2,
             question: 'Did this tool breakdown help you find what you needed?',
             followUpQuestion: 'What did you find, or what was missing?',
         }
-        logic = mcpAnalyticsFeedbackLogic({
+        logic = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
             userId: 'example-user',
             contextKey: 'example-tool',
             isImpersonated: false,
@@ -204,9 +227,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(properties).toMatchObject({
                 $survey_id: survey.id,
                 $survey_submission_id: logic.values.submissionId,
-                feedback_surface: 'mcp_analytics',
+                feedback_surface: 'example_surface',
                 feedback_entry_point: 'tool_review_prompt',
-                mcp_analytics_tab: 'tools',
+                example_tab: 'tools',
                 feedback_question_version: 2,
                 feedback_question: displayedQuestion,
                 feedback_followup_question: prompt.followUpQuestion,
@@ -227,30 +250,45 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         expect(survey.questions[0].question).toBe('Was this useful?')
     })
 
-    it('keeps the cooldown across placements after dismissal', () => {
+    it('keeps the cooldown across placements after dismissal, separately for each cooldown key', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         logic.actions.recordImpression()
         logic.actions.dismissPrompt()
         expect(logic.values.visible).toBe(false)
         unmount()
-        logic = mcpAnalyticsFeedbackLogic({
+        logic = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
             userId: 'example-user',
             contextKey: 'another-session',
             isImpersonated: false,
-            prompt: { ...MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT, entryPoint: 'tool_review_prompt', tab: 'tools' },
+            prompt: { ...PROMPT, entryPoint: 'tool_review_prompt', properties: { example_tab: 'tools' } },
         })
         unmount = logic.mount()
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         expect(logic.values.visible).toBe(false)
         unmount()
+        logic = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
+            cooldownStorageKey: 'another-feedback-last-prompt',
+            userId: 'example-user',
+            contextKey: 'another-session',
+            isImpersonated: false,
+            prompt: PROMPT,
+        })
+        unmount = logic.mount()
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        expect(logic.values.visible).toBe(true)
+        unmount()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_COOLDOWN_MS)
-        logic = mcpAnalyticsFeedbackLogic({
+        logic = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
             userId: 'example-user',
             contextKey: 'example-session',
             isImpersonated: false,
-            prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
+            prompt: PROMPT,
         })
         unmount = logic.mount()
         loadSurvey()
@@ -260,15 +298,12 @@ describe('mcpAnalyticsFeedbackLogic', () => {
 
     it('shows only one prompt when dashboard and session placements are pending together', () => {
         loadSurvey()
-        const dashboard = mcpAnalyticsFeedbackLogic({
+        const dashboard = surveyFeedbackPromptLogic({
+            ...SURVEY_PROPS,
             userId: 'example-user',
             contextKey: 'example-dashboard',
             isImpersonated: false,
-            prompt: {
-                ...MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
-                entryPoint: 'dashboard_review_prompt',
-                tab: 'dashboard',
-            },
+            prompt: { ...PROMPT, entryPoint: 'dashboard_review_prompt', properties: { example_tab: 'dashboard' } },
         })
         const unmountDashboard = dashboard.mount()
         loadSurvey()
@@ -283,18 +318,18 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     it('restarts the delay after refreshes and preserves an opened response', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2)
-        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: false })
+        surveyFeedbackPromptLogic({ ...logic.props, eligible: false })
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         expect(logic.values.visible).toBe(false)
-        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: true })
+        surveyFeedbackPromptLogic({ ...logic.props, eligible: true })
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS - 1)
         expect(logic.values.visible).toBe(false)
         jest.advanceTimersByTime(1)
         logic.actions.submitResponse('1', false)
         logic.actions.setDetail('Found an unexpected usage pattern.')
         const submissionId = logic.values.submissionId
-        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: false })
-        mcpAnalyticsFeedbackLogic({ ...logic.props, eligible: true })
+        surveyFeedbackPromptLogic({ ...logic.props, eligible: false })
+        surveyFeedbackPromptLogic({ ...logic.props, eligible: true })
         expect(logic.values).toMatchObject({
             visible: true,
             answer: '1',
@@ -316,7 +351,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         { userId: 'example-user', contextKey: 'example-session', isImpersonated: true },
     ])('does not prompt an ineligible user: %j', (props) => {
         unmount()
-        logic = mcpAnalyticsFeedbackLogic({ ...props, prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT })
+        logic = surveyFeedbackPromptLogic({ ...SURVEY_PROPS, ...props, prompt: PROMPT })
         unmount = logic.mount()
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
