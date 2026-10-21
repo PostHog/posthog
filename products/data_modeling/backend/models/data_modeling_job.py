@@ -21,6 +21,7 @@ class DataModelingJobEngine(models.TextChoices):
 class DataModelingJobRunMode(models.TextChoices):
     FULL_REFRESH = "full_refresh", "Full refresh"
     INCREMENTAL = "incremental", "Incremental"
+    SNAPSHOT = "snapshot", "Snapshot"
 
 
 class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):

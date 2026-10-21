@@ -98,6 +98,29 @@ class TestDataWarehouseTableColumnOrder(BaseTest):
         assert table.column_order == ["z", "a"]
 
 
+class TestDescribeStagedFiles(BaseTest):
+    # A snapshot model publishes a fresh generation each run and never writes a Delta log at the
+    # table root, so describing the root through deltaLake() finds no table.
+    def test_describe_staged_files_reads_the_queryable_parquet_not_the_delta_root(self) -> None:
+        table = DataWarehouseTable(
+            name="t",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="http://objectstorage:19000/bucket/team_1_model_abc/modeling/t",
+            queryable_folder="t__query_123",
+        )
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute", return_value=[("id", "Int64")]
+        ) as mock_sync_execute:
+            columns = table.get_columns(describe_staged_files=True)
+
+        query = mock_sync_execute.call_args.args[0]
+        assert "deltaLake" not in query
+        assert "s3(" in query
+        assert "t__query_123/**.parquet" in str(mock_sync_execute.call_args.kwargs["args"].values())
+        assert list(columns) == ["id"]
+
+
 class TestWarehouseQueryDisablesHivePartitioning(BaseTest):
     # ClickHouse infers a type for each Hive-style partition-folder value it samples (e.g. our
     # internal `_ph_partition_key`) independently of the column's declared type. A table whose

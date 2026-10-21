@@ -174,6 +174,9 @@ def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedW
 @database_sync_to_async_pool
 def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
+    if objects.saved_query.snapshot_config is not None:
+        # Snapshot history is built only on ClickHouse, so a shadow run has nothing to compare.
+        return False
     return _is_managed_warehouse_shadow_enabled(objects.team)
 
 

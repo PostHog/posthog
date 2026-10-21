@@ -278,6 +278,12 @@ export function MaterializationStatusPanel({
                                         {formatWatermark(savedQuery.incremental_state?.watermark)}
                                     </div>
                                 )}
+                                {savedQuery.snapshot?.unique_key?.length ? (
+                                    <div className="text-xs text-secondary mt-1">
+                                        Keeping a history of changes observed each time this query runs. Key:{' '}
+                                        {savedQuery.snapshot.unique_key.join(', ')}
+                                    </div>
+                                ) : null}
                                 {showStatusSummary && isPaused && kind !== 'endpoint' && (
                                     <div className="text-xs text-secondary mt-1">
                                         Scheduled refreshes are paused. Pick a cadence to resume, or use Sync now to
