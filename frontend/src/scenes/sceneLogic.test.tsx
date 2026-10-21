@@ -566,6 +566,36 @@ describe('sceneLogic', () => {
         }
     })
 
+    it('keeps an impersonating staff member on the page when the first project has no data', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: MOCK_DEFAULT_ORGANIZATION, is_impersonated: true },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+                removeProjectIdIfPresent(urls.eventDefinitions())
+            )
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     it.each([
         [
             'sends the homepage to the welcome page and keeps the side panel prompt',

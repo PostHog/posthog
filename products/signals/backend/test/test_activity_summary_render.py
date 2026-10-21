@@ -22,15 +22,16 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_HEADER,
     ACTIVITY_LINE_CHARS,
     ACTIVITY_LINES,
+    DEFAULT_LIMITS,
     MAX_ACTIVITY_LINES_PER_DAY,
+    MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
-    SECTIONS_MAX_CHARS,
-    TASK_LINE_CHARS,
     TASK_LINES,
     TASKS_HEADER,
     ActivityItem,
     Drop,
     Parent,
+    RenderLimits,
     TaskItem,
     Unit,
     activity_units,
@@ -41,13 +42,7 @@ from products.signals.backend.activity_summary.render import (
     sampling_seed,
     task_units,
 )
-from products.signals.backend.activity_summary.summaries import (
-    MAX_COMPLETION_TOKENS,
-    PIPELINE_DISTINCT_ID,
-    SummaryPrices,
-    cost_usd,
-    summarize,
-)
+from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue?sig=abc"
@@ -362,7 +357,23 @@ def test_build_input_renders_the_two_sections_in_order() -> None:
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
 
 
-def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS),
+        (
+            "limits from the flag",
+            RenderLimits(
+                task_lines=5,
+                activity_lines=30,
+                max_units_per_day=1,
+                sections_max_chars=20000,
+                task_line_chars=240,
+                activity_line_chars=400,
+            ),
+        ),
+    ]
+)
+def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str, limits: RenderLimits) -> None:
     runaway = "word " * 2000
     tasks = [
         _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
@@ -371,15 +382,28 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
     ]
     activity = [_change("Insight", "created", f"{runaway} {n}", days_ago=n % 28, intent=runaway) for n in range(500)]
 
-    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1)
+    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1, limits=limits)
 
     assert rendered is not None
-    assert (rendered.n_tasks, rendered.n_activity_lines) == (TASK_LINES, ACTIVITY_LINES)
+    assert (rendered.n_tasks, rendered.n_activity_lines) == (limits.task_lines, limits.activity_lines)
     tasks_text, activity_text = rendered.text.split("\n\n")
-    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= TASK_LINE_CHARS
-    assert max(len(line) for line in activity_text.split("\n")[1:]) <= ACTIVITY_LINE_CHARS
-    assert rendered.input_chars <= SECTIONS_MAX_CHARS
+    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= limits.task_line_chars
+    assert max(len(line) for line in activity_text.split("\n")[1:]) <= limits.activity_line_chars
+    assert rendered.input_chars <= limits.sections_max_chars
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
+
+
+def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:
+    rendered = build_input(
+        [_task("why", summary="Asked: why did signups drop?", days_ago=3)],
+        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(sections_max_chars=1),
+    )
+
+    assert rendered is not None
+    assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
 
 
 PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
