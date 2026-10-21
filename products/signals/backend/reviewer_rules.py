@@ -105,6 +105,21 @@ class ReviewerRules:
     def _label(entry: SuggestedReviewerEntry) -> str:
         return entry.github_login.lower() if entry.github_login else entry.user_uuid or ""
 
+    @staticmethod
+    def _resolve_identities(
+        team_id: int, reviewers: tuple[SuggestedReviewerEntry, ...]
+    ) -> tuple[SuggestedReviewerEntry, ...]:
+        unresolved_logins = {
+            entry.github_login.lower() for entry in reviewers if entry.github_login and not entry.user_uuid
+        }
+        members = resolve_org_github_login_to_users(team_id, unresolved_logins) if unresolved_logins else {}
+        return tuple(
+            entry.model_copy(update={"user_uuid": str(member.uuid)})
+            if entry.github_login and not entry.user_uuid and (member := members.get(entry.github_login.lower()))
+            else entry
+            for entry in reviewers
+        )
+
     @classmethod
     def _legacy_corrections(cls, *, team_id: int, report_id: str) -> ReviewerCorrections:
         rows = SignalReportArtefact.objects.filter(
@@ -148,9 +163,16 @@ class ReviewerRules:
                     if match is None:
                         return corrections.model_copy(update={"needs_review": True})
                     changes.pop(match)
-                    corrections = correct_reviewers(corrections, added, removed)
+                    corrections = correct_reviewers(
+                        corrections, cls._resolve_identities(team_id, added), cls._resolve_identities(team_id, removed)
+                    )
             previous = current
-        return corrections.model_copy(update={"needs_review": bool(changes)})
+        return corrections.model_copy(
+            update={
+                "needs_review": bool(changes)
+                or any(not entry.user_uuid for entry in corrections.pinned + corrections.excluded)
+            }
+        )
 
     @classmethod
     def read_for_report(cls, *, team_id: int, report_id: str) -> ReviewerSnapshot:
@@ -172,21 +194,14 @@ class ReviewerRules:
         return self.read_for_report(team_id=self.team.id, report_id=self.report_id)
 
     def _validate_members(self, reviewers: tuple[SuggestedReviewerEntry, ...]) -> EligibleReviewers:
-        unresolved_logins = {
-            entry.github_login.lower() for entry in reviewers if entry.github_login and not entry.user_uuid
-        }
-        members = resolve_org_github_login_to_users(self.team.id, unresolved_logins) if unresolved_logins else {}
         resolved: list[SuggestedReviewerEntry] = []
         unresolved: list[SuggestedReviewerEntry] = []
-        for entry in reviewers:
+        for entry in self._resolve_identities(self.team.id, reviewers):
             if entry.user_uuid:
                 try:
                     UUID(entry.user_uuid)
                 except ValueError as error:
                     raise ReviewerWriteError("A reviewer must have a valid user UUID.") from error
-            member = members.get(entry.github_login.lower()) if entry.github_login and not entry.user_uuid else None
-            if member:
-                entry = entry.model_copy(update={"user_uuid": str(member.uuid)})
             if entry.user_uuid:
                 resolved.append(entry)
             else:
@@ -255,6 +270,8 @@ class ReviewerRules:
                     if edit.action == "replace"
                     else ()
                 )
+                if protected:
+                    removals = self._resolve_identities(self.team.id, removals)
                 checked = self._validate_members(additions)
                 if protected and (checked.ineligible_user_uuids or checked.unresolved_candidates):
                     raise ReviewerWriteError("New reviewers must be active members with access to this project.")
