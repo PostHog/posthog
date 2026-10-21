@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
+    codebase_detection = detect(env=("^(MY_HOURS|MYHOURS)_",))
+
     api_docs_url = "https://documenter.getpostman.com/view/8879268/TVmV4YYU"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -50,7 +53,7 @@ class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
             name=ExternalDataSourceType.MYHOURS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="My Hours",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your My Hours API key to pull your time-tracking data into the PostHog Data warehouse.
 
 API keys are available on paid plans. Create one under **Settings → Integrations → API keys** in your [My Hours account](https://app.myhours.com/). The key is tied to the user who created it, so it stops working if that user is archived or removed. The key grants read access to your clients, projects, project tasks and members, tags, users, and time logs.

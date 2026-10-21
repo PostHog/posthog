@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/experiments'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -49,19 +50,61 @@ describe('experiment variant notes and screenshots', () => {
         })
     })
 
-    it('experiment-update merges the variant inputs into the stored parameters without flag config', async () => {
-        const { context, request } = contextWith({ GET: { id: 1, parameters: STORED_PARAMETERS }, PATCH: { id: 1 } })
+    it.each([4, null])('experiment-update preserves parameters and the read version %s', async (version) => {
+        const { context, request } = contextWith({
+            GET: { id: 1, version, parameters: STORED_PARAMETERS },
+            PATCH: { id: 1 },
+        })
 
         await run('experiment-update', context, { id: '1', name: 'Renamed', variant_notes: { test: 'new copy' } })
 
         expect(sentBody(request, 'PATCH')).toEqual({
             name: 'Renamed',
+            version: version ?? 0,
             parameters: {
                 prompt_metadata: STORED_PARAMETERS.prompt_metadata,
                 variant_notes: { control: 'baseline', test: 'new copy' },
                 variant_screenshot_media_ids: { control: ['media-1'] },
             },
         })
+    })
+
+    it('refuses an interleaved edit and preserves both changes on a fresh retry', async () => {
+        let stored = { id: 1, version: 4, parameters: STORED_PARAMETERS }
+        const { context, request } = contextWith({})
+        request.mockImplementation(async ({ method, body }: { method: string; body?: Record<string, unknown> }) => {
+            if (method === 'GET') {
+                return { ...stored }
+            }
+            if (body?.version !== undefined && body.version !== stored.version) {
+                throw new PostHogApiError({
+                    status: 409,
+                    statusText: 'Conflict',
+                    body: 'This experiment changed since you loaded it. Review the latest changes and try again.',
+                    url: 'https://app.example.com/api/projects/7/experiments/1/',
+                    method,
+                })
+            }
+            stored = {
+                ...stored,
+                version: stored.version + 1,
+                parameters: body?.parameters as typeof STORED_PARAMETERS,
+            }
+            return stored
+        })
+
+        const results = await Promise.allSettled([
+            run('experiment-update', context, { id: 1, variant_notes: { control: 'first edit' } }),
+            run('experiment-update', context, { id: 1, variant_notes: { test: 'second edit' } }),
+        ])
+
+        expect(results[0]?.status).toBe('fulfilled')
+        expect(results[1]).toMatchObject({ status: 'rejected', reason: { status: 409 } })
+        expect(stored.parameters.variant_notes).toEqual({ control: 'first edit', test: 'old copy' })
+
+        await run('experiment-update', context, { id: 1, variant_notes: { test: 'second edit' } })
+
+        expect(stored.parameters.variant_notes).toEqual({ control: 'first edit', test: 'second edit' })
     })
 
     it('experiment-update does not read or send parameters without variant inputs', async () => {
@@ -84,7 +127,13 @@ describe('experiment variant notes and screenshots', () => {
                         parameters: {
                             ...STORED_PARAMETERS,
                             variant_notes: { control: 'baseline', test: '' },
-                            variant_screenshot_media_ids: { control: ['media-1'], test: [] },
+                            variant_screenshot_media_ids: {
+                                control: ['media-1'],
+                                test: [],
+                                legacy: 'media-3',
+                                empty: '',
+                                blank: [''],
+                            },
                         },
                     },
                     { id: 2, name: 'Pricing', parameters: null },
@@ -102,7 +151,12 @@ describe('experiment variant notes and screenshots', () => {
                 variants_with_screenshots,
             }))
         ).toEqual([
-            { id: 1, parameters: undefined, variants_with_notes: ['control'], variants_with_screenshots: ['control'] },
+            {
+                id: 1,
+                parameters: undefined,
+                variants_with_notes: ['control'],
+                variants_with_screenshots: ['control', 'legacy'],
+            },
             { id: 2, parameters: undefined, variants_with_notes: [], variants_with_screenshots: [] },
         ])
     })

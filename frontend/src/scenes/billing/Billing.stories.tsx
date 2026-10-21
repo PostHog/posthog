@@ -7,7 +7,7 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingType, StartupProgramLabel } from '~/types'
+import { BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -23,6 +23,8 @@ const billingJsonWithoutIconKeys: BillingType = {
         addons: product.addons.map((addon) => ({ ...addon, icon_key: undefined })),
     })),
 }
+
+const VERCEL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
 
 const meta: Meta = {
     title: 'Scenes-Other/Billing',
@@ -76,6 +78,38 @@ export const BillingManagedByPartner: Story = {
                     ...billingUnsubscribedJson,
                     customer_id: '',
                     billing_managed_by_partner: { partner_name: 'Example Partner' },
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByVercel: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                    billing_provider: BillingProvider.Vercel,
+                    external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByVercelWithoutSubscription: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                    billing_provider: BillingProvider.Vercel,
+                    external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
                 },
             },
         })

@@ -37,7 +37,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -241,7 +241,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
-        resolved = integration_secrets.get_secrets(
+        resolved = credentials_service.get_secrets(
             ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
         )
         config_dict: dict[str, object] = {
@@ -275,14 +275,14 @@ class GoogleAdsColumn(Column):
     def __init__(
         self,
         qualified_name: str,
-        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType,
+        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType | int,
         is_repeatable: bool,
         type_url: str,
         output_name: str | None = None,
     ):
         self.name = output_name if output_name is not None else qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
-        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(data_type.value)
+        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(int(data_type))
         self.type_url = type_url
         # Some types require special handling, so we provide quick access to them
         self.is_repeatable = is_repeatable

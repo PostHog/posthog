@@ -163,6 +163,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    @parameterized.expand([("mine", True, ["mine"]), ("invalid uuid", False, [])])
+    def test_list_filters_by_creator(self, _name: str, valid: bool, expected: list[str]) -> None:
+        self._create_canvas(name="mine")
+        other_id = self._create_canvas(name="theirs")
+        other_user = self._create_user("canvas-creator@example.com")
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=other_id).update(created_by=other_user)
+        created_by = self.user.uuid if valid else "not-a-uuid"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?created_by={created_by}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == expected
+
     @parameterized.expand(
         [("default", "", ["newer", "older"]), ("updated", "?ordering=-updated_at", ["older", "newer"])]
     )

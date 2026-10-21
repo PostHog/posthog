@@ -1283,7 +1283,7 @@ class TestParseErrorCode(BaseTest):
         raise ValueError(f"Unknown exception type: {exception_type}")
 
 
-class TestGetFriendlyErrorMessage(BaseTest):
+class TestGetFriendlyErrorMessage(SimpleTestCase):
     @parameterized.expand(
         [
             (CohortErrorCode.CAPACITY, "system was busy"),

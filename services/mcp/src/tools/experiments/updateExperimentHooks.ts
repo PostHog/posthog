@@ -24,7 +24,10 @@ async function transformBody(
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
     })
-    return withVariantDetailsInParameters(body, params, existing.parameters as Record<string, unknown> | null)
+    return {
+        ...withVariantDetailsInParameters(body, params, existing.parameters as Record<string, unknown> | null),
+        version: existing.version ?? 0,
+    }
 }
 
 export default { transformBody } satisfies ToolHooks<UpdateParams>

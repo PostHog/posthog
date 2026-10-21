@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
+    codebase_detection = detect(env=("^ONFLEET_",), npm=("@onfleet/node-onfleet",), pypi=("pyonfleet",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.onfleet.com/reference"
@@ -57,7 +60,7 @@ class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
 You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashboard#/manage) under **Settings → API & Webhooks**. Onfleet API keys are org-scoped and grant read access to your organization's data.""",
             iconPath="/static/services/onfleet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onfleet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

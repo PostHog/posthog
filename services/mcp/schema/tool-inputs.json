@@ -587,6 +587,29 @@
             },
             "required": ["id"]
         },
+        "ExperimentVariantNotesSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant."
+        },
+        "ExperimentVariantScreenshotMediaIdsSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
@@ -1693,6 +1716,17 @@
                 }
             ],
             "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
+        },
+        "SignalReportFeedbackNoteSchema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "The person's context for why the report was or was not useful, up to 4000 characters."
+        },
+        "SignalReportFeedbackSentimentSchema": {
+            "type": "string",
+            "enum": ["positive", "negative"],
+            "description": "The report rating: 'positive' (thumbs up) or 'negative' (thumbs down)."
         },
         "TaskAgentCreateSchema": {
             "type": "object",

@@ -13,6 +13,7 @@ import {
 } from '~/types'
 
 import { SURVEY_RATING_SCALE } from './constants'
+import { isIntroScreenShown } from './surveyIntroScreen'
 
 export type SurveySdkType =
     | 'posthog-js'
@@ -117,6 +118,18 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) => s.schedule === SurveySchedule.Always,
     },
     {
+        feature: 'Intro screen',
+        sdkVersions: {
+            'posthog-js': '1.415.0',
+            'posthog-react-native': '4.63.0',
+            'posthog-ios': '3.70.0',
+            'posthog-android': '3.61.0',
+            posthog_flutter: '5.39.0',
+        },
+        unsupportedSdks: [],
+        check: (s) => isIntroScreenShown(s.appearance),
+    },
+    {
         feature: 'Feedback button surveys',
         sdkVersions: { 'posthog-js': '1.294.0' },
         unsupportedSdks: [
@@ -204,6 +217,24 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) =>
             (s.conditions?.events?.values?.length ?? 0) > 0 &&
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
+    },
+    {
+        // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
+        feature: 'Event filters using ≥ or ≤',
+        sdkVersions: {},
+        unsupportedSdks: [
+            { sdk: 'posthog-js', issue: false },
+            { sdk: 'posthog-react-native', issue: false },
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
+        ],
+        check: (s) =>
+            [...(s.conditions?.events?.values ?? []), ...(s.conditions?.cancelEvents?.values ?? [])].some((e) =>
+                Object.values(e.propertyFilters ?? {}).some((filter) =>
+                    (['gte', 'lte'] as string[]).includes(filter.operator)
+                )
+            ),
     },
     {
         feature: 'Cancellation events',

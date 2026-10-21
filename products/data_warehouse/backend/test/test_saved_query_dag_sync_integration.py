@@ -88,11 +88,33 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertTrue(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
         # delete
-        delete_response = self.client.delete(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
+            )
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Node.objects.filter(saved_query_id=saved_query_id).exists())
+
+    def test_a_delete_that_fails_before_the_soft_delete_keeps_the_node(self):
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "dag_sync_failed_delete_test", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        saved_query_id = create_response.json()["id"]
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "revert_materialization", side_effect=RuntimeError("boom")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            delete_response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
+            )
+
+        self.assertEqual(delete_response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertTrue(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
     def test_materialize_updates_node_type(self):
         # create

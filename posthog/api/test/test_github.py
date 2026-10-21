@@ -5,7 +5,7 @@ from hashlib import sha256
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -693,7 +693,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         mock_ff_exposed.assert_called_once()
 
 
-class TestRelayToEu(TestCase):
+class TestRelayToEu(SimpleTestCase):
     def test_returns_none_when_setting_empty(self):
         """Verify no call when GITHUB_SECRET_ALERT_RELAY_URL is None."""
         with override_settings(GITHUB_SECRET_ALERT_RELAY_URL=None):

@@ -6,7 +6,9 @@ import pytest
 
 from braintrust_core.score import Score, Scorer
 
+from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
+    ExcludedSkillNotLoaded,
     ExpectedSkillDiscovered,
     ExpectedSkillLoaded,
     NoBundledSkillBypass,
@@ -329,3 +331,22 @@ def test_bundled_distribution_accepts_an_alternate_skill(scorer: Scorer) -> None
     )
     assert _score(scorer, output, BUNDLED_WITH_ALTERNATE).score == 1.0
     assert _score(scorer, output, BUNDLED_EXPECTED).score == 0.0
+
+
+@pytest.mark.parametrize(
+    "delivery,load_call,expected_score",
+    [
+        ("exec", _exec("search", "learn -s error trace", "posthog:linking-errors-to-traces"), 1.0),
+        ("exec", _exec("load", "learn posthog:linking-errors-to-traces"), 0.0),
+        ("exec", _exec("failed", "learn posthog:linking-errors-to-traces", failed=True), 1.0),
+        ("bundled", _tool_call("load", "Skill", {"skill": "linking-errors-to-traces"}), 0.0),
+        ("bundled", _tool_call("other", "Skill", {"skill": SKILL}), 1.0),
+    ],
+)
+def test_excluded_skill_only_fails_when_it_is_loaded(
+    delivery: SkillDelivery, load_call: list[str], expected_score: float
+) -> None:
+    expected = skill_distribution_expectations(
+        SKILL, ["execute-sql"], delivery, excluded_skill="linking-errors-to-traces"
+    )
+    assert _score(ExcludedSkillNotLoaded(), _output(load_call), expected).score == expected_score

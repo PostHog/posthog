@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrcaSecuritySource(ResumableSource[OrcaSecuritySourceConfig, OrcaResumeConfig]):
+    codebase_detection = detect(env=("^(ORCA_SECURITY|ORCASECURITY)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -128,7 +131,7 @@ class OrcaSecuritySource(ResumableSource[OrcaSecuritySourceConfig, OrcaResumeCon
             name=ExternalDataSourceType.ORCASECURITY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Orca Security",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Orca Security API token to pull your cloud security posture data into the "
                 "PostHog Data warehouse.\n\n"

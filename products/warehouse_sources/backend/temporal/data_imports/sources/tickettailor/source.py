@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TicketTailorSource(ResumableSource[TicketTailorSourceConfig, TicketTailorResumeConfig]):
+    codebase_detection = detect(env=("^(TICKET_TAILOR|TICKETTAILOR)_",), script_hosts=("cdn.tickettailor.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -51,7 +54,7 @@ class TicketTailorSource(ResumableSource[TicketTailorSourceConfig, TicketTailorR
             name=ExternalDataSourceType.TICKETTAILOR,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Ticket Tailor",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Ticket Tailor API key to pull your event ticketing data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API** in your [Ticket Tailor](https://www.tickettailor.com) box office. API keys are scoped to a single box office — connect one source per box office you want to sync.

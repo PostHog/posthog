@@ -120,7 +120,7 @@ export const ExperimentSchema = z.object({
             recommended_running_time: z.number().nullish(),
             recommended_sample_size: z.number().nullish(),
             variant_notes: z.record(z.string(), z.string()).nullish(),
-            variant_screenshot_media_ids: z.record(z.string(), z.array(z.string())).nullish(),
+            variant_screenshot_media_ids: z.record(z.string(), z.union([z.string(), z.array(z.string())])).nullish(),
         })
         .nullish(),
     start_date: z.string().nullish(),

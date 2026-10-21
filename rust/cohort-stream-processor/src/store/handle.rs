@@ -22,10 +22,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use cohort_core::seed::CoverageStartMs;
 use metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinError;
 
+use super::coverage::SliceTenure;
 use super::keys::{
     PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, TombstoneKey,
 };
@@ -488,10 +490,22 @@ impl StoreHandle {
         .await
     }
 
-    /// Reclaim all state for one partition on rebalance. No permit.
+    /// Reclaim all state for one partition. No permit.
     pub async fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
         self.write("delete_partition", false, move |store| {
             store.delete_partition(partition_id)
+        })
+        .await
+    }
+
+    /// Resume a slice's coverage, or begin it at `start`. No permit.
+    pub async fn resume_or_begin_slice(
+        &self,
+        partition_id: u16,
+        start: CoverageStartMs,
+    ) -> Result<SliceTenure, StoreError> {
+        self.write("resume_or_begin_slice", false, move |store| {
+            store.resume_or_begin_slice(partition_id, start)
         })
         .await
     }
@@ -531,17 +545,6 @@ impl StoreHandle {
             store.stats_snapshot()
         })
         .await
-    }
-
-    /// SYNCHRONOUS escape hatch: delete one partition's state on the caller's thread, bypassing the
-    /// offload path entirely.
-    ///
-    /// The single sanctioned caller is `EventDispatcher::reclaim_stale_slice`, which runs under a
-    /// DashMap shard guard where no `.await` is possible. It is rare (a post-boot partition move-in)
-    /// and fast (one range tombstone per CF). Any new caller must justify the same no-await
-    /// constraint — prefer the async [`Self::delete_partition`] everywhere else.
-    pub fn delete_partition_blocking(&self, partition_id: u16) -> Result<(), StoreError> {
-        self.store.delete_partition(partition_id)
     }
 }
 

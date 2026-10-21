@@ -105,11 +105,10 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('gates widget insertion and registers only the Widget component', () => {
-            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
+        it('offers widget insertion without feature flags and registers only the Widget component', () => {
+            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([
                 { key: 'component-Widget', category: 'Common', badge: 'BETA' },
             ])
-            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
                 expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
             }
@@ -130,7 +129,6 @@ describe('markdownNotebookRegistry', () => {
                     getMarkdownNotebookDefaultRegistry(),
                     getMarkdownRegistryForFeatureFlags({
                         [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
-                        [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true,
                     })
                 ),
                 (_nodeId, node) => insertedNodes.push(node),

@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,8 +18,11 @@ import { SidePanelTab } from '~/types'
 import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { missingLinkInvestigateLogic } from './missingLinkInvestigateLogic'
+import { MissingLinkEventContext } from './missingLinkTelemetry'
 
 jest.mock('lib/utils/newInternalTab')
+
+const eventContext: MissingLinkEventContext = { missing: ['trace'], source: 'log-drawer', service_name: 'checkout-api' }
 
 describe('missingLinkInvestigateLogic', () => {
     let logic: ReturnType<typeof missingLinkInvestigateLogic.build>
@@ -44,19 +48,24 @@ describe('missingLinkInvestigateLogic', () => {
         {
             name: 'new view, rail',
             flags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.TODAY_RAIL_NAV],
-            route: 'ai-scene',
+            route: 'side-panel-task',
         },
         { name: 'legacy view, rail', flags: [FEATURE_FLAGS.TODAY_RAIL_NAV], route: 'ai-scene' },
     ])('$name sends the prompt to PostHog AI', async ({ flags, route }) => {
         featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         router.actions.push('/logs')
         ;(newInternalTab as jest.Mock).mockClear()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
 
         await expectLogic(logic, () => {
-            logic.actions.startTask('Find the missing session ID', () => {})
+            logic.actions.startTask('Find the missing session ID', () => {}, eventContext)
         }).toFinishAllListeners()
 
         const seed = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed
+        expect(capture.mock.calls.filter(([event]) => event.startsWith('logs missing link'))).toEqual([
+            ['logs missing link investigate clicked', { ...eventContext, option: 'posthog-ai-task', route }],
+        ])
+        capture.mockRestore()
         expect({
             seeded: seed?.prompt ?? null,
             sidePanelTab: sidePanelStateLogic.values.sidePanelOpen ? sidePanelStateLogic.values.selectedTab : null,

@@ -64,7 +64,9 @@ export function summarizeVariantDetails<T extends { parameters?: unknown }>(
         variants_with_notes: variantKeysWhere(details.variant_notes, (note) => typeof note === 'string' && note !== ''),
         variants_with_screenshots: variantKeysWhere(
             details.variant_screenshot_media_ids,
-            (ids) => Array.isArray(ids) && ids.length > 0
+            (ids) =>
+                (typeof ids === 'string' && ids !== '') ||
+                (Array.isArray(ids) && ids.some((id) => typeof id === 'string' && id !== ''))
         ),
     }
 }

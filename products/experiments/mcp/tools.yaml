@@ -833,6 +833,12 @@ tools:
             starting a second one.
 
 
+            An experiment that started too long ago cannot be recalculated. The response is then a run that is already
+            failed, and every metric in metric_errors has error_type recalculation_window_too_long. Do not retry or poll
+            it; tell the user the message from metric_errors. The earlier results stay available from
+            experiment-metrics-recalculation-latest-retrieve.
+
+
             The response has no results array, the run has only just been queued. Take the returned id and poll
             experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve,
             until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a
@@ -968,10 +974,10 @@ tools:
 
 
             Move a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same
-            configuration and its metrics converted to the new format, and returns it. The legacy experiment is left
-            untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature
-            flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the
-            second experiment before you call this.
+            configuration and its metrics converted to the new format, and returns it. Legacy experiments no longer show
+            results, so this is how a user gets results for one. The legacy experiment is left untouched, so the project
+            ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users
+            keep the variant they already have. Tell the user about the second experiment before you call this.
 
 
             Legacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the
@@ -1547,6 +1553,10 @@ tools:
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
             experiment-ship-variant tools instead. The description accepts at most 3,000 characters and longer text is
             rejected, so keep the hypothesis summary short.
+
+
+            Updating variant notes or screenshots checks the version read before the update. A concurrent edit
+            returns 409 without overwriting it. Read the latest experiment before retrying.
         include_params:
             - name
             - description

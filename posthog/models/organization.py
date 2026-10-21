@@ -164,6 +164,13 @@ def default_is_ai_training_opted_in():
 
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=Q(is_active=False),
+                name="org_inactive_id_idx",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["for_internal_metrics"],
@@ -934,18 +941,6 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
-
-
-@receiver(models.signals.post_delete, sender=OrganizationMembership)
-def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    # A loop run executes with its owner's credentials, so offboarding a member must pause their loops
-    # in that org and cancel in-flight runs. Deferred import keeps loops/Temporal deps off the model
-    # import path (mirrors the User-deactivation hook).
-    from products.tasks.backend.facade.loops import pause_loops_for_removed_member  # noqa: PLC0415
-
-    user_id = instance.user_id
-    organization_id = str(instance.organization_id)
-    transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

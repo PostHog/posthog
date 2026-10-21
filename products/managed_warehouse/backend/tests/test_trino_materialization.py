@@ -11,7 +11,6 @@ from posthog.schema import HogQLQuery
 
 from posthog.models import Team
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.client import execute_trino_shadow_materialization
 from products.managed_warehouse.backend.facade.contracts import (
@@ -193,13 +192,12 @@ class TestTrinoShadowMaterialization(BaseTest):
         compile_query.assert_not_called()
         connect.assert_not_called()
 
-    @parameterized.expand([(None,), ("legacy_orders",)])
-    def test_materialized_dependency_matches_downstream_locator(self, model_label: str | None) -> None:
+    def test_materialized_dependency_matches_downstream_locator(self) -> None:
 
         backing_table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", url_pattern="https://example.com/orders/*.parquet"
         )
-        saved_query = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             id=self.saved_query_id,
             team=self.team,
             name="orders",
@@ -207,8 +205,6 @@ class TestTrinoShadowMaterialization(BaseTest):
             is_materialized=True,
             table=backing_table,
         )
-        if model_label:
-            DataWarehouseModelPath.objects.create(team=self.team, saved_query=saved_query, path=[model_label])
         with (
             patch(
                 "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
@@ -231,7 +227,7 @@ class TestTrinoShadowMaterialization(BaseTest):
                 ),
             )
         assert locators["orders"] == (self.connection.catalog, written.schema_name, written.table_name)
-        assert written.table_name == (model_label or f"model_{self.saved_query_id.hex}")
+        assert written.table_name == f"model_{self.saved_query_id.hex}"
 
 
 class _ScriptedCursor:

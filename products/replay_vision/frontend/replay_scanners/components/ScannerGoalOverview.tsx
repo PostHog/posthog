@@ -16,8 +16,10 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
@@ -266,6 +268,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         isScannerSubmitting,
         experimentContext,
     } = useValues(logic)
+    const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -302,8 +305,11 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
     // set to the stated budget). The rate cannot go below the minimum, so a budget under that floor
     // projects above it.
-    const budgetCredits = scanner.credit_limit ?? goalBudgetInput
+    // A free-only draft is sized to the free credits the org can spend, which billing can set below the usual amount.
+    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? freeCreditsAllowance : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
+    // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
+    const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
 
     const saveDisabledReason =
         getReplayVisionEditDisabledReason(scanner.user_access_level) ??
@@ -401,28 +407,52 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     <StatRow label="Activity filter">
                         <LemonTag type="muted">{activityFilterLabel(scanner.sampling_mode)}</LemonTag>
                     </StatRow>
-                    <StatRow label="Cost estimate">
+                    <StatRow label={freeCreditsOnly ? 'Free credits' : 'Cost estimate'}>
                         {monthlyCredits != null ? (
-                            <span>
-                                about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
-                            </span>
+                            freeCreditsOnly ? (
+                                overBudget ? (
+                                    <span>
+                                        uses all <span>{budgetCredits.toLocaleString()}</span> of your free credits a
+                                        month
+                                    </span>
+                                ) : (
+                                    <span>
+                                        uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
+                                        {budgetCredits != null ? <span>{budgetCredits.toLocaleString()} </span> : null}
+                                        free credits a month
+                                    </span>
+                                )
+                            ) : (
+                                <span>
+                                    about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
+                                </span>
+                            )
                         ) : scannerEstimateLoading ? (
                             <Spinner />
                         ) : (
                             <span className="text-muted">Not available</span>
                         )}
                     </StatRow>
+                    {scanner.free_only && !freeCreditsOnly ? (
+                        <StatRow label="Spend">
+                            <span className="text-muted">Free credits only</span>
+                        </StatRow>
+                    ) : null}
                     {scanner.credit_limit != null ? (
                         <StatRow label="Monthly cap">
                             <span className="text-muted">{formatCreditCount(scanner.credit_limit)}</span>
                         </StatRow>
                     ) : null}
                 </div>
-                {overBudget ? (
+                {overBudget && freeCreditsOnly ? (
+                    <LemonBanner type="info">
+                        Your free credits cover about <span>{freeCreditsCoverage(budgetCredits, monthlyCredits)}</span>{' '}
+                        of the month. After that it pauses until they reset.
+                    </LemonBanner>
+                ) : overBudget ? (
                     <LemonBanner type="warning">
-                        This is already at the lowest sampling rate, so it will watch about{' '}
-                        {monthlyObservations?.toLocaleString()} recordings a month, more than your budget covers. To
-                        watch fewer, narrow which recordings are eligible above, for example by device type or country.
+                        Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
+                        recordings a month. Narrow the eligible recordings above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
@@ -430,7 +460,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             <div className="flex items-center justify-end gap-2">
                 <LemonButton
                     type="secondary"
-                    onClick={() => router.actions.push(urls.replayVisionScannerTemplate('new'))}
+                    onClick={() => router.actions.push(urls.replayVisionScannerGoal('new'))}
                     data-attr="vision-goal-overview-start-over"
                 >
                     Start over

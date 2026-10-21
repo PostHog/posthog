@@ -19,9 +19,9 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     resolve_sync_type,
     staged_handoff_resume_point,
@@ -56,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
     reset_pipeline_requested,
@@ -512,6 +514,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         processed_incremental_earliest_value = None
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
+        kept_rows_synced: int | None = None
 
         # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
         # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
@@ -523,6 +526,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
         if use_stored_cursors:
+            # Read from the same config as the watermark, so the count matches the rows this attempt skips.
+            kept_rows_synced = prefix_promotion_rows_synced(schema.sync_type_config, str(model.id))
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -669,12 +674,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
             )
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)
-            except IntegrationSecretsFailure as e:
+            except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
                 # shared policy: the branch below would read it as an unparseable config and disable
@@ -771,6 +777,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
+                kept_rows_synced=kept_rows_synced,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -945,7 +952,7 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # Every credential the integration service holds is PostHog's own — the OAuth app secrets and
+    # Every credential the credentials service holds is PostHog's own — the OAuth app secrets and
     # API keys we own, not anything the customer configured. So none of its failure states are
     # theirs to fix, and none are permanent: a key in recovery is re-provisioned, a missing key is
     # added, an unreachable service comes back. Retry, and if the budget runs out let the run fail
@@ -958,10 +965,10 @@ async def _handle_import_error(
     # hand — turning a reversible platform action into a wide manual recovery.
     #
     # Checked before the bare-404 rule below on purpose. That rule reads a 404 as "the customer's
-    # endpoint is gone", and a misrouted INTEGRATION_SERVICE_URL answers 404 as well; the client
+    # endpoint is gone", and a misrouted CREDENTIALS_SERVICE_URL answers 404 as well; the client
     # wraps its transport failures so the two can't be confused, and this ordering keeps that true
     # even if something later leaks a raw HTTPError.
-    if isinstance(error, IntegrationSecretsFailure):
+    if isinstance(error, CredentialsServiceFailure):
         if error.reportable:
             # A gap only PostHog can close (a key never added for this environment, a
             # half-configured deployment). Capture explicitly rather than letting it escape raw:
@@ -971,7 +978,7 @@ async def _handle_import_error(
             await logger.aexception(error_msg)
         else:
             await logger.awarning(error_msg)
-        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
+        await logger.adebug("Credentials service credential unavailable - re-raising for Temporal retry")
         raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
 
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
@@ -1147,9 +1154,12 @@ async def _run(
     resumed_incremental_value: Any = None,
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
+    kept_rows_synced: int | None = None,
 ) -> PipelineResult:
     try:
-        reset_pipeline = reset_pipeline or source_response.destination_reset_required
+        reset_pipeline = (
+            reset_pipeline or source_response.destination_reset_required
+        ) and not source_response.reset_handed_over
         models = await _get_models(job_inputs.run_id)
 
         pipeline = v3_pipeline_class(source_response)(
@@ -1165,6 +1175,7 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            kept_rows_synced=kept_rows_synced,
         )
 
         result = await pipeline.run()

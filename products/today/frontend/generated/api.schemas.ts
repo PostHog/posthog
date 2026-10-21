@@ -7,361 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface BriefingSegmentApi {
-    /** A run of text in a paragraph. Includes its own spaces. */
-    text: string
-    /**
-     * Key of the item this run links to, or null for plain text.
-     * @nullable
-     */
-    item_key: string | null
-    /** True only for the run that names the top item. */
-    highlight: boolean
-}
-
-/**
- * * `draft` - draft
- * * `open` - open
- * * `closed` - closed
- * * `merged` - merged
- */
-export type PullRequestStateEnumApi = (typeof PullRequestStateEnumApi)[keyof typeof PullRequestStateEnumApi]
-
-export const PullRequestStateEnumApi = {
-    Draft: 'draft',
-    Open: 'open',
-    Closed: 'closed',
-    Merged: 'merged',
-} as const
-
-/**
- * * `affected_users` - affected_users
- * * `affected_sessions` - affected_sessions
- * * `occurrences` - occurrences
- * * `conversion_rate` - conversion_rate
- * * `error_rate` - error_rate
- * * `duration` - duration
- * * `revenue` - revenue
- * * `custom` - custom
- */
-export type ReportMetricKindEnumApi = (typeof ReportMetricKindEnumApi)[keyof typeof ReportMetricKindEnumApi]
-
-export const ReportMetricKindEnumApi = {
-    AffectedUsers: 'affected_users',
-    AffectedSessions: 'affected_sessions',
-    Occurrences: 'occurrences',
-    ConversionRate: 'conversion_rate',
-    ErrorRate: 'error_rate',
-    Duration: 'duration',
-    Revenue: 'revenue',
-    Custom: 'custom',
-} as const
-
-/**
- * * `primary` - primary
- * * `supporting` - supporting
- */
-export type RoleEnumApi = (typeof RoleEnumApi)[keyof typeof RoleEnumApi]
-
-export const RoleEnumApi = {
-    Primary: 'primary',
-    Supporting: 'supporting',
-} as const
-
-/**
- * * `number` - number
- * * `count` - count
- * * `percentage` - percentage
- * * `percentage_scaled` - percentage_scaled
- * * `duration` - duration
- * * `currency` - currency
- */
-export type ValueFormatEnumApi = (typeof ValueFormatEnumApi)[keyof typeof ValueFormatEnumApi]
-
-export const ValueFormatEnumApi = {
-    Number: 'number',
-    Count: 'count',
-    Percentage: 'percentage',
-    PercentageScaled: 'percentage_scaled',
-    Duration: 'duration',
-    Currency: 'currency',
-} as const
-
-export interface BriefingItemMetricApi {
-    /** Stable slug of the metric within its report. */
-    metric_id: string
-    /** Short label of what the metric measures. */
-    title: string
-    /** What the value measures, for example affected_users.
-     *
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom */
-    kind: ReportMetricKindEnumApi
-    /** `primary` for the report's key observation, otherwise `supporting`.
-     *
-     * * `primary` - primary
-     * * `supporting` - supporting */
-    role: RoleEnumApi
-    /** The latest saved snapshot of the metric. */
-    value: number
-    /**
-     * Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.
-     * @nullable
-     */
-    series: number[] | null
-    /** How to format the value, for example count.
-     *
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency */
-    value_format: ValueFormatEnumApi
-    /**
-     * Optional short suffix or currency code, such as USD.
-     * @nullable
-     */
-    unit: string | null
-    /** The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it. */
-    query: unknown
-}
-
-export interface BriefingItemChartApi {
-    /** Stable slug of the chart within its report. */
-    chart_id: string
-    /** Short heading of the chart. */
-    title: string
-    /** The query node the report body draws, as the report stores it. */
-    query: unknown
-}
-
-export interface BriefingItemReportApi {
-    /**
-     * The report's priority, P0 to P4, or null if unset.
-     * @nullable
-     */
-    priority: string | null
-    /** The report's summary, shortened to a few sentences. */
-    summary: string
-    /** State of the report's implementation pull request, or null when it has none.
-     *
-     * * `draft` - draft
-     * * `open` - open
-     * * `closed` - closed
-     * * `merged` - merged */
-    pull_request_state: PullRequestStateEnumApi | null
-    /**
-     * URL of the report's implementation pull request, or null when it has none.
-     * @nullable
-     */
-    pull_request_url: string | null
-    /** How many signals the report groups. */
-    signal_count: number
-    /** When the report last changed. */
-    updated_at: string
-    /** The report's metrics that have a saved snapshot, in the report's order. */
-    metrics: BriefingItemMetricApi[]
-    /** The charts in the report body, in the report's order. */
-    charts: BriefingItemChartApi[]
-}
-
-/**
- * * `report` - REPORT
- * * `dashboard` - DASHBOARD
- * * `other` - OTHER
- */
-export type TodayItemGroupEnumApi = (typeof TodayItemGroupEnumApi)[keyof typeof TodayItemGroupEnumApi]
-
-export const TodayItemGroupEnumApi = {
-    Report: 'report',
-    Dashboard: 'dashboard',
-    Other: 'other',
-} as const
-
-/**
- * * `self_driving` - SELF_DRIVING
- * * `product_analytics` - PRODUCT_ANALYTICS
- * * `alerts` - ALERTS
- * * `support` - SUPPORT
- * * `error_tracking` - ERROR_TRACKING
- * * `github` - GITHUB
- */
-export type TodayItemSourceEnumApi = (typeof TodayItemSourceEnumApi)[keyof typeof TodayItemSourceEnumApi]
-
-export const TodayItemSourceEnumApi = {
-    SelfDriving: 'self_driving',
-    ProductAnalytics: 'product_analytics',
-    Alerts: 'alerts',
-    Support: 'support',
-    ErrorTracking: 'error_tracking',
-    Github: 'github',
-} as const
-
-/**
- * * `claimed_by_you` - CLAIMED_BY_YOU
- * * `waiting_for_you` - WAITING_FOR_YOU
- * * `suggested_reviewer` - SUGGESTED_REVIEWER
- * * `urgent_for_project` - URGENT_FOR_PROJECT
- * * `dashboard_you_viewed` - DASHBOARD_YOU_VIEWED
- * * `dashboard_you_starred` - DASHBOARD_YOU_STARRED
- * * `insight_you_viewed` - INSIGHT_YOU_VIEWED
- * * `insight_you_starred` - INSIGHT_YOU_STARRED
- * * `alert_firing` - ALERT_FIRING
- * * `assigned_ticket` - ASSIGNED_TICKET
- * * `assigned_error_issue` - ASSIGNED_ERROR_ISSUE
- * * `review_requested` - REVIEW_REQUESTED
- * * `your_pull_request` - YOUR_PULL_REQUEST
- */
-export type TodayItemReasonEnumApi = (typeof TodayItemReasonEnumApi)[keyof typeof TodayItemReasonEnumApi]
-
-export const TodayItemReasonEnumApi = {
-    ClaimedByYou: 'claimed_by_you',
-    WaitingForYou: 'waiting_for_you',
-    SuggestedReviewer: 'suggested_reviewer',
-    UrgentForProject: 'urgent_for_project',
-    DashboardYouViewed: 'dashboard_you_viewed',
-    DashboardYouStarred: 'dashboard_you_starred',
-    InsightYouViewed: 'insight_you_viewed',
-    InsightYouStarred: 'insight_you_starred',
-    AlertFiring: 'alert_firing',
-    AssignedTicket: 'assigned_ticket',
-    AssignedErrorIssue: 'assigned_error_issue',
-    ReviewRequested: 'review_requested',
-    YourPullRequest: 'your_pull_request',
-} as const
-
-/**
- * * `open` - OPEN
- * * `done` - DONE
- * * `dismissed` - DISMISSED
- * * `left` - LEFT
- */
-export type BriefingItemStateEnumApi = (typeof BriefingItemStateEnumApi)[keyof typeof BriefingItemStateEnumApi]
-
-export const BriefingItemStateEnumApi = {
-    Open: 'open',
-    Done: 'done',
-    Dismissed: 'dismissed',
-    Left: 'left',
-} as const
-
-export interface BriefingItemApi {
-    /** Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>. */
-    key: string
-    /** The item's own title, as the source names it. */
-    title: string
-    /** Short left-bar label of at most 6 words. */
-    label: string
-    /** Short fact under the label, at most 40 characters, for example 'Spend down 37%'. */
-    signal: string
-    /** Where the item opens: an app path, or a GitHub URL for pull requests. */
-    url: string
-    /** Position in the briefing, 1 is the top item. */
-    rank: number
-    /**
-     * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
-     * @nullable
-     */
-    source_product: string | null
-    /** For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report. */
-    report: BriefingItemReportApi | null
-    group: TodayItemGroupEnumApi
-    source: TodayItemSourceEnumApi
-    reason: TodayItemReasonEnumApi
-    /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.
-     *
-     * * `open` - OPEN
-     * * `done` - DONE
-     * * `dismissed` - DISMISSED
-     * * `left` - LEFT */
-    state: BriefingItemStateEnumApi
-}
-
-/**
- * * `collecting` - COLLECTING
- * * `writing` - WRITING
- * * `ready` - READY
- * * `failed` - FAILED
- */
-export type BriefingStatusEnumApi = (typeof BriefingStatusEnumApi)[keyof typeof BriefingStatusEnumApi]
-
-export const BriefingStatusEnumApi = {
-    Collecting: 'collecting',
-    Writing: 'writing',
-    Ready: 'ready',
-    Failed: 'failed',
-} as const
-
-/**
- * * `agent` - AGENT
- */
-export type WriterEnumApi = (typeof WriterEnumApi)[keyof typeof WriterEnumApi]
-
-export const WriterEnumApi = {
-    Agent: 'agent',
-} as const
-
-export interface BriefingApi {
-    /** Briefing id. */
-    id: string
-    /** The day this briefing is for, in the person's timezone. */
-    local_day: string
-    /** One sentence that counts what needs the person. */
-    headline: string
-    /** Up to 3 paragraphs, each a list of text runs; runs with an item_key are links. */
-    paragraphs: BriefingSegmentApi[][]
-    /** The items the text names, in rank order: what the page and the left bar show. */
-    items: BriefingItemApi[]
-    /** Other open reports for the person, beyond the ones the briefing shows. */
-    more_reports_count: number
-    /** Open reports in the whole project beyond the ones the briefing shows, whoever they are for. */
-    open_reports_count: number
-    status: BriefingStatusEnumApi
-    writer: WriterEnumApi | null
-    created_at: string
-    /** @nullable */
-    ready_at: string | null
-}
-
-export interface CandidateFactApi {
-    /** Fact name, for example pct_change or unread_messages. */
-    name: string
-    /** Fact value as text. */
-    value: string
-}
-
-export interface CandidateApi {
-    /** Stable item key, for example report:<uuid> or dashboard:<id>. */
-    key: string
-    /** The item's own title. */
-    title: string
-    /** Where the item opens. */
-    url: string
-    /** Position in the briefing, 1 is the top item. */
-    rank: number
-    /** The numbers and short facts the briefing text rests on. */
-    facts: CandidateFactApi[]
-    group: TodayItemGroupEnumApi
-    source: TodayItemSourceEnumApi
-    reason: TodayItemReasonEnumApi
-}
-
-export interface CandidateListApi {
-    /** The day the list is for, in the person's timezone. */
-    local_day: string
-    /** The briefing's items in rank order, up to 5. */
-    candidates: CandidateApi[]
-    /** Other open reports for the person not in the list. */
-    more_reports_count: number
-}
-
 export interface ExcerptChoiceRequestApi {
     /**
      * The finding the code excerpts should show.
@@ -383,6 +28,242 @@ export interface ExcerptChoiceApi {
      * @nullable
      */
     index: number | null
+}
+
+/**
+ * * `computing` - Computing
+ * * `ready` - Ready
+ * * `failed` - Failed
+ */
+export type HighlightsStatusEnumApi = (typeof HighlightsStatusEnumApi)[keyof typeof HighlightsStatusEnumApi]
+
+export const HighlightsStatusEnumApi = {
+    Computing: 'computing',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `events` - Events
+ * * `people` - People
+ * * `number` - Number
+ */
+export type HighlightUnitEnumApi = (typeof HighlightUnitEnumApi)[keyof typeof HighlightUnitEnumApi]
+
+export const HighlightUnitEnumApi = {
+    Events: 'events',
+    People: 'people',
+    Number: 'number',
+} as const
+
+/**
+ * * `day` - Day
+ * * `week` - Week
+ * * `month` - Month
+ */
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
+
+export const CalendarUnitEnumApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+export interface HighlightValueFormatApi {
+    /**
+     * Number format of the insight, for example numeric, percentage or currency.
+     * @nullable
+     */
+    format: string | null
+    /**
+     * Text the insight shows before each value.
+     * @nullable
+     */
+    prefix: string | null
+    /**
+     * Text the insight shows after each value.
+     * @nullable
+     */
+    postfix: string | null
+    /**
+     * Most decimal places the insight shows.
+     * @nullable
+     */
+    decimal_places: number | null
+}
+
+/**
+ * * `routine` - You open this often
+ * * `dashboard` - On a dashboard you open often
+ * * `key_metric` - Project key metric
+ */
+export type HighlightMetricReasonEnumApi =
+    (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
+
+export const HighlightMetricReasonEnumApi = {
+    Routine: 'routine',
+    Dashboard: 'dashboard',
+    KeyMetric: 'key_metric',
+} as const
+
+export interface HighlightMoverApi {
+    /** Name of one series of the insight, for example a breakdown value. */
+    label: string
+    /** Value of the series for the last complete period. */
+    value: number
+    /**
+     * Change of the series against the period before, in percent. Null when the period before is 0.
+     * @nullable
+     */
+    change_pct: number | null
+}
+
+export interface HighlightMetricApi {
+    /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
+    key: string
+    /** Name of the key metric or of the insight, for example Sign-ups. */
+    name: string
+    /** Value for the last complete period: the last 7 complete days, or the last complete week or month. */
+    value: number
+    /** `events` for a count of events, `people` for unique people, `number` for an insight value.
+     *
+     * * `events` - Events
+     * * `people` - People
+     * * `number` - Number */
+    unit: HighlightUnitEnumApi
+    /**
+     * Change against the period before, in percent. Null when the period before is 0.
+     * @nullable
+     */
+    change_pct: number | null
+    /** Values oldest first: daily for the last 28 complete days, or one value per week or month. */
+    series: number[]
+    /** What one value in `series` covers: a day, a week or a month.
+     *
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: CalendarUnitEnumApi
+    /**
+     * Path of the insight the metric comes from. For a key metric, a new trends insight of the same days.
+     * @nullable
+     */
+    url: string | null
+    /** How the insight formats its values. Null for a key metric and for an insight with plain numbers. */
+    value_format: HighlightValueFormatApi | null
+    /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
+    period_starts: string[]
+    /** Why the pulse shows the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric */
+    reason: HighlightMetricReasonEnumApi | null
+    /**
+     * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /**
+     * On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.
+     * @nullable
+     */
+    opened_days: number | null
+    /**
+     * The last day the person opened the insight, or the dashboard of the tile, in the project's timezone. Null for a key metric.
+     * @nullable
+     */
+    last_opened: string | null
+    /**
+     * Value for the period before the last complete one, the base of `change_pct`. Null when unknown.
+     * @nullable
+     */
+    previous_value: number | null
+    /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
+    movers: HighlightMoverApi[]
+}
+
+/**
+ * * `risk` - Risk
+ * * `opportunity` - Opportunity
+ */
+export type HighlightLabelEnumApi = (typeof HighlightLabelEnumApi)[keyof typeof HighlightLabelEnumApi]
+
+export const HighlightLabelEnumApi = {
+    Risk: 'risk',
+    Opportunity: 'opportunity',
+} as const
+
+/**
+ * * `P1` - P1
+ * * `P2` - P2
+ * * `P3` - P3
+ * * `P4` - P4
+ */
+export type HighlightPriorityEnumApi = (typeof HighlightPriorityEnumApi)[keyof typeof HighlightPriorityEnumApi]
+
+export const HighlightPriorityEnumApi = {
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export interface HighlightItemApi {
+    /** Stable key of the item for this person and day. */
+    key: string
+    /** `risk` when something got worse or broke, `opportunity` when the person can act to gain.
+     *
+     * * `risk` - Risk
+     * * `opportunity` - Opportunity */
+    label: HighlightLabelEnumApi
+    /** Priority on the same scale as report priorities. `P1` for a risk with a score of 0.75 or more, `P2` for another risk, `P3` for an opportunity with a score of 0.4 or more, `P4` for another opportunity.
+     *
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: HighlightPriorityEnumApi
+    /** One sentence that says what happened, with numbers. */
+    title: string
+    /** One or two short sentences with the comparison and the next action. */
+    detail: string
+    /**
+     * Path in the app to open, relative to the project.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * Values behind the item for a small trend line, oldest first. Null when the item has no trend.
+     * @nullable
+     */
+    series: number[] | null
+    /** Importance weighted by relevance, from 0 to 1. */
+    score: number
+    /** Name of the highlight source that found the item, for example alerts. */
+    source: string
+}
+
+export interface HighlightsApi {
+    /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+     *
+     * * `computing` - Computing
+     * * `ready` - Ready
+     * * `failed` - Failed */
+    status: HighlightsStatusEnumApi
+    /**
+     * When the content was computed. Null when no highlights were computed yet today.
+     * @nullable
+     */
+    generated_at: string | null
+    /** The day the highlights are for, in the project's timezone. */
+    day: string
+    /** Midnight at the end of `day` in the project's timezone, when the next day's highlights start. Load them again then. */
+    refresh_at: string
+    /** Key metrics of the project from its settings. */
+    pulse: HighlightMetricApi[]
+    /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
+    items: HighlightItemApi[]
 }
 
 /**
@@ -659,30 +540,6 @@ export interface ReportPageApi {
      * @nullable
      */
     last_seen: string | null
-}
-
-export type TodayBriefingRetrieveParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string
-}
-
-export type TodayBriefingRefreshCreateParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string
-}
-
-export type TodayCandidatesRetrieveParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string
 }
 
 export type TodayReportsKeyClausesRetrieveParams = {

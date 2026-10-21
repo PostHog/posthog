@@ -7,6 +7,7 @@ from unittest import mock
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -2524,7 +2525,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         assert person.id == str(self.user.id)
 
 
-class TestCommentHelperFunctions(APIBaseTest):
+class TestCommentHelperFunctions(SimpleTestCase):
     @parameterized.expand(
         [
             ("with_slug", "Notebook", "123", "/notebook/abc", "/notebook/abc#panel=discussion"),

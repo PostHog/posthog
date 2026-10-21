@@ -12,6 +12,7 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
@@ -169,6 +170,8 @@ class PostgresPrinter(BasePrinter):
 
         handler = function_handlers.get(func_name)
         if handler is not None:
+            if func_name == "sha1":
+                validate_function_args(node.args, 1, 1, node.name)
             if node.order_by:
                 raise QueryError(
                     f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
@@ -220,7 +223,28 @@ class PostgresPrinter(BasePrinter):
 
     def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
         """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
-        return POSTGRES_FUNCTION_HANDLERS_LOWER
+        handlers = POSTGRES_FUNCTION_HANDLERS_LOWER.copy()
+        extension_fallbacks = {"sha1": self._render_sha1}
+        for name, handler in extension_fallbacks.items():
+            if name not in self._connection_supported_functions:
+                handlers[name] = handler
+        return handlers
+
+    def _render_sha1(self, args: list[str]) -> str:
+        metadata = self.context.direct_postgres_connection_metadata or {}
+        if "pgcrypto_schema" not in metadata:
+            raise QueryError(
+                "Refresh this PostgreSQL connection's schemas to check for the pgcrypto extension before using sha1."
+            )
+        schema = metadata["pgcrypto_schema"]
+        if not isinstance(schema, str) or not schema:
+            raise QueryError(
+                "Function 'sha1' requires the pgcrypto extension on this PostgreSQL connection. "
+                "Install pgcrypto and refresh the connection's schemas."
+            )
+        # The connection's search_path may exclude the extension's schema.
+        digest = f"{escape_postgres_identifier(schema)}.digest"
+        return f"encode({digest}(convert_to({args[0]}, 'UTF8'), 'sha1'), 'hex')"
 
     def _get_passthrough_functions(self) -> frozenset[str]:
         """Lowercased function names that are emitted verbatim without renaming."""

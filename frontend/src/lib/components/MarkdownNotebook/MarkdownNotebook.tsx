@@ -1232,7 +1232,8 @@ function MarkdownNotebookEditor({
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
         if (firstElement) {
-            firstElement.focus()
+            // The host may have restored a scroll position, such as when the reader goes back to a notebook.
+            firstElement.focus({ preventScroll: true })
             restoreSelection(firstElement, 0, 0)
         }
         // oxlint-disable-next-line exhaustive-deps
@@ -3322,7 +3323,7 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
-        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, { capture: true, passive: true })
         window.addEventListener('resize', handleViewportChange)
         window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 
@@ -6032,8 +6033,6 @@ function MarkdownNotebookEditor({
         }
     }, [jupyterMode, jupyterStore])
 
-    // A markdown cell in edit mode is text with the caret in it. Escape and the run keys there act
-    // on the cell, as in Jupyter, instead of typing; every other key keeps its text-editing meaning.
     const handleJupyterTextKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
         if (!jupyterMode || mode !== 'edit' || insertMenu || event.target !== event.currentTarget) {
             return false
@@ -6055,7 +6054,7 @@ function MarkdownNotebookEditor({
             null,
             Date.now()
         )
-        if (!command) {
+        if (!command || command === 'run-and-advance') {
             return false
         }
         event.preventDefault()
@@ -7292,15 +7291,55 @@ function MarkdownNotebookEditor({
                             )
                         })}
                         {jupyterCommands && mode === 'edit' ? (
-                            <button
-                                type="button"
+                            <div
                                 className="MarkdownNotebook__jupyter-add-cell"
                                 contentEditable={false}
                                 data-attr="notebook-jupyter-add-cell"
-                                onClick={() => jupyterCommands.insertCell(null, 'below', { edit: true })}
                             >
-                                Click to add a cell.
-                            </button>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    aria-label="Add a cell"
+                                    tooltip="Add a cell"
+                                    data-attr="notebook-jupyter-add-cell-menu"
+                                    onClick={() => openInsertMenuAtBoundary(getJupyterAppendIndex())}
+                                >
+                                    /
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    data-attr="notebook-jupyter-add-text"
+                                    onClick={() =>
+                                        insertJupyterNodesAt(
+                                            getJupyterAppendIndex(),
+                                            [makeEmptyParagraph('text')],
+                                            'edit'
+                                        )
+                                    }
+                                >
+                                    Add text
+                                </LemonButton>
+                                {jupyterMode?.cellTagNames.map((tagName) => {
+                                    const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, tagName)
+                                    return definition?.insertCommand ? (
+                                        <LemonButton
+                                            key={tagName}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="notebook-jupyter-add-code"
+                                            onClick={() => {
+                                                const node = createJupyterCellNode(tagName)
+                                                if (node) {
+                                                    insertJupyterNodesAt(getJupyterAppendIndex(), [node], 'edit')
+                                                }
+                                            }}
+                                        >
+                                            {`Add ${definition.label}`}
+                                        </LemonButton>
+                                    ) : null
+                                })}
+                            </div>
                         ) : null}
                     </div>
                     {adjustedRemoteCarets?.length ? (

@@ -1,6 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { DateRange, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -21,7 +22,9 @@ import {
     getHomeTabInterval,
     getHomeTabStatQueries,
     getHomeTabStatValue,
+    isHomeTabStatBucketInProgress,
 } from './homeTabDefaultTiles'
+import { homeTabStatTrendKey } from './homeTabQueryKeys'
 
 describe('homeTabDefaultTiles', () => {
     const dateRange: DateRange = { date_from: '-14d', date_to: null }
@@ -92,6 +95,32 @@ describe('homeTabDefaultTiles', () => {
         ).toMatchObject({ interval: 'day', dateRange: hourlyRange, compareFilter: { compare: true } })
     })
 
+    it.each(['-7d', '-24h'])('reuses daily user data only when the interval matches for %s', (dateFrom) => {
+        const stats = getHomeTabStatQueries({ date_from: dateFrom }, true)
+        const activeUsers = stats.find(({ key }) => key === 'active_users')!
+        const dailyActiveUsers = stats.find(({ key }) => key === 'daily_active_users')!
+        if (dateFrom === '-7d') {
+            expect(activeUsers.trendQuery).toBe(dailyActiveUsers.query)
+            expect(homeTabStatTrendKey(2, activeUsers)).toBe(homeTabStatTrendKey(2, dailyActiveUsers))
+        } else {
+            expect(activeUsers.trendQuery?.interval).toBe('hour')
+            expect(activeUsers.trendQuery?.compareFilter?.compare).toBe(false)
+            expect(homeTabStatTrendKey(2, activeUsers)).not.toBe(homeTabStatTrendKey(2, dailyActiveUsers))
+        }
+        expect(activeUsers.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+    })
+
+    it.each([
+        [0, 'UTC', '2026-06-28T12:00:00Z', '2026-06-28', true],
+        [1, 'UTC', '2026-06-28T12:00:00Z', '2026-06-22', true],
+        [0, 'UTC', '2026-06-29T12:00:00Z', '2026-06-21', false],
+        [0, 'America/Los_Angeles', '2026-06-29T01:00:00Z', '2026-06-28', true],
+        [1, 'America/Los_Angeles', '2026-06-29T01:00:00Z', '2026-06-22', true],
+    ])('detects incomplete weeks with week start %s in %s at %s', (weekStartDay, timezone, now, lastDay, expected) => {
+        const result = { days: ['2026-06-14', lastDay] } as TrendResult
+        expect(isHomeTabStatBucketInProgress(result, 'week', timezone, weekStartDay, dayjs(now))).toBe(expected)
+    })
+
     it('applies the selected range and comparison to stats and charts, including retention', () => {
         const stats = getHomeTabStatQueries(dateRange, false)
         const charts = getHomeTabChartOptions(dateRange, false)
@@ -99,6 +128,14 @@ describe('homeTabDefaultTiles', () => {
         for (const stat of stats) {
             expect(stat.query.dateRange).toEqual(dateRange)
             expect(stat.query.compareFilter?.compare).toBe(false)
+            if (stat.trendQuery) {
+                expect(stat.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+                expect(stat.trendQuery.dateRange).toEqual(dateRange)
+                expect(stat.trendQuery.interval).toBe(stat.query.interval)
+                expect(stat.trendQuery.series).toEqual(stat.query.series)
+                expect(stat.trendQuery.compareFilter?.compare).toBe(false)
+                expect(stat.trendQuery.trendsFilter?.display).not.toBe(ChartDisplayType.BoldNumber)
+            }
         }
 
         for (const chart of charts) {

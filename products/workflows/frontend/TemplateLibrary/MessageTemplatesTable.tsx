@@ -5,10 +5,12 @@ import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconPlus, IconTrash } from '@posthog/icons'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -27,9 +29,11 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { filteredTemplates, templates, templatesLoading, search, createdByFilter } = useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
+    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, transactionalOnly } =
+        useValues(messageTemplatesLogic)
+    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter, setTransactionalOnly } =
         useActions(messageTemplatesLogic)
+    const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
@@ -72,6 +76,16 @@ export function MessageTemplatesTable(): JSX.Element {
                     <span className="text-secondary whitespace-nowrap">Created by:</span>
                     <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />
                 </div>
+                {transactionalEmailsEnabled && (
+                    <LemonCheckbox
+                        label="Transactional only"
+                        checked={transactionalOnly}
+                        onChange={setTransactionalOnly}
+                        bordered
+                        size="small"
+                        data-attr="templates-transactional-only"
+                    />
+                )}
             </div>
             {templatesLoading ? (
                 <Spinner className="text-6xl" />
