@@ -544,13 +544,20 @@ describe('preserveGroupTargetingFilters', () => {
         { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
     ]
 
-    // The set aggregates on person, so the candidates decide the type. The operator picks
-    // between two candidates that share a key, and the value picks between those. When the
-    // remaining candidates hold more than one type, the property stays untyped.
+    // The candidates decide the type when the set aggregates on person, or on a group with no
+    // group candidate for the key. The operator picks between two candidates that share a key,
+    // and the value picks between those. When the remaining candidates hold more than one type,
+    // the property stays untyped.
     it.each([
         { name: 'the operator matches the cohort candidate', operator: 'in', expected: { type: 'cohort' } },
         { name: 'the operator matches the person candidate', operator: 'icontains', expected: { type: 'person' } },
         { name: 'the operator matches neither candidate', operator: 'regex', expected: {} },
+        {
+            name: 'the operator matches neither candidate in a group-aggregated set',
+            aggregation: 0,
+            operator: 'regex',
+            expected: {},
+        },
         {
             name: 'the operator matches a group candidate',
             stored: groupAndPersonCandidates,
@@ -595,8 +602,11 @@ describe('preserveGroupTargetingFilters', () => {
         },
     ])(
         'picks a duplicate-key candidate by operator and value when $name',
-        ({ stored = personAndCohortCandidates, operator, value = 'acme', expected }) => {
-            const existing = { groups: [{ properties: stored, rollout_percentage: 100 }] }
+        ({ stored = personAndCohortCandidates, aggregation, operator, value = 'acme', expected }) => {
+            const existing = {
+                ...(aggregation === undefined ? {} : { aggregation_group_type_index: aggregation }),
+                groups: [{ properties: stored, rollout_percentage: 100 }],
+            }
             const incoming = {
                 groups: [
                     {

@@ -368,8 +368,8 @@ function hasSameTypeAndGroupIndex(a: FlagProperty, b: FlagProperty): boolean {
 
 /**
  * Prefers the candidates that match the incoming filter, then the ones with its operator, then all
- * of them. Returns undefined when those candidates hold more than one typing, so the result never
- * depends on the order of the stored filters.
+ * of them. Returns undefined when those candidates hold more than one typing. The result therefore
+ * never depends on the order of the stored filters.
  */
 function pickCandidate(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
     const matching = usable.filter((candidate) => matchesFilter(candidate, incoming))
@@ -417,18 +417,12 @@ function mergeProperty(
             // included. Any other candidate restores only a person-aggregated type, because
             // restoring `group` from it would name fields the agent never sent. Leaving the type
             // unset then makes the API report the property the agent actually sent.
-            let usable: FlagProperty[]
-            if (source) {
-                const fromSource = usableCandidates(
-                    candidates,
-                    source === 'person' ? isPresentType : isPersonAggregatedType
-                )
-                // The merge reads other sets only when the source holds no usable candidate.
-                usable = fromSource.length > 0 ? fromSource : usableCandidates(otherCandidates, isPersonAggregatedType)
-            } else {
-                usable = usableCandidates(unambiguousPersonCandidates(otherCandidates, out), isPersonAggregatedType)
-            }
-            // Candidates that disagree leave the property untyped.
+            const fromSource = source
+                ? usableCandidates(candidates, source === 'person' ? isPresentType : isPersonAggregatedType)
+                : []
+            // The merge reads other sets only when the source holds no usable candidate.
+            const others = source ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
+            const usable = fromSource.length > 0 ? fromSource : usableCandidates(others, isPersonAggregatedType)
             const restored = pickCandidate(usable, out)
             if (restored) {
                 out.type = restored.type
