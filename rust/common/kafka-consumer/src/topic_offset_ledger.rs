@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::counter;
@@ -66,11 +65,6 @@ pub enum Rejection {
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
-    /// Version of the per-partition generation map: moves whenever any
-    /// partition's generation does. A caller stamping work outside the lock
-    /// reads this per message and only re-reads the partition's generation
-    /// when it moved.
-    generations_version: AtomicU64,
 }
 
 impl TopicOffsetLedger {
@@ -87,13 +81,6 @@ impl TopicOffsetLedger {
             .get(topic_partition)
             .map(PartitionOffsetLedger::generation)
             .unwrap_or_default()
-    }
-
-    /// Version of the per-partition generation map. Cheaper than
-    /// `generation` and moves whenever any generation does, so a caller
-    /// compares it per message and consults `generation` only on a change.
-    pub fn generations_version(&self) -> u64 {
-        self.generations_version.load(Ordering::Relaxed)
     }
 
     /// Record one slice of delivered offsets on the partition's ledger,
@@ -120,7 +107,6 @@ impl TopicOffsetLedger {
                     Err(error) => {
                         let held = ledger.held();
                         *ledger = PartitionOffsetLedger::new(generation + 1);
-                        self.generations_version.fetch_add(1, Ordering::Relaxed);
                         Err(Rejection::Violation {
                             error,
                             stamp,
@@ -169,7 +155,6 @@ impl TopicOffsetLedger {
                             Err(error) => {
                                 let held = ledger.held();
                                 *ledger = PartitionOffsetLedger::new(generation + 1);
-                                self.generations_version.fetch_add(1, Ordering::Relaxed);
                                 Err(Rejection::Violation {
                                     error,
                                     stamp,
@@ -223,7 +208,6 @@ impl TopicOffsetLedger {
         topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
     ) {
         let mut partitions = self.partitions.lock().unwrap();
-        let mut forgotten = 0;
         for (topic, partition) in topic_partitions {
             let key = TopicPartition::new(topic, partition);
             let generation = partitions
@@ -231,10 +215,7 @@ impl TopicOffsetLedger {
                 .map(PartitionOffsetLedger::generation)
                 .unwrap_or_default();
             partitions.insert(key, PartitionOffsetLedger::new(generation + 1));
-            forgotten += 1;
         }
-        self.generations_version
-            .fetch_add(forgotten, Ordering::Relaxed);
     }
 }
 
@@ -344,7 +325,6 @@ mod tests {
             Ok(Some(Offset(12)))
         );
         assert_eq!(ledger.generation(&p0), 0);
-        assert_eq!(ledger.generations_version(), 0);
     }
 
     #[test]
@@ -352,13 +332,11 @@ mod tests {
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10]);
-        assert_eq!(ledger.generations_version(), 0);
 
         ledger.forget_partitions([("events", 0)]);
 
         assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.generations_version(), 1);
     }
 
     #[test]
@@ -563,10 +541,7 @@ mod tests {
         let p1 = tp("events", 1);
         charge(&ledger, &p1, 0, &[20]);
 
-        // Another partition's reassignment moves the generations version;
-        // this partition's generation and ledger are untouched.
         ledger.forget_partitions([("events", 0)]);
-        assert_eq!(ledger.generations_version(), 1);
         charge(&ledger, &p1, 0, &[21]);
         assert_eq!(ledger.held(&p1).offsets, 2);
 
@@ -663,7 +638,6 @@ mod tests {
         );
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.generations_version(), 1);
 
         // In-flight work from before the reset drops as stale; the next
         // delivery under the new generation founds a fresh ledger.
