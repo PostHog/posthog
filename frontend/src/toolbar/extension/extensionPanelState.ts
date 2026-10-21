@@ -12,7 +12,7 @@ export type ToolbarAccessResult =
     | { status: 'signed-out' }
     | { status: 'error' }
 
-export type ExtensionPopupState =
+export type ExtensionPanelState =
     | { kind: 'checking' }
     | { kind: 'unsupported-page'; reason: UnsupportedPageReason }
     | { kind: 'host-permission-needed' }
@@ -22,7 +22,7 @@ export type ExtensionPopupState =
     | { kind: 'error' }
     | { kind: 'ready'; origin: string }
 
-export interface ExtensionPopupInputs {
+export interface ExtensionPanelInputs {
     /** `undefined` while the active tab is still being read. */
     tabUrl: string | null | undefined
     uiHost: string
@@ -65,7 +65,7 @@ export function unsupportedPageReason(tabUrl: string | null, uiHost: string): Un
     return null
 }
 
-export function getExtensionPopupState(inputs: ExtensionPopupInputs): ExtensionPopupState {
+export function getExtensionPanelState(inputs: ExtensionPanelInputs): ExtensionPanelState {
     if (inputs.tabUrl === undefined) {
         return { kind: 'checking' }
     }
