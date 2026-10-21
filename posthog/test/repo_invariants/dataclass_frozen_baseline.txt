@@ -414,7 +414,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/commercetools/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/tests/test_fanout.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/typing.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/common/schema.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/implementation.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/tests/test_implementation.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/concord/concord.py
