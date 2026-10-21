@@ -22,6 +22,12 @@ _REQUEST_PHRASE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# A message for another bot or a typed Slack command, such as "/remind" or "!deploy".
+_COMMAND_PATTERN = re.compile(r"^[/!]\S")
+_POSTHOG_PATTERN = re.compile(r"\bpost\s?hog\b", re.IGNORECASE)
+# Slack wraps links, channels and tags in angle brackets. A PostHog URL alone does not name PostHog.
+_SLACK_MARKUP_PATTERN = re.compile(r"<[^>]*>")
+
 
 def has_question_signal(text: str) -> bool:
     """Whether a post looks like a question by its words alone: a ``?`` or a question word first."""
@@ -39,12 +45,18 @@ def has_request_signal(text: str) -> bool:
     )
 
 
+def mentions_posthog(text: str) -> bool:
+    """Whether the words of a post name PostHog, outside links."""
+    return bool(_POSTHOG_PATTERN.search(_SLACK_MARKUP_PATTERN.sub(" ", text)))
+
+
 def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
     """Whether a top-level post nobody tagged the app in could be a question for PostHog.
 
     Text-only checks, because every top-level post in every channel the app is in comes through
     here. The classifier makes the real decision later. The word check also passes requests
-    without a ``?`` or a question word, so phrasings like "need signups by country" reach it.
+    without a ``?`` or a question word, so phrasings like "need signups by country" reach it,
+    and any post that names PostHog.
     """
     # ``group`` is a private channel. Group DMs (``mpim``) are private conversations between people.
     if event.get("channel_type") not in ("channel", "group"):
@@ -58,4 +70,6 @@ def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
         return False
     if len(text.split()) < UNTAGGED_QUESTION_MIN_WORDS:
         return False
-    return has_request_signal(text)
+    if _COMMAND_PATTERN.match(text):
+        return False
+    return has_request_signal(text) or mentions_posthog(text)

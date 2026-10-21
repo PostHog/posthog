@@ -12,7 +12,11 @@ class TestIsUntaggedQuestionCandidate(SimpleTestCase):
             ("a question word first", "how many people signed up last week", True),
             ("a request word first", "need signups by country for last month", True),
             ("a request phrase inside", "hey team, looking for the churn dashboard", True),
+            ("a statement that names PostHog", "the PostHog funnel looks off since the deploy", True),
             ("a statement", "Shipped the new export filter today", False),
+            ("PostHog only in a link", "shipped it <https://us.posthog.com/project/2/insights/abc>", False),
+            ("a command", "/remind me how many signups tomorrow", False),
+            ("a command for another bot", "!deploy what is in staging", False),
             ("too few words", "anyone??????????", False),
             ("too short", "why?", False),
         ]
