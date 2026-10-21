@@ -216,7 +216,9 @@ function FieldGuideBanner(): JSX.Element | null {
                 onClose={() => posthog.capture('replay-field-guide-banner-dismissed')}
                 // Negative margins let the hog overflow the banner edges without making the banner taller.
                 // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
-                icon={<HedgehogExplorer className="hidden @lg:block relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />}
+                icon={
+                    <HedgehogExplorer className="hidden @lg:block pointer-events-none relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />
+                }
             >
                 <p>
                     <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}

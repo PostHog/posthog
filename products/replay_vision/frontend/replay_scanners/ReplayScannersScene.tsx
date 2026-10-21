@@ -140,7 +140,9 @@ function FieldGuideBanner(): JSX.Element | null {
                 onClose={() => posthog.capture('replay-vision-field-guide-banner-dismissed')}
                 // Negative margins let the hog overflow the banner edges without making the banner taller.
                 // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
-                icon={<HedgehogExplorer className="hidden @lg:block relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />}
+                icon={
+                    <HedgehogExplorer className="hidden @lg:block pointer-events-none relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />
+                }
             >
                 <p>
                     <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}
@@ -313,17 +315,6 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <IngestionLimitBanner />
-
-            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
-                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
-                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
-                    launch, so re-enable the ones you want to keep running. See{' '}
-                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
-                        how credits are priced
-                    </VisionDocsLink>{' '}
-                    in the docs, or check the Usage tab for current spend.
-                </LemonBanner>
-            )}
 
             <FieldGuideBanner />
 
