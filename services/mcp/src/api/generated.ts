@@ -122441,6 +122441,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122553,6 +122554,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -122651,6 +122653,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122751,6 +122754,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
