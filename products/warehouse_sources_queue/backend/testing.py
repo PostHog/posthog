@@ -263,6 +263,7 @@ def ensure_scheduler_tables(conn: psycopg.Connection[Any]) -> None:
         )
     """)
     conn.execute(f"CREATE INDEX IF NOT EXISTS qsd_observed_at_idx ON {SCHEDULER_DECISION_TABLE} (observed_at)")
+    conn.execute(f"ALTER TABLE {SCHEDULER_DECISION_TABLE} ADD COLUMN IF NOT EXISTS job_id UUID")
 
 
 def truncate_scheduler_tables(conn: psycopg.Connection[Any]) -> None:

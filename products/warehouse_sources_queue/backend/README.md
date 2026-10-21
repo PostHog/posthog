@@ -193,13 +193,16 @@ A job is running when it is `executing`, or `waiting_retry` for its next attempt
 Pending and `waiting_retry` jobs older than the claim eligibility window, terminal jobs, and superseded jobs are not live.
 The policy guard is a `NOT EXISTS` in the insert statement, like the dedup guard, so it is atomic under one enqueuer.
 `JobsTable.get_group_job_states` reads the same live state for many groups in one query, and `overlap_allows` applies a policy to it.
+`JobsTable.insert_many_guarded` enqueues many jobs in one statement under one policy and returns, per job, its id or the guard that refused it (`InsertRefusal.DEDUP` or `InsertRefusal.OVERLAP`).
+The dedup guard runs first, and a second job for one group in the same batch waits behind the first, so both policies refuse it.
+`JobsTable.get_job_liveness_sync` reads one job's state and whether the policies count it as live.
 
 SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.
 
-## Scheduler state (phase 2, shadow mode)
+## Scheduler state (phase 2 shadow mode, phase 3 firing)
 
 `queueschedulerstate` holds one row per `(kind, schedule_key)` with its cadence and epoch-aligned `next_due_at`.
-`queueschedulerdecision` records one decision per `(kind, schedule_key, due_at)`.
+`queueschedulerdecision` records one decision per `(kind, schedule_key, due_at)`, and `job_id` when the decision enqueued a job.
 The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its schedule key.
 SQL lives in `core/scheduler_state.py`.
 The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
@@ -211,9 +214,27 @@ The tick leader drains due schedules.
 The fleet-wide refresh runs in a separate loop with its own sentinel row, so a slow refresh does not delay the drain.
 Each drain batch locks the tick sentinel row with `JobsTable.lock_live_lease` and stops when the row is no longer this pod's.
 A new leader waits for that lock, so two pods never drain at the same time.
-It starts no syncs.
+
+The scheduler fires a schema only when both of these are true:
+
+- the `WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED` setting (the kill switch) is on, and
+- the PostHog flag `warehouse-queue-scheduler` is on for the schema's team.
+
+The flag is per team: the team is the distinct id, and its organization and project are the groups.
+A release condition on a schema property, such as `schema_id` or `source_type`, does not apply.
+Before a tick claims due rows, the leader evaluates the flag locally for each team that has a schedule, outside the tick transaction.
+It keeps that set of teams for a minute (`firing_teams_refresh_seconds`).
+An evaluation that fails, or that local evaluation cannot answer, counts as off.
+For a firing schema, the tick inserts a `sync.extract` job in the same transaction as the decisions, with `insert_many_guarded`, the `SKIP` policy and the dedup key `"{schema_id}:{due epoch}"`.
+The decision is `fired` (with the job id), `skip_overlap` when the policy refused the job, or `skip_duplicate` when a job for the same window exists.
+A halted CDC schema gets `skip_cdc_halted` and no job.
+Every other schema gets the shadow decision (`would_fire` or a skip) and no job, as before.
+`warehouse_pg_scheduler_fired_total` counts fired windows.
+Firing does not remove the schema's Temporal schedule. Until a migrate step removes it, both schedulers fire, and the V3 sync lock lets only one run at a time.
+
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
 It counts an unmatched decision as `temporal_overlap_skip`, not `shadow_only`, when a job for that schema was in progress at the due time and was created at most 7 days before it.
+A schema with a `fired` decision in the window leaves the comparison, and the report counts it in its own `queue_fired` line.
 
 ## Extract lane (phase 3)
 
@@ -222,7 +243,7 @@ Each job is one extraction run of one schema.
 The handler is `SyncExtractHandler` in `products/warehouse_sources/backend/queue_runs/`.
 It runs the same extraction body as the Temporal import activity (`run_extraction`), through a `RunControl` that has no Temporal activity context.
 Whoever enqueues the job decides that the schema runs on the queue; the handler does not check the scheduler flag.
-Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work until the scheduler and the trigger paths start to enqueue.
+The scheduler enqueues `sync.extract` for firing schemas (see above). Manual triggers do not enqueue yet.
 
 ### Lifecycle
 
@@ -231,11 +252,18 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 2. Checks: the handler never reads `ExternalDataJob` rows to decide overlap.
    A run that dies without a status write can leave its row `Running` for good, and such a row must not stop the schema.
    Overlap between scheduled windows is decided when the job is enqueued, by the kind's `OverlapPolicy` against the live jobs in `queuejob` (`sync.extract` uses `SKIP`).
-   A run that is still in flight outside the queue (a Temporal run at cutover, or its load step) holds the V3 sync lock `v3_pipeline_lock:{team_id}:{schema_id}`, which expires.
-   When another run holds that lock, the handler ends the job as skipped (`Success`, `warehouse_extract_runs_skipped_total{reason="overlap"}`) before it creates a job row.
-   When Redis is unavailable, the handler sees no holder and the run goes ahead.
+   Before a new run starts, the handler applies the same failing-schema gap as the Temporal lock activity (`failing_schema_deferral`). A deferred run ends as skipped (`reason="deferred"`). A reset run always goes ahead.
+   The handler then takes the V3 sync lock `v3_pipeline_lock:{team_id}:{schema_id}` with an attempt token, `"{queue job id}:{attempt}"`, and writes lock meta with `runner: "queue"` and the consumer's lease owner.
+   When an earlier attempt of the same queue job holds the lock, the handler checks the group lease in `queuejoblease`.
+   The engine does not stop an attempt that lost its lease, so the lock alone does not prove that the earlier attempt stopped.
+   While another consumer holds a live lease on the group, the earlier attempt may still run, and the handler returns a `Retry` tagged `{"reason": "earlier_attempt_live"}` that does not count against the cap.
+   Otherwise it takes the lock over. A queue database error also returns that `Retry`.
+   When another run holds the lock, the handler first tries the takeover that the Temporal lock activity uses. A Temporal holder is judged by its workflow. A queue holder is judged by its queue job: a live job keeps the lock; a finished or missing job loses it, unless its loader still writes batches.
+   When the holder keeps the lock, the handler ends the job as skipped (`Success`, `warehouse_extract_runs_skipped_total{reason="overlap"}`) before it creates a job row.
+   When Redis is unavailable, the handler returns a `Retry` tagged `{"reason": "lock_unavailable"}`, which does not count against the cap.
    A schema that a repartition holds is also skipped, because queue runs never run the repartition step.
 3. Job row: the first attempt calls `prepare_run` and creates the `ExternalDataJob`.
+   As on the Temporal path, `prepare_run` first checks that the attempt token still holds the lock. When another run took it, the job ends as skipped (`reason="lock_lost"`) and no row is created.
    The row gets `workflow_id` from the payload, `workflow_run_id` = the queue job id, and `phase = extracting`.
    The pre-extraction answers are kept in `schema_snapshot["queue_run_plan"]`, so a later attempt reuses the same row and the same answers.
    A run over its billing limit is finalized `BillingLimitReached` here.
@@ -264,6 +292,13 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
   A run that never checks for shutdown (a full refresh) is cancelled before the drain ends, and also requeued with the tag.
   Its held batch never gets a queue row, and its inserted rows have no final row. The next attempt runs under a new run uuid, and its batch 0 supersedes those rows.
 - `--drain-timeout` (default 600s) is how long `_close` waits for in-flight runs. Set `terminationGracePeriodSeconds` above it.
+- Lock fencing: about every 30s the run reads the lock holder. When a later attempt of the same queue job holds it, the run stops at its next shutdown check and ends as skipped (`reason="lock_lost"`). It writes no status, no extraction result and no lock release, because the later attempt owns the job row and the lock.
+  The handler checks again after the extraction, before it writes the result.
+- Lock release: the loader releases the lock when it finishes a run it was handed. It knows the run only by the job row's `workflow_run_id`, the queue job id, so a release with a queue job id also matches an attempt token of that job.
+  Every other end of the run releases it in the handler: a completion without batches, a failure, a cancellation, and a skip after the lock was taken.
+  A `Retry` keeps the lock, so the next attempt continues without a gap that another run could use.
+  When the engine fails the job, `on_engine_failed` releases the lock unless the run already handed batches to the loader.
+- `on_engine_failed` and a missing run plan do not count toward the schema's failure streak, because the source gave no answer.
 - Cancellation: the handler polls the job's status about every 30s. A terminal status that someone else wrote (the cancel endpoint, a teardown) stops the run, and the handler returns `Fail` without a status write, because the terminal status absorbs later writes.
 
 ### Flags
@@ -285,7 +320,7 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 
 ### Not migrated yet
 
-- Nothing enqueues `sync.extract` (the scheduler and the trigger paths come later).
+- Manual triggers do not enqueue `sync.extract`.
 - Post-import still starts from the loader (or from the handler for a run that returns before the pipeline), not through a follower job.
-- Queue runs do not take the V3 Redis lock, and the Temporal lock activity does not yet refuse a schema with a live queue run.
+- Firing does not remove or pause the schema's Temporal schedule.
 - Repartition, CDC extraction and V2 runs stay on Temporal.

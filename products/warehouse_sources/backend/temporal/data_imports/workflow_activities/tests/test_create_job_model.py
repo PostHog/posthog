@@ -51,7 +51,7 @@ DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipe
 
 
 def _prepare(inputs: CreateExternalDataJobModelActivityInputs) -> CreateExternalDataJobModelActivityOutputs:
-    return prepare_run(inputs, workflow_id="wf-1", workflow_run_id="run-1", verify_v3_lock=True)
+    return prepare_run(inputs, workflow_id="wf-1", workflow_run_id="run-1", v3_lock_token="run-1")
 
 
 def _team() -> Team:

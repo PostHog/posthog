@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.sync_teardown import teardown_run
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
+    lock_token_run_id,
     release_v3_pipeline_lock,
 )
 from products.warehouse_sources_queue.backend.sdk import (
@@ -428,7 +429,7 @@ class Command(BaseCommand):
                     holder = get_v3_pipeline_lock_holder(t.team_id, t.schema_id)
                     if holder is None:
                         notes.append("redis lock unheld")
-                    elif holder == t.workflow_run_id:
+                    elif lock_token_run_id(holder) == t.workflow_run_id:
                         notes.append("redis lock held by this run (will release)")
                     else:
                         notes.append(f"redis lock held by a different token ({holder!r}) - will not release")
@@ -811,7 +812,7 @@ class Command(BaseCommand):
                 holder = get_v3_pipeline_lock_holder(team_id, schema_id)
                 if holder is None:
                     continue
-                if holder in running_tokens.get(schema_id, set()) and not force:
+                if lock_token_run_id(holder) in running_tokens.get(schema_id, set()) and not force:
                     self.stdout.write(
                         self.style.WARNING(
                             f"  redis lock team={team_id} schema={schema_id} is held by a Running job "
@@ -988,7 +989,7 @@ class Command(BaseCommand):
             if holder is None:
                 continue
             held_any = True
-            known = holder in workflow_tokens.get((team_id, schema_id), set())
+            known = lock_token_run_id(holder) in workflow_tokens.get((team_id, schema_id), set())
             note = "" if known else " - token matches no known active workflow_run_id (stale-lock smell)"
             self.stdout.write(f"  team={team_id} schema={schema_id} holder={holder!r}{note}")
         if not held_any:

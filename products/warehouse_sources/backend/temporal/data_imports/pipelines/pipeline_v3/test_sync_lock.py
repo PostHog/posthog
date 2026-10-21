@@ -1,17 +1,27 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import redis
+import fakeredis
 import temporalio.exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
+    LockAcquireResult,
     _get_redis_client,
     _lock_key,
+    _lock_meta_key,
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
+    queue_attempt_token,
     release_v3_pipeline_lock,
+    try_acquire_v3_pipeline_lock,
 )
+
+SYNC_LOCK = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock"
 
 
 class TestLockKey:
@@ -21,23 +31,31 @@ class TestLockKey:
 
 class TestAcquireV3PipelineLock:
     @pytest.mark.parametrize(
-        "set_return, expected",
+        "redis_up, set_effect, expected",
         [
-            (True, True),
-            (None, False),
+            (True, True, LockAcquireResult.ACQUIRED),
+            (True, None, LockAcquireResult.HELD),
+            (True, Exception("connection lost"), LockAcquireResult.UNAVAILABLE),
+            (False, None, LockAcquireResult.UNAVAILABLE),
         ],
-        ids=["acquired", "already_held"],
+        ids=["acquired", "already_held", "set_error", "redis_down"],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_acquire_result(self, mock_ctx: MagicMock, set_return: bool | None, expected: bool) -> None:
+    def test_acquire_result(
+        self, mock_ctx: MagicMock, redis_up: bool, set_effect: object, expected: LockAcquireResult
+    ) -> None:
         mock_redis = MagicMock()
-        mock_redis.set.return_value = set_return
-        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        if isinstance(set_effect, Exception):
+            mock_redis.set.side_effect = set_effect
+        else:
+            mock_redis.set.return_value = set_effect
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis if redis_up else None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = acquire_v3_pipeline_lock(1, "s-1", "tok-1")
-        assert result is expected
-        mock_redis.set.assert_called_once_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
+        assert try_acquire_v3_pipeline_lock(1, "s-1", "tok-1") == expected
+        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is (expected == LockAcquireResult.ACQUIRED)
+        if redis_up:
+            mock_redis.set.assert_called_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
     def test_fail_closed_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
@@ -108,22 +126,41 @@ class TestGetV3PipelineLockHolder:
 
 class TestReleaseV3PipelineLock:
     @pytest.mark.parametrize(
-        "eval_return, expected",
+        "holder, release_token, released",
         [
-            (1, True),
-            (0, False),
+            ("tok-1", "tok-1", True),
+            ("tok-1", "tok-2", False),
+            (queue_attempt_token("job-1", 2), queue_attempt_token("job-1", 2), True),
+            # The loader and the teardown paths release a queue run by its job id.
+            (queue_attempt_token("job-1", 2), "job-1", True),
+            # A stuck earlier attempt must never release the lock of the attempt that replaced it.
+            (queue_attempt_token("job-1", 3), queue_attempt_token("job-1", 2), False),
+            (queue_attempt_token("job-10", 1), "job-1", False),
+            ("job-1", queue_attempt_token("job-1", 1), False),
         ],
-        ids=["released", "token_mismatch"],
+        ids=[
+            "same_token",
+            "other_token",
+            "same_attempt",
+            "queue_job_id_releases_its_attempt",
+            "earlier_attempt_cannot_release_later_one",
+            "job_id_prefix_of_another_job",
+            "attempt_token_cannot_release_bare_job_id",
+        ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_release_result(self, mock_ctx: MagicMock, eval_return: int, expected: bool) -> None:
-        mock_redis = MagicMock()
-        mock_redis.eval.return_value = eval_return
-        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
-        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+    def test_release_compares_the_token(self, holder: str, release_token: str, released: bool) -> None:
+        client = fakeredis.FakeRedis()
+        client.set(_lock_key(1, "s-1"), holder)
+        client.set(_lock_meta_key(1, "s-1"), "{}")
 
-        result = release_v3_pipeline_lock(1, "s-1", "tok-1")
-        assert result is expected
+        @contextmanager
+        def _fake_client() -> Iterator[fakeredis.FakeRedis]:
+            yield client
+
+        with patch(f"{SYNC_LOCK}._get_redis_client", _fake_client):
+            assert release_v3_pipeline_lock(1, "s-1", release_token) is released
+        assert (client.get(_lock_key(1, "s-1")) is None) is released
+        assert (client.get(_lock_meta_key(1, "s-1")) is None) is released
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
     def test_returns_false_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:

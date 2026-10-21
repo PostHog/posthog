@@ -18,6 +18,12 @@ declares its queue lane and its ``OverlapPolicy``; ``sync.extract`` uses
 ``SKIP``, as the Temporal schedules do. A ``skip_overlap`` decision means the
 policy refused the window because of the schema's live queue jobs.
 
+A schema of a firing team gets a real job. The job insert runs the overlap
+policy and the window's dedup key in the same statement, so the decision is
+``fired``, ``skip_overlap`` or ``skip_duplicate`` as the insert answered. Every
+other schema keeps the shadow decision, which reads the same policy without an
+insert.
+
 Due times are epoch-aligned integers, matching Temporal's
 ``ScheduleIntervalSpec`` semantics: a schedule fires at ``n * interval +
 offset`` (UTC epoch), where the offset ports ``get_sync_schedule`` exactly,
@@ -27,6 +33,7 @@ including its deterministic per-schema jitter and its dropping of
 
 from __future__ import annotations
 
+import uuid
 import random
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
@@ -37,11 +44,20 @@ from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.queue_runs.payloads import EXTRACT_LANE, SYNC_EXTRACT_KIND, group_key
+from products.warehouse_sources.backend.queue_runs.payloads import (
+    EXTRACT_LANE,
+    SYNC_EXTRACT_KIND,
+    SyncExtractPayload,
+    SyncTrigger,
+    group_key,
+    scheduled_workflow_id,
+)
 from products.warehouse_sources_queue.backend.sdk import (
     DecisionRecord,
     DueSchedule,
     GroupJobState,
+    InsertRefusal,
+    InsertResult,
     JobsTable,
     OverlapPolicy,
     overlap_allows,
@@ -52,14 +68,22 @@ TICK_SLOT_KEY = "tick-slot"
 REFRESH_SLOT_KEY = "refresh-slot"
 
 DECISION_WOULD_FIRE = "would_fire"
+DECISION_FIRED = "fired"
 DECISION_SKIP_OVERLAP = "skip_overlap"
+DECISION_SKIP_DUPLICATE = "skip_duplicate"
 DECISION_SKIP_CDC_HALTED = "skip_cdc_halted"
 DECISION_SKIP_OUT_OF_SCOPE = "skip_out_of_scope"
 
 SKIP_REASONS = {
     DECISION_SKIP_OVERLAP: "overlap_running",
+    DECISION_SKIP_DUPLICATE: "duplicate_job",
     DECISION_SKIP_CDC_HALTED: "cdc_halted",
     DECISION_SKIP_OUT_OF_SCOPE: "out_of_scope",
+}
+
+_REFUSAL_DECISIONS = {
+    InsertRefusal.OVERLAP: DECISION_SKIP_OVERLAP,
+    InsertRefusal.DEDUP: DECISION_SKIP_DUPLICATE,
 }
 
 
@@ -88,6 +112,21 @@ class InScopeSchema:
     team_id: int
     interval: timedelta
     sync_time_of_day: time | None
+
+
+@frozen
+class DueScope:
+    """What the due scan reads for a schema that is still in scope."""
+
+    source_id: str
+    sync_type_config: dict | None
+
+
+@frozen
+class _Window:
+    row: DueSchedule
+    cadence: SchemaCadence
+    fire: int
 
 
 @frozen
@@ -187,9 +226,59 @@ def fetch_in_scope_schema_page(after_id: str | None, limit: int) -> list[InScope
     ]
 
 
-def _fetch_due_scope(schema_ids: list[str]) -> dict[str, dict | None]:
-    rows = _in_scope_queryset().filter(id__in=schema_ids).values_list("id", "sync_type_config")
-    return {str(schema_id): config for schema_id, config in rows}
+def _fetch_due_scope(schema_ids: list[str]) -> dict[str, DueScope]:
+    rows = _in_scope_queryset().filter(id__in=schema_ids).values_list("id", "source_id", "sync_type_config")
+    return {
+        str(schema_id): DueScope(source_id=str(source_id), sync_type_config=config)
+        for schema_id, source_id, config in rows
+    }
+
+
+def window_dedup_key(schema_id: str, due_at: datetime) -> str:
+    """One job per schema and fire window, however often the window is evaluated."""
+    return f"{schema_id}:{int(due_at.timestamp())}"
+
+
+def _scheduled_job(row: DueSchedule, source_id: str, due_at: datetime) -> dict[str, Any]:
+    payload = SyncExtractPayload(
+        team_id=row.team_id,
+        schema_id=uuid.UUID(row.schedule_key),
+        source_id=uuid.UUID(source_id),
+        trigger=SyncTrigger.SCHEDULE,
+        # A Temporal schedule always starts its runs as billable.
+        billable=True,
+        reset_pipeline=None,
+        workflow_id=scheduled_workflow_id(row.schedule_key, due_at),
+        due_at=due_at,
+    )
+    return {
+        "kind": row.kind,
+        "lane": SCHEDULED_KINDS[row.kind].lane,
+        "group_key": payload.group_key,
+        "team_id": row.team_id,
+        "payload": payload.to_json(),
+        "dedup_key": window_dedup_key(row.schedule_key, due_at),
+    }
+
+
+async def _enqueue_windows(
+    conn: psycopg.AsyncConnection[Any], windows: list[tuple[_Window, str]]
+) -> dict[DueSchedule, InsertResult]:
+    """Insert one job per window, one statement per kind. The policy guards run in the insert."""
+    results: dict[DueSchedule, InsertResult] = {}
+    for kind in sorted({window.row.kind for window, _ in windows}):
+        of_kind = [(window, source_id) for window, source_id in windows if window.row.kind == kind]
+        inserted = await JobsTable.insert_many_guarded(
+            conn,
+            [
+                _scheduled_job(window.row, source_id, datetime.fromtimestamp(window.fire, tz=UTC))
+                for window, source_id in of_kind
+            ],
+            overlap_policy=SCHEDULED_KINDS[kind].overlap_policy,
+        )
+        for (window, _), result in zip(of_kind, inserted, strict=True):
+            results[window.row] = result
+    return results
 
 
 async def _fetch_group_job_states(
@@ -210,10 +299,20 @@ async def _fetch_group_job_states(
     return states
 
 
-async def evaluate_due(conn: psycopg.AsyncConnection[Any], due: list[DueSchedule], now_epoch: int) -> EvaluationResult:
-    """Decide, per due schema, what a real scheduler would have done.
+async def evaluate_due(
+    conn: psycopg.AsyncConnection[Any],
+    due: list[DueSchedule],
+    now_epoch: int,
+    *,
+    firing_team_ids: frozenset[int] = frozenset(),
+) -> EvaluationResult:
+    """Decide, per due schema, what the scheduler does with its latest window.
 
     ``conn`` is a connection to the queue database, where the job tables live.
+    Call it inside the tick transaction, so the jobs it enqueues commit with the
+    decisions and the state advance. Schemas of ``firing_team_ids`` get a real
+    job; the rest get the shadow decision only.
+
     Records exactly one decision per schema, for the latest window only: a tick
     late by several intervals counts the earlier windows on the missed-windows
     metric rather than back-filling decisions Temporal never took either (its
@@ -223,38 +322,62 @@ async def evaluate_due(conn: psycopg.AsyncConnection[Any], due: list[DueSchedule
         return EvaluationResult(records=(), missed_windows=0)
 
     due_ids = [row.schedule_key for row in due]
-    scope_config = await database_sync_to_async_pool(_fetch_due_scope)(due_ids)
-    group_states = await _fetch_group_job_states(conn, due)
+    scope = await database_sync_to_async_pool(_fetch_due_scope)(due_ids)
 
-    records: list[DecisionRecord] = []
+    windows: list[_Window] = []
     missed_windows = 0
     for row in due:
         cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
         fire = latest_fire_at(now_epoch, cadence)
-        stored_due_epoch = int(row.next_due_at.timestamp())
-        missed_windows += max(0, (fire - stored_due_epoch) // cadence.interval_seconds)
+        missed_windows += max(0, (fire - int(row.next_due_at.timestamp())) // cadence.interval_seconds)
+        windows.append(_Window(row=row, cadence=cadence, fire=fire))
 
-        overlap_allowed = overlap_allows(SCHEDULED_KINDS[row.kind].overlap_policy, group_states[row])
-
-        if row.schedule_key not in scope_config:
-            decision = DECISION_SKIP_OUT_OF_SCOPE
-        elif not overlap_allowed:
-            decision = DECISION_SKIP_OVERLAP
-        elif cdc_halted_from_config(scope_config[row.schedule_key]):
-            decision = DECISION_SKIP_CDC_HALTED
+    decisions: dict[DueSchedule, str] = {}
+    to_fire: list[tuple[_Window, str]] = []
+    shadow: list[_Window] = []
+    for window in windows:
+        row = window.row
+        due_scope = scope.get(row.schedule_key)
+        if due_scope is None:
+            decisions[row] = DECISION_SKIP_OUT_OF_SCOPE
+        elif row.team_id not in firing_team_ids:
+            shadow.append(window)
+        elif cdc_halted_from_config(due_scope.sync_type_config):
+            decisions[row] = DECISION_SKIP_CDC_HALTED
         else:
-            decision = DECISION_WOULD_FIRE
+            to_fire.append((window, due_scope.source_id))
 
-        records.append(
-            DecisionRecord(
-                team_id=row.team_id,
-                kind=row.kind,
-                schedule_key=row.schedule_key,
-                window_boundary=datetime.fromtimestamp(window_boundary(fire, cadence), tz=UTC),
-                due_at=datetime.fromtimestamp(fire, tz=UTC),
-                decision=decision,
-                interval_seconds=cadence.interval_seconds,
-                late_seconds=float(now_epoch - fire),
-            )
+    group_states = await _fetch_group_job_states(conn, [window.row for window in shadow])
+    for window in shadow:
+        row = window.row
+        if not overlap_allows(SCHEDULED_KINDS[row.kind].overlap_policy, group_states[row]):
+            decisions[row] = DECISION_SKIP_OVERLAP
+        elif cdc_halted_from_config(scope[row.schedule_key].sync_type_config):
+            decisions[row] = DECISION_SKIP_CDC_HALTED
+        else:
+            decisions[row] = DECISION_WOULD_FIRE
+
+    job_ids: dict[DueSchedule, str] = {}
+    for row, result in (await _enqueue_windows(conn, to_fire)).items():
+        if result.job_id is not None:
+            decisions[row] = DECISION_FIRED
+            job_ids[row] = result.job_id
+        else:
+            assert result.refusal is not None
+            decisions[row] = _REFUSAL_DECISIONS[result.refusal]
+
+    records = tuple(
+        DecisionRecord(
+            team_id=window.row.team_id,
+            kind=window.row.kind,
+            schedule_key=window.row.schedule_key,
+            window_boundary=datetime.fromtimestamp(window_boundary(window.fire, window.cadence), tz=UTC),
+            due_at=datetime.fromtimestamp(window.fire, tz=UTC),
+            decision=decisions[window.row],
+            interval_seconds=window.cadence.interval_seconds,
+            late_seconds=float(now_epoch - window.fire),
+            job_id=job_ids.get(window.row),
         )
-    return EvaluationResult(records=tuple(records), missed_windows=missed_windows)
+        for window in windows
+    )
+    return EvaluationResult(records=records, missed_windows=missed_windows)

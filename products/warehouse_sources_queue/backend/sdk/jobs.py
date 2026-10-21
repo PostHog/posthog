@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
@@ -104,9 +104,12 @@ class JobContext:
     # The engine fails a job without calling its handler past this attempt, so a handler that
     # owns an external state must finish that state at this attempt at the latest.
     max_attempts: int
+    # The token this consumer holds its group leases with. A handler that fences an external state
+    # per attempt records it, so a later attempt can ask whether that lease is still live.
+    lease_owner: str
 
-    async def retry_history(self, job: Job, *, uncounted_tag: str) -> RetryHistory:
-        """The job's earlier retries, without the ones a handler returned with ``uncounted_tag``."""
+    async def retry_history(self, job: Job, *, uncounted_tags: Collection[str]) -> RetryHistory:
+        """The job's earlier retries, without the ones a handler returned with one of ``uncounted_tags``."""
         if job.latest_attempt <= 0:
             return RetryHistory(counted_retries=0, last_error=None)
         async with await psycopg.AsyncConnection.connect(self.database_url, autocommit=True) as conn:
@@ -115,7 +118,7 @@ class JobContext:
                 job_id=job.id,
                 job_created_at=job.created_at,
                 max_retries=job.latest_attempt,
-                uncounted_reason=uncounted_tag,
+                uncounted_reasons=uncounted_tags,
             )
 
 
@@ -557,6 +560,7 @@ class JobConsumer:
             shutdown_event=self._consumer._shutdown,
             database_url=config.database_url,
             max_attempts=config.max_attempts,
+            lease_owner=self._consumer._owner_token,
         )
 
     async def _process(self, job: Job) -> None:

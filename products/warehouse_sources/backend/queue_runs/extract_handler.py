@@ -8,6 +8,14 @@ fails the run's job row.
 
 Job row identity: `workflow_run_id` on the job row is the queue job id, so every attempt of one
 queue job finds the same job row. `workflow_id` comes from the payload.
+
+Sync lock: each attempt takes the V3 sync lock with its own token, "<queue job id>:<attempt>", so
+Temporal runs and queue runs of one schema exclude each other, and so do two attempts of one queue
+job. A later attempt takes the lock over from an earlier attempt only when the earlier attempt's
+group lease is no longer live. An attempt that finds a later attempt of its job in the lock stops.
+The loader releases the lock with the job row's `workflow_run_id`, the queue job id, which also
+releases an attempt token of that job. The run keeps the lock across its own retries, and
+releases it itself whenever it ends without handing batches to the loader.
 """
 
 from __future__ import annotations
@@ -19,15 +27,18 @@ import datetime as dt
 import contextlib
 import dataclasses
 from collections.abc import Callable, Iterator
+from enum import StrEnum
 from typing import Any, cast
 
 from django.db import InterfaceError, InternalError, OperationalError, close_old_connections, transaction
 
+import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
@@ -78,7 +89,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    QUEUE_RUNNER,
+    LockAcquireResult,
     get_v3_pipeline_lock_holder,
+    get_v3_pipeline_lock_meta,
+    lock_token_run_id,
+    queue_attempt_token,
+    release_v3_pipeline_lock,
+    try_acquire_v3_pipeline_lock,
+    write_v3_pipeline_lock_meta,
 )
 from products.warehouse_sources.backend.temporal.data_imports.run_control import (
     EventShutdownMonitor,
@@ -86,9 +105,14 @@ from products.warehouse_sources.backend.temporal.data_imports.run_control import
     no_heartbeat,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    failing_schema_deferral,
+    take_over_v3_lock_if_holder_finished,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     CreateExternalDataJobModelActivityOutputs,
+    V3PipelineLockLostError,
     prepare_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -96,12 +120,17 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     run_extraction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources_queue.backend.sdk import Fail, Job, JobContext, Outcome, Retry, Success
+from products.warehouse_sources_queue.backend.sdk import Fail, Job, JobContext, JobsTable, Outcome, Retry, Success
 
 LOGGER = get_logger(__name__)
 
 # The tag on a retry that a shutdown caused. Those retries do not count against the run's cap.
 SHUTDOWN_RETRY_TAG = "shutdown"
+# The tag on a retry because the sync lock store did not answer. It says nothing about the source.
+LOCK_UNAVAILABLE_RETRY_TAG = "lock_unavailable"
+# The tag on a retry because an earlier attempt of the same run may still run. The source gave no answer.
+EARLIER_ATTEMPT_RETRY_TAG = "earlier_attempt_live"
+UNCOUNTED_RETRY_TAGS = frozenset({SHUTDOWN_RETRY_TAG, LOCK_UNAVAILABLE_RETRY_TAG, EARLIER_ATTEMPT_RETRY_TAG})
 # The key in `ExternalDataJob.schema_snapshot` that keeps the pre-extraction answers, so a later
 # attempt of the same queue job reads them instead of creating another job row.
 RUN_PLAN_SNAPSHOT_KEY = "queue_run_plan"
@@ -128,6 +157,16 @@ class _HandlerResult:
     source_type: str | None = None
 
 
+class _LockOutcome(StrEnum):
+    ACQUIRED = "acquired"
+    # Another run holds the lock and keeps it.
+    HELD = "held"
+    # Redis could not answer, so nobody can tell whether another run holds the lock.
+    UNAVAILABLE = "unavailable"
+    # An earlier attempt of this queue job holds the lock, and its consumer may still run it.
+    EARLIER_ATTEMPT_LIVE = "earlier_attempt_live"
+
+
 class _RunEligibilityChanged(Exception):
     def __init__(self, eligibility: str) -> None:
         self.eligibility = eligibility
@@ -142,6 +181,7 @@ class _Attempt:
     ctx: JobContext
     payload: SyncExtractPayload
     number: int
+    lock_token: str
     plan: CreateExternalDataJobModelActivityOutputs
     # Counted retries before this attempt, and the most this run may count.
     counted_retries: int
@@ -183,7 +223,11 @@ class SyncExtractHandler:
         with _job_log_context(payload, job, job.latest_attempt):
             logger = LOGGER.bind()
             existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
-            if existing is None or existing.status in TERMINAL_JOB_STATUSES:
+            if existing is None:
+                # An attempt may have taken the lock and died before it created the row.
+                await _release_sync_lock(payload, job.id)
+                return
+            if existing.status in TERMINAL_JOB_STATUSES:
                 return
             structlog.contextvars.bind_contextvars(external_data_job_id=str(existing.id))
             await logger.awarning("The queue engine failed the run's job, so the run fails", reason=reason)
@@ -195,7 +239,12 @@ class SyncExtractHandler:
                 internal_error=f"The queue engine failed the job: {reason}"[:1000],
                 latest_error=SYNC_RUN_STALLED_MESSAGE,
                 logger=logger,
+                platform_fault=True,
             )
+            # After an extraction the loader may still write this run's batches, and it releases
+            # the lock when it finishes them.
+            if _load_extraction_result(existing) is None:
+                await _release_sync_lock(payload, job.id)
             plan = _load_run_plan(existing)
             RUNS_FINISHED_TOTAL.labels(
                 source_type=plan.source_type if plan is not None else "unknown", outcome=RunOutcome.FAILED
@@ -222,7 +271,30 @@ class SyncExtractHandler:
 
         existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
 
-        if await asyncio.to_thread(_sync_lock_held_by_another_run, payload.team_id, payload.schema_id, job.id):
+        # Only before the run starts: a later attempt continues a run that already went ahead.
+        if existing is None and await database_sync_to_async_pool(failing_schema_deferral)(
+            payload.team_id, payload.schema_id, reset_requested=payload.reset_pipeline is True, logger=logger
+        ):
+            await logger.ainfo("Skipping queue run: this sync keeps failing, so the run is deferred")
+            return _skipped(SkipReason.DEFERRED)
+
+        token = queue_attempt_token(job.id, attempt)
+        lock = await database_sync_to_async_pool(_acquire_sync_lock)(payload, job, token, ctx, logger)
+        if lock == _LockOutcome.UNAVAILABLE:
+            # Without the lock store nobody can tell whether another run writes this table.
+            await logger.awarning("Queue run waits: the sync lock store is unavailable")
+            return _HandlerResult(
+                outcome=Retry(reason="sync lock unavailable", tag=LOCK_UNAVAILABLE_RETRY_TAG),
+                run_outcome=RunOutcome.RETRY,
+            )
+        if lock == _LockOutcome.EARLIER_ATTEMPT_LIVE:
+            # The job row belongs to that attempt too, so this attempt leaves it alone.
+            await logger.awarning("Queue run waits: an earlier attempt of this run may still run")
+            return _HandlerResult(
+                outcome=Retry(reason="an earlier attempt holds the sync lock", tag=EARLIER_ATTEMPT_RETRY_TAG),
+                run_outcome=RunOutcome.RETRY,
+            )
+        if lock == _LockOutcome.HELD:
             await logger.ainfo("Skipping queue run: another run of this schema holds its sync lock")
             if existing is not None and existing.status == ExternalDataJob.Status.RUNNING:
                 # This run's own job row is left from an earlier attempt, and the other run replaces it.
@@ -236,6 +308,26 @@ class SyncExtractHandler:
                 )
             return _skipped(SkipReason.OVERLAP)
 
+        result = await self._run_with_lock(job, ctx, payload, attempt, token, existing, logger)
+        # The loader releases the lock when it finishes a run it was handed. A run whose row was
+        # already terminal before this attempt has no loader left to do that.
+        loader_releases = result.run_outcome == RunOutcome.HANDED_TO_LOADER and not (
+            existing is not None and existing.status in TERMINAL_JOB_STATUSES
+        )
+        if not isinstance(result.outcome, Retry) and not loader_releases:
+            await _release_sync_lock(payload, token)
+        return result
+
+    async def _run_with_lock(
+        self,
+        job: Job,
+        ctx: JobContext,
+        payload: SyncExtractPayload,
+        attempt: int,
+        token: str,
+        existing: ExternalDataJob | None,
+        logger: FilteringBoundLogger,
+    ) -> _HandlerResult:
         if existing is not None and existing.status in TERMINAL_JOB_STATUSES:
             plan = _load_run_plan(existing)
             result = _load_extraction_result(existing)
@@ -253,7 +345,7 @@ class SyncExtractHandler:
                 # Queue runs never run the repartition step, which is what ends the hold.
                 await logger.ainfo("Skipping queue run: a repartition holds this schema's import")
                 return _skipped(SkipReason.REPARTITION_HOLD)
-            prepared = await self._prepare(job, payload, logger)
+            prepared = await self._prepare(job, payload, token, logger)
             if isinstance(prepared, _HandlerResult):
                 return prepared
             plan = prepared
@@ -280,6 +372,7 @@ class SyncExtractHandler:
                     status=ExternalDataJob.Status.FAILED,
                     latest_error=SYNC_RUN_STALLED_MESSAGE,
                     logger=logger,
+                    platform_fault=True,
                 )
                 return _HandlerResult(outcome=Fail(reason="queue run plan missing"), run_outcome=RunOutcome.FAILED)
             plan = loaded
@@ -296,12 +389,13 @@ class SyncExtractHandler:
             schema_name=plan.schema_name,
             failed_runs_in_a_row=plan.failed_runs_in_a_row,
         )
-        history = await ctx.retry_history(job, uncounted_tag=SHUTDOWN_RETRY_TAG)
+        history = await ctx.retry_history(job, uncounted_tags=UNCOUNTED_RETRY_TAGS)
         run = _Attempt(
             job=job,
             ctx=ctx,
             payload=payload,
             number=attempt,
+            lock_token=token,
             plan=plan,
             counted_retries=history.counted_retries,
             max_counted_attempts=budget.max_attempts,
@@ -332,7 +426,7 @@ class SyncExtractHandler:
         return await self._extract_and_hand_off(run, timeout, logger)
 
     async def _prepare(
-        self, job: Job, payload: SyncExtractPayload, logger: FilteringBoundLogger
+        self, job: Job, payload: SyncExtractPayload, token: str, logger: FilteringBoundLogger
     ) -> CreateExternalDataJobModelActivityOutputs | _HandlerResult:
         inputs = CreateExternalDataJobModelActivityInputs(
             team_id=payload.team_id,
@@ -344,7 +438,11 @@ class SyncExtractHandler:
             started_by_schedule=payload.trigger == SyncTrigger.SCHEDULE,
         )
         try:
-            plan = await database_sync_to_async_pool(_prepare_run_and_stamp)(inputs, payload, job.id)
+            plan = await database_sync_to_async_pool(_prepare_run_and_stamp)(inputs, payload, job.id, token)
+        except V3PipelineLockLostError:
+            # The same check as the Temporal path: another run took the lock before the job row existed.
+            await logger.awarning("Skipping queue run: another run took the sync lock before preparation")
+            return _skipped(SkipReason.LOCK_LOST)
         except _RunEligibilityChanged as e:
             if e.eligibility == "disabled":
                 await logger.ainfo("Skipping queue run: schema or source was disabled before preparation")
@@ -382,6 +480,7 @@ class SyncExtractHandler:
         stop_watch = RunStopWatch(
             shutdown_event=run.ctx.shutdown_event,
             is_run_cancelled=lambda: database_sync_to_async_pool(_run_is_cancelled)(payload.team_id, plan.job_id),
+            is_lock_lost=lambda: asyncio.to_thread(_lock_taken_by_another_attempt, payload, run.lock_token),
             probe_interval_seconds=self._config.cancel_probe_interval_seconds,
             shutdown_grace_seconds=self._config.shutdown_grace_seconds,
             cancel_grace_seconds=self._config.cancel_grace_seconds,
@@ -401,7 +500,6 @@ class SyncExtractHandler:
             attempt=run.number,
             workflow_id=payload.workflow_id,
             workflow_run_id=run.job.id,
-            verify_v3_lock=False,
             on_rows_extracted=ROWS_EXTRACTED_TOTAL.labels(source_type=plan.source_type).inc,
             always_final_marker=True,
         )
@@ -443,6 +541,11 @@ class SyncExtractHandler:
         # cancellation still wins; never hand its output to the loader or start follow-up work.
         if stop_watch.reason == StopReason.CANCELLED:
             return await self._on_stopped(run, stop_watch.reason, logger)
+        # A later attempt that took the run over writes the result and hands the run to the loader.
+        if stop_watch.reason == StopReason.LOCK_LOST or await asyncio.to_thread(
+            _lock_taken_by_another_attempt, payload, run.lock_token
+        ):
+            return await self._on_stopped(run, StopReason.LOCK_LOST, logger)
 
         # Persist the extraction result before any follow-up side effect. A retry can then resume
         # idempotent post-extraction starts even if the loader has already made the run terminal.
@@ -497,6 +600,10 @@ class SyncExtractHandler:
             return _HandlerResult(
                 outcome=Fail(reason="run cancelled"), run_outcome=RunOutcome.CANCELLED, source_type=run.plan.source_type
             )
+        if reason == StopReason.LOCK_LOST:
+            # The later attempt owns the job row and the lock now, so this attempt writes neither.
+            await logger.awarning("Queue run stopped: a later attempt of this run took its sync lock")
+            return _skipped(SkipReason.LOCK_LOST)
         return await self._on_shutdown(run, logger)
 
     async def _on_shutdown(self, run: _Attempt, logger: FilteringBoundLogger) -> _HandlerResult:
@@ -578,6 +685,7 @@ class SyncExtractHandler:
         logger: FilteringBoundLogger,
         internal_error: str | None = None,
         latest_error: str | None = None,
+        platform_fault: bool = False,
     ) -> None:
         """Write the run's final status through the workflow's own finalizer."""
         await _update_job_status(
@@ -594,6 +702,7 @@ class SyncExtractHandler:
             logger,
             # An automatic disable must not try to cancel this run through Temporal.
             exclude_workflow_id=payload.workflow_id,
+            platform_fault=platform_fault,
         )
 
 
@@ -663,15 +772,98 @@ def _find_run_job(team_id: int, queue_job_id: str) -> ExternalDataJob | None:
     )
 
 
-def _sync_lock_held_by_another_run(team_id: int, schema_id: Any, own_token: str) -> bool:
-    """Whether another run of the schema is still in flight, from either scheduler.
+def _acquire_sync_lock(
+    payload: SyncExtractPayload, job: Job, token: str, ctx: JobContext, logger: FilteringBoundLogger
+) -> _LockOutcome:
+    """Take the schema's V3 sync lock for this attempt, from a dead holder of either scheduler too.
 
-    A Temporal run holds the V3 sync lock until its load step ends, and the lock expires. Job rows
-    do not answer this: a run that died can leave its row Running for good, and that row must not
-    stop the schema. When Redis is unavailable there is no holder to see, so the run goes ahead.
+    The lock, not the job rows, decides whether another run is in flight: a run that died can
+    leave its row Running for good, and that row must not stop the schema.
     """
-    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
-    return holder is not None and holder != own_token
+    team_id, schema_id = payload.team_id, str(payload.schema_id)
+    result = try_acquire_v3_pipeline_lock(team_id, schema_id, token)
+    if result == LockAcquireResult.UNAVAILABLE:
+        return _LockOutcome.UNAVAILABLE
+    if result == LockAcquireResult.HELD:
+        holder = get_v3_pipeline_lock_holder(team_id, schema_id)
+        if holder is not None and holder != token and lock_token_run_id(holder) == job.id:
+            taken_over = _take_over_from_earlier_attempt(payload, job, holder, token, ctx, logger)
+            if taken_over != _LockOutcome.ACQUIRED:
+                return taken_over
+        elif holder != token and not take_over_v3_lock_if_holder_finished(team_id, payload.schema_id, token, logger):
+            return _LockOutcome.HELD
+    # Lets a contender see that the holder is a queue attempt and ask the queue whether it still runs.
+    write_v3_pipeline_lock_meta(
+        team_id,
+        schema_id,
+        run_id=token,
+        workflow_id=payload.workflow_id,
+        runner=QUEUE_RUNNER,
+        lease_owner=ctx.lease_owner,
+    )
+    return _LockOutcome.ACQUIRED
+
+
+def _take_over_from_earlier_attempt(
+    payload: SyncExtractPayload, job: Job, holder: str, token: str, ctx: JobContext, logger: FilteringBoundLogger
+) -> _LockOutcome:
+    """Take the lock from an earlier attempt of this queue job, but only when that attempt is fenced.
+
+    The engine stops renewing the group lease of an attempt that loses it, but it does not stop
+    the attempt. So the lock alone does not prove that the earlier attempt stopped. Its lease does:
+    while another consumer holds a live lease on the group, the earlier attempt may still run. One
+    consumer never runs two attempts of a group at once, so this consumer's own lease does not count.
+    A queue database error fails closed.
+    """
+    team_id, schema_id = payload.team_id, str(payload.schema_id)
+    meta = get_v3_pipeline_lock_meta(team_id, schema_id)
+    holder_lease_owner = meta.get("lease_owner") if meta is not None and meta.get("run_id") == holder else None
+    try:
+        with psycopg.Connection.connect(ctx.database_url, autocommit=True) as conn:
+            live_owner = JobsTable.get_live_lease_owner_sync(conn, lane=job.lane, group_key=job.group_key)
+    except Exception as e:
+        logger.warning("v3_pipeline_lock_earlier_attempt_check_failed", holder_token=holder, error=str(e))
+        capture_exception(e)
+        return _LockOutcome.EARLIER_ATTEMPT_LIVE
+    if live_owner is not None and live_owner != ctx.lease_owner:
+        logger.warning(
+            "v3_pipeline_lock_takeover_skipped",
+            holder_token=holder,
+            reason="earlier_attempt_lease_live",
+            holder_lease_owner=holder_lease_owner,
+            live_lease_owner=live_owner,
+        )
+        return _LockOutcome.EARLIER_ATTEMPT_LIVE
+
+    logger.warning(
+        "v3_pipeline_lock_taking_over",
+        holder_token=holder,
+        reason="earlier_attempt_lease_gone",
+        holder_lease_owner=holder_lease_owner,
+    )
+    # Compare-and-delete on the earlier token, so a run that took the lock in between keeps it.
+    release_v3_pipeline_lock(team_id, schema_id, holder)
+    result = try_acquire_v3_pipeline_lock(team_id, schema_id, token)
+    if result == LockAcquireResult.UNAVAILABLE:
+        return _LockOutcome.UNAVAILABLE
+    return _LockOutcome.ACQUIRED if result == LockAcquireResult.ACQUIRED else _LockOutcome.HELD
+
+
+def _lock_taken_by_another_attempt(payload: SyncExtractPayload, token: str) -> bool:
+    """Whether another attempt of this queue job holds the lock now, so this attempt was replaced.
+
+    Only another attempt of the same job counts. Another run gets the lock only after the loader
+    or a teardown released it, which ends this run as well. Best-effort, as the check before job
+    creation: an unheld lock or an unavailable Redis does not stop the run.
+    """
+    holder = get_v3_pipeline_lock_holder(payload.team_id, str(payload.schema_id))
+    return holder is not None and holder != token and lock_token_run_id(holder) == lock_token_run_id(token)
+
+
+async def _release_sync_lock(payload: SyncExtractPayload, token: str) -> None:
+    # Compare-and-delete on the token, so a lock another run took is never touched. The queue job
+    # id also matches an attempt token of that job.
+    await asyncio.to_thread(release_v3_pipeline_lock, payload.team_id, str(payload.schema_id), token)
 
 
 def _held_for_repartition(payload: SyncExtractPayload, logger: FilteringBoundLogger) -> bool:
@@ -692,7 +884,7 @@ def _validate_payload_and_eligibility(payload: SyncExtractPayload, *, lock: bool
 
 
 def _prepare_run_and_stamp(
-    inputs: CreateExternalDataJobModelActivityInputs, payload: SyncExtractPayload, queue_job_id: str
+    inputs: CreateExternalDataJobModelActivityInputs, payload: SyncExtractPayload, queue_job_id: str, lock_token: str
 ) -> CreateExternalDataJobModelActivityOutputs:
     # Inside the transaction below this would close the connection the transaction runs on.
     close_old_connections()
@@ -702,7 +894,9 @@ def _prepare_run_and_stamp(
         eligibility = _validate_payload_and_eligibility(payload, lock=True)
         if eligibility != "eligible":
             raise _RunEligibilityChanged(eligibility)
-        plan = prepare_run(inputs, workflow_id=payload.workflow_id, workflow_run_id=queue_job_id, verify_v3_lock=False)
+        plan = prepare_run(
+            inputs, workflow_id=payload.workflow_id, workflow_run_id=queue_job_id, v3_lock_token=lock_token
+        )
         _update_run_snapshot(payload.team_id, plan.job_id, RUN_PLAN_SNAPSHOT_KEY, dataclasses.asdict(plan))
         ExternalDataJob.objects.filter(id=plan.job_id, team_id=payload.team_id).update(
             phase=ExternalDataJob.Phase.EXTRACTING

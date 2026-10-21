@@ -1,11 +1,12 @@
-"""Shadow-scheduler tick loop: leader election, refresh, due scan, decisions.
+"""Scheduler tick loop: leader election, refresh, due scan, decisions.
 
 Every pod runs the same loop; the tick sentinel single-flights each tick across
 the fleet, so followers only heartbeat. The fleet-wide refresh runs in a
 separate loop with its own sentinel and connection, so a slow refresh never
-delays the drain of due schedules. The scheduler writes decisions and
-metrics but starts no syncs — Temporal schedules stay the only thing that runs
-work while shadow mode is compared against them.
+delays the drain of due schedules. For most schemas the scheduler writes
+decisions and metrics only, and Temporal schedules run the work. It enqueues
+real `sync.extract` jobs only for the teams that the `warehouse-queue-scheduler`
+flag routes to the queue, and only while the firing kill switch is on.
 """
 
 from __future__ import annotations
@@ -22,10 +23,13 @@ import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.queue_runs.payloads import SYNC_EXTRACT_KIND
+from products.warehouse_sources.backend.scheduling.backend import queue_scheduler_firing_enabled, queue_scheduler_teams
 from products.warehouse_sources.backend.scheduling.shadow import (
+    DECISION_FIRED,
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_WOULD_FIRE,
     REFRESH_SLOT_KEY,
@@ -48,6 +52,11 @@ REFRESH_PAGE_SIZE = 1000
 WOULD_FIRE_TOTAL = Counter(
     "warehouse_pg_scheduler_would_fire_total",
     "Windows the shadow scheduler would have fired a sync for",
+)
+
+FIRED_TOTAL = Counter(
+    "warehouse_pg_scheduler_fired_total",
+    "Windows the scheduler fired a real sync job for on the queue",
 )
 
 SKIPS_TOTAL = Counter(
@@ -113,6 +122,8 @@ class ShadowSchedulerConfig:
     # Just under the tick interval, so a backlog drain yields to the next tick
     # and to shutdown.
     drain_budget_seconds: float = 55.0
+    # How long the set of firing teams is kept before the flag is evaluated again.
+    firing_teams_refresh_seconds: float = 60.0
 
 
 @frozen
@@ -129,6 +140,8 @@ class ShadowScheduler:
     def __init__(self, config: ShadowSchedulerConfig) -> None:
         self._config = config
         self._owner_token = str(uuid4())
+        self._firing_teams: frozenset[int] = frozenset()
+        self._firing_teams_expire_at: float | None = None
 
     async def run(self, shutdown: asyncio.Event, health_reporter: Callable[[], None]) -> None:
         logger.info(
@@ -206,6 +219,8 @@ class ShadowScheduler:
                 health_reporter()
                 return
 
+            firing_team_ids = await self._firing_team_ids(conn)
+
             # Drain the backlog in claim_limit batches, one transaction each, so
             # a backlog larger than one claim does not make every fire late.
             drain_started = time.monotonic()
@@ -216,7 +231,7 @@ class ShadowScheduler:
             missed_windows = 0
             lease_lost = False
             while True:
-                outcome = await self._drain_batch(conn)
+                outcome = await self._drain_batch(conn, firing_team_ids)
                 health_reporter()
                 if outcome is None:
                     lease_lost = True
@@ -243,8 +258,10 @@ class ShadowScheduler:
                 lease_lost=lease_lost,
             )
 
-    async def _drain_batch(self, conn: psycopg.AsyncConnection) -> DrainBatchOutcome | None:
-        """Run one claim/evaluate/advance transaction. None means the tick slot is no longer ours."""
+    async def _drain_batch(
+        self, conn: psycopg.AsyncConnection, firing_team_ids: frozenset[int]
+    ) -> DrainBatchOutcome | None:
+        """Run one claim/evaluate/fire/advance transaction. None means the tick slot is no longer ours."""
         async with conn.transaction():
             # The lock holds off a new leader until this batch commits, so two pods
             # never drain at the same time, also when this batch outlives the slot.
@@ -254,7 +271,7 @@ class ShadowScheduler:
                 return None
             now_epoch = int(time.time())
             due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
-            result = await evaluate_due(conn, due, now_epoch)
+            result = await evaluate_due(conn, due, now_epoch, firing_team_ids=firing_team_ids)
             inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
 
             advances = []
@@ -269,7 +286,17 @@ class ShadowScheduler:
 
         for record in inserted_records:
             FIRE_LATENESS_SECONDS.observe(record.late_seconds)
-            if record.decision == DECISION_WOULD_FIRE:
+            if record.decision == DECISION_FIRED:
+                FIRED_TOTAL.inc()
+                logger.info(
+                    "scheduler_fired",
+                    schema_id=record.schedule_key,
+                    team_id=record.team_id,
+                    due_at=record.due_at.isoformat(),
+                    late_seconds=record.late_seconds,
+                    job_id=record.job_id,
+                )
+            elif record.decision == DECISION_WOULD_FIRE:
                 WOULD_FIRE_TOTAL.inc()
                 logger.info(
                     "scheduler_would_fire",
@@ -305,6 +332,31 @@ class ShadowScheduler:
             duplicate_windows=refused,
             missed_windows=inserted_missed_windows,
         )
+
+    async def _firing_team_ids(self, conn: psycopg.AsyncConnection) -> frozenset[int]:
+        """The teams whose due schemas fire on this tick, out of the teams that have a schedule.
+
+        Called before the claim, outside the tick transaction: the claim holds up to `claim_limit`
+        rows FOR UPDATE until the transaction commits, and no flag evaluation runs while it does.
+        The answer is kept for `firing_teams_refresh_seconds`. A failure counts as "no team fires"
+        and is not kept, so the next tick asks again.
+        """
+        # With the kill switch off no team fires, so the flag is not evaluated at all.
+        if not queue_scheduler_firing_enabled():
+            return frozenset()
+        now = time.monotonic()
+        if self._firing_teams_expire_at is not None and now < self._firing_teams_expire_at:
+            return self._firing_teams
+        try:
+            team_ids = await SchedulerStateTable.team_ids(conn, kind=SYNC_EXTRACT_KIND)
+            firing = await database_sync_to_async_pool(queue_scheduler_teams)(team_ids)
+        except Exception as e:
+            logger.warning("scheduler_firing_teams_failed", exc_info=True)
+            capture_exception(e)
+            return frozenset()
+        self._firing_teams = firing
+        self._firing_teams_expire_at = now + self._config.firing_teams_refresh_seconds
+        return firing
 
     async def _refresh(self, conn: psycopg.AsyncConnection) -> None:
         started = time.monotonic()

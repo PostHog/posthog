@@ -1,7 +1,9 @@
-"""Stop a queue run when the consumer shuts down or when someone cancels the run.
+"""Stop a queue run when the consumer shuts down, when someone cancels the run, or when it loses its lock.
 
 No Temporal cancel reaches a queue run, so the watch polls the job row instead. A cancel writes a
 terminal status to the job first, so a terminal status on a running extraction means "stop".
+The watch also polls the V3 sync lock. Another holder means a later attempt or another run took
+the schema over, so this attempt must stop writing.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ logger = structlog.get_logger(__name__)
 class StopReason(enum.StrEnum):
     SHUTDOWN = "shutdown"
     CANCELLED = "cancelled"
+    LOCK_LOST = "lock_lost"
 
 
 class RunStopWatch:
@@ -35,12 +38,14 @@ class RunStopWatch:
         *,
         shutdown_event: asyncio.Event,
         is_run_cancelled: Callable[[], Awaitable[bool]],
+        is_lock_lost: Callable[[], Awaitable[bool]] | None = None,
         probe_interval_seconds: float,
         shutdown_grace_seconds: float,
         cancel_grace_seconds: float,
     ) -> None:
         self._shutdown_event = shutdown_event
         self._is_run_cancelled = is_run_cancelled
+        self._is_lock_lost = is_lock_lost
         self._probe_interval_seconds = probe_interval_seconds
         self._shutdown_grace_seconds = shutdown_grace_seconds
         self._cancel_grace_seconds = cancel_grace_seconds
@@ -73,6 +78,16 @@ class RunStopWatch:
                 continue
             if cancelled:
                 await self._stop(StopReason.CANCELLED, self._cancel_grace_seconds, work)
+                return
+            if self._is_lock_lost is None:
+                continue
+            try:
+                lock_lost = await self._is_lock_lost()
+            except Exception as e:
+                logger.warning("extract_lock_probe_failed", error=str(e))
+                continue
+            if lock_lost:
+                await self._stop(StopReason.LOCK_LOST, self._cancel_grace_seconds, work)
                 return
 
     async def _stop(self, reason: StopReason, grace_seconds: float, work: asyncio.Task[Any]) -> None:
