@@ -440,7 +440,7 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
-/** Connected tools in the roster: GitHub on, Sentry failing, Jira synced but off. */
+/** Connected tools in the roster, with Jira (synced but off) and two category gaps recommended under it. */
 export const ExternalSourcesConnected: Story = {
     args: { externalConnections: true },
 }
