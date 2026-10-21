@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
+from products.logs.backend.alert_deletion import delete_platform_owned
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
 from products.logs.backend.models import LogsAlertConfiguration
@@ -69,6 +70,7 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     validate=validate_logs_edit,
     mirror=mirror_platform_edit,
     create=create_platform_owned,
+    delete=delete_platform_owned,
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=logs_alert_url,
 )

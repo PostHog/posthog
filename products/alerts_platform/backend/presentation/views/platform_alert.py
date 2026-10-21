@@ -540,6 +540,32 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=True)
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="The alert, its source's own row and its destinations are deleted."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API deletes it."),
+        }
+    )
+    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "delete")
+        # Checked again by the delete, under the source row's lock.
+        if current.owner != PlatformAlertOwner.PLATFORM:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Delete it there.")
+        try:
+            deleted = platform_api.delete_configuration(
+                team_id=team_id, source_kinds=self._writable_source_kinds, configuration_id=configuration_id
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        if not deleted:
+            raise NotFound()
+        transaction.on_commit(lambda: self._track("deleted", current), robust=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @validated_request(
         PlatformAlertGroupSnoozeSerializer,
         responses={

@@ -288,13 +288,17 @@ class TestPlatformAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
 
-    def test_an_alert_its_source_owns_is_not_edited_here(self) -> None:
+    @parameterized.expand([("edit",), ("delete",)])
+    def test_an_alert_its_source_owns_is_not_written_here(self, write: str) -> None:
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors")
 
-        response = self.client.patch(
-            self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
-        )
+        if write == "edit":
+            response = self.client.patch(
+                self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
+            )
+        else:
+            response = self.client.delete(self._edit_url(configuration))
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         configuration.refresh_from_db()

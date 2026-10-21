@@ -229,6 +229,17 @@ def update_owned_copy(
     )
 
 
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns, with its source's own row. False when the caller
+    cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API cannot delete.
+    """
+    return platform_writes.delete_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+    )
+
+
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
 

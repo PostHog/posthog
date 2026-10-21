@@ -114,6 +114,17 @@ export const platformAlertsPartialUpdate = async (
     })
 }
 
+export const getPlatformAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getPlatformAlertsSnoozeGroupCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/snooze_group/`
 }

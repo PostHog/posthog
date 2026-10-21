@@ -915,19 +915,32 @@ class SourceCreate(Protocol):
     def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID: ...
 
 
+class SourceDelete(Protocol):
+    """Deletes an alert the platform owns through the platform API, on a source that keeps its own row.
+
+    It removes the source's row and the platform's copy, and closes the alert's open incidents
+    before either goes, while the destinations the resolves go to still exist. So it runs outside
+    any transaction. It raises `PlatformAlertNotEditable` when the source's row belongs to another
+    team than the copy, because the platform API checked access to the copy's team only.
+    """
+
+    def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
     spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
-    `create`, the API cannot create alerts of the kind.
+    `create` or `delete`, the API cannot create or delete alerts of the kind.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
+    delete: SourceDelete | None = None
     # Where the source's incident destinations listen for a close, and the alert's page in the
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
