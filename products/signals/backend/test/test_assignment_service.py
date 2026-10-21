@@ -36,6 +36,7 @@ from products.signals.backend.assignment_flags import (
     assignment_side_effects_enabled,
 )
 from products.signals.backend.assignment_service import (
+    AssignmentClaimConflict,
     AssignmentOperationConflict,
     AssignmentProposal,
     AssignmentWriteError,
@@ -322,6 +323,13 @@ class TestReportAssignmentService(BaseTest):
         active = get_active_claim(team_id=self.team.id, report_id=str(self.report.id))
         assert active is not None
         assert active.claim_id == claim.id
+
+    def test_assignment_rejects_a_claim_owned_by_another_actor(self) -> None:
+        claim = SignalReportArtefact.add_log(
+            team_id=self.team.id, report_id=str(self.report.id), content=WorkClaim(), attribution=self.actor
+        )
+        with self.assertRaises(AssignmentClaimConflict):
+            self.service.apply(self._proposal(), actor=ArtefactAttribution.system(), claim_id=str(claim.id))
 
     def test_removing_a_legacy_login_keeps_the_removal_after_github_is_unlinked(self) -> None:
         identity = UserSocialAuth.objects.create(

@@ -26,6 +26,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
+    WorkClaim,
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_pr import ImplementationPr
@@ -744,6 +745,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert legacy_write.status_code == status.HTTP_400_BAD_REQUEST
         assert "Assignment writes are disabled" in legacy_write.json()["error"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
+        decision_artefact = report.artefacts.get(type="assignment_decision")
+        internal_read = self.client.get(self._detail_url(str(report.id), str(decision_artefact.id)))
+        assert internal_read.status_code == status.HTTP_404_NOT_FOUND
 
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.
@@ -1155,6 +1159,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         report = self._create_report()
         reviewers_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+        claim = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=WorkClaim(),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
 
         with (
             patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True),
@@ -1173,11 +1183,15 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                 {
                     "artefact_type": "suggested_reviewers",
                     "content": [{"user_uuid": str(automatic_reviewer.uuid)}],
+                    "claim_id": str(claim.id),
                 },
                 format="json",
             )
 
         assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()
+        assert automatic_edit.json()["claim_id"] == str(claim.id)
+        latest_reviewers = report.artefacts.filter(type="suggested_reviewers").latest("created_at")
+        assert latest_reviewers.claim_id == claim.id
         assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
             str(human_reviewer.uuid),
             str(automatic_reviewer.uuid),
