@@ -364,6 +364,16 @@ class TestSimplePaginationRefusedFields:
         response.text = ""
         return response
 
+    @staticmethod
+    def _null_batch_response() -> mock.MagicMock:
+        # Meta leaves a subresponse `null` for a subrequest it hadn't gotten back to before the
+        # whole batch call ran out of time.
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.json.return_value = [None]
+        response.text = ""
+        return response
+
     @pytest.mark.parametrize("subcode", [2446211, 1443048])
     def test_refused_row_syncs_without_refusable_fields(self, subcode: int) -> None:
         manager = _build_manager()
@@ -431,6 +441,113 @@ class TestSimplePaginationRefusedFields:
                         self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
                     )
                 )
+
+    def test_batch_subresponse_transient_error_retries_whole_batch(self, monkeypatch) -> None:
+        # Meta can abort a single batch subrequest on its own, even though the overall batch call
+        # returns 200 — code 960, "Request aborted. This could happen if a dependent request failed
+        # or the entire request timed out." Our subrequests have no dependency on one another, so
+        # this is the batch nearing a timeout rather than the lookup itself being invalid.
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        aborted_body = {"error": {"message": "Request aborted.", "code": 960, "fbtrace_id": "abc123"}}
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._batch_response([(500, aborted_body)]),
+            self._batch_response([(200, {"id": "1", "creative": {"id": "c1"}})]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "creative": {"id": "c1"}}]]
+        assert mock_get.return_value.post.call_count == 2
+
+    def test_persistent_batch_subresponse_transient_error_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        aborted_body = {"error": {"message": "Request aborted.", "code": 960, "fbtrace_id": "abc123"}}
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._batch_response([(500, aborted_body)]) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            # Still surfaces the raw failure, so it stays retryable at the Temporal layer.
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+        assert mock_get.return_value.post.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+    def test_batch_null_subresponse_retries_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._null_batch_response(),
+            self._batch_response([(200, {"id": "1", "creative": {"id": "c1"}})]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "creative": {"id": "c1"}}]]
+        assert mock_get.return_value.post.call_count == 2
+
+    def test_persistent_batch_null_subresponse_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [self._null_batch_response() for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+        assert mock_get.return_value.post.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
 
     def test_restore_lookup_chunks_at_batch_limit(self) -> None:
         # Meta's batch endpoint accepts at most META_BATCH_MAX_SUBREQUESTS (50) subrequests per

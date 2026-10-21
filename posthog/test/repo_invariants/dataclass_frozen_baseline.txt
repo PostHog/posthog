@@ -1114,7 +1114,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/telnyx/telnyx.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/tempo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/tenable_vulnerability_management.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/terraform_cloud.py
