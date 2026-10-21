@@ -242,15 +242,6 @@ class TestGroupTables:
                 [("region_eu_sales", "delta", None, "_region=eu/sales", "delta", [])],
             ),
             (
-                "pattern_matches_across_folders",
-                ["a/x.csv", "a/y.json", "b/z.csv"],
-                DiscoveryOptions(file_pattern="*.csv"),
-                [
-                    ("a", "files", "folder", "a", "csv", ["a/x.csv"]),
-                    ("b", "files", "folder", "b", "csv", ["b/z.csv"]),
-                ],
-            ),
-            (
                 "a_folder_with_two_formats_names_a_table_per_format",
                 ["data/a.csv", "data/b.parquet"],
                 DiscoveryOptions(),
@@ -281,9 +272,96 @@ class TestGroupTables:
 
         assert summarize(tables) == expected
 
+    @parameterized.expand(
+        [
+            (
+                "star_stays_in_its_folder",
+                ["a.csv", "daily/b.csv"],
+                "*.csv",
+                "",
+                DiscoveryOptions(),
+                [("a", "files", "file", "a.csv", "csv", ["a.csv"])],
+            ),
+            (
+                "double_star_crosses_folders",
+                ["a.csv", "daily/b.csv", "daily/c.json"],
+                "**.csv",
+                "",
+                DiscoveryOptions(),
+                [
+                    ("a", "files", "file", "a.csv", "csv", ["a.csv"]),
+                    ("daily", "files", "folder", "daily", "csv", ["daily/b.csv"]),
+                ],
+            ),
+            (
+                "underscore_hive_partitions_under_the_root_make_one_table",
+                [
+                    "_part_key=2024-w10/part-0.parquet",
+                    "_part_key=2024-w11/part-0.parquet",
+                    "_part_key=2024-w11/_SUCCESS",
+                    "notes.txt",
+                ],
+                "**/*.parquet",
+                "",
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "",
+                        "parquet",
+                        ["_part_key=2024-w10/part-0.parquet", "_part_key=2024-w11/part-0.parquet"],
+                    )
+                ],
+            ),
+            (
+                "a_delta_table_needs_the_pattern_to_match_one_of_its_files",
+                ["sales/_delta_log/0.json", "sales/p.parquet", "refunds/_delta_log/0.json", "a.csv"],
+                "**.parquet",
+                "",
+                DiscoveryOptions(),
+                [("sales", "delta", None, "sales", "delta", [])],
+            ),
+        ]
+    )
+    def test_url_selection(
+        self,
+        _name: str,
+        paths: list[str],
+        pattern: str | None,
+        listing_prefix: str,
+        options: DiscoveryOptions,
+        expected: list[tuple[str, str, str | None, str, str, list[str]]],
+    ) -> None:
+        tables = group_tables(
+            [stored(path) for path in paths],
+            options,
+            root_name="orders",
+            pattern=pattern,
+            listing_prefix=listing_prefix,
+        )
+
+        assert summarize(tables) == expected
+
+    def test_a_combined_table_lists_only_its_listing_prefix_at_sync(self, tmp_path: Path) -> None:
+        for path in ("daily/a.csv", "daily/2024/b.csv", "daily-archive/c.csv", "other.csv"):
+            (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / path).write_text("id\n1\n")
+        [table] = group_tables(
+            [stored("daily/a.csv")],
+            DiscoveryOptions(combined_table_name="daily"),
+            root_name="r",
+            listing_prefix="daily",
+        )
+
+        resolved = resolve_table_files(local_store(tmp_path), table)
+
+        assert [f.path for f in resolved.files] == ["daily/2024/b.csv", "daily/a.csv"]
+
     def test_metadata_round_trip_rebuilds_the_same_table(self) -> None:
-        options = DiscoveryOptions(file_format="csv_no_header", file_pattern="*.txt", allow_double_quotes=False)
-        [table] = group_tables([stored("exports/a.txt")], options, root_name="root")
+        options = DiscoveryOptions(file_format="csv_no_header", allow_double_quotes=False)
+        [table] = group_tables([stored("exports/a.txt")], options, root_name="root", pattern="**.txt")
 
         rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
 
@@ -291,7 +369,7 @@ class TestGroupTables:
         assert rebuilt.same_location(table)
         assert (rebuilt.csv, rebuilt.pattern, rebuilt.source_format) == (
             CsvOptions(has_header=False, allow_double_quotes=False),
-            "*.txt",
+            "**.txt",
             "csv_no_header",
         )
 
