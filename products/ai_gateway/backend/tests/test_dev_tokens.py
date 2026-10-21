@@ -6,7 +6,14 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.core.cache import cache
+from django.db import connection
+from django.test import (
+    Client as DjangoClient,
+    override_settings,
+)
+from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,6 +25,7 @@ from products.ai_gateway.backend.models import DevGatewayToken
 
 _POST = "products.ai_gateway.backend.logic.requests.post"
 _FLAG = "products.ai_gateway.backend.logic.posthoganalytics.feature_enabled"
+_VIEW_IMPERSONATED = "products.ai_gateway.backend.presentation.views.is_impersonated"
 URL = "/api/ai_gateway/dev_tokens/"
 VERIFIER = "v" * 43
 CHALLENGE = base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode()).digest()).rstrip(b"=").decode()
@@ -80,6 +88,8 @@ class TestDevTokens(APIBaseTest):
         [
             ("not_staff", {"is_staff": False}, "not_staff"),
             ("outside_email", {"email": "someone@example.com"}, "not_staff"),
+            ("lookalike_domain", {"email": "someone@evilposthog.com"}, "not_staff"),
+            ("no_distinct_id", {"distinct_id": ""}, "not_staff"),
         ]
     )
     def test_ineligible_user_never_reaches_the_gateway(self, _name, fields, code):
@@ -92,13 +102,74 @@ class TestDevTokens(APIBaseTest):
         assert response.json()["code"] == code
         post.assert_not_called()
 
-    def test_impersonated_session_cannot_mint(self):
-        with patch("products.ai_gateway.backend.presentation.views.is_impersonated", return_value=True):
-            with patch(_POST) as post:
-                response = self.client.post(URL)
+    def test_unverified_email_never_reaches_the_gateway(self):
+        with (
+            patch("products.ai_gateway.backend.logic.email_verification_pending", return_value=True),
+            patch(_POST) as post,
+        ):
+            response = self.client.post(URL)
+        assert response.status_code == 403
+        assert response.json()["code"] == "not_staff"
+        post.assert_not_called()
+
+    def test_unconfigured_instance_never_reaches_the_gateway(self):
+        with override_settings(DEV_GATEWAY_MINT_KEY=""), patch(_POST) as post:
+            response = self.client.post(URL)
+        assert response.status_code == 503
+        assert response.json()["code"] == "unconfigured"
+        post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("usage", "get", "usage/", {}),
+            ("create", "post", "", {}),
+            ("revoke", "post", "revoke/", {}),
+            ("cli_authorize", "post", "cli_authorize/", {"code_challenge": CHALLENGE}),
+        ]
+    )
+    def test_every_session_view_refuses_impersonation(self, _name, method, path, body):
+        # The middleware check reads the session only, so this pins each view's own guard.
+        with patch(_VIEW_IMPERSONATED, return_value=True), patch(_POST) as post:
+            response = getattr(self.client, method)(f"{URL}{path}", body)
         assert response.status_code == 403
         assert response.json()["code"] == "impersonated"
         post.assert_not_called()
+        assert not self._rows(user=self.user).exists()
+
+    @parameterized.expand(
+        [
+            # GET passes the middleware, so the view guard is the only refusal.
+            ("usage", "get", "usage/", {}, "impersonated"),
+            ("create", "post", "", {}, "impersonation_path_blocked"),
+            ("revoke", "post", "revoke/", {}, "impersonation_path_blocked"),
+            (
+                "cli_authorize",
+                "post",
+                "cli_authorize/",
+                {"code_challenge": CHALLENGE},
+                "impersonation_path_blocked",
+            ),
+        ]
+    )
+    @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+    def test_loginas_session_is_refused(self, _name, method, path, body, code):
+        # loginas refuses staff targets, so the impersonated user is a customer.
+        target = User.objects.create_and_join(self.organization, "target@example.com", "123456")
+        client = DjangoClient()
+        client.force_login(self.user)
+        client.post(
+            reverse("loginas-user-login", kwargs={"user_id": target.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
+        )
+        with patch(_POST) as post:
+            if method == "get":
+                response = client.get(f"{URL}{path}")
+            else:
+                response = client.post(f"{URL}{path}", body, content_type="application/json")
+        assert response.status_code == 403
+        assert response.json()["code"] == code
+        post.assert_not_called()
+        assert not self._rows(user=target).exists()
 
     def test_kill_switch_refuses_only_on_explicit_false(self):
         with patch(_FLAG, return_value=False), patch(_POST) as post:
@@ -124,6 +195,18 @@ class TestDevTokens(APIBaseTest):
         usage = self.client.get(f"{URL}usage/").json()
         assert Decimal(usage["used_usd"]) == Decimal("50")
         assert [t["status"] for t in usage["tokens"]] == ["live", "live"]
+
+    def test_reserve_locks_the_user_row_before_summing_the_window(self):
+        # Two concurrent mints each see the other's reservation only if the sum runs under the lock.
+        with patch(_POST, return_value=_minted()), CaptureQueriesContext(connection) as queries:
+            assert self.client.post(URL).status_code == 201
+        sqls = [q["sql"] for q in queries.captured_queries]
+        lock = next(
+            i for i, sql in enumerate(sqls) if 'FROM "posthog_user"' in sql and sql.rstrip().endswith("FOR UPDATE")
+        )
+        window_sum = next(i for i, sql in enumerate(sqls) if "SUM(" in sql and "ai_gateway_devgatewaytoken" in sql)
+        reserve = next(i for i, sql in enumerate(sqls) if sql.startswith('INSERT INTO "ai_gateway_devgatewaytoken"'))
+        assert lock < window_sum < reserve
 
     def test_failed_mint_does_not_spend_the_daily_cap(self):
         with patch(_POST, return_value=_response(500)):
@@ -181,8 +264,29 @@ class TestDevTokens(APIBaseTest):
         assert post.call_args.kwargs["json"]["user"] == self.user.distinct_id
         assert self._rows(user=self.user, client="cli").count() == 1
 
-        replay = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
+        with patch(_POST) as post:
+            replay = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
         assert replay.status_code == 400
+        post.assert_not_called()
+
+    def test_cli_exchange_refuses_a_code_another_request_consumed(self):
+        # Two exchanges can both read the grant; only the one whose delete removed it may mint.
+        code = self._authorize()
+        with patch.object(cache, "delete", return_value=False), patch(_POST) as post:
+            response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
+        assert response.status_code == 400
+        assert response.json()["code"] == "invalid_code"
+        post.assert_not_called()
+
+    def test_cli_exchange_refuses_a_deactivated_user(self):
+        code = self._authorize()
+        self.user.is_active = False
+        self.user.save()
+        with patch(_POST) as post:
+            response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
+        assert response.status_code == 403
+        assert response.json()["code"] == "not_staff"
+        post.assert_not_called()
 
     def test_cli_exchange_rechecks_eligibility(self):
         code = self._authorize()
