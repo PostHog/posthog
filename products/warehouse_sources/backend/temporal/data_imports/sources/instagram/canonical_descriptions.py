@@ -24,7 +24,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "media": {
-        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media.",
+        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media. Every sync re-reads each post from the start date on, so like and comment counts stay current.",
         "docs_url": _MEDIA_DOCS,
         "columns": {
             "id": "Media identifier.",
@@ -40,6 +40,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "like_count": "Number of likes. Omitted if the owner has hidden like counts.",
             "comments_count": "Number of comments on the media.",
             "is_comment_enabled": "Whether comments are enabled on the media.",
+            "is_shared_to_feed": "Whether the reel also appears in the Feed and Reels tabs. Reels only.",
+            "owner": "The account that created the media, as an object with its ID.",
+            "boost_ads_list": "Ads that boost this media, with each ad's ID and delivery status.",
+            "boost_eligibility_info": "Whether the media can be boosted as an ad, and the reason if it cannot.",
+            "copyright_check_information": "Status of Instagram's copyright check on the media, with any matches found.",
+            "legacy_instagram_media_id": "Media ID that the Marketing API used in Graph API v21.0 and older.",
         },
     },
     "stories": {
@@ -89,7 +95,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _INSIGHTS_DOCS,
         "columns": {
             "instagram_account_id": "Instagram account the metric belongs to.",
-            "metric": "Metric name, for example reach or views.",
+            "metric": "Metric name, for example reach, views, accounts_engaged, likes or follows_and_unfollows.",
             "period": "Aggregation period. Always day for this table.",
             "date": "ISO 8601 end time of the day the metric covers, in UTC.",
             "value": "The metric's value for that day.",

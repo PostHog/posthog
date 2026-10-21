@@ -15,7 +15,8 @@ GRAPH_API_HOST = "https://graph.facebook.com"
 ACCOUNT_FIELDS = "id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count"
 MEDIA_FIELDS = (
     "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,"
-    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled"
+    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled,is_shared_to_feed,owner,"
+    "boost_ads_list,boost_eligibility_info,copyright_check_information,legacy_instagram_media_id"
 )
 STORY_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,username"
 COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden"
@@ -41,10 +42,25 @@ DEFAULT_INSIGHTS_LOOKBACK_DAYS = 90
 # this returns nothing but would still fan out into thousands of empty 30-day windows.
 MAX_INSIGHTS_LOOKBACK_DAYS = 365 * 2
 
-# Account-level metrics pulled as a daily time series. Meta churns this list per Graph
-# version (`impressions` was retired in v22.0 in favour of `views`), so each metric is
-# requested on its own and an unsupported one is skipped rather than failing the sync.
-ACCOUNT_INSIGHT_METRICS: tuple[str, ...] = ("reach", "views")
+# Account-level metrics. Meta churns this list per Graph version (`impressions` was
+# retired in v22.0 in favour of `views`), so each metric is requested on its own and an
+# unsupported one is skipped rather than failing the sync.
+# `reach` is the only one Meta serves as a daily time series.
+ACCOUNT_INSIGHT_TIME_SERIES_METRICS: tuple[str, ...] = ("reach",)
+# Meta serves these only with `metric_type=total_value`, which sums the whole since/until
+# span into one value. Each one is requested once per day to get a daily row.
+ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS: tuple[str, ...] = (
+    "views",
+    "accounts_engaged",
+    "total_interactions",
+    "likes",
+    "comments",
+    "shares",
+    "saves",
+    "replies",
+    "profile_links_taps",
+    "follows_and_unfollows",
+)
 
 # Per-media metrics, keyed by `media_product_type`. Stories expose a different set from
 # feed posts and reels.
@@ -161,6 +177,7 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(INSTAGRAM_ENDPOINTS.keys())
+ENDPOINTS_REREAD_EVERY_SYNC: frozenset[str] = frozenset({"media"})
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in INSTAGRAM_ENDPOINTS.items()
