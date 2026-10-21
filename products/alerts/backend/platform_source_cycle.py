@@ -284,6 +284,9 @@ def evaluate_insight_check(
             raise
         if outcome is None:
             return None
+        if checks[0].legacy_configuration_id is not None:
+            # Production times each check by its own alert's id, so the copy checks at that minute.
+            outcome = replace(outcome, schedule_key=str(checks[0].legacy_configuration_id))
         delivery = _delivery(checks[0], outcome)
         return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
     finally:

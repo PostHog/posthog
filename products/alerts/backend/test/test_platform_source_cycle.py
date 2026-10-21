@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,7 +18,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
 from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -73,15 +74,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
             return platform_testing.create_configuration(
-                team_id=self.team.id,
-                name="alert",
-                source_kind=SourceKind.INSIGHT,
-                source_config={},
-                check_interval_minutes=60 * 24,
-                recurrence_unit="day",
-                next_check_at=CUTOFF - timedelta(minutes=1),
-                legacy_configuration_id=alert.id if alert else None,
-                **overrides,
+                **{
+                    "team_id": self.team.id,
+                    "name": "alert",
+                    "source_kind": SourceKind.INSIGHT,
+                    "source_config": {},
+                    "check_interval_minutes": 60 * 24,
+                    "recurrence_unit": "day",
+                    "next_check_at": CUTOFF - timedelta(minutes=1),
+                    "legacy_configuration_id": alert.id if alert else None,
+                    **overrides,
+                }
             )
 
     def _evaluate_per_series(
@@ -187,6 +190,51 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert platform_alert is not None and platform_alert.state == "firing"
         assert AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id) == before
         assert not AlertCheck.objects.filter(alert_configuration=alert).exists()
+
+    @parameterized.expand(
+        [
+            ("every_15_minutes", AlertCalculationInterval.EVERY_15_MINUTES, 15, None, None, None),
+            ("hourly", AlertCalculationInterval.HOURLY, 60, None, None, None),
+            ("daily", AlertCalculationInterval.DAILY, 60 * 24, "day", None, None),
+            ("weekly", AlertCalculationInterval.WEEKLY, 60 * 24 * 7, "week", None, None),
+            # The next local hour is quiet, so the check moves to the window's end plus its offset.
+            ("hourly_quiet_hours", AlertCalculationInterval.HOURLY, 60, None, ("16:00", "17:00"), None),
+            ("daily_quiet_hours", AlertCalculationInterval.DAILY, 60 * 24, "day", ("00:30", "02:00"), None),
+            ("hourly_start_time", AlertCalculationInterval.HOURLY, 60, None, None, "09:20"),
+        ]
+    )
+    def test_a_copy_is_next_due_when_the_production_alert_is(
+        self,
+        _name: str,
+        interval: AlertCalculationInterval,
+        minutes: int,
+        unit: str | None,
+        quiet: tuple[str, str] | None,
+        start_time: str | None,
+    ) -> None:
+        # A half-hour timezone, where the local hour starts at :30 UTC.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        restriction = {"blocked_windows": [{"start": quiet[0], "end": quiet[1]}]} if quiet else None
+        alert = self._alert(
+            calculation_interval=interval, schedule_restriction=restriction, schedule_start_time=start_time
+        )
+        configuration = self._copy(
+            alert,
+            check_interval_minutes=minutes,
+            recurrence_unit=unit,
+            schedule_restriction=restriction,
+            anchor_time=start_time,
+        )
+
+        with time_machine.travel(CUTOFF, tick=False):
+            outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+            assert outcome is not None
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            expected = next_check_time(alert)
+
+        with team_scope(self.team.id):
+            assert platform_testing.configuration(configuration.id).next_check_at == expected
 
     @parameterized.expand(
         [
