@@ -1054,6 +1054,35 @@ class AlertDestinationData(TypedDict):
     in_app_url: NotRequired[str]
 
 
+# The transitions a destination can send about. `CHECK` announces nothing, so no destination hears it.
+DESTINATION_EVENT_KINDS: Final = frozenset(
+    {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
+)
+
+
+@frozen
+class NewAlertDestination:
+    """One destination to add to an alert the platform owns the destinations of."""
+
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool = True
+    legacy_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class StoredAlertDestination:
+    """One `AlertDestination` row, with its configuration decrypted."""
+
+    id: UUID
+    configuration_id: UUID
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+    consecutive_failures: int
+    legacy_hog_function_ids: tuple[UUID, ...]
+
+
 class AlertDestinationValidationError(Exception):
     """A destination payload the platform refuses. Callers at an HTTP boundary translate
     this into their own framework's validation error."""
