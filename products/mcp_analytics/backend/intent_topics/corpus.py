@@ -138,7 +138,8 @@ class HourlyCalls:
     hash: str
     tool: str
     calls: int
-    sessions: int
+    # cityHash64 of each distinct conversation id, so the rollups can count conversations without double counting.
+    conversations: tuple[int, ...]
 
 
 _HOURLY_CALLS_SQL = f"""
@@ -147,7 +148,7 @@ SELECT
     {INTENT_HASH_HOGQL} AS intent_hash,
     {EFFECTIVE_TOOL_SQL} AS tool,
     count() AS calls,
-    uniq({CONVERSATION_ID_SQL}) AS sessions
+    arraySort(groupUniqArray(cityHash64({CONVERSATION_ID_SQL}))) AS conversations
 FROM events
 WHERE event = '$mcp_tool_call'
   AND timestamp >= {{since}}
@@ -155,22 +156,40 @@ WHERE event = '$mcp_tool_call'
   AND notEmpty(toString(properties.{INTENT_PROPERTY}))
 GROUP BY hour, intent_hash, tool
 ORDER BY hour, intent_hash, tool
-LIMIT {{limit}}
+LIMIT {{page_size}}
+OFFSET {{offset}}
 """
 
 
-def fetch_hourly_calls(team: Team, *, since: datetime, until: datetime, limit: int = 1_000_000) -> list[HourlyCalls]:
-    """Calls and conversations per (hour, intent text, tool) in [since, until)."""
-    query = parse_select(
-        _HOURLY_CALLS_SQL,
-        placeholders={
-            "since": ast.Constant(value=since),
-            "until": ast.Constant(value=until),
-            "limit": ast.Constant(value=limit),
-        },
-    )
-    response = execute_hogql_query(query=query, team=team)
-    return [
-        HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), sessions=int(row[4]))
-        for row in response.results
-    ]
+def _start_of_hour(moment: datetime) -> datetime:
+    return moment.replace(minute=0, second=0, microsecond=0)
+
+
+def fetch_hourly_calls(
+    team: Team, *, since: datetime, until: datetime, page_size: int = MAX_SELECT_RETURNED_ROWS
+) -> list[HourlyCalls]:
+    """Calls and conversations per (hour, intent text, tool) for the complete hours that overlap [since, until).
+
+    The rollup replaces a whole hourly bucket on every write, so a partial hour would overwrite a complete
+    one. The window therefore widens to the start of the first hour and stops at the start of the last.
+    """
+    since, until = _start_of_hour(since), _start_of_hour(until)
+    rows: list[HourlyCalls] = []
+    while since < until:
+        query = parse_select(
+            _HOURLY_CALLS_SQL,
+            placeholders={
+                "since": ast.Constant(value=since),
+                "until": ast.Constant(value=until),
+                "page_size": ast.Constant(value=page_size),
+                "offset": ast.Constant(value=len(rows)),
+            },
+        )
+        page = execute_hogql_query(query=query, team=team).results or []
+        rows.extend(
+            HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), conversations=tuple(row[4]))
+            for row in page
+        )
+        if len(page) < page_size:
+            break
+    return rows

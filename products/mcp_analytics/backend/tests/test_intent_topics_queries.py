@@ -1,6 +1,12 @@
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime, time, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.schema import (
     DateRange,
@@ -20,14 +26,18 @@ from products.mcp_analytics.backend.hogql_queries.intent_topics import (
     MCPSimilarToolsQueryRunner,
     MCPToolIntentProfileQueryRunner,
 )
+from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
+from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls
 from products.mcp_analytics.backend.models import MCPIntentTopic
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
 from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment
 
 OTHER_TEAM_ID = 10**9
-TODAY = date(2026, 10, 20)
-FROZEN_NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
-WINDOW = DateRange(date_from="2026-10-14", date_to="2026-10-20")  # 7 days; previous window = 10-07..10-13
+NOW = recent_hour(days_ago=0)
+TODAY = NOW.date() - timedelta(days=1)
+# 7 days; the previous window is the 7 days before it.
+WINDOW = DateRange(date_from=(TODAY - timedelta(days=6)).isoformat(), date_to=TODAY.isoformat())
 
 
 def _daily(
@@ -36,13 +46,20 @@ def _daily(
     tool: str,
     topic_id: str,
     calls: int,
-    sessions: int = 1,
+    conversations: tuple[int, ...] = (1,),
     outlier_calls: int = 0,
     intents: int = 1,
 ) -> None:
     sync_execute(
-        f"INSERT INTO {MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE} (team_id, day, tool, topic_id, calls, sessions, outlier_calls, intents, inserted_at) VALUES",
-        [(team_id, day, tool, topic_id, calls, sessions, outlier_calls, intents, FROZEN_NOW)],
+        f"INSERT INTO {MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE} (team_id, day, tool, topic_id, calls, conversation_hashes, outlier_calls, intents, inserted_at) VALUES",
+        [(team_id, day, tool, topic_id, calls, list(conversations), outlier_calls, intents, NOW)],
+    )
+
+
+def _hourly(team_id: int, day: date, intent_hash: str, tool: str, calls: int) -> None:
+    hour = datetime.combine(day, time(12), tzinfo=UTC)
+    insert_hourly_calls(
+        team_id, [HourlyCalls(hour=hour, hash=intent_hash, tool=tool, calls=calls, conversations=(1,))], now=NOW
     )
 
 
@@ -60,18 +77,19 @@ class _Base(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
 
 class TestIntentTopicsQuery(_Base):
     def test_ranks_topics_by_calls_with_share_trend_tools_and_coverage(self) -> None:
-        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 60, sessions=5, outlier_calls=3)
-        _daily(self.team.pk, TODAY - timedelta(days=1), "query-funnel", self.t_insights, 20, sessions=2)
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 60, conversations=(1, 2, 3, 4, 5), outlier_calls=3)
+        _daily(self.team.pk, TODAY - timedelta(days=1), "query-funnel", self.t_insights, 20, conversations=(5, 6))
         _daily(self.team.pk, TODAY, "feature-flag-get-all", self.t_flags, 20)
         _daily(self.team.pk, TODAY, "query-trends", "", 100)  # intents without a topic
         _daily(self.team.pk, TODAY - timedelta(days=8), "query-trends", self.t_insights, 10)  # previous window
         _daily(self.team.pk, TODAY - timedelta(days=8), "feature-flag-get-all", self.t_flags, 30)
+        _daily(self.team.pk, TODAY - timedelta(days=14), "feature-flag-get-all", self.t_flags, 1000)  # before both
         _daily(OTHER_TEAM_ID, TODAY, "query-trends", "other", 999)
 
         response = MCPIntentTopicsQueryRunner(query=MCPIntentTopicsQuery(dateRange=WINDOW), team=self.team).calculate()
 
         assert [(t.label, t.calls, t.sessions, t.outlier_calls, t.top_tools) for t in response.results] == [
-            ("Create insights", 80, 7, 3, ["query-trends", "query-funnel"]),
+            ("Create insights", 80, 6, 3, ["query-trends", "query-funnel"]),
             ("List flags", 20, 1, 0, ["feature-flag-get-all"]),
         ]
         insights, flags = response.results
@@ -112,6 +130,7 @@ class TestToolIntentProfileQuery(_Base):
         _daily(self.team.pk, TODAY, "query-trends", self.t_flags, 6)
         _daily(self.team.pk, TODAY - timedelta(days=9), "query-trends", self.t_flags, 50)  # previous: flags dominated
         _daily(self.team.pk, TODAY - timedelta(days=9), "query-trends", self.t_insights, 10)
+        # o1 was assigned weeks ago and is still called in the window.
         _insert_assignment(
             self.team.pk,
             "o1",
@@ -119,14 +138,16 @@ class TestToolIntentProfileQuery(_Base):
             is_outlier=1,
             distance=0.8,
             intent_text="odd use",
-            calls_in_run=4,
-            tool="query-trends",
-            timestamp=FROZEN_NOW,
+            timestamp=NOW - timedelta(days=20),
         )
-        _insert_assignment(self.team.pk, "n1", self.t_insights, is_outlier=0, tool="query-trends", timestamp=FROZEN_NOW)
-        _insert_assignment(
-            self.team.pk, "o2", self.t_flags, is_outlier=1, tool="feature-flag-get-all", timestamp=FROZEN_NOW
-        )
+        _hourly(self.team.pk, TODAY, "o1", "query-trends", 4)
+        _insert_assignment(self.team.pk, "n1", self.t_insights, is_outlier=0, timestamp=NOW)
+        _hourly(self.team.pk, TODAY, "n1", "query-trends", 9)
+        _insert_assignment(self.team.pk, "o2", self.t_flags, is_outlier=1, timestamp=NOW)
+        _hourly(self.team.pk, TODAY, "o2", "feature-flag-get-all", 9)
+        # o3 was assigned in the window but nobody called it there.
+        _insert_assignment(self.team.pk, "o3", self.t_flags, is_outlier=1, timestamp=NOW)
+        _hourly(self.team.pk, TODAY - timedelta(days=20), "o3", "query-trends", 9)
 
         response = MCPToolIntentProfileQueryRunner(
             query=MCPToolIntentProfileQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team
@@ -140,8 +161,26 @@ class TestToolIntentProfileQuery(_Base):
         assert [r.label for r in response.drift.growing] == ["Create insights"]
         assert [r.label for r in response.drift.shrinking] == ["List flags"]
         assert response.drift.new == [] and response.drift.gone == []
-        assert [(o.intent_hash, o.intent_text, o.calls, o.distance) for o in response.outliers] == [
-            ("o1", "odd use", 4, 0.8)
+        assert [(o.intent_hash, o.intent_text, o.calls, o.distance, o.tool) for o in response.outliers] == [
+            ("o1", "odd use", 4, 0.8, "query-trends")
+        ]
+
+    def test_sparklines_cover_every_day_of_a_long_window(self) -> None:
+        topics = [f"topic-{i}" for i in range(5)]
+        for offset in range(30):
+            for topic in topics:
+                _daily(self.team.pk, TODAY - timedelta(days=offset), "query-trends", topic, 1)
+
+        response = MCPToolIntentProfileQueryRunner(
+            query=MCPToolIntentProfileQuery(
+                dateRange=DateRange(date_from=(TODAY - timedelta(days=29)).isoformat(), date_to=TODAY.isoformat()),
+                toolName="query-trends",
+            ),
+            team=self.team,
+        ).calculate()
+
+        assert [(t.topic_id, t.calls, t.sparkline) for t in response.results] == [
+            (topic, 30, [1] * 30) for topic in topics
         ]
 
     def test_single_topic_is_fully_consolidated(self) -> None:
@@ -187,50 +226,37 @@ class TestSimilarToolsQuery(_Base):
 class TestIntentMapQuery(_Base):
     def setUp(self) -> None:
         super().setUp()
-        _insert_assignment(
-            self.team.pk,
-            "p1",
-            self.t_insights,
-            x=1.0,
-            y=0.1,
-            calls_in_run=9,
-            intent_text="plot signups",
-            tool="query-trends",
-            timestamp=FROZEN_NOW,
-        )
-        _insert_assignment(
-            self.team.pk, "p2", self.t_insights, x=0.9, y=0.0, calls_in_run=5, tool="query-trends", timestamp=FROZEN_NOW
-        )
-        _insert_assignment(
-            self.team.pk,
-            "p3",
-            self.t_flags,
-            x=0.0,
-            y=1.0,
-            calls_in_run=7,
-            tool="feature-flag-get-all",
-            timestamp=FROZEN_NOW,
-        )
-        _insert_assignment(
-            self.team.pk, "old", self.t_flags, x=0.0, y=1.0, calls_in_run=70, timestamp=FROZEN_NOW - timedelta(days=30)
-        )
-        _insert_assignment(OTHER_TEAM_ID, "zz", "other", x=1.0, y=0.0, calls_in_run=99, timestamp=FROZEN_NOW)
+        _insert_assignment(self.team.pk, "p1", self.t_insights, x=1.0, y=0.1, intent_text="plot signups", timestamp=NOW)
+        # p2 moved from insights to flags: its older assignment must not resurface under a filter.
+        _insert_assignment(self.team.pk, "p2", self.t_insights, x=0.9, y=0.0, timestamp=NOW - timedelta(days=2))
+        _insert_assignment(self.team.pk, "p2", self.t_flags, x=0.1, y=0.9, timestamp=NOW)
+        # p3 was assigned before the window and is still called in it.
+        _insert_assignment(self.team.pk, "p3", self.t_flags, x=0.0, y=1.0, timestamp=NOW - timedelta(days=20))
+        _insert_assignment(self.team.pk, "idle", self.t_flags, x=0.0, y=1.0, timestamp=NOW)
+        _insert_assignment(OTHER_TEAM_ID, "zz", "other", x=1.0, y=0.0, timestamp=NOW)
+        _hourly(self.team.pk, TODAY, "p1", "query-trends", 9)
+        _hourly(self.team.pk, TODAY, "p1", "query-funnel", 1)
+        _hourly(self.team.pk, TODAY, "p2", "query-trends", 5)
+        _hourly(self.team.pk, TODAY, "p3", "feature-flag-get-all", 7)
+        _hourly(self.team.pk, TODAY - timedelta(days=20), "idle", "feature-flag-get-all", 70)
+        _hourly(OTHER_TEAM_ID, TODAY, "zz", "query-trends", 99)
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 14)
         _daily(self.team.pk, TODAY, "feature-flag-get-all", self.t_flags, 7)
+        _daily(self.team.pk, TODAY, "query-trends", "", 7)
 
     def test_points_and_topic_bubbles(self) -> None:
         response = MCPIntentMapQueryRunner(query=MCPIntentMapQuery(dateRange=WINDOW), team=self.team).calculate()
 
-        assert [(p.intent_hash, p.calls, p.topic_id, p.is_outlier) for p in response.results] == [
-            ("p1", 9, self.t_insights, False),
-            ("p3", 7, self.t_flags, False),
-            ("p2", 5, self.t_insights, False),
+        assert [(p.intent_hash, p.calls, p.topic_id, p.tool) for p in response.results] == [
+            ("p1", 10, self.t_insights, "query-trends"),
+            ("p3", 7, self.t_flags, "feature-flag-get-all"),
+            ("p2", 5, self.t_flags, "query-trends"),
         ]
         assert response.results[0].intent_text == "plot signups"
         assert response.total_points == 3
         assert [(t.label, t.x, t.y, t.calls, t.share_pct) for t in response.topics] == [
-            ("Create insights", 1.0, 0.0, 14, 66.67),
-            ("List flags", 0.0, 1.0, 7, 33.33),
+            ("Create insights", 1.0, 0.0, 14, 50.0),
+            ("List flags", 0.0, 1.0, 7, 25.0),
         ]
 
     def test_bounds_limit_topic_and_tool_filters(self) -> None:
@@ -241,16 +267,32 @@ class TestIntentMapQuery(_Base):
             team=self.team,
         ).calculate()
         assert [p.intent_hash for p in bounded.results] == ["p1"]
-        assert bounded.total_points == 2
+        assert bounded.total_points == 1
 
         by_topic = MCPIntentMapQueryRunner(
-            query=MCPIntentMapQuery(dateRange=WINDOW, topicId=self.t_flags), team=self.team
+            query=MCPIntentMapQuery(dateRange=WINDOW, topicId=self.t_insights), team=self.team
         ).calculate()
-        assert [p.intent_hash for p in by_topic.results] == ["p3"]
-        assert [t.label for t in by_topic.topics] == ["List flags"]
+        assert [p.intent_hash for p in by_topic.results] == ["p1"]
+        assert by_topic.total_points == 1
+        assert [t.label for t in by_topic.topics] == ["Create insights"]
 
         by_tool = MCPIntentMapQueryRunner(
             query=MCPIntentMapQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team
         ).calculate()
-        assert [p.intent_hash for p in by_tool.results] == ["p1", "p2"]
+        assert [(p.intent_hash, p.calls) for p in by_tool.results] == [("p1", 9), ("p2", 5)]
         assert [t.label for t in by_tool.topics] == ["Create insights"]
+
+
+class TestIntentTopicQueryLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("topics", lambda limit: MCPIntentTopicsQuery(limit=limit)),
+            ("profile", lambda limit: MCPToolIntentProfileQuery(limit=limit, toolName="query-trends")),
+            ("similar", lambda limit: MCPSimilarToolsQuery(limit=limit, toolName="query-trends")),
+            ("map", lambda limit: MCPIntentMapQuery(limit=limit)),
+        ]
+    )
+    def test_rejects_limits_below_one(self, _name: str, build: Callable[[int], object]) -> None:
+        for limit in (0, -1):
+            with self.assertRaises(ValidationError):
+                build(limit)

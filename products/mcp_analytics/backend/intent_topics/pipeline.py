@@ -8,7 +8,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import structlog
@@ -136,7 +136,9 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
             team_id=team.pk, run_id=run.run_id, window_start=window_start, window_end=window_end, topics=topics, pca=pca
         )
         sync_execute(sql, params)
-        rollups.rebuild_topic_daily(team_id=team.pk, window_start=window_start, window_end=window_end)
+        rollups.rebuild_topic_daily(
+            team_id=team.pk, window_start=window_start, window_end=window_end, now=datetime.now(tz=UTC)
+        )
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
@@ -160,8 +162,7 @@ _FIT_SAMPLE_SQL = """
 SELECT e.document_id AS document_id, e.embedding AS embedding, e.content AS content, c.calls AS calls
 FROM (
     SELECT intent_hash, sum(calls) AS calls
-    FROM mcp_intent_calls_hourly
-    WHERE hour >= {since} AND hour < {until}
+    FROM {hourly}
     GROUP BY intent_hash
 ) AS c
 INNER JOIN (
@@ -194,8 +195,7 @@ def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int
             "model": ast.Constant(value=EMBEDDING_MODEL),
             "product": ast.Constant(value=EMBEDDING_PRODUCT),
             "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-            "since": ast.Constant(value=since),
-            "until": ast.Constant(value=until),
+            "hourly": rollups.hourly_calls_source(since=since, until=until),
             "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
             "salt": ast.Constant(value=until.strftime("%Y%m%d")),
             "limit": ast.Constant(value=limit),

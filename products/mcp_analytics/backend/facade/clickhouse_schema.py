@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     intent_hash String,
     tool LowCardinality(String),
     calls UInt32,
-    sessions UInt32,
+    conversation_hashes Array(UInt64), -- cityHash64 of each distinct conversation id
     inserted_at DateTime64(3, 'UTC')
 ) ENGINE = {engine}
 """
@@ -151,8 +151,8 @@ def MCP_INTENT_CALLS_HOURLY_WRITABLE_TABLE_SQL() -> str:
     )
 
 
-# Daily rollup per tool and topic, rebuilt by the assignment run for its window. This is what the
-# intent topic queries read: a few thousand rows per team per day instead of millions of events.
+# Daily rollup per tool and topic, rebuilt one whole day at a time by the assignment run. This is what
+# the intent topic queries read: a few thousand rows per team per day instead of millions of events.
 MCP_INTENT_TOPIC_DAILY_DATA_TABLE = "sharded_mcp_intent_topic_daily"
 MCP_INTENT_TOPIC_DAILY_DISTRIBUTED_TABLE = "distributed_mcp_intent_topic_daily"
 MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE = "writable_mcp_intent_topic_daily"
@@ -165,10 +165,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     tool LowCardinality(String),
     topic_id String, -- '' when the intent had no topic yet
     calls UInt64,
-    sessions UInt64,
+    conversation_hashes Array(UInt64), -- distinct conversations, kept as hashes so readers can union days and tools
     outlier_calls UInt64,
     intents UInt64, -- distinct intent texts
-    inserted_at DateTime64(3, 'UTC')
+    inserted_at DateTime64(6, 'UTC') -- one value per rebuild; readers keep only the latest rebuild of each day
 ) ENGINE = {engine}
 """
 

@@ -59,7 +59,8 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         run = MCPIntentClusteringRun.objects.get(team=self.team, run_id=outcome.run_id)
         assert run.kind == "sync" and run.n_embeddings_requested == 1
         hourly = execute_hogql_query(
-            query="SELECT intent_hash, tool, calls FROM mcp_intent_calls_hourly ORDER BY calls DESC", team=self.team
+            query="SELECT intent_hash, tool, calls FROM posthog.mcp_intent_calls_hourly ORDER BY calls DESC",
+            team=self.team,
         ).results
         assert hourly == [
             (intent_hash("new intent"), "query-trends", 2),
@@ -99,12 +100,18 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         rollups.insert_hourly_calls(
             self.team.pk,
             [
-                HourlyCalls(hour=NOW - timedelta(days=2), hash=f"a{i:03d}", tool="query-trends", calls=2, sessions=1)
+                HourlyCalls(
+                    hour=NOW - timedelta(days=2), hash=f"a{i:03d}", tool="query-trends", calls=2, conversations=(1,)
+                )
                 for i in range(60)
             ]
             + [
                 HourlyCalls(
-                    hour=NOW - timedelta(days=3), hash=f"b{i:03d}", tool="feature-flag-get-all", calls=1, sessions=1
+                    hour=NOW - timedelta(days=3),
+                    hash=f"b{i:03d}",
+                    tool="feature-flag-get-all",
+                    calls=1,
+                    conversations=(1,),
                 )
                 for i in range(60)
             ],
@@ -141,7 +148,7 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert sorted(r[0] for r in rows) == sorted(str(t.pk) for t in topics)
         assert [r[1] for r in rows] == [60, 60]
         daily = execute_hogql_query(
-            query="SELECT topic_id, sum(calls), sum(intents) FROM mcp_intent_topic_daily GROUP BY topic_id ORDER BY sum(calls) DESC",
+            query="SELECT topic_id, sum(calls), sum(intents) FROM posthog.mcp_intent_topic_daily GROUP BY topic_id ORDER BY sum(calls) DESC",
             team=self.team,
         ).results
         assert [(r[1], r[2]) for r in daily] == [(120, 60), (60, 60)]
@@ -169,7 +176,7 @@ class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, API
         insert_intent_embedding(self.team.pk, "only", "only one", at=NOW - timedelta(days=1))
         rollups.insert_hourly_calls(
             self.team.pk,
-            [HourlyCalls(hour=NOW - timedelta(days=1), hash="only", tool="query-trends", calls=1, sessions=1)],
+            [HourlyCalls(hour=NOW - timedelta(days=1), hash="only", tool="query-trends", calls=1, conversations=(1,))],
             now=NOW,
         )
 
@@ -220,12 +227,57 @@ class TestFitSampleWindow(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             self.team.pk,
             [
                 HourlyCalls(
-                    hour=NOW - timedelta(days=2), hash="old-but-hot", tool="query-trends", calls=40, sessions=3
+                    hour=NOW - timedelta(days=2),
+                    hash="old-but-hot",
+                    tool="query-trends",
+                    calls=40,
+                    conversations=(1, 2, 3),
                 ),
-                HourlyCalls(hour=NOW - timedelta(days=2), hash="expired", tool="query-trends", calls=5, sessions=1),
                 HourlyCalls(
-                    hour=NOW - timedelta(days=12), hash="fresh-but-cold", tool="query-trends", calls=7, sessions=1
+                    hour=NOW - timedelta(days=2), hash="expired", tool="query-trends", calls=5, conversations=(1,)
                 ),
+                HourlyCalls(
+                    hour=NOW - timedelta(days=12),
+                    hash="fresh-but-cold",
+                    tool="query-trends",
+                    calls=7,
+                    conversations=(1,),
+                ),
+            ],
+            now=NOW,
+        )
+        # An older version of the same hour bucket must not add to the weight.
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(
+                    hour=NOW - timedelta(days=2), hash="old-but-hot", tool="query-trends", calls=30, conversations=(1,)
+                )
+            ],
+            now=NOW - timedelta(days=1),
+        )
+        # Another team's vector for an intent this team calls, and its calls for an intent this team embedded.
+        other_team_id = 10**9
+        insert_intent_embedding(other_team_id, "shared", "shared", at=NOW - timedelta(days=1))
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(
+                    hour=NOW - timedelta(days=2), hash="shared", tool="query-trends", calls=50, conversations=(1,)
+                )
+            ],
+            now=NOW,
+        )
+        rollups.insert_hourly_calls(
+            other_team_id,
+            [
+                HourlyCalls(
+                    hour=NOW - timedelta(days=2),
+                    hash="fresh-but-cold",
+                    tool="query-trends",
+                    calls=99,
+                    conversations=(1,),
+                )
             ],
             now=NOW,
         )

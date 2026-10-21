@@ -336,6 +336,8 @@ wrappers:
             - version
             - tags
         reads_ingested_data: events
+        response_fields:
+            - coverage
         feature_flag: mcp-analytics-intent-topics
     query-mcp-tool-intent-profile:
         schema_ref: MCPToolIntentProfileQuery
@@ -362,6 +364,11 @@ wrappers:
             - version
             - tags
         reads_ingested_data: events
+        response_fields:
+            - focus
+            - drift
+            - outliers
+            - coverage
         feature_flag: mcp-analytics-intent-topics
     query-mcp-similar-tools:
         schema_ref: MCPSimilarToolsQuery
@@ -411,6 +418,9 @@ wrappers:
             - version
             - tags
         reads_ingested_data: events
+        response_fields:
+            - topics
+            - total_points
         feature_flag: mcp-analytics-intent-topics
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
