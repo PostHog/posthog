@@ -189,6 +189,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
     @parameterized.expand(
         [(kind, True, None) for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery")]
         + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
+        + [(kind, None, True) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [(kind, None, None) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [("EventsQuery", choice, None) for choice in (None, False, True)]
     )

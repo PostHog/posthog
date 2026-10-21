@@ -1814,6 +1814,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+SourceT = TypeVar("SourceT", bound=BaseModel)
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1840,6 +1841,17 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     elif modifiers is None:
         modifiers = inherited
     return modifiers
+
+
+def source_with_wrapper_modifiers(query: BaseModel, source: SourceT) -> SourceT:
+    """The source of a wrapper query, for code that runs the source in place of the wrapper.
+
+    It carries the modifiers the wrapper resolves to, so the source runs with the same settings a
+    runner for the wrapper would use.
+    """
+    if getattr(query, "modifiers", None) is None:
+        return source
+    return source.model_copy(update={"modifiers": query_node_modifiers(query)})
 
 
 def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
