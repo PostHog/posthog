@@ -33,6 +33,7 @@ from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertEventKind,
     AnnouncedTransition,
     DeliveryPath,
@@ -163,8 +164,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
-    announced, emissions = _split_by_path(request, announced)
+    emissions = _hog_function_emissions(request, announced)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
+    # A HogFunction sends what the source emits for it. A destination with no HogFunction behind
+    # it, such as a subscriber's email, exists only natively, so it still hears every transition.
+    emitted = {emission.transition.grouping_key for emission in emissions}
     notice_keys: dict[str, str] = {}
     if request.parts > 1 and request.overflowed:
         notice_keys = _overflow_notice_keys(
@@ -193,8 +197,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     message_event_ids = set(request.event_ids_by_kind.values())
     # Destinations already told about the overflow, so each hears it once, on its first message.
     noticed: set[str] = set()
-    for event_id, transitions in _by_subscription(request, announced).items():
-        for target in _destinations(request, event_id):
+    for event_id, subscribed in _by_subscription(request, announced).items():
+        for group in _destination_groups(request, event_id):
+            target = group.data
+            transitions = (
+                tuple(transition for transition in subscribed if transition.grouping_key not in emitted)
+                if group.hog_function_ids
+                else subscribed
+            )
+            if not transitions:
+                continue
             overflowed = 0
             destination = json.dumps(target, sort_keys=True)
             owns_notice = request.parts <= 1 or any(
@@ -250,7 +262,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # in full, and a second emission sends every HogFunction message a second time.
     if emitter is not None and not busy:
         try:
-            emitter(request=request, announcement=announced, emissions=emissions)
+            emitter(
+                request=request,
+                announcement=replace(
+                    announced,
+                    transitions=tuple(
+                        transition for transition in announced.transitions if transition.grouping_key not in emitted
+                    ),
+                ),
+                emissions=emissions,
+            )
         except Exception as error:
             logger.warning(
                 "alerts_platform_legacy_event_emission_failed",
@@ -270,10 +291,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped, emitted=len(emissions))
 
 
-def _split_by_path(
+def _hog_function_emissions(
     request: AlertDeliveryRequest, announced: EvaluationAnnouncement
-) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
-    """The transitions to deliver natively, and the ones the source emits for its HogFunctions.
+) -> tuple[LegacyEventEmission, ...]:
+    """The transitions the source emits for its HogFunctions. Every other transition reaches a
+    HogFunction destination natively.
 
     Only an alert the platform owns can take the HogFunction path. While the source owns it, its
     own stack emits those events, and emitting them here too would send every message twice.
@@ -282,7 +304,7 @@ def _split_by_path(
     never split across paths. Any other transition takes the path its destinations allow now.
     """
     if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
-        return announced, ()
+        return ()
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache
@@ -294,7 +316,6 @@ def _split_by_path(
             allowed_event_ids=[*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()],
         )
 
-    native: list[AnnouncedTransition] = []
     emissions: list[LegacyEventEmission] = []
     for transition in announced.transitions:
         path = (
@@ -309,7 +330,6 @@ def _split_by_path(
             else choose()
         )
         if path == DeliveryPath.NATIVE:
-            native.append(transition)
             continue
         subscribed = _subscribed_events(request, transition)
         if subscribed.message_event or subscribed.incident_event:
@@ -320,7 +340,7 @@ def _split_by_path(
                     incident_action=subscribed.incident_action if subscribed.incident_event else None,
                 )
             )
-    return replace(announced, transitions=tuple(native)), tuple(emissions)
+    return tuple(emissions)
 
 
 def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertEventKind]) -> dict[str, str]:
@@ -382,6 +402,10 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
 
 
 def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:
+    return [group.data for group in _destination_groups(request, event_id)]
+
+
+def _destination_groups(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationGroup]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
@@ -392,4 +416,4 @@ def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDes
         alert_id=request.destination_alert_id,
         allowed_event_ids=[event_id],
     )
-    return [group.data for group in groups if group.fully_enabled]
+    return [group for group in groups if group.fully_enabled]
