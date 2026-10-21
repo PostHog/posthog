@@ -5,7 +5,6 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     stack-depth:
@@ -17,13 +16,12 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: |
-                      .github/scripts/check-stack-depth.mjs
-                      frontend/bin/ci-report
+                  sparse-checkout: .github/scripts/check-stack-depth.mjs
                   sparse-checkout-cone-mode: false
 
             - name: Check open layers below this pull request
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
                   STACK_NUMBER: ${{ github.event.pull_request.stack.number }}
               run: node .github/scripts/check-stack-depth.mjs

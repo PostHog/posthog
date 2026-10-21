@@ -91,11 +91,7 @@ describe('stack depth check', () => {
         { name: 'keeps existing pull requests exempt', prNumber: EXEMPT_THROUGH_PR, unavailable: true, expected: 0 },
         { name: 'fails when GitHub cannot verify the stack', unavailable: true, expected: 1 },
     ]) {
-        it(name, (t) => {
-            const directory = mkdtempSync(join(tmpdir(), 'stack-depth-'))
-            t.after(() => rmSync(directory, { recursive: true, force: true }))
-            const eventPath = join(directory, 'event.json')
-            writeFileSync(eventPath, JSON.stringify({ pull_request: { number: prNumber, stack: { number: 999 } } }))
+        it(name, () => {
             const stack = {
                 pull_requests: Array.from({ length: 6 }, (_, i) => ({ number: prNumber - 5 + i, state: 'open' })),
             }
@@ -103,7 +99,7 @@ describe('stack depth check', () => {
                 globalThis.fetch = async (url) => {
                     if (${unavailable}) return new Response('', { status: 503 });
                     if (url.endsWith('/stacks/123')) return new Response(${JSON.stringify(JSON.stringify(stack))});
-                    return new Response('', { status: 403 });
+                    return new Response('', { status: 404 });
                 };
             `
             const result = spawnSync(
@@ -117,7 +113,7 @@ describe('stack depth check', () => {
                     env: {
                         GITHUB_TOKEN: 'test-token',
                         GITHUB_REPOSITORY: 'example/repository',
-                        GITHUB_EVENT_PATH: eventPath,
+                        PR_NUMBER: String(prNumber),
                         STACK_NUMBER: '123',
                     },
                     encoding: 'utf-8',

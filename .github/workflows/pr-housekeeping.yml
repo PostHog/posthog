@@ -129,13 +129,10 @@ jobs:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     stack-depth:
-        if: >-
-            contains(fromJSON('["opened", "synchronize", "reopened", "stacked"]'), github.event.action)
-            || (github.event.action == 'edited' && github.event.changes.base != null)
+        if: contains(fromJSON('["opened", "synchronize", "reopened", "stacked"]'), github.event.action)
         uses: ./.github/workflows/pr-stack-depth.yml
         permissions:
             contents: read
-            pull-requests: write
 
     release-plan:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
