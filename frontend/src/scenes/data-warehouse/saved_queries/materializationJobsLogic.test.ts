@@ -352,6 +352,37 @@ describe('materializationJobsLogic', () => {
         expect(checkCalls).toBe(1)
     })
 
+    it('shows a refresh mode loading state while the eligibility check runs', async () => {
+        let releaseCheck!: () => void
+        const heldCheck = new Promise<void>((resolve) => {
+            releaseCheck = resolve
+        })
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/environments/:team_id/warehouse_saved_queries/check_incremental/'] = async () => {
+            await heldCheck
+            return [200, ELIGIBLE_CHECK]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        expect(screen.getByRole('heading', { name: 'Refresh mode' })).toBeTruthy()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeTruthy()
+
+        releaseCheck()
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess']).toFinishAllListeners()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeNull()
+    })
+
     // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"
     // toast on a healthy materialized view. A 4xx is an expected refusal and is not retried; a 5xx is
     // ours to record, and the next savedQuery reload (every jobs poll) retries it.
