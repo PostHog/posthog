@@ -728,8 +728,15 @@ def _is_refused_batch_subresponse(error: typing.Any) -> bool:
 META_BATCH_SUBREQUEST_ABORTED_ERROR_CODE = 960
 
 
-def _is_transient_batch_subresponse_error(error: typing.Any) -> bool:
-    """Return True for a batch subresponse error worth retrying the whole batch for (see above)."""
+def _is_transient_batch_subresponse_error(sub_response: typing.Any, error: typing.Any) -> bool:
+    """Return True for a batch subresponse worth retrying the whole batch for (see above).
+
+    Meta also leaves a subresponse ``None`` for a subrequest it hadn't gotten back to before the
+    batch call itself ran out of time, which carries no error object to inspect — the same
+    batch-timeout condition as code 960, just without a body to classify.
+    """
+    if sub_response is None:
+        return True
     if not isinstance(error, dict):
         return False
     return error.get("is_transient") is True or error.get("code") in (
@@ -777,8 +784,11 @@ def _fetch_refusable_fields(
                     raise
                 continue
 
-            parsed_sub_responses = []
+            parsed_sub_responses: list[tuple[dict | None, typing.Any, dict | None]] = []
             for sub_response in sub_responses:
+                if sub_response is None:
+                    parsed_sub_responses.append((None, None, None))
+                    continue
                 try:
                     body = json.loads(sub_response.get("body") or "{}")
                 except (ValueError, TypeError):
@@ -787,7 +797,7 @@ def _fetch_refusable_fields(
                 parsed_sub_responses.append((sub_response, body, error))
 
             has_transient_error = any(
-                sub_response.get("code") != 200 and _is_transient_batch_subresponse_error(error)
+                _is_transient_batch_subresponse_error(sub_response, error)
                 for sub_response, _body, error in parsed_sub_responses
             )
             if has_transient_error and transient_subresponse_attempts < META_TRANSIENT_ERROR_MAX_ATTEMPTS - 1:
@@ -797,6 +807,11 @@ def _fetch_refusable_fields(
             break
 
         for node_id, (sub_response, body, error) in zip(chunk, parsed_sub_responses):
+            if sub_response is None:
+                raise Exception(
+                    f"Meta API request failed: node lookup error - subrequest for node {node_id} "
+                    "never completed before the batch call timed out"
+                )
             if sub_response.get("code") == 200 and isinstance(body, dict):
                 nodes[node_id] = body
             elif _is_refused_batch_subresponse(error):
