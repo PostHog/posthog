@@ -6,6 +6,7 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -240,6 +241,8 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             assert runner._metric_events_precomputed is use_precomputation
             assert result.baseline is not None and result.variant_results is not None
             assert result.hogql is None and result.clickhouse_sql is None
+            with self.assertRaises(ValidationError):
+                runner.to_actors_query()
             return [(variant.sum, variant.denominator_sum) for variant in [result.baseline, *result.variant_results]]
 
         self.assertEqual(passed_and_graded(), [(3, 4), (1, 4)])

@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -416,7 +417,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_scan_date_to=self.date_range.date_to,
         )
         # The debug SQL would expose the evaluation rules that the markers keep out of the browser.
-        if not mentions_evaluation_pass_markers(self.metric.model_dump_json()):
+        if not self._uses_evaluation_pass_markers():
             experiment_query_debug = get_experiment_query_debug(
                 experiment_query_ast,
                 self.team,
@@ -608,7 +609,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return variants + variants_missing
 
     def to_actors_query(self) -> ast.SelectQuery:
+        # The actors response returns its generated SQL, which would expose the evaluation rules.
+        if self._uses_evaluation_pass_markers():
+            raise ValidationError("Persons are not available for evaluation pass rate metrics.")
         return build_experiment_actors_query(self)
+
+    def _uses_evaluation_pass_markers(self) -> bool:
+        return mentions_evaluation_pass_markers(
+            self.metric.model_dump_json() + json.dumps(self.experiment.exposure_criteria or {})
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
