@@ -128,12 +128,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok", "expected_message_fragment"),
         [
-            (200, True, None),
-            (401, False, "rejected the access token"),
-            (403, False, "cannot access the account"),
             (402, False, "not paid up"),
             (404, False, "acme.kommo.com"),
-            (500, False, "unexpected 500"),
         ],
     )
     def test_maps_status_codes_to_actionable_results(

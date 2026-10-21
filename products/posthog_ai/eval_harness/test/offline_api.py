@@ -13,10 +13,14 @@ class OfflineServer:
         self.results: dict[tuple[str, str], object] = {}
         self.experiment: dict[str, object] = {}
         self.status = "uploading"
+        self.tags: list[str] = []
 
     def respond(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         body = json.loads(request.content)
+        if request.method == "PATCH":
+            self.tags = body["tags"]
+            return httpx.Response(200, json={"id": self.experiment["id"], "tags": self.tags})
         now = str(self.experiment.get("started_at", body.get("started_at")))
         if request.url.path.endswith("/upload/"):
             item_receipts = []

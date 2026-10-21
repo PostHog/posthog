@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -14,6 +15,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
@@ -467,6 +470,7 @@ function AIObservabilitySceneContent(): JSX.Element {
 
     const { push } = useActions(router)
     const selfDrivingEnabled = Boolean(featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Tab switching shortcuts
     useShortcut({
@@ -647,14 +651,25 @@ function AIObservabilitySceneContent(): JSX.Element {
                     type: sceneConfigurations[Scene.AIObservability].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
-                        type="secondary"
-                        targetBlank
-                        size="small"
-                    >
-                        Documentation
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={
+                                <LinkPrimitive to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL} target="_blank" />
+                            }
+                        >
+                            Documentation
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            type="secondary"
+                            targetBlank
+                            size="small"
+                        >
+                            Documentation
+                        </LemonButton>
+                    )
                 }
             />
 

@@ -62,8 +62,8 @@ CANDIDATE_ROLE = "candidate"
 # A recipe change takes a new name (`training/recipe.py`). The versions of an earlier name stay
 # servable by key, and their online grades keep their own series.
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings_v2"
-NN_MODEL_NAME = "nn_v2"
-NN_WITH_PRIO_MODEL_NAME = "nn_with_prio"
+NN_MODEL_NAME = "nn_v3"
+NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"
@@ -121,7 +121,7 @@ class ModelFamily:
 # `nn` is one multi-head network over the report vector and the team's project vectors. It needs
 # torch, so the `signals_ml` location trains it and the main location never fits it. It declares
 # the report embeddings set, because that set builds its report input in training and at serving.
-# `nn_with_prio` is the same network with the report's priority levels as extra report inputs.
+# `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
     ModelFamily(
