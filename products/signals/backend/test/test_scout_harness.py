@@ -3460,12 +3460,19 @@ async def test_activity_runs_when_team_under_signals_quota(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_activity_swallows_transient_db_connection_drop(ateam):
-    # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
-    # synchronous DB access, outside the run-row try/except. The activity's "never raises"
-    # contract must hold: report a failed run instead of letting it escape.
+@pytest.mark.parametrize(
+    "error,expected_status,expected_skip_reason",
+    [
+        # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
+        # synchronous DB access, outside the run-row try/except.
+        (OperationalError("server closed the connection unexpectedly"), "failed", None),
+        # The skill was deleted while a scheduled run slept its start delay.
+        (SkillNotFoundError("No skill named 'signals-scout-errors'"), None, "skill_missing"),
+    ],
+)
+async def test_activity_does_not_raise_on_runner_error(ateam, error, expected_status, expected_skip_reason):
     async def fake_arun(**_kwargs):
-        raise OperationalError("server closed the connection unexpectedly")
+        raise error
 
     with patch(
         "products.signals.backend.scout_harness.runner.arun_signals_scout",
@@ -3479,9 +3486,33 @@ async def test_activity_swallows_transient_db_connection_drop(ateam):
 
     assert output.run_id is None
     assert output.task_run_id is None
-    assert output.status == "failed"
+    assert output.status == expected_status
     assert output.skill_name == "signals-scout-errors"
-    assert output.skip_reason is None
+    assert output.skip_reason == expected_skip_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("skill_state,expected", [("live", True), ("deleted", False), ("absent", False)])
+async def test_config_runnable_check_requires_a_live_skill(ateam, skill_state, expected):
+    await sync_to_async(SignalScoutConfig.objects.create)(team=ateam, skill_name="signals-scout-errors", enabled=True)
+    if skill_state != "absent":
+        await sync_to_async(LLMSkill.objects.create)(
+            team=ateam,
+            name="signals-scout-errors",
+            description="Errors scout",
+            body="scout",
+            deleted=skill_state == "deleted",
+            is_latest=skill_state == "live",
+        )
+
+    env = ActivityEnvironment()
+    runnable = await env.run(
+        check_signals_scout_config_runnable_activity,
+        RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+    )
+
+    assert runnable is expected
 
 
 # ── Tasks-UI cross-link: SignalScoutRun ─→ TaskRun ────────────────────────────

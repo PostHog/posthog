@@ -5675,19 +5675,19 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (10): `companies`, `contractor_payments`, `contractors`, `employees`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `tax_payments`
+Today (14): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `employees`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
-- [ ] `Departments (GET /v1/companies/{company_uuid}/departments)` — resolve department_uuid values on employees and analyze workforce composition by department (high)
-- [ ] `ACH transactions (GET /v1/companies/{company_uuid}/ach_transactions)` — reconcile payroll funding and payment movements with bank transaction status and failures (high)
-- [ ] `Company benefits (GET /v1/companies/{company_id}/company_benefits)` — explain employee deductions and employer contributions using named benefit plans (high)
+- [x] `Departments (GET /v1/companies/{company_uuid}/departments)` — resolve department_uuid values on employees and analyze workforce composition by department (high)
+- [x] `ACH transactions (GET /v1/companies/{company_uuid}/ach_transactions)` — reconcile payroll funding and payment movements with bank transaction status and failures (high)
+- [x] `Company benefits (GET /v1/companies/{company_id}/company_benefits)` — explain employee deductions and employer contributions using named benefit plans (high)
 - [ ] `Earning types (GET /v1/companies/{company_id}/earning_types)` — separate standard earnings from custom pay categories in payroll analysis (medium)
 - [ ] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
 - [ ] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
 - [ ] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
 - [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
-- [ ] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
+- [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
 - [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
 - [x] `Tax payments (GET /v1/companies/{company_uuid}/tax_payments)` — reconcile payroll tax liabilities with what Gusto paid each agency and when (medium)
 
@@ -5830,10 +5830,10 @@ Today (7): `conversations`, `customers`, `mailboxes`, `tags`, `threads`, `users`
 
 Diffed against: <https://developer.helpscout.com/mailbox-api/>
 
-- [ ] `Organizations (GET /v2/organizations)` — resolve organizationId on customers to company names for account-level support analysis (high)
-- [ ] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
-- [ ] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
-- [ ] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
+- [x] `Organizations (GET /v2/organizations)` — resolve organizationId on customers to company names for account-level support analysis (high)
+- [x] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
+- [x] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
+- [x] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
 - [ ] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium)
 - [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium)
 - [ ] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium)
