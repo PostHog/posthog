@@ -271,7 +271,7 @@ mod tests {
     fn a_violating_slice_fails_the_poll_and_stops_settling() {
         let (settlement, accounting) = settlement();
         accounting.settle_returns(Err(Rejection::Violation {
-            error: LedgerError::CompletedTwice { offset: Offset(10) },
+            error: LedgerError::CompletionUncharged { offset: Offset(10) },
             stamp: 2,
             generation: 2,
             held: Held::default(),

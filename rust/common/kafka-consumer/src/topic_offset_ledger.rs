@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::counter;
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
@@ -14,6 +14,8 @@ use crate::types::Offset;
 const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
 /// Contract violations in the ledger's accounting; must stay at zero.
 const ERRORS: &str = "kafka_consumer_ledger_errors_total";
+/// Offsets completed again after the ledger counted them; must stay at zero.
+const REPEATED_COMPLETIONS: &str = "kafka_consumer_ledger_repeated_completions_total";
 /// Offsets a frontier commit walked over that Kafka never delivered.
 const GAP_OFFSETS: &str = "kafka_consumer_ledger_gap_offsets_total";
 
@@ -160,7 +162,10 @@ impl TopicOffsetLedger {
                         Err(Rejection::Stale { stamp, generation })
                     } else {
                         match ledger.complete(offsets) {
-                            Ok(()) => Ok(ledger.frontier()),
+                            Ok(repeated) => {
+                                report_repeated_completions(topic_partition, repeated);
+                                Ok(ledger.frontier())
+                            }
                             Err(error) => {
                                 let held = ledger.held();
                                 *ledger = PartitionOffsetLedger::new(generation + 1);
@@ -231,6 +236,23 @@ impl TopicOffsetLedger {
         self.generations_version
             .fetch_add(forgotten, Ordering::Relaxed);
     }
+}
+
+/// A repeat means a message was delivered downstream twice. The commit does
+/// not change, so the consumer goes on.
+fn report_repeated_completions(topic_partition: &TopicPartition, repeated: usize) {
+    if repeated == 0 {
+        return;
+    }
+    let (topic, partition) = labels(topic_partition);
+    counter!(REPEATED_COMPLETIONS, "topic" => topic, "partition" => partition)
+        .increment(repeated as u64);
+    error!(
+        topic = %topic_partition.topic,
+        partition = topic_partition.partition,
+        repeated,
+        "Offsets completed again after the ledger counted them"
+    );
 }
 
 fn report_gap_offsets(topic_partition: &TopicPartition, taken: &TakenFrontier) {
@@ -308,6 +330,21 @@ mod tests {
             Some(Offset(12))
         );
         assert_eq!(ledger.held(&p0).offsets, 0);
+    }
+
+    #[test]
+    fn a_repeated_completion_settles_without_resetting_the_partition() {
+        let ledger = TopicOffsetLedger::new();
+        let p0 = tp("events", 0);
+        charge(&ledger, &p0, 0, &[10, 11]);
+        ledger.settle(&p0, 0, [Offset(10)]).unwrap();
+
+        assert_eq!(
+            ledger.settle(&p0, 0, [Offset(10), Offset(11)]),
+            Ok(Some(Offset(12)))
+        );
+        assert_eq!(ledger.generation(&p0), 0);
+        assert_eq!(ledger.generations_version(), 0);
     }
 
     #[test]

@@ -23,6 +23,8 @@ pub struct GroupCompletion {
     /// completion for a partition that was revoked and reassigned in between
     /// carries an older epoch than any poll of the new incarnation.
     pub assignment_epoch: u64,
+    /// The ledger generation the group's messages were charged under.
+    pub generation: u64,
     /// The offsets of the group's messages, in group order.
     pub offsets: Vec<Offset>,
     /// How many of the group's messages the worker accepted.
