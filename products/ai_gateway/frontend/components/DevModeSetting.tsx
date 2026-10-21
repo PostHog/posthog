@@ -44,13 +44,10 @@ export function DevModeSetting(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            <div>
-                <p className="mb-0">
-                    Each token can spend up to ${usage?.token_cap_usd ?? '…'} and expires after{' '}
-                    {usage ? Math.round(usage.ttl_seconds / 3600) : '…'} hours.
-                </p>
-                <p className="mb-0">Requests made with a token are attributed to you.</p>
-            </div>
+            <p className="mb-0">
+                Each token can spend up to ${usage?.token_cap_usd ?? '…'} and expires after{' '}
+                {usage ? Math.round(usage.ttl_seconds / 3600) : '…'} hours.
+            </p>
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonButton
