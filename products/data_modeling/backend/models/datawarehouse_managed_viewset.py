@@ -255,6 +255,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         error=str(e),
                     )
 
+        cadence_rejected: list[DataWarehouseSavedQuery] = []
         for saved_query in saved_queries_to_schedule:
             try:
                 saved_query.schedule_materialization(reconcile=False)
@@ -270,6 +271,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.is_materialized = False
                 saved_query.sync_frequency_interval = None
                 saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "updated_at"])
+                cadence_rejected.append(saved_query)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
@@ -280,13 +282,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
-            for saved_query in saved_queries_to_schedule:
-                if not saved_query.is_materialized:
-                    apply_saved_query_frequency_target(saved_query, None, reconcile=False)
-            Node.objects.filter(
-                team_id=self.team_id,
-                saved_query_id__in=[view.id for view in saved_queries_to_schedule if not view.is_materialized],
-            ).update(type=NodeType.VIEW)
+            for saved_query in cadence_rejected:
+                apply_saved_query_frequency_target(saved_query, None, reconcile=False)
+            if cadence_rejected:
+                Node.objects.filter(
+                    team_id=self.team_id, saved_query_id__in=[view.id for view in cadence_rejected]
+                ).update(type=NodeType.VIEW)
             maybe_reconcile_dag(dag)
 
         views_deleted = 0
