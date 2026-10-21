@@ -927,14 +927,15 @@ class EnterpriseExperimentsViewSet(
 
         Two checks read whether the project received an event from its event definitions: a
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
-        not received. `metric_event_not_ingested` names each metric that reads an event the
-        project never received, in the `evidence` keys `metric_N`, `metric_N_role` and
-        `metric_N_events`. `exposure_criteria_cannot_match` reports a custom exposure event the
-        project never received (`exposure_event_not_ingested`), and a `$feature_flag` filter on
-        the flag call events that requires another flag (`filter_on_another_flag`). An event not
-        received is info before launch, in the first 24 hours after launch, and when only
-        secondary metrics read it, and a warning otherwise. `filter_on_another_flag` is a warning
-        in every state, and the other findings stop at the end.
+        not received. A name whose definition was deleted is not checked, because ingestion writes
+        it again only when the event arrives. `metric_event_not_ingested` names each metric that
+        reads an event the project never received, in the `evidence` keys `metric_N`,
+        `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
+        exposure event the project never received (`exposure_event_not_ingested`), and a
+        `$feature_flag` filter on the flag call events that requires another flag
+        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
+        hours after launch, and when only secondary metrics read it, and a warning otherwise.
+        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from

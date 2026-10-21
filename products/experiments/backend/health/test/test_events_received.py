@@ -3,10 +3,13 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.team.team import Team
 
 from products.event_definitions.backend.models import EventDefinition
@@ -62,6 +65,17 @@ class TestEventsReceived(BaseTest):
         EventDefinition.objects.create(team=sibling, project=self.project, name="purchase", last_seen_at=timezone.now())
         # Wizard writes a definition without `last_seen_at` for an event it planned.
         EventDefinition.objects.create(team=self.team, project=self.project, name="signup", last_seen_at=None)
+        with self.captureOnCommitCallbacks(execute=True):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=sibling.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id="1",
+                scope="EventDefinition",
+                activity="deleted",
+                detail=Detail(name="refund", changes=None),
+            )
         flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
         experiment = Experiment.objects.create(
             team=self.team,
@@ -69,7 +83,7 @@ class TestEventsReceived(BaseTest):
             feature_flag=flag,
             start_date=timezone.now() - timedelta(days=2),
             metrics=[_mean("purchase", uuid="revenue", name="Revenue")],
-            metrics_secondary=[_mean("signup", uuid="signups")],
+            metrics_secondary=[_mean("signup", uuid="signups"), _mean("refund", uuid="refunds")],
             exposure_criteria={"exposure_config": {"kind": "ExperimentEventExposureConfig", **exposure_config}},
         )
         shared = ExperimentSavedMetric.objects.create(
@@ -96,3 +110,24 @@ class TestEventsReceived(BaseTest):
         exposure = findings[Code.EXPOSURE_CRITERIA_CANNOT_MATCH]
         self.assertEqual((exposure.subcode, dict(exposure.evidence)), expected_exposure)
         self.assertEqual(exposure.severity, WARNING)
+
+    def test_shared_metrics_add_no_queries(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        experiment = Experiment.objects.create(team=self.team, name="Checkout", feature_flag=flag)
+
+        query_counts = []
+        for number in range(3):
+            shared = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name=f"Shared {number}",
+                created_by=self.user,
+                query=_mean(f"event_{number}", uuid=str(number)),
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=shared, metadata={"type": "primary"}
+            )
+            with CaptureQueriesContext(connection) as queries:
+                get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+            query_counts.append(len(queries))
+
+        self.assertEqual(len(set(query_counts)), 1, query_counts)

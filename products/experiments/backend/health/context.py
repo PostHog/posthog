@@ -10,6 +10,8 @@ import pydantic
 from posthog.schema import EventPropertyFilter, ExperimentEventExposureConfig, MultipleVariantHandling, PropertyOperator
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.team import Team
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -487,8 +489,25 @@ def _events_received(
     if exposure_events is not None and exposure_events.custom_event is not None:
         names.add(exposure_events.custom_event)
     checked = {name for name in names if _has_event_definition(name)}
-    received = defined_event_names(experiment.team.project_id, checked, seen_only=True)
+    project_id = experiment.team.project_id
+    received = defined_event_names(project_id, checked, seen_only=True)
+    checked -= _deleted_definition_names(project_id, checked - received)
     return {name: name in received for name in checked}
+
+
+def _deleted_definition_names(project_id: int, names: set[str]) -> set[str]:
+    # Ingestion writes a deleted definition again only when it sees the event again, so until then the project can
+    # hold the event without a definition.
+    if not names:
+        return set()
+    return set(
+        ActivityLog.objects.filter(
+            team_id__in=Team.objects.filter(project_id=project_id).values("id"),
+            scope="EventDefinition",
+            activity="deleted",
+            detail__name__in=names,
+        ).values_list("detail__name", flat=True)
+    )
 
 
 def _configured_baseline_variant_key(stats_config: object) -> str | None:
