@@ -40,6 +40,7 @@ class ReviewerSnapshot:
     state: ReviewerState
     reviewers: tuple[SuggestedReviewerEntry, ...]
     corrections: ReviewerCorrections
+    invalid_reviewers: bool = False
 
 
 @frozen
@@ -98,7 +99,9 @@ class ReviewerRules:
             for entry in content:
                 if isinstance(entry, dict):
                     entry["reason"] = bounded_reviewer_reason(entry.get("reason"))
-                    for commit in entry.get("relevant_commits") or []:
+                    if not isinstance(entry.get("relevant_commits"), list):
+                        entry["relevant_commits"] = []
+                    for commit in entry["relevant_commits"]:
                         if isinstance(commit, dict):
                             commit["reason"] = bounded_reviewer_reason(commit.get("reason")) or ""
         return tuple(SuggestedReviewers.model_validate(content).root)
@@ -124,9 +127,31 @@ class ReviewerRules:
 
     @classmethod
     def _legacy_corrections(cls, *, team_id: int, report_id: str) -> ReviewerCorrections:
-        rows = SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=report_id, type="suggested_reviewers"
-        ).order_by("created_at", "id")
+        rows = list(
+            SignalReportArtefact.objects.filter(
+                team_id=team_id, report_id=report_id, type="suggested_reviewers"
+            ).order_by("created_at", "id")
+        )
+        try:
+            history = {row.id: cls._read_reviewers(row) for row in rows}
+        except ValueError:
+            return ReviewerCorrections(needs_review=True)
+        unresolved_logins = {
+            entry.github_login.lower()
+            for reviewers in history.values()
+            for entry in reviewers
+            if entry.github_login and not entry.user_uuid
+        }
+        members = resolve_org_github_login_to_users(team_id, unresolved_logins) if unresolved_logins else {}
+
+        def resolve(entries: tuple[SuggestedReviewerEntry, ...]) -> tuple[SuggestedReviewerEntry, ...]:
+            return tuple(
+                entry.model_copy(update={"user_uuid": str(member.uuid)})
+                if entry.github_login and not entry.user_uuid and (member := members.get(entry.github_login.lower()))
+                else entry
+                for entry in entries
+            )
+
         changes = [
             (log.user_id, change)
             for log in ActivityLog.objects.filter(
@@ -138,10 +163,7 @@ class ReviewerRules:
         corrections = ReviewerCorrections()
         previous: tuple[SuggestedReviewerEntry, ...] = ()
         for row in rows:
-            try:
-                current = cls._read_reviewers(row)
-            except ValueError:
-                return corrections.model_copy(update={"needs_review": True})
+            current = history[row.id]
             if row.actor_kind == "user" or (row.actor_kind is None and row.created_by_id is not None):
                 added = tuple(entry for entry in current if not contains_reviewer(previous, entry))
                 removed = tuple(entry for entry in previous if not contains_reviewer(current, entry))
@@ -160,9 +182,7 @@ class ReviewerRules:
                     if match is None:
                         return corrections.model_copy(update={"needs_review": True})
                     changes.pop(match)
-                    corrections = correct_reviewers(
-                        corrections, cls._resolve_identities(team_id, added), cls._resolve_identities(team_id, removed)
-                    )
+                    corrections = correct_reviewers(corrections, resolve(added), resolve(removed))
             previous = current
         return corrections.model_copy(
             update={
@@ -177,19 +197,31 @@ class ReviewerRules:
         rows = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id)
         reviewers = rows.filter(type="suggested_reviewers").order_by("-created_at", "-id").first()
         corrections = rows.filter(type="reviewer_corrections").order_by("-created_at", "-id").first()
-        return ReviewerSnapshot(
-            state=ReviewerState(
-                reviewers_id=reviewers.id if reviewers else None, corrections_id=corrections.id if corrections else None
-            ),
-            reviewers=cls._read_reviewers(reviewers),
-            corrections=ReviewerCorrections.model_validate_json(corrections.content)
+        invalid_reviewers = False
+        try:
+            entries = cls._read_reviewers(reviewers)
+        except ValueError:
+            entries = ()
+            invalid_reviewers = True
+        rules = (
+            ReviewerCorrections.model_validate_json(corrections.content)
             if corrections
             else ReviewerCorrections(
                 # Until the first protected write recovers old edits, readers must not treat them as absent.
                 needs_review=rows.filter(type="suggested_reviewers")
                 .filter(Q(actor_kind="user") | Q(actor_kind__isnull=True, created_by__isnull=False))
                 .exists()
+            )
+        )
+        if invalid_reviewers:
+            rules = rules.model_copy(update={"needs_review": True})
+        return ReviewerSnapshot(
+            state=ReviewerState(
+                reviewers_id=reviewers.id if reviewers else None, corrections_id=corrections.id if corrections else None
             ),
+            reviewers=entries,
+            corrections=rules,
+            invalid_reviewers=invalid_reviewers,
         )
 
     def read(self) -> ReviewerSnapshot:
@@ -232,6 +264,8 @@ class ReviewerRules:
     ) -> ReviewerUpdate:
         """Called by append_status while it holds the report lock."""
         snapshot = self.read()
+        if snapshot.invalid_reviewers:
+            raise ReviewerWriteError("Stored reviewer data is invalid. Correct it before changing reviewers.")
         current = (
             SignalReportArtefact.objects.get(
                 team_id=self.team.id, report_id=self.report_id, id=snapshot.state.reviewers_id
