@@ -29,6 +29,7 @@ from products.data_modeling.backend.logic.incremental import parse_incremental_c
 from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -274,6 +275,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
+            Node.objects.filter(
+                team_id=self.team_id,
+                saved_query_id__in=[view.id for view in saved_queries_to_schedule if not view.is_materialized],
+            ).update(type=NodeType.VIEW)
             maybe_reconcile_dag(dag)
 
         views_deleted = 0
