@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
+from django.utils import timezone
 
 import modal
 import requests
@@ -91,6 +92,12 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox_housekeeping import (
+    HOUSEKEEPING_TIMEOUT_SECONDS,
+    SandboxHousekeeping,
+    build_housekeeping_script,
+    parse_housekeeping_output,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -1973,6 +1980,11 @@ class ModalSandbox(AgentServerLaunchMixin):
     def start_cpu_billing_sampler(self) -> bool:
         result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
         return result.exit_code == 0
+
+    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
+        request_cores = self._cpu_billing_request_cores()
+        result = self.execute(build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS)
+        return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)

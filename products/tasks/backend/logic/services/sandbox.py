@@ -27,6 +27,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from pydantic import BaseModel, model_validator
@@ -49,6 +50,12 @@ from products.tasks.backend.logic.services.sandbox_config import (
     DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
+)
+from products.tasks.backend.logic.services.sandbox_housekeeping import (
+    AGENT_MANIFEST_PATH,
+    HOUSEKEEPING_TIMEOUT_SECONDS,
+    SandboxHousekeeping,
+    parse_agent_version,
 )
 
 if TYPE_CHECKING:
@@ -756,6 +763,26 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
+
+    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
+        agent_version = self._read_agent_version()
+        cpu_billing_sampler_started = self.start_cpu_billing_sampler()
+        cpu_usage_usec = self.read_cpu_usage_usec()
+        return SandboxHousekeeping(
+            agent_version=agent_version,
+            cpu_billing_sampler_started=cpu_billing_sampler_started,
+            cpu_usage_usec=cpu_usage_usec,
+            billed_cpu_usage_usec=self.read_billed_cpu_usage_usec(),
+            cpu_usage_measured_at=timezone.now() if cpu_usage_usec is not None else None,
+        )
+
+    def _read_agent_version(self) -> str | None:
+        try:
+            result = self.execute(f"cat {AGENT_MANIFEST_PATH}", timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS)
+        except Exception:
+            _logger.warning("sandbox_agent_version_read_failed", sandbox_id=self.id, exc_info=True)
+            return None
+        return parse_agent_version(result.stdout) if result.exit_code == 0 else None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
