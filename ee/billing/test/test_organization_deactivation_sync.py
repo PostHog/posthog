@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 from typing import cast
 
@@ -6,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, _start_billing_active_sync_workflow
 from posthog.temporal.billing_active_sync.sync_organization_active_state import (
     reconcile_organization_active_state,
     sync_organization_active_state,
@@ -87,6 +88,12 @@ class TestDeactivatedOrganizationsClient(BaseTest):
 
 
 class TestSyncActiveStateReceiver(BaseTest):
+    def setUp(self):
+        super().setUp()
+        is_cloud_patcher = patch("posthog.models.organization.is_cloud", return_value=True)
+        self.is_cloud_mock = is_cloud_patcher.start()
+        self.addCleanup(is_cloud_patcher.stop)
+
     @patch("posthog.models.organization._start_billing_active_sync_workflow")
     def test_dispatches_on_is_active_flip(self, dispatch_mock):
         with self.captureOnCommitCallbacks(execute=True):
@@ -109,6 +116,32 @@ class TestSyncActiveStateReceiver(BaseTest):
             Organization.objects.create(name="fresh org")
 
         dispatch_mock.assert_not_called()
+
+    @patch("posthog.models.organization._start_billing_active_sync_workflow")
+    def test_does_not_dispatch_outside_cloud(self, dispatch_mock):
+        self.is_cloud_mock.return_value = False
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.is_active = False
+            self.organization.save(update_fields=["is_active"])
+
+        dispatch_mock.assert_not_called()
+
+
+class TestStartBillingActiveSyncWorkflow(BaseTest):
+    @patch("posthog.models.organization.BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS", 0.01)
+    @patch("posthog.models.organization.logger")
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_gives_up_when_temporal_does_not_answer(self, connect_mock, logger_mock):
+        async def _hang():
+            await asyncio.sleep(60)
+
+        connect_mock.side_effect = _hang
+
+        _start_billing_active_sync_workflow(str(self.organization.pk))
+
+        logger_mock.warning.assert_called_once()
+        assert logger_mock.warning.call_args.args == ("billing_active_state_sync_dispatch_failed",)
 
 
 class TestSyncTasks(BaseTest):

@@ -734,11 +734,14 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
 
 @receiver(post_save, sender=Organization)
 def sync_active_state_to_billing_on_change(sender, instance: Organization, created: bool, **kwargs):
-    if created or not instance._is_active_changed:
+    if created or not instance._is_active_changed or not is_cloud():
         return
 
     organization_id = str(instance.pk)
     transaction.on_commit(lambda: _start_billing_active_sync_workflow(organization_id))
+
+
+BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS = 5
 
 
 def _start_billing_active_sync_workflow(organization_id: str) -> None:
@@ -751,11 +754,11 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
         SyncOrganizationActiveStateInputs,
         SyncOrganizationActiveStateWorkflow,
     )
-    from posthog.temporal.common.client import sync_connect
+    from posthog.temporal.common.client import async_connect
 
-    try:
-        client = sync_connect()
-        asyncio.run(
+    async def _connect_and_start() -> None:
+        client = await asyncio.wait_for(async_connect(), timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS)
+        await asyncio.wait_for(
             client.start_workflow(
                 SyncOrganizationActiveStateWorkflow.run,
                 SyncOrganizationActiveStateInputs(organization_id=organization_id),
@@ -763,11 +766,15 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
                 id=f"billing-org-active-sync-{organization_id}",
                 task_queue=settings.BILLING_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-            )
+            ),
+            timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
         )
+
+    try:
+        asyncio.run(_connect_and_start())
     except Exception:
         # The nightly reconciliation realigns billing; never fail the org save.
-        logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id)
+        logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
