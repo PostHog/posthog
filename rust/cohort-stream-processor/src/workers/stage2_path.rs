@@ -490,7 +490,6 @@ fn read_register(bytes: Option<Vec<u8>>) -> StoredRegister {
 }
 
 /// Commit recomputed `cf_stage2` bits.
-#[hotpath::measure]
 pub(crate) async fn commit_stage2_writes(
     handle: &StoreHandle,
     writes: &[(Stage2Key, Stage2State)],
@@ -578,7 +577,6 @@ pub(crate) async fn recompute_and_diff(
 /// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;
 /// a cohort-reference leaf reads the referenced cohort's stored membership (see [`resolve_ref_membership`]).
 #[allow(clippy::too_many_arguments)]
-#[hotpath::measure]
 async fn evaluate_cohort(
     partition_id: u16,
     team_id: u64,

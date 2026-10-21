@@ -32,6 +32,7 @@ common-liveness = { path = "../common/liveness" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 # Opt-in profiling. Every hotpath macro and wrapper is a no-op unless the `hotpath` feature is on.
+# Profile an optimized build: `cargo run --release -p cohort-stream-processor --features hotpath`.
 hotpath = { version = "0.28", features = ["tokio", "sqlx"] }
 # `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
 # one partition can't head-of-line-block the sends to the others. Same version dedup uses.
@@ -73,7 +74,6 @@ default = []
 hotpath = ["hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 hotpath-prometheus = ["hotpath", "hotpath/hotpath-prometheus"]
-hotpath-cloud = ["hotpath/hotpath-cloud"]
 
 [dev-dependencies]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
