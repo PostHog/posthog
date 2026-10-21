@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import connections
-from django.db.models import Case, Count, Exists, F, OuterRef, Q, When
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, When, prefetch_related_objects
 
 from posthog.dataclasses import frozen
 
@@ -24,6 +25,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineCategorySummary,
+    OfflineExperimentAuthor,
     OfflineExperimentRead,
     OfflineHistoryPoint,
     OfflineItemPage,
@@ -43,6 +45,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -100,7 +103,7 @@ class OfflineEvaluationReadService:
         self.can_read_scores = can_read_scores
 
     def _experiments(self) -> QuerySet[OfflineExperiment]:
-        return OfflineExperiment.objects.for_team(self.team_id)
+        return OfflineExperiment.objects.for_team(self.team_id).select_related("created_by")
 
     def _items(self) -> QuerySet[OfflineExperimentItem]:
         return OfflineExperimentItem.objects.for_team(self.team_id)
@@ -156,13 +159,17 @@ class OfflineEvaluationReadService:
         return item
 
     def _filter_experiments(self, query: OfflineReadQuery, *, history: bool = False) -> QuerySet[OfflineExperiment]:
-        experiments = self._experiments()
+        experiments = ResourceTags.filter(self._experiments(), self.team_id, query.tags, query.tag_match)
         if query.date_from is not None:
             experiments = experiments.filter(started_at__gte=query.date_from)
         if query.date_to is not None:
             experiments = experiments.filter(started_at__lt=query.date_to)
         if query.search:
             experiments = experiments.filter(name__icontains=query.search)
+        if query.created_by is not None:
+            experiments = experiments.filter(created_by_id=query.created_by)
+        if query.created_by_is_null:
+            experiments = experiments.filter(created_by__isnull=True)
         if query.run_source_is_null:
             experiments = experiments.filter(run_source__isnull=True)
         elif query.run_source is not None:
@@ -278,13 +285,29 @@ class OfflineEvaluationReadService:
             }
 
     def _experiment_reads(self, experiments: list[OfflineExperiment]) -> list[OfflineExperimentRead]:
+        prefetch_related_objects(experiments, ResourceTags.prefetch())
         ids = [experiment.id for experiment in experiments]
         visible_counts = self._experiment_counts(ids)
         output = []
         for experiment in experiments:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
+            author = experiment.created_by
             output.append(
                 OfflineExperimentRead(
+                    tags=tuple(ResourceTags.names(experiment)),
+                    created_by=OfflineExperimentAuthor(
+                        id=author.id,
+                        uuid=author.uuid,
+                        distinct_id=author.distinct_id,
+                        first_name=author.first_name,
+                        last_name=author.last_name,
+                        email=author.email,
+                        is_email_verified=author.is_email_verified,
+                        hedgehog_config=deepcopy(author.hedgehog_config),
+                        role_at_organization=author.role_at_organization,
+                    )
+                    if author is not None
+                    else None,
                     id=experiment.id,
                     name=experiment.name,
                     run_source=experiment.run_source,

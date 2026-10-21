@@ -132,7 +132,7 @@ Keys are free and take about a minute to create at [openalex.org/settings/api](h
 OpenAlex indexes over 300 million works and 120 million authors, which is more than a free key's daily allowance covers. Use the filter fields to narrow the works, authors and awards tables to the records you care about, for example `authorships.institutions.lineage:i27837315` for one institution's papers. The [filtering guide](https://developers.openalex.org/guides/filtering) lists the available filter fields. Leave a filter blank to sync the whole entity.""",
             iconPath="/static/services/openalex.png",
             docsUrl="https://posthog.com/docs/cdp/sources/openalex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["research", "scholarly", "citations", "publications"],
             fields=cast(
                 list[FieldType],

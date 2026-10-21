@@ -3,10 +3,13 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiConfig } from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { saveTagFilters } from '../components/resourceTagFilters'
 import {
     llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList,
     llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate,
@@ -31,6 +34,7 @@ const mockAIObservabilityScoreDefinitionsPartialUpdate =
     >
 
 const mockScoreDefinition: ScoreDefinition = {
+    tags: [],
     id: 'score_def_1',
     name: 'Quality',
     description: 'Reusable quality scorer',
@@ -53,6 +57,7 @@ const mockScoreDefinition: ScoreDefinition = {
         hedgehog_config: null,
     },
     created_at: '2026-03-11T00:00:00Z',
+    updated_by: null,
     updated_at: '2026-03-11T00:00:00Z',
     team: MOCK_DEFAULT_TEAM.id,
 }
@@ -60,6 +65,7 @@ const mockScoreDefinition: ScoreDefinition = {
 describe('aiObservabilityScoreDefinitionsLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        localStorage.clear()
         jest.resetAllMocks()
         mockAIObservabilityScoreDefinitionsList.mockResolvedValue({
             results: [mockScoreDefinition],
@@ -86,30 +92,83 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         })
     })
 
+    it.each(['saved', 'url'])('waits for the project before restoring %s tag filters', async (source) => {
+        const selection = { tags: ['quality'], tag_match: 'all' as const }
+        saveTagFilters('scorers', selection)
+        router.actions.push(urls.aiObservabilityScorers(), source === 'url' ? { tags: ['shared'] } : {})
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        const currentTeamId = jest.spyOn(ApiConfig, 'getCurrentTeamId').mockImplementation(() => {
+            throw new Error('Team ID is not known.')
+        })
+        const logic = aiObservabilityScoreDefinitionsLogic()
+        try {
+            expect(() => logic.mount()).not.toThrow()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockAIObservabilityScoreDefinitionsList).not.toHaveBeenCalled()
+        } finally {
+            currentTeamId.mockRestore()
+        }
+
+        await expectLogic(logic, () =>
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        ).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(source === 'url' ? ['shared'] : ['quality'])
+        expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ tags: JSON.stringify(source === 'url' ? ['shared'] : ['quality']), offset: 0 })
+        )
+    })
+
     it('updates filters and resets pagination', async () => {
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()
 
         await expectLogic(logic, () => {
             logic.actions.setFilters({ page: 3 }, false)
-            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true' })
+            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true', created_by: 42 })
         }).toFinishAllListeners()
 
         expect(logic.values.filters).toEqual({
+            tags: [],
+            tag_match: 'any',
             page: 1,
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: 'true',
             order_by: 'name',
         })
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: true,
             order_by: 'name',
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
+    })
+
+    it('restores tag filters on return and lets shared URLs override them', async () => {
+        router.actions.push(urls.aiObservabilityScorers())
+        const logic = aiObservabilityScoreDefinitionsLogic()
+        logic.mount()
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ tags: ['quality', 'production'], tag_match: 'all' }, true, false)
+        ).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ tags: '["quality","production"]', tag_match: 'all' })
+        )
+        router.actions.push(urls.aiObservabilityDatasets())
+        router.actions.push(urls.aiObservabilityScorers())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['quality', 'production'])
+        expect(router.values.searchParams.tags).toEqual(['quality', 'production'])
+        router.actions.push(urls.aiObservabilityScorers(), { tags: ['other'], tag_match: 'any' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['other'])
     })
 
     it('does not show the empty count label while loading', async () => {

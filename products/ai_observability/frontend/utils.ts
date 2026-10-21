@@ -862,6 +862,13 @@ export function getGeminiInlineData(input: unknown): { data: string; mime_type: 
         }
     }
 
+    // Gemini Interactions API uses top-level data and mime_type.
+    const d = input as Record<string, unknown>
+    const mimeType = d.mime_type ?? d.mimeType
+    if (typeof d.data === 'string' && typeof mimeType === 'string') {
+        return { data: d.data, mime_type: mimeType }
+    }
+
     return null
 }
 
@@ -870,7 +877,15 @@ export function isGeminiImageMessage(input: unknown): input is GeminiImageMessag
         return false
     }
     const inlineData = getGeminiInlineData(input)
-    return inlineData !== null && inlineData.mime_type.startsWith('image/')
+    if (inlineData) {
+        return inlineData.mime_type.startsWith('image/')
+    }
+    if ('data' in input && typeof input.data === 'string') {
+        return true
+    }
+    const uri = 'uri' in input ? input.uri : null
+    const mimeType = 'mime_type' in input ? input.mime_type : null
+    return typeof uri === 'string' && (typeof mimeType !== 'string' || mimeType.startsWith('image/'))
 }
 
 export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {

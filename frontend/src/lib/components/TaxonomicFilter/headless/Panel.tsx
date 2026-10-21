@@ -69,7 +69,7 @@ function TaxonomicFilterActivePanel({
     loadingState,
     className,
 }: ActivePanelProps): JSX.Element {
-    const { getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
+    const { getGroupListInput, registerActiveList, selectItem, searchQuery } = useTaxonomicFilterContext()
     const list: UseGroupListResult = useGroupList(getGroupListInput(group))
     // `useTaxonomicResource`'s cache only notifies subscribers once a fetch settles, not when
     // it starts, so `list.isFetching` doesn't flip to true for the duration of an imperative
@@ -148,7 +148,11 @@ function TaxonomicFilterActivePanel({
                     <Empty>
                         <EmptyHeader>
                             <EmptyTitle>
-                                {list.needsMoreSearchCharacters ? 'Type more to search' : 'No results'}
+                                {list.needsMoreSearchCharacters
+                                    ? 'Type more to search'
+                                    : group.shouldSearch?.(searchQuery) === false
+                                      ? (group.searchQueryHint ?? 'No results')
+                                      : 'No results'}
                             </EmptyTitle>
                         </EmptyHeader>
                     </Empty>

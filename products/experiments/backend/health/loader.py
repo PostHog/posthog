@@ -6,8 +6,9 @@ from posthog.models.user import User
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, load_health_context
-from products.experiments.backend.health.exposure_gate import load_split_history
+from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
+from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 
@@ -29,7 +30,7 @@ def load_experiment_health_context(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
 ) -> HealthContext:
     """The context that the checks of the health endpoint read: the experiment, its flag, its linked metrics, the
-    changes of the flag's split since launch and the flag's recent calls, as far as `reader_access` allows."""
+    changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows."""
     return _health_context(_load_experiment(team_id, experiment_id), reader_access)
 
 
@@ -53,13 +54,17 @@ def load_experiment_health_inputs(
 def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
     return (
         Experiment.objects.select_related("team", "feature_flag")
-        .prefetch_related("experimenttosavedmetric_set")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
         .get(id=experiment_id, team_id=team_id)
     )
 
 
 def _health_context(experiment: Experiment, reader_access: ExperimentHealthReaderAccess) -> HealthContext:
-    split_history = load_split_history(experiment, reader_access=reader_access)
-    context = load_health_context(experiment, split_history=split_history)
+    flag_history = load_flag_history(experiment, reader_access=reader_access)
+    context = load_health_context(experiment, flag_history=flag_history)
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
-    return replace(context, condition_set_traffic=traffic)
+    return replace(
+        context,
+        condition_set_traffic=traffic,
+        pause_history=load_pause_history(experiment, reader_access=reader_access),
+    )

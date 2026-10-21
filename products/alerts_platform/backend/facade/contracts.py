@@ -17,9 +17,11 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
 
@@ -103,20 +105,24 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     return condition if isinstance(condition, dict) else {}
 
 
-class GroupingMode(StrEnum):
-    SINGLE = "single"
-    BY_RESULT_LABELS = "by_result_labels"
+class GroupingMode(LabeledStrEnum):
+    SINGLE = "single", "Single"
+    BY_RESULT_LABELS = "by_result_labels", "By result labels"
 
 
-class OnOverflow(StrEnum):
+class OnOverflow(LabeledStrEnum):
     # The only mode, because a cap that drops groups silently reads the same as nothing being wrong.
-    DEGRADE_VISIBLE = "degrade_visible"
+    DEGRADE_VISIBLE = "degrade_visible", "Degrade visible"
 
 
 DEFAULT_MAX_INSTANCES: Final = 100
 # One check's outcome carries a group per instance, and it crosses Temporal whole, so
 # `MAX_BATCH_PAYLOAD_BYTES` is sized to hold this many groups with their keys and labels at full length.
 MAX_INSTANCES_CEILING: Final = 100
+# The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
+MAX_STORED_INTEGER: Final = 2_147_483_647
+# The most recent checks an N-of-M decision can look back over.
+MAX_EVALUATION_PERIODS: Final = 10
 
 
 @frozen
@@ -153,6 +159,14 @@ class Grouping:
             max_instances=int(stored.get("max_instances", DEFAULT_MAX_INSTANCES)),
             on_overflow=OnOverflow(stored.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
         )
+
+    def splits_like(self, other: Grouping) -> bool:
+        """Whether the two key a check's results the same way, so their instances are interchangeable.
+
+        `max_instances` and `on_overflow` are left out, because they bound how many groups are kept and
+        change no group's key.
+        """
+        return (self.mode, self.keys) == (other.mode, other.keys)
 
     def to_stored(self) -> dict[str, Any]:
         return {
@@ -319,11 +333,6 @@ class PlatformAlertCheckInput:
         ]
 
     @property
-    def filters(self) -> dict[str, Any]:
-        """Satisfies the logs query layer, which names this field `filters`."""
-        return self.source_config
-
-    @property
     def condition(self) -> dict[str, Any]:
         return source_condition(self.source_config)
 
@@ -347,6 +356,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -386,12 +398,14 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
@@ -415,6 +429,28 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
+
+
+@frozen
+class PlatformCheckEvent:
+    """One check of an alert the platform owns that moved its state or failed."""
+
+    occurred_at: datetime
+    evaluation_key: str
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+    value: float | None
+    condition: dict[str, Any]
+    query_duration_ms: int | None
+    error_message: str | None
+
+
+@frozen
+class PlatformCheckEventPage:
+    """The newest checks of an alert that moved its state or failed, and how many there are in all."""
+
+    events: tuple[PlatformCheckEvent, ...]
+    total: int
 
 
 class SkipReason(StrEnum):
@@ -544,6 +580,14 @@ class PlatformAlertOutcome:
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+    # The id the source's own stack times this configuration's checks by. The platform then checks
+    # at the minute that stack does, because a metric read at another minute can breach where the
+    # source's own check does not. None times the checks by the configuration's own id.
+    schedule_key: str | None = None
+    # The grouping the check ran under. An edit can change it while the check is in flight, and the
+    # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
+    # dropped. None when the outcome carries no groups to drop.
+    grouping: Grouping | None = None
 
     @classmethod
     def ungrouped(
@@ -597,6 +641,7 @@ class PlatformAlertOutcome:
             evaluation_key=evaluation_key,
             consecutive_failures=consecutive_failures,
             groups=groups,
+            grouping=Grouping(),
             failure=failure,
             error_message=error_message,
             query_duration_ms=query_duration_ms,
@@ -795,9 +840,114 @@ class PlatformAlertConfigurationView:
     next_check_at: datetime | None
     consecutive_failures: int
     legacy_configuration_id: UUID | None
+    grouping: Grouping
+    snooze_until: datetime | None
+    check_status: str
+    owner: str
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+
+
+@frozen
+class PlatformAlertConfigurationEdit:
+    """The settings of a configuration that its owner may change through the API.
+
+    The schedule, the source kind and every runtime field stay out, because a write that could set
+    them would read as drift on the next check.
+    """
+
+    name: str
+    enabled: bool
+    source_config: dict[str, Any]
+    grouping: Grouping
+    schedule_restriction: dict[str, Any] | None
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+
+
+class InvalidPlatformAlertEdit(ValueError):
+    """An edit the configuration's source kind rejects, naming the field at fault."""
+
+    def __init__(self, field_name: str, message: str) -> None:
+        super().__init__(message)
+        self.field_name = field_name
+
+
+class PlatformAlertNotEditable(Exception):
+    """A configuration the platform does not own, so its source's own API writes it."""
+
+
+class UnknownPlatformAlertGroup(LookupError):
+    """A grouping key the configuration has no instance for."""
+
+
+class SourceEditMirror(Protocol):
+    """Writes an edit made through the platform API onto the source's own row.
+
+    While a source keeps its own row for an alert the platform owns, the two must agree: the
+    source's API reads that row, and a rollback hands it back. It runs before the platform locks
+    its copy, because every other writer of both rows takes the source's row first. It locks the
+    source's row and returns the writer for the edit, or None when the row is gone. It raises
+    `PlatformAlertNotEditable` when the source's row belongs to another team than the copy, because
+    the platform API checked access to the copy's team only.
+    """
+
+    def __call__(
+        self, *, team_id: int, legacy_configuration_id: UUID
+    ) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
+
+
+class PlatformAlertCreateRefused(Exception):
+    """A create the source refuses as a whole, such as one past its per-team limit."""
+
+
+class SourceCreate(Protocol):
+    """Creates an alert through the platform API on a source that keeps its own row for it.
+
+    Runs in the create's transaction. It writes the source's row and the platform's copy, both owned
+    by the platform, the way the source hands over an alert it created itself, and returns the id of
+    the source's row. The copy carries that id as `legacy_configuration_id`. It raises
+    `PlatformAlertCreateRefused` when the source refuses the create.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID: ...
+
+
+class SourceDelete(Protocol):
+    """Deletes an alert the platform owns through the platform API, on a source that keeps its own row.
+
+    It removes the source's row and the platform's copy, and closes the alert's open incidents
+    before either goes, while the destinations the resolves go to still exist. So it runs outside
+    any transaction. It raises `PlatformAlertNotEditable` when the source's row belongs to another
+    team than the copy, because the platform API checked access to the copy's team only.
+    """
+
+    def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
+
+
+@frozen
+class SourceConfigSpec:
+    """A source kind's schema for `source_config` and its rules for a whole edit.
+
+    `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
+    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
+    `create` or `delete`, the API cannot create or delete alerts of the kind.
+    """
+
+    model: type[BaseModel]
+    validate: Callable[[PlatformAlertConfigurationEdit], None]
+    mirror: SourceEditMirror | None = None
+    create: SourceCreate | None = None
+    delete: SourceDelete | None = None
+    # Where the source's incident destinations listen for a close, and the alert's page in the
+    # source's product. A control-plane close needs both to address its resolve.
+    incident_event_ids: Mapping[str, str] | None = None
+    alert_url: Callable[[int, UUID], str] | None = None
+
+
+SourceConfigLoader = Callable[[], SourceConfigSpec]
 
 
 @frozen
@@ -951,11 +1101,17 @@ class AlertDestinationConfig:
 
 @frozen
 class AlertDestinationGroup:
-    """The HogFunctions that together make up one destination a person configured."""
+    """One destination an alert delivers to: the HogFunctions a person configured, or a destination
+    with none, such as an insight alert's subscriber email."""
 
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     fully_enabled: bool
+
+    @property
+    def receives_emitted_events(self) -> bool:
+        """Whether the source's emitted internal events reach it. Only a HogFunction listens to them."""
+        return bool(self.hog_function_ids)
 
 
 @frozen
@@ -1052,6 +1208,88 @@ class LegacyWebhookBody(Protocol):
         alert_id: str,
         alert_name: str,
         consecutive_failures: int,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
+
+
+class DeliveryPathChooser(Protocol):
+    """Which path an alert's destinations allow now. The product that owns destinations registers it.
+
+    Answers `HOG_FUNCTION` whenever it is unsure, because that path sends what the source's own
+    stack sent. It reads destinations and flags, so it runs once per delivery, not per destination.
+    """
+
+    def __call__(
+        self, *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+    ) -> DeliveryPath: ...
+
+
+@frozen
+class LegacyEventEmission:
+    """One transition the platform hands to its source on the HogFunction path."""
+
+    transition: AnnouncedTransition
+    # The source emits the transition's message event, as its own stack did when it notified.
+    sends_message: bool
+    # The source emits the incident event for this action too, when it is set.
+    incident_action: IncidentAction | None
+
+    @property
+    def event_count(self) -> int:
+        return int(self.sends_message) + int(self.incident_action is not None)
+
+
+class LegacyEventEmitter(Protocol):
+    """Emits the internal events a source's own stack emitted, for transitions on the HogFunction path.
+
+    Returns only once the broker has every event, and raises otherwise, so delivery can retry. A
+    retry emits the events again, so each event carries an id stable across attempts that a
+    receiver can deduplicate on. The source's destinations match on `request.destination_alert_id`.
+    """
+
+    def __call__(
+        self,
+        *,
+        request: AlertDeliveryRequest,
+        announcement: EvaluationAnnouncement,
+        emissions: Sequence[LegacyEventEmission],
+    ) -> None: ...
+
+
+# The internal event a workflow subscribes to for an alert's transitions. One name for every source.
+ALERT_TRANSITION_EVENT: Final = "$alert_transition"
+
+
+@frozen
+class TransitionEvent:
+    """One `$alert_transition` event."""
+
+    properties: dict[str, Any]
+    timestamp: datetime
+    # Stable across attempts, so a receiver can drop an event a retry emits again.
+    uuid: str
+
+
+class TransitionEventProducer(Protocol):
+    """Puts `$alert_transition` events on the internal events topic.
+
+    Returns only once the broker has every event, and raises otherwise, so delivery can retry.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None: ...
+
+
+class SourceFacts(Protocol):
+    """A source's facts about one transition, under the property names its own alert events used.
+
+    A HogFunction ported to a workflow renders these names, so they must match the legacy events.
+    """
+
+    def __call__(
+        self,
+        *,
+        request: AlertDeliveryRequest,
+        announcement: EvaluationAnnouncement,
         transition: AnnouncedTransition,
     ) -> dict[str, Any]: ...
 
@@ -1220,3 +1458,19 @@ class SourceCorrespondence(Protocol):
     intentional_divergences: tuple[IntentionalDivergence, ...]
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...
+
+
+@frozen
+class DestinationSend:
+    """One message sent to one destination, on either delivery path, with how it went.
+
+    `destination_id` is the HogFunction the send was for, which names its event kind.
+    `error` is set only for a failed native send. A HogFunction failure has none, because its log
+    lines can quote credential-bearing inputs.
+    """
+
+    destination_id: str
+    sent_at: datetime
+    path: DeliveryPath
+    succeeded: bool
+    error: str | None

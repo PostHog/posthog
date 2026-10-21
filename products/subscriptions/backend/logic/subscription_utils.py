@@ -13,9 +13,9 @@ from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SharedInsightImage
+from products.subscriptions.backend.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
 

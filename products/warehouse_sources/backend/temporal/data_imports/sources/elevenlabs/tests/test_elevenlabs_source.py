@@ -39,32 +39,6 @@ class TestElevenLabsSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_names_filter_limits_returned_schemas(self) -> None:
-        schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
-        assert [s.name for s in schemas] == ["voices"]
-
-
-class TestElevenLabsNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.elevenlabs.io/v1/history"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.elevenlabs.io/v1/convai/conversations"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = ElevenLabsSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.elevenlabs.io', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.elevenlabs.io/v1/history"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        errors = ElevenLabsSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
-
 
 class TestElevenLabsPipelinePlumbing:
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:

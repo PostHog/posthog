@@ -48,6 +48,7 @@ from posthog.schema import (
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
 
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 
@@ -156,6 +157,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         alice = self.alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=IN_DATE_RANGE)
         bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=IN_DATE_RANGE)
         alice_2 = _create_person(team_id=self.team.pk, distinct_ids=["alice-2"], created_at=IN_DATE_RANGE)
+        self.bob_uuid = bob.uuid
         for distinct_id, person, flag_key, response, occurred_at, properties in [
             (
                 "alice",
@@ -232,12 +234,21 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1}),
-            ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1}),
-            ("unique_sessions", BaseMathType.UNIQUE_SESSION, {"test": 2, "control": 1}),
+            ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
+            ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
+            ("unique_sessions", BaseMathType.UNIQUE_SESSION, {"test": 2, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
         ]
     )
     def test_trend_by_variant(self, _name: str, math: BaseMathType, expected: dict[str, int]):
+        _create_flag_evaluations(
+            self.team.pk,
+            "probe-flag",
+            timestamp=datetime(2025, 1, 8, 14, tzinfo=UTC),
+            distinct_id="bob",
+            person_id=self.bob_uuid,
+            response=None,
+            properties={"$session_id": "s-bob", "$group_0": "org-b"},
+        )
         query = TrendsQuery(
             dateRange=DATE_RANGE,
             interval=IntervalType.DAY,
@@ -346,14 +357,18 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             datetime(2025, 1, 9, 12, tzinfo=UTC),
             {"$group_0": "org-c"},
         )
-        # Lifecycle excludes this personless call. Counting it would add an active user or group on 2025-01-08.
-        _create_flag_evaluations(
-            self.team.pk,
-            "probe-flag",
-            timestamp=datetime(2025, 1, 8, 14, tzinfo=UTC),
-            distinct_id="anonymous",
-            properties={"$process_person_profile": False, "$group_0": "org-c"},
-        )
+        # Lifecycle excludes both personless calls. Events lifecycle also drops a force-upgraded call, because that
+        # call carries $process_person_profile=false. Counting either call would add an active user or group on
+        # 2025-01-08.
+        for person_mode in ["propertyless", "force_upgrade"]:
+            _create_flag_evaluations(
+                self.team.pk,
+                "probe-flag",
+                timestamp=datetime(2025, 1, 8, 14, tzinfo=UTC),
+                distinct_id="anonymous",
+                person_mode=person_mode,
+                properties={"$process_person_profile": False, "$group_0": "org-c"},
+            )
         query = LifecycleQuery(
             dateRange=DATE_RANGE,
             interval=IntervalType.DAY,
@@ -367,12 +382,18 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         )
         events_query = query.model_copy(update={"series": [EventsNode(event="$feature_flag_called")]})
 
-        results = LifecycleQueryRunner(query=query, team=self.team).calculate().results
+        with self.capture_select_queries() as queries:
+            results = LifecycleQueryRunner(query=query, team=self.team).calculate().results
         events_results = LifecycleQueryRunner(query=events_query, team=self.team).calculate().results
 
         lifecycle = {r["status"]: r["data"] for r in results}
         assert lifecycle == expected
         assert lifecycle == {r["status"]: r["data"] for r in events_results}
+        # A filter on properties.$process_person_profile keeps the same rows. Only the SQL shows that the query reads
+        # the person_mode column instead of parsing the properties JSON of every row.
+        [sql] = [captured for captured in queries if "flag_evaluations" in captured]
+        assert "person_mode" in sql
+        assert "JSONExtractRaw" not in sql
 
     @parameterized.expand(
         [

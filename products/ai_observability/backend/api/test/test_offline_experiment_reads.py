@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -25,6 +27,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 
 @pytest.mark.ee
@@ -111,6 +114,109 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._history(),
         ]
 
+    def test_author_filter_applies_to_experiments_and_history(self) -> None:
+        self.user.hedgehog_config = {
+            "version": 2,
+            "use_as_profile": True,
+            "actor_options": {"color": "red"},
+        }
+        self.user.save(update_fields=["hedgehog_config"])
+        self.experiment.created_by = self.user
+        self.experiment.save(update_fields=["created_by"])
+        service_experiment = OfflineExperiment.objects.for_team(self.team.id).create(
+            id=uuid4(),
+            team=self.team,
+            name="Service run",
+            status="completed",
+            started_at=self.experiment.started_at + timedelta(hours=1),
+            finished_at=self.experiment.started_at + timedelta(hours=1, minutes=1),
+            submission_fingerprint="d" * 64,
+        )
+        service_item = OfflineExperimentItem.objects.for_team(self.team.id).create(
+            id=uuid4(), team=self.team, experiment=service_experiment, submission_fingerprint="e" * 64
+        )
+        OfflineEvaluationResult.objects.for_team(self.team.id).create(
+            team=self.team,
+            item=service_item,
+            scorer_definition=self.definition,
+            scorer_version=self.version,
+            status="ok",
+            boolean_value=False,
+            submission_fingerprint="f" * 64,
+        )
+        for endpoint in [self._endpoint(), self._history()]:
+            with self.subTest(endpoint=endpoint):
+                response = self.client.get(endpoint, {"created_by": self.user.id, "limit": 1})
+                self.assertEqual(response.status_code, 200, response.data)
+                self.assertEqual(response.data["count"], 1)
+                self.assertIsNone(response.data["next_cursor"])
+                row = response.data["results"][0]
+                experiment = row.get("experiment", row)
+                self.assertEqual(experiment["id"], str(self.experiment.id))
+                self.assertEqual(experiment["created_by"], UserBasicSerializer(self.user).data)
+                empty = self.client.get(endpoint, {"created_by": self.user.id + 10000})
+                self.assertEqual(empty.data["count"], 0)
+                no_author = self.client.get(endpoint, {"created_by_is_null": "true", "limit": "1"})
+                self.assertEqual(no_author.status_code, 200, no_author.data)
+                self.assertEqual(no_author.data["count"], 1)
+                self.assertIsNone(no_author.data["next_cursor"])
+                row = no_author.data["results"][0]
+                self.assertEqual(row.get("experiment", row)["id"], str(service_experiment.id))
+                all_authors = self.client.get(endpoint, {"created_by_is_null": "false"})
+                self.assertEqual(all_authors.data["count"], 2)
+        response = self.client.get(self._endpoint(f"{service_experiment.id}/"))
+        self.assertIsNone(response.data["created_by"])
+
+    def test_history_filters_experiment_tags_before_pagination(self) -> None:
+        ResourceTags.set(self.experiment, ["quality", "production"])
+        for index, tags in enumerate((["quality"], []), start=1):
+            timestamp = self.experiment.started_at - timedelta(hours=index)
+            experiment = OfflineExperiment.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                name=f"Earlier run {index}",
+                started_at=timestamp,
+                created_at=timestamp,
+                finished_at=timestamp,
+                status="completed",
+                submission_fingerprint="a" * 64,
+            )
+            ResourceTags.set(experiment, tags)
+            item = OfflineExperimentItem.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                experiment=experiment,
+                submission_fingerprint="b" * 64,
+            )
+            OfflineEvaluationResult.objects.for_team(self.team.id).create(
+                team=self.team,
+                item=item,
+                scorer_definition=self.definition,
+                scorer_version=self.version,
+                status="ok",
+                boolean_value=True,
+                submission_fingerprint="c" * 64,
+            )
+        for tags, mode, expected_count in (
+            (["quality", "production"], "any", 2),
+            (["quality", "production"], "all", 1),
+            (["missing"], "any", 0),
+            ([], "all", 3),
+        ):
+            with self.subTest(tags=tags, mode=mode):
+                query: dict[str, str | int] = {"tags": json.dumps(tags), "tag_match": mode, "limit": 1}
+                response = self.client.get(self._history(), query)
+                assert response.status_code == 200, response.data
+                assert response.data["count"] == expected_count
+                if expected_count:
+                    assert response.data["results"][0]["experiment"]["tags"] == ["production", "quality"]
+                seen = [point["experiment"]["id"] for point in response.data["results"]]
+                while response.data["next_cursor"]:
+                    response = self.client.get(self._history(), {**query, "cursor": response.data["next_cursor"]})
+                    assert response.status_code == 200, response.data
+                    seen.extend(point["experiment"]["id"] for point in response.data["results"])
+                assert len(seen) == len(set(seen)) == expected_count
+
     def _authenticate(
         self, auth_kind: str, scopes: list[str], user: User | None = None, team: Team | None = None
     ) -> None:
@@ -172,6 +278,31 @@ class TestOfflineExperimentReads(APIBaseTest):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, expected_status, response.data)
+
+    @parameterized.expand(
+        [
+            ("editor_session", "session", [], "editor", status.HTTP_200_OK),
+            ("viewer_session", "session", [], "viewer", status.HTTP_403_FORBIDDEN),
+            ("editor_key", "personal_key", ["evaluation:write"], "editor", status.HTTP_200_OK),
+            ("reader_key", "personal_key", ["evaluation:read"], "editor", status.HTTP_403_FORBIDDEN),
+            (
+                "ingestion_key",
+                "personal_key",
+                ["offline_evaluation_ingestion:write"],
+                "editor",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_tag_updates_require_evaluation_editor_access(
+        self, _name: str, auth_kind: str, scopes: list[str], access: str, expected_status: int
+    ) -> None:
+        membership = self._member(evaluation_access=access)
+        self._authenticate(auth_kind, scopes, user=membership.user)
+        response = self.client.patch(self._endpoint(f"{self.experiment.id}/"), {"tags": ["quality"]}, format="json")
+        assert response.status_code == expected_status, response.data
+        assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
 
     def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
         self._authenticate("personal_key", ["evaluation:read"])
@@ -393,6 +524,9 @@ class TestOfflineExperimentReads(APIBaseTest):
                 "item_ids",
             ),
             (self._endpoint(), {"limit": 101}, "limit"),
+            (self._endpoint(), {"created_by": "invalid"}, "created_by"),
+            (self._history(), {"created_by": 0}, "created_by"),
+            (self._history(), {"created_by": self.user.id, "created_by_is_null": "true"}, "created_by"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/payload/"), {"limit": 1}, "limit"),

@@ -584,6 +584,13 @@ class MySQLSource(
             # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
             # mysql.py); this is the backstop for the rare case where it exhausts that budget.
             "No available TiDB instances, please make sure TiDB is available",
+            # A Vitess/PlanetScale vtgate found zero serving tablet endpoints for the target
+            # keyspace/shard/tablet-type — the same gRPC `Unavailable` status as `code =
+            # Unavailable` above, phrased differently. Both `_connect_with_transient_retry` and
+            # `_retry_on_transient_tablet_unavailable` already retry it in-process (see
+            # `_is_transient_vitess_no_endpoints` in mysql.py); this is the backstop for the rare
+            # case where it exhausts that budget.
+            "vtgate connection error: no endpoints",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the

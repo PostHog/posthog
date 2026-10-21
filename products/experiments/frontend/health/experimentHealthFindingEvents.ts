@@ -10,6 +10,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
+import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
 export type ExperimentHealthFindingCode =
@@ -18,12 +19,18 @@ export type ExperimentHealthFindingCode =
     | 'flag_live_after_end'
     | 'flag_live_before_launch'
     | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
     | 'srm'
     | 'zero_exposures'
     | 'no_metric'
+    | 'metric_event_not_ingested'
+    | 'exposure_criteria_cannot_match'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
+    | 'bucketing_changed_mid_run'
+    | 'release_conditions_changed_mid_run'
+    | 'new_flag_no_traffic'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -60,7 +67,12 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
     Object.values(EXPERIMENT_WARNING_FINDING_CODES)
 )
 
-// pinned: `health_ui` property values. Insights compare the health panel with the separate warnings on them.
+// pinned: `opened_from` property values of `experiment health checks opened`.
+export type ExperimentHealthChecksOpenedFrom = 'meta_bar' | 'panel'
+
+// pinned: `health_ui` property values. Insights compare the server's findings with the separate warnings on them.
+// 'panel' means the page shows the server's findings: in the health panel when one is an issue, otherwise in the
+// health chip next to the experiment's status.
 export type ExperimentHealthUi = 'panel' | 'warnings'
 
 export function experimentHealthUi(experiment: Experiment, showsServerHealth: boolean): ExperimentHealthUi {
@@ -159,6 +171,28 @@ export function captureExperimentHealthFindingActedOn(
         action_kind: actionKind,
         // A click starts the action. The save that completes it happens in a modal or on another page.
         action_step: 'started',
+    })
+}
+
+export function captureExperimentHealthChecksOpened(
+    experiment: Experiment,
+    checks: HealthPanelCheck[],
+    findingCount: number,
+    healthUi: ExperimentHealthUi,
+    openedFrom: ExperimentHealthChecksOpenedFrom
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health checks opened', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        health_finding_count: findingCount,
+        checks_passed: countHealthChecks(checks, 'passed'),
+        checks_finding: countHealthChecks(checks, 'finding'),
+        checks_not_applicable: countHealthChecks(checks, 'not_applicable'),
+        checks_not_checked: countHealthChecks(checks, 'not_checked'),
+        opened_from: openedFrom,
+        surface: 'experiment_page',
     })
 }
 

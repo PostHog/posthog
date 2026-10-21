@@ -11,11 +11,13 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
     bluesky_source,
+    post_fanout_rows,
     validate_credentials as validate_bluesky_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    POST_FANOUT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -34,12 +36,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Every table is keyed on the id the AT Protocol guarantees is globally unique: post AT-URIs are
-# scoped by the author's own DID, and account DIDs are unique across the whole network.
+# scoped by the author's own DID, and account DIDs are unique across the whole network. Post
+# fan-out tables also carry the parent post's URI, since one account can like many posts.
 PRIMARY_KEYS: dict[str, list[str]] = {
     "Profile": ["did"],
     "Posts": ["uri"],
     "Followers": ["did"],
     "Follows": ["did"],
+    "Likes": ["post_uri", "actor_did"],
+    "Quotes": ["quoted_post_uri", "uri"],
 }
 
 # Stable, top-level datetime fields only (see partition-key-stability guidance): `indexedAt` is
@@ -51,6 +56,8 @@ PARTITION_FIELDS: dict[str, list[str]] = {
     "Posts": ["indexedAt"],
     "Followers": ["createdAt"],
     "Follows": ["createdAt"],
+    "Likes": ["indexedAt"],
+    "Quotes": ["indexedAt"],
 }
 
 
@@ -117,6 +124,16 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[BlueskyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        partition_keys = PARTITION_FIELDS.get(inputs.schema_name)
+        if inputs.schema_name in POST_FANOUT_ENDPOINTS:
+            return SourceResponse(
+                name=inputs.schema_name,
+                items=lambda: post_fanout_rows(config.actor, inputs.schema_name, resumable_source_manager),
+                primary_keys=PRIMARY_KEYS[inputs.schema_name],
+                partition_mode="datetime",
+                partition_keys=partition_keys,
+            )
+
         resource = bluesky_source(
             actor=config.actor,
             endpoint=inputs.schema_name,
@@ -124,7 +141,6 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
-        partition_keys = PARTITION_FIELDS.get(inputs.schema_name)
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
@@ -141,14 +157,15 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Bluesky",
             caption=(
-                "Sync a Bluesky account's profile, posts, followers, and follows. Uses Bluesky's "
+                "Sync a Bluesky account's profile, posts, followers, follows, and the likes and quotes "
+                "on its posts. Uses Bluesky's "
                 "public AppView API, so you only need the handle or DID you want to track, not an "
                 "account password or app password."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bluesky",
             iconPath="/static/services/bluesky.png",
             keywords=["social", "atproto", "at protocol"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
