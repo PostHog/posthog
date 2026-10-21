@@ -1788,6 +1788,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._is_agent_design_enabled = (
                 resolved if resolved is not None else await self._resolve_agent_design_flag()
             )
+        await self._update_task_run_status("in_progress")
         sandbox_label = self._sandbox_setup_label()
         await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
         announce = asyncio.create_task(self._announce_run_started(sandbox_label))
@@ -1806,7 +1807,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return sandbox_output
 
     async def _announce_run_started(self, sandbox_label: str) -> None:
-        await self._update_task_run_status("in_progress")
         if not self._is_agent_design_enabled:
             await self._post_slack_update()
         elif self._slack_thread_context:

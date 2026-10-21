@@ -1658,21 +1658,20 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 
 @pytest.mark.parametrize(
-    ("sandbox_fails", "status_fails", "expected_error"),
+    ("sandbox_fails", "status_fails", "expected_error", "expected_events"),
     [
-        (True, False, "sandbox failed"),
-        (False, True, "status write failed"),
+        (True, False, "sandbox failed", ["status:in_progress", "sandbox", "slack"]),
+        (False, True, "status write failed", ["status:in_progress"]),
     ],
 )
-async def test_nonblocking_pre_provision_failures_surface_after_the_status_write(
-    sandbox_fails, status_fails, expected_error, monkeypatch
+async def test_nonblocking_pre_provision_gates_provisioning_on_the_status_write(
+    sandbox_fails, status_fails, expected_error, expected_events, monkeypatch
 ):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = _build_context(github_integration_id=123)
     events: list[str] = []
 
     async def update_status(status: str) -> None:
-        await asyncio.sleep(0)
         events.append(f"status:{status}")
         if status_fails:
             raise ApplicationError("status write failed")
@@ -1683,17 +1682,21 @@ async def test_nonblocking_pre_provision_failures_surface_after_the_status_write
             raise ApplicationError("sandbox failed")
         return Mock()
 
+    async def post_slack_update() -> None:
+        await asyncio.sleep(0)
+        events.append("slack")
+
     monkeypatch.setattr(workflow_instance, "_update_task_run_status", update_status)
     monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", get_sandbox)
     monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
-    monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", post_slack_update)
     monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
     monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
     with pytest.raises(ApplicationError, match=expected_error):
         await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
 
-    assert events == ["sandbox", "status:in_progress"]
+    assert events == expected_events
 
 
 async def test_nonblocking_pre_provision_holds_slack_setup_steps_until_the_relay_starts(monkeypatch):
