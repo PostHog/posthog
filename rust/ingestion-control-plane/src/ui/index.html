@@ -1387,9 +1387,28 @@
           if (seq !== this.refreshSeq) return;
           this.render(data);
           // The lag scan talks to Kafka, so it never blocks the topology render.
-          fetchJSON("api/personhog/changelog").then(
-            (view) => { if (seq === this.refreshSeq) this.renderChangelog(view); },
-            (e) => { if (seq === this.refreshSeq) this.ui.changelogStatus.replaceChildren(el("div", { class: "error-box" }, String(e))); });
+          this.refreshChangelog();
+        },
+
+        // One changelog view in flight at a time, always rendered: a scan slower
+        // than the refresh interval would otherwise be discarded every time.
+        refreshChangelog() {
+          if (this.changelogInFlight) {
+            this.changelogPending = true;
+            return;
+          }
+          this.changelogInFlight = true;
+          fetchJSON("api/personhog/changelog")
+            .then(
+              (view) => this.renderChangelog(view),
+              (e) => this.ui.changelogStatus.replaceChildren(el("div", { class: "error-box" }, String(e))))
+            .finally(() => {
+              this.changelogInFlight = false;
+              if (this.changelogPending) {
+                this.changelogPending = false;
+                this.refreshChangelog();
+              }
+            });
         },
 
         renderChangelog(view) {
@@ -1397,7 +1416,9 @@
           if (this.ui.changelogFormKey !== formKey) {
             this.ui.changelogFormKey = formKey;
             this.ui.changelogError.replaceChildren();
-            this.ui.changelogForm.replaceChildren(view.config ? this.migrationForm(view) : this.seedForm());
+            this.ui.changelogForm.replaceChildren(...(view.config
+              ? [this.migrationForm(view), this.retireGroupForm()]
+              : [this.seedForm()]));
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
@@ -1417,11 +1438,11 @@
               ? el("div", { class: "empty" }, "No writer group.")
               : el("table", {},
                   el("thead", {}, el("tr", {},
-                    el("th", {}, "writer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
+                    el("th", {}, "consumer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
                     el("th", { title: "A grow's restart replays about this many records per partition; a shrink by k replays about k partitions' worth. Larger replays lengthen the pause." }, "worst partition"))),
-                  el("tbody", {}, [view.writer].map((g) =>
+                  el("tbody", {}, [view.writer, ...view.retire_groups].map((g, i) =>
                     el("tr", {},
-                      el("td", { class: "mono" }, g.group),
+                      el("td", { class: "mono" }, g.group, i === 0 ? null : this.removeRetireGroupButton(g.group)),
                       el("td", { class: "mono" }, g.error ? el("span", { class: "pill bad", title: g.error }, "scan failed") : fmtInt(g.partitions)),
                       el("td", { class: "mono" }, g.error ? "–" : fmtInt(g.lagging_partitions)),
                       el("td", { class: "mono" }, g.error ? "–" : el("span", { class: `pill ${g.total_lag === 0 ? "good" : "warn"}` }, fmtInt(g.total_lag))),
@@ -1430,9 +1451,36 @@
 
         changelogFormKeyOf(view) {
           if (!view.config) return "unseeded";
-          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}`;
-          if (view.request) return `request:${view.request.id}`;
-          return "idle";
+          const groups = (view.config.retire_groups || []).join(",");
+          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}:${groups}`;
+          if (view.request) return `request:${view.request.id}:${groups}`;
+          return `idle:${groups}`;
+        },
+
+        removeRetireGroupButton(group) {
+          const button = el("button", { style: "margin-left: 8px" }, "Remove");
+          button.onclick = () => this.postChangelogAction("api/personhog/changelog/retire-groups", {
+            method: "DELETE",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ group }),
+          }, `Stop retire waiting on ${group}?\n\nOnly do this for a consumer that no longer runs. Retire stops waiting for it, so a generation it has not read to the end can retire and be deleted. If it still runs, it refuses to start on its next restart.`);
+          return button;
+        },
+
+        retireGroupForm() {
+          const groupInput = el("input", { type: "text", placeholder: "consumer group, e.g. personhog-changelog-relay", style: "width: 360px" });
+          const button = el("button", {}, "Add retire group");
+          button.onclick = () => {
+            const group = groupInput.value.trim();
+            if (!group) return;
+            this.postChangelogAction("api/personhog/changelog/retire-groups", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ group }),
+            }, `Add ${group} as a retire group?\n\nRetire then also waits for this group to read each generation to the end. A changelog consumer such as the relay refuses to start until its group is listed. Remove it from its row once that consumer no longer runs.`);
+          };
+          return el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" },
+            el("span", { class: "muted" }, "Other consumers retire waits on:"), groupInput, button);
         },
 
         async postChangelogAction(path, options, confirmText) {
@@ -1538,18 +1586,19 @@
               : el("ul", { class: "mono", style: "margin: 4px 0" }, r.waiting.slice(0, 12).map((w) => el("li", {}, w))));
           }
           for (const g of view.draining) {
-            const w = g.writer;
-            const drained = !w.error && w.partitions > 0 && w.drained_partitions === w.partitions;
+            const groups = [g.writer, ...g.retire_groups];
+            const isDrained = (d) => !d.error && d.partitions > 0 && d.drained_partitions === d.partitions;
+            const drained = groups.every(isDrained);
             const retire = el("button", { disabled: !drained }, `Retire ${g.topic}`);
             retire.onclick = () => this.postChangelogAction("api/personhog/changelog/retire", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ topic: g.topic }),
-            }, `Retire ${g.topic}?\n\nThe writer group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
+            }, `Retire ${g.topic}?\n\nEvery gating group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
             body.append(el("div", { class: "row", style: "margin-top: 6px" },
               el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
-              el("span", { class: `pill ${w.error ? "bad" : drained ? "good" : "warn"}`, title: w.error || "" },
-                `${w.group}: ${fmtInt(w.drained_partitions)}/${fmtInt(w.partitions)}`),
+              groups.map((d) => el("span", { class: `pill ${d.error ? "bad" : isDrained(d) ? "good" : "warn"}`, title: d.error || "" },
+                `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}`)),
               retire));
           }
           if (view.history.length > 0) {

@@ -178,6 +178,7 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
             partitions: PARTITIONS,
             epoch: 2,
             writer_group: String::new(),
+            retire_groups: vec![],
             draining: Vec::new(),
         })
         .await
@@ -353,6 +354,12 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
         first.clone(),
     );
     wait_for_steady_state(&store, PARTITIONS).await;
+    for group in ["relay", "relay", "writer", "gone"] {
+        assert!(store.add_changelog_retire_group(group).await.unwrap());
+    }
+    for group in ["gone", "never-added"] {
+        assert!(store.remove_changelog_retire_group(group).await.unwrap());
+    }
 
     assert!(store.create_migration(&migration("m-1", 8)).await.unwrap());
     wait_for_phase(&store, MigrationPhase::Sealing).await;
@@ -383,6 +390,7 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
     assert_eq!(config.partitions, 8);
     assert_eq!(config.epoch, 2);
     assert_eq!(config.writer_group, "writer");
+    assert_eq!(config.retire_groups, vec!["relay".to_string()]);
     assert_eq!(
         config.draining,
         vec![Generation {
@@ -412,7 +420,26 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
             "partition {partition} drained again for its restart: {events:?}"
         );
     }
-    assert!(store.retire_changelog_topic(TOPIC).await.unwrap());
+    // A retire lands only on the config its drain checks read.
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    store.put_changelog_config(&config).await.unwrap();
+    assert!(!store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
     assert!(store
         .get_changelog_config()
         .await
@@ -647,6 +674,7 @@ async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
             partitions: PARTITIONS,
             epoch: 1,
             writer_group: "writer".to_string(),
+            retire_groups: vec![],
             draining: vec![Generation {
                 topic: "personhog_updates_test_v0".to_string(),
                 partitions: PARTITIONS,
@@ -771,6 +799,7 @@ async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
         partitions: 8,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: vec![],
     };
     store.put_changelog_config(&flipped).await.unwrap();

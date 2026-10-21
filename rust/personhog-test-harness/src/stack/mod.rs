@@ -1345,8 +1345,15 @@ impl Stack {
                 saga_end.elapsed().as_secs_f64(),
                 drained_at.elapsed().as_secs_f64()
             );
+            let (live, mod_revision) = self
+                .store
+                .get_changelog_config_with_mod_revision()
+                .await?
+                .context("config/changelog is not seeded")?;
             ensure!(
-                self.store.retire_changelog_topic(&old_topic).await?,
+                self.store
+                    .retire_changelog_topic(&live, mod_revision, &old_topic)
+                    .await?,
                 "{old_topic} was not listed as draining"
             );
         }
