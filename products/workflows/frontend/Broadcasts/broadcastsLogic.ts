@@ -63,6 +63,10 @@ export interface BroadcastsFilters {
 
 const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
 
+// The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
+// which is different from stating that every filter is off.
+const FILTER_URL_PARAMS = ['search', 'status', 'created_by', 'page']
+
 type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
@@ -355,6 +359,9 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
         filters: [
             DEFAULT_FILTERS,
+            // The list unmounts when a broadcast opens, so the filters are persisted to survive that and
+            // be restored when the user comes back to the list.
+            { persist: true, storageKey: 'broadcastsListFilters' },
             {
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
@@ -482,6 +489,15 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.broadcasts()]: (_, searchParams) => {
+            // An in-app link back to the list, such as the breadcrumb out of a broadcast, carries no filter
+            // params. Parsing that URL would clear every filter, so the filters held in state are restored
+            // and written back into the URL instead.
+            if (!FILTER_URL_PARAMS.some((param) => param in searchParams)) {
+                if (!objectsEqual(values.filters, DEFAULT_FILTERS)) {
+                    actions.setFilters(values.filters)
+                }
+                return
+            }
             const status = searchParams['status']
             const parsed: BroadcastsFilters = {
                 // The API rejects longer search terms.
