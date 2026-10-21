@@ -50,6 +50,14 @@ impl Drop for PhaseGauge {
     }
 }
 
+/// Registers each phase's transition counter at zero, so the first saga a
+/// coordinator drives shows up under `increase()`.
+pub fn register_transition_metrics() {
+    for phase in PHASES {
+        counter!("personhog_migration_transitions_total", "to" => phase_label(phase)).increment(0);
+    }
+}
+
 pub fn record_phase(current: Option<MigrationPhase>) {
     for phase in PHASES {
         gauge!("personhog_migration_phase", "phase" => phase_label(phase))

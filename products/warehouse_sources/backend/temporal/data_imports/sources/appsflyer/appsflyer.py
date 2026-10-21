@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     AppsFlyerEndpointConfig,
     AppsFlyerReportKind,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
@@ -248,7 +251,7 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
         window_start = window_end + timedelta(days=1)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AppsFlyerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=5, max=120),

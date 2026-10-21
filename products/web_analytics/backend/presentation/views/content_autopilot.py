@@ -9,14 +9,14 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     ContentAutopilotDiscoveryBurstRateThrottle,
     ContentAutopilotDiscoverySustainedRateThrottle,
@@ -70,14 +70,8 @@ def duplicate_domain_as_validation_error() -> Iterator[None]:
 class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve"]
-
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            CONTENT_AUTOPILOT_FEATURE_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = CONTENT_AUTOPILOT_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
     def _should_skip_parents_filter(self) -> bool:
         return True
