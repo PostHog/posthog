@@ -242,9 +242,9 @@ def _same_attribute(first: str, second: str) -> bool:
 
 def _replace_reference(builder_filter: BuilderFilter, old: DraftVariable, new: DraftVariable) -> BuilderFilter:
     value = REFERENCE.sub(
-        lambda match: match.group(0).replace(old.name, new.name, 1)
-        if reference_name(match) == old.name
-        else match.group(0),
+        lambda match: (
+            match.group(0).replace(old.name, new.name, 1) if reference_name(match) == old.name else match.group(0)
+        ),
         builder_filter.value,
     )
     key = new.attribute if _same_attribute(builder_filter.key, old.attribute) else builder_filter.key
