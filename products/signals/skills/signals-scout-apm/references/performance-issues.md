@@ -26,18 +26,23 @@ Skip candidates that a `pattern:apm:last-perf-audit` entry from an earlier audit
 ## N+1 calls
 
 For each candidate, run `apm-spans-tree` with its `spanName` and `serviceName` over `-1d` with the same `compareFilter`.
-Look for a child edge where all of these hold:
+Use the tree only to find where to look: a child edge with a high `calls_per_parent_invocation` (roughly 10+) in both windows, on a DB or outbound call (`kind` = `Client`, or a DB-named span — check the `kind` enum in `exploring-apm-traces`), whose `avg_duration_nano × calls_per_parent_invocation` is a large share of the parent's own p50 duration.
+Many instrumentations name a DB span by its verb (`SELECT`, `GET`), so one edge can hold every query under the parent, not one shape.
+A high edge count is a hint, never the gate.
+It also reads high when the tree hits its 5000-row cap.
 
-- `calls_per_parent_invocation` is high (roughly 10+), in both windows.
-- The child is a DB or outbound call (`kind` = `Client`, or a DB-named span — check the `kind` enum in `exploring-apm-traces`).
-- Each call is cheap (low `p50_duration_nano`), but `avg_duration_nano × calls_per_parent_invocation` is a large share of the parent's own p50 duration.
-
-The tree is the hypothesis; a trace is the proof.
+The gate is the per-shape count on a sample trace.
 Pull 1–2 slow traces of the root operation (`query-apm-spans` with the operation filter and `orderBy: "duration"`), then `apm-trace-get` and the bundled `print_summary.py` / `print_timeline.py` scripts.
-The N+1 signature is many sibling spans under one parent that carry the **same statement shape** (`db.statement` / `db.query.text`, or the same `http.route` / `url.template`) with different parameters, and that run one after another rather than in parallel.
-Siblings that run in parallel, or that carry different statements, are not an N+1.
+Group the sibling spans under the flagged parent by statement shape (`db.statement` / `db.query.text`, normalized as under "Expensive query shapes") or by `http.route` / `url.template`, and count each group.
+The N+1 finding is **one shape repeated roughly 10+ times under one parent invocation**, run one after another rather than in parallel.
+Siblings that run in parallel, or that spread over many different shapes, are not an N+1.
 
-`calls_per_parent_invocation` reads high when the tree hits its 5000-row cap; treat it as approximate in that case and lean on the sample trace.
+Whether the repeats carry the same arguments picks the fix, not whether there is a finding.
+Statements often carry only placeholders (`%s`, `?`, `GET ?`), so you often cannot tell:
+
+- Same arguments (the literals or full URLs match): memoize the call within the request.
+- Different arguments: batch the calls into one, or prefetch the relation.
+- Not visible (placeholders only): name both fixes, batch or prefetch first, and say that the arguments were not visible.
 
 ## Expensive query shapes
 
@@ -71,10 +76,10 @@ That is the human's call, so word the finding as a hypothesis.
 - **Bar.** The pattern is present in both windows, on a candidate with real traffic, and confirmed on at least one sample trace (N+1) or one sample span (query shapes, caching).
 - **Cap.** At most 1–2 new reports from this lane per run, and they never crowd out a regression finding.
 - **Shape.** One report per `(service, root operation, pattern)`. Several N+1 edges under the same root operation are one report.
-  Name the service and root operation, the child call and its statement shape or route, the numbers (calls per invocation, per-call p50, share of the parent's time, invocations in the window), and the sample `trace_id`s.
+  Name the service and root operation, the child call and its statement shape or route, the numbers (repeats of the shape per invocation on the sample trace, the edge's calls per invocation, per-call p50, share of the parent's time, invocations in the window), and the sample `trace_id`s.
   Attach the root operation's p50 / p95 with its request volume via `charts`.
 - **Priority.** P3. P2 when the pattern accounts for most of a high-traffic operation's latency.
-- **Actionability.** An N+1 or an expensive query shape is a code change (batch the loop, prefetch the relation, add the index, bound the read): set `actionability=immediately_actionable` and name the `repository` that serves the operation, or omit `repository` when you can't tell.
+- **Actionability.** An N+1 or an expensive query shape is a code change (batch the loop, prefetch the relation, memoize a repeated identical call, add the index, bound the read): set `actionability=immediately_actionable` and name the `repository` that serves the operation, or omit `repository` when you can't tell.
   A caching candidate trades freshness for speed, which only a person can decide: set `actionability=requires_human_input` and say so in the summary.
 - **Dedupe.** These patterns are evergreen — the same N+1 is there every run.
   File once under `report:apm:perf-{service}-{operation}-{pattern}` (`pattern` is `n-plus-one`, `query`, or `cache`), built from stable identifiers, never from prose.
