@@ -26,6 +26,8 @@ MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
+# The error prefix of an update that raised before it stored a result. The update did not call the model.
+EXCEPTION_ERROR_PREFIX = "exception: "
 # The watermark is inclusive in the stored summary, so the next read starts just after it.
 _WATERMARK_STEP = datetime.timedelta(microseconds=1)
 
@@ -69,6 +71,25 @@ def _back_off(
         user_id=user_id,
         defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
     )
+
+
+def record_update_exception(team_id: int, user_id: int, error: BaseException) -> ActivitySummaryUpdate:
+    """Store an update that raised as failed, keep the stored summary and watermark, and back the pair off."""
+    message = f"{EXCEPTION_ERROR_PREFIX}{type(error).__name__}"
+    UserActivitySummary.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
+        user_id=user_id,
+        defaults={
+            "status": UserActivitySummary.Status.FAILED,
+            "error": message,
+            "tokens_in": None,
+            "tokens_out": None,
+            "cost_usd": 0.0,
+            "latency_ms": None,
+            "next_eligible_at": timezone.now() + RETRY_BACKOFF,
+        },
+    )
+    return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message)
 
 
 def update_activity_summary(
