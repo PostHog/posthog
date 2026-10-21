@@ -1,6 +1,9 @@
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
+from posthog.api.scim.user import PostHogSCIMUser
+from posthog.api.scim.utils import get_scim_base_url
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -11,9 +14,6 @@ from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
 
-from ee.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
-from ee.api.scim.user import PostHogSCIMUser
-from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
 
 
@@ -488,7 +488,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         """Create a user whose current email domain is not owned by the SCIM org."""
         user = User.objects.create(email="victim@external.com", first_name="Victim")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
-        from ee.models.scim_provisioned_user import SCIMProvisionedUser
+        from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 
         SCIMProvisionedUser.objects.create(
             user=user,
