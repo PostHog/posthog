@@ -260,7 +260,8 @@ Account-backed candidates also need active project access and a verified linked 
 `pr_owner_evidence.py` collects the actual PR paths, current ownership, cached code history, report findings,
 verified identities, and scoped corrections. `pr_owner_selection.py` runs one bounded model assessment through
 the existing Signals LLM client on the assignment worker, without mutation tools. The first assessment needs
-the PR's actual scope; retries reuse it. Repository content and corrections from other reports provide evidence. The current report corrections also constrain application.
+the PR's actual scope. Each attempt collects current evidence before it can reuse a saved decision.
+Repository content and corrections from other reports provide evidence. The current report corrections also constrain application.
 A correction on another report is scoped evidence, not a project-wide exclusion.
 Ownership evidence retains every declared team and person, including ownerless CODEOWNERS overrides.
 Team roster reads stop at the candidate budget; an incomplete roster is a lookup failure, never an empty team.
@@ -273,8 +274,12 @@ The PR decision never rewrites Inbox recipients or grants task-start permission.
 
 An explicit `no_suitable_owner` leaves an unassigned PR unassigned. Missing evidence, failed identity lookups,
 and malformed model outputs record `lookup_failed`; they do not fall back to random assignment.
-Successful and empty decisions are reused for the same report/PR version. Failed decisions can be reassessed
-after ten minutes on a later delivery attempt. This is not a retry queue or continuous reassessment service.
+The newest decision for the same report/PR version can be reused for less than ten minutes, only when its full input hash matches
+the newly collected evidence. This limit applies to successful, empty, and failed decisions. Changed ownership, team membership,
+or identities trigger a new assessment even before expiry. A failed evidence refresh records a failure instead of applying an old
+success. A later successful lookup starts a new assessment; it cannot revive a success from before that failure.
+These checks add bounded evidence reads on assignment attempts, but unchanged evidence avoids another model call within the reuse period.
+They do not schedule retries or continuously reassess existing assignments. Cached code history still depends on its existing refresh process.
 Logs distinguish reuse, validation rejection, human protection, stale state, lookup failure, legacy policy,
 and GitHub application failure. Existing LLM tracing records the assessment.
 
@@ -282,6 +287,20 @@ The offline `signals/eval_pr_owner_selection` suite compares both policies on id
 constructing assignment, notification, task-start, or PR-creation clients. Its invented regression snapshots and
 controlled-output replay check policy rules, not real assignment accuracy. Recipient-reviewed labels and a live-model
 comparison of suitability, unresolved results, failures, latency, and cost remain prerequisites to a production trial.
+
+### Identity and organization changes
+
+`resolve_reviewers.py` maps linked PostHog and GitHub identities in both directions. The existing `scout-members-list` tool
+exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
+some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
+
+The PR assessment selects from identities collected by Python. It does not run an agent loop that discovers or saves new identity links.
+Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
+and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
+
+Access loss removes an ineligible report recipient on the next protected reviewer write. A team move with access retained changes selection evidence;
+it does not cancel a human pin. No general process currently finds and reassesses all old reports after organization changes.
+Such a process remains future work and must use the same correction rules. Existing manual GitHub choices remain authoritative.
 
 ### Rollout and rollback
 

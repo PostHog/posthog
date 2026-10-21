@@ -186,7 +186,7 @@ class TestRelevantPROwner:
         resolve.assert_called_once_with(team.id, set(logins))
         assert eligible.opted_in == frozenset(logins)
         assert self.run_assignment(report, github, model) == [logins[0]]
-        assert model.call_count == 1
+        assert model.call_count == 2
 
     @pytest.mark.parametrize("change", ["inactive", "no_project_access"])
     def test_newly_linked_ineligible_account_cannot_use_github_team_fallback(self, org_and_team, change):
@@ -206,8 +206,8 @@ class TestRelevantPROwner:
         github.list_team_members.reset_mock()
         assert self.run_assignment(report, github, model) == []
         github.add_pull_request_assignees.assert_not_called()
-        github.list_team_members.assert_not_called()
-        assert model.call_count == 1
+        github.list_team_members.assert_called_once_with("PostHog", "payments", max_members=200)
+        assert model.call_count == 2
 
     @pytest.mark.parametrize("ownerless_rule", ["src/payments.py", "src/payments.py # No owner"])
     def test_ownerless_codeowners_rule_clears_previous_owners(self, org_and_team, selection_enabled, ownerless_rule):
@@ -361,9 +361,15 @@ class TestRelevantPROwner:
         if choice == "ineligible_claim":
             github.is_assignable.assert_called_once_with("PostHog/posthog", "prolific")
 
-    def test_human_edit_while_model_runs_discards_decision(self, org_and_team):
+    @pytest.mark.parametrize("refresh", [False, True])
+    def test_human_edit_while_model_runs_discards_decision(self, org_and_team, refresh):
         org, team = org_and_team
         report, github = self.setup_report(org, team)
+        if refresh:
+            github.is_assignable.return_value = {"success": False}
+            assert self.run_assignment(report, github, self.model(self.decision("current-owner"))) == []
+            report.artefacts.filter(type="pr_owner_selection").update(created_at=timezone.now() - timedelta(minutes=11))
+            github.is_assignable.return_value = {"success": True, "assignable": True}
 
         async def edit_then_select(**kwargs):
             await sync_to_async(self.edit_reviewers)(report, "add", "prolific")
@@ -373,7 +379,7 @@ class TestRelevantPROwner:
         assert self.run_assignment(report, github, model) == []
         model.assert_called_once()
         assert ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).corrections.pinned
-        assert not report.artefacts.filter(type="pr_owner_selection").exists()
+        assert report.artefacts.filter(type="pr_owner_selection").count() == int(refresh)
         github.add_pull_request_assignees.assert_not_called()
 
     @pytest.mark.parametrize("gate", ["assignment_side_effects_enabled"])
@@ -534,6 +540,66 @@ class TestRelevantPROwner:
         model.assert_called_once()
         assert report.artefacts.filter(type="pr_owner_selection").count() == 2
 
+    @pytest.mark.parametrize("change", ["ownership", "team"])
+    def test_changed_evidence_reassesses_owner_without_report_or_pr_change(
+        self, org_and_team, selection_enabled, change
+    ):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        github.is_assignable.return_value = {"success": False}
+        model = self.model(self.decision("current-owner"))
+        assert self.run_assignment(report, github, model) == []
+
+        if change == "ownership":
+            selection_enabled.read.side_effect = lambda path: (
+                "version: 1\nowners: [billing]\n" if path == "owners.yaml" else None
+            )
+        else:
+            github.list_team_members.return_value = {"success": True, "logins": ["prolific"]}
+        model.side_effect = lambda **kwargs: kwargs["validate"](json.dumps(self.decision("prolific")))
+        github.is_assignable.return_value = {"success": True, "assignable": True}
+
+        assert self.run_assignment(report, github, model) == ["prolific"]
+        assert model.call_count == 2
+        assert report.artefacts.filter(type="pr_owner_selection").count() == 2
+
+    @pytest.mark.parametrize("outcome", ["selected", "no_suitable_owner", "lookup_failed"])
+    def test_decision_expires_even_with_unchanged_evidence(self, org_and_team, outcome):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        github.is_assignable.return_value = {"success": False}
+        output = self.decision("current-owner") if outcome == "selected" else {**self.decision(), "outcome": outcome}
+        model = self.model(output)
+        assert self.run_assignment(report, github, model) == []
+        report.artefacts.filter(type="pr_owner_selection").update(created_at=timezone.now() - timedelta(minutes=11))
+
+        model.side_effect = lambda **kwargs: kwargs["validate"](json.dumps(self.decision("prolific")))
+        github.is_assignable.return_value = {"success": True, "assignable": True}
+        assert self.run_assignment(report, github, model) == ["prolific"]
+        assert model.call_count == 2
+        assert report.artefacts.filter(type="pr_owner_selection").count() == 2
+
+    def test_failed_evidence_refresh_does_not_reuse_an_older_success(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        github.is_assignable.return_value = {"success": False}
+        model = self.model(self.decision("current-owner"))
+        assert self.run_assignment(report, github, model) == []
+        github.is_assignable.return_value = {"success": True, "assignable": True}
+
+        github.list_pull_request_files.return_value = {"success": False}
+        for _ in range(2):
+            assert self.run_assignment(report, github, model) == []
+        github.add_pull_request_assignees.assert_not_called()
+        assert model.call_count == 1
+        assert report.artefacts.filter(type="pr_owner_selection").count() == 2
+
+        github.list_pull_request_files.return_value = {"success": True, "paths": ["src/payments.py"]}
+        model.side_effect = lambda **kwargs: kwargs["validate"](json.dumps(self.decision("prolific")))
+        assert self.run_assignment(report, github, model) == ["prolific"]
+        assert model.call_count == 2
+        assert report.artefacts.filter(type="pr_owner_selection").count() == 3
+
     @pytest.mark.parametrize("change", ["human_edit", "head", "base", "claim", "access", "disabled"])
     def test_change_during_selection_rejects_old_decision(self, org_and_team, change):
         org, team = org_and_team
@@ -582,6 +648,7 @@ class TestRelevantPROwner:
         github.get_pull_request.return_value["assignees"] = ["current-owner"]
         assert self.run_assignment(report, github, model) == []
         assert model.call_count == 1
+        assert github.list_pull_request_files.call_count == 2
         assert report.artefacts.filter(type="pr_owner_selection").count() == 1
         github.add_pull_request_assignees.assert_called_once()
         github.request_pull_request_reviews.assert_called_once()

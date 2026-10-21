@@ -31,7 +31,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerSnapshot
 
 logger = structlog.get_logger(__name__)
-FAILURE_RETRY_AFTER = timedelta(minutes=10)
+DECISION_REUSE_FOR = timedelta(minutes=10)
 
 
 @frozen
@@ -65,6 +65,7 @@ class PROwnerDecisionService:
         return left.model_dump(exclude=excluded) == right.model_dump(exclude=excluded)
 
     def _saved(self, inputs: PROwnerInput) -> PROwnerSelection | None:
+        input_version = owner_input_version(inputs)
         rows = SignalReportArtefact.objects.filter(
             team_id=self.team.id, report_id=self.report_id, type="pr_owner_selection"
         ).order_by("-created_at", "-id")[:20]
@@ -75,15 +76,13 @@ class PROwnerDecisionService:
             if owner_input_version(saved.inputs) != saved.input_version:
                 raise ValueError("Stored owner input version does not match")
             validate_owner_decision(saved.decision, saved.inputs)
-            if saved.decision.outcome == "lookup_failed" and row.created_at < timezone.now() - FAILURE_RETRY_AFTER:
+            # Only the newest attempt in this scope can be reused, including a failed attempt.
+            if row.created_at <= timezone.now() - DECISION_REUSE_FOR or saved.input_version != input_version:
                 return None
             return saved
         return None
 
     def prepare(self, inputs: PROwnerInput, snapshot: ReviewerSnapshot) -> PROwnerSelection | None:
-        if saved := self._saved(inputs):
-            self.log.info("signals.pr_owner.selection_reused", outcome=saved.decision.outcome)
-            return saved
         try:
             report = SignalReport.objects.get(team_id=self.team.id, id=self.report_id)
             inputs = PROwnerEvidenceReader(self.github, team=self.team, report=report).collect(inputs, snapshot)
@@ -91,6 +90,9 @@ class PROwnerDecisionService:
             self.log.warning("signals.pr_owner.lookup_failed", error_type=type(error).__name__)
             decision = PROwnerDecision(outcome="lookup_failed", reason=f"evidence_lookup_failed:{type(error).__name__}")
         else:
+            if saved := self._saved(inputs):
+                self.log.info("signals.pr_owner.selection_reused", outcome=saved.decision.outcome)
+                return saved
             try:
                 decision = async_to_sync(select_pr_owner)(inputs, team_id=self.team.id, trace_id=str(uuid4()))
                 validate_owner_decision(decision, inputs)
