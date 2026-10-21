@@ -1,24 +1,24 @@
 import json
-import dataclasses
 from datetime import timedelta
 
 import structlog
 from temporalio import activity, common, workflow
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 logger = structlog.get_logger()
 
 
-@dataclasses.dataclass
+@frozen
 class SyncOrganizationActiveStateInputs:
     organization_id: str
 
 
-@dataclasses.dataclass
+@frozen
 class ReconcileOrganizationActiveStateInputs:
     pass
 
@@ -90,7 +90,7 @@ def reconcile_organization_active_state() -> None:
 async def sync_organization_active_state_activity(inputs: SyncOrganizationActiveStateInputs) -> None:
     async with Heartbeater():
         try:
-            await database_sync_to_async(sync_organization_active_state, thread_sensitive=True)(inputs.organization_id)
+            await database_sync_to_async_pool(sync_organization_active_state)(inputs.organization_id)
         except Exception as e:
             capture_exception(e)
             # Raise exception without large context to avoid "Failure exceeds size limit"
@@ -101,7 +101,7 @@ async def sync_organization_active_state_activity(inputs: SyncOrganizationActive
 async def reconcile_organization_active_state_activity(_inputs: ReconcileOrganizationActiveStateInputs) -> None:
     async with Heartbeater():
         try:
-            await database_sync_to_async(reconcile_organization_active_state, thread_sensitive=True)()
+            await database_sync_to_async_pool(reconcile_organization_active_state)()
         except Exception as e:
             capture_exception(e)
             # Raise exception without large context to avoid "Failure exceeds size limit"
