@@ -258,12 +258,23 @@ class ReportAssignmentService:
             ineligible_user_uuids=tuple(sorted(ineligible)),
         )
 
-    def apply(self, proposal: AssignmentProposal, *, actor: ArtefactAttribution) -> AssignmentWrite:
+    def apply(
+        self,
+        proposal: AssignmentProposal,
+        *,
+        actor: ArtefactAttribution,
+        reevaluate_autostart: bool = False,
+    ) -> AssignmentWrite:
         request_hash = hashlib.sha256((proposal.model_dump_json() + repr(actor)).encode()).hexdigest()
         writer_enabled = (
             assignment_agent_selection_enabled(self.team.id)
             if proposal.action == "automatic"
             else assignment_human_writer_enabled(self.team.id)
+        )
+        side_effects_enabled = (
+            assignment_side_effects_enabled(self.team.id)
+            if proposal.action == "replace" or reevaluate_autostart
+            else False
         )
         with transaction.atomic():
             report = (
@@ -347,7 +358,7 @@ class ReportAssignmentService:
                 report_id=self.report_id,
                 content=SuggestedReviewers(root=list(reviewers)),
                 attribution=actor,
-                reevaluate_autostart=proposal.action == "replace" and assignment_side_effects_enabled(self.team.id),
+                reevaluate_autostart=(proposal.action == "replace" or reevaluate_autostart) and side_effects_enabled,
                 assignment_writer=True,
             )
             SignalReportAssignmentRevision.objects.for_team(self.team.id).create(
@@ -361,6 +372,36 @@ class ReportAssignmentService:
             )
             return AssignmentWrite(decision=decision, reviewers_artefact=compatibility, replayed=False)
 
+    def apply_compatibility_reviewers(
+        self,
+        reviewers: SuggestedReviewers,
+        *,
+        actor: ArtefactAttribution,
+        source: str = "artefact_api",
+    ) -> SignalReportArtefact:
+        """Apply an existing reviewer API payload as an automatic assignment proposal."""
+        snapshot = self.read()
+        selection = AssignmentSelection(
+            people=tuple(
+                AssignedPerson.model_validate(entry.model_dump())
+                for entry in reviewers.root
+                if entry.user_uuid is not None
+            ),
+            suggestions=tuple(entry for entry in reviewers.root if entry.user_uuid is None),
+        )
+        return self.apply(
+            AssignmentProposal(
+                operation_id=uuid4(),
+                expected_revision=snapshot.revision,
+                evidence_revision=snapshot.evidence_revision,
+                source=source,
+                policy_version="1",
+                selection=selection,
+            ),
+            actor=actor,
+            reevaluate_autostart=True,
+        ).reviewers_artefact
+
     def edit_reviewers(
         self,
         reviewers: SuggestedReviewers,
@@ -370,23 +411,9 @@ class ReportAssignmentService:
     ) -> SignalReportArtefact:
         if actor.kind != "user":
             raise AssignmentWriteError("Only a person can change assignment overrides.")
-        with transaction.atomic():
-            report = (
-                SignalReport.objects.select_for_update()
-                .exclude(status=SignalReport.Status.DELETED)
-                .get(team_id=self.team.id, id=self.report_id)
-            )
-            if not assignment_human_writer_enabled(self.team.id):
-                if self._revisions().exists():
-                    raise AssignmentWriteError("Reviewer edits are paused for this report during assignment testing.")
-                return SignalReportArtefact.append_status(
-                    team_id=self.team.id,
-                    report_id=self.report_id,
-                    content=reviewers,
-                    attribution=actor,
-                    reevaluate_autostart=not removal,
-                )
-            snapshot = self._snapshot(report)
+        human_writer_enabled = assignment_human_writer_enabled(self.team.id)
+        if human_writer_enabled:
+            snapshot = self.read()
             return self.apply(
                 AssignmentProposal(
                     operation_id=uuid4(),
@@ -399,3 +426,19 @@ class ReportAssignmentService:
                 ),
                 actor=actor,
             ).reviewers_artefact
+
+        with transaction.atomic():
+            (
+                SignalReport.objects.select_for_update()
+                .exclude(status=SignalReport.Status.DELETED)
+                .get(team_id=self.team.id, id=self.report_id)
+            )
+            if self._revisions().exists():
+                raise AssignmentWriteError("Reviewer edits are paused for this report during assignment testing.")
+            return SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                content=reviewers,
+                attribution=actor,
+                reevaluate_autostart=not removal,
+            )
