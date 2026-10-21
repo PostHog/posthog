@@ -1,9 +1,6 @@
-//! `posthog-cli gateway token`: a short-lived AI gateway developer mode token for PostHog staff.
-//!
-//! The CLI never holds a PostHog credential. It opens the browser on PostHog's developer mode
-//! settings with a PKCE challenge and a loopback port; the signed-in staff member approves, the
-//! browser hands a one-time code to `127.0.0.1:<port>`, and the CLI exchanges the code plus its
-//! verifier for a `phe_` token pinned to that staff member.
+//! The CLI holds no PostHog credential. The signed-in staff member approves a PKCE challenge in
+//! the browser, the browser hands a one-time code to a loopback port, and the CLI exchanges the
+//! code and its verifier for a token attributed to that staff member.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -114,7 +111,6 @@ fn wait_for_code(
     }
 }
 
-/// Answers one loopback request. Returns the code only for a `/callback` whose state matches.
 /// The response to the browser is best effort: a failed write does not discard a received code.
 fn handle_callback(mut stream: impl Read + Write, state: &str) -> Option<String> {
     let mut request_line = String::new();
@@ -193,7 +189,7 @@ fn exchange(host: &str, code: &str, verifier: &str) -> Result<MintedToken> {
         .context("PostHog returned an unexpected response")
 }
 
-/// `len` lowercase hex characters from the OS random source (via UUIDv4), within the PKCE verifier alphabet.
+/// UUIDv4 draws from the OS random source, and hex stays within the PKCE verifier alphabet.
 fn random_hex(len: usize) -> String {
     let mut out = String::with_capacity(len + 32);
     while out.len() < len {
@@ -271,7 +267,7 @@ mod tests {
     fn listener_skips_idle_and_malformed_connections() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        // The idle connection is first in the accept queue. It sends nothing, so its read times out.
+        // The idle connection must be first in the accept queue, so its read timeout blocks the rest.
         let _idle = TcpStream::connect(addr).unwrap();
         let mut malformed = TcpStream::connect(addr).unwrap();
         malformed
