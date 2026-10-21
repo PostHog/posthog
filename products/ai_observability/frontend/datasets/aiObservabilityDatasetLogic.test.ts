@@ -172,7 +172,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
         })
 
-        it('can create a new dataset with non-empty metadata', async () => {
+        it('creates a dataset inside Offline evals and preserves the return filters', async () => {
             const formValues: DatasetFormValues = {
                 name: 'New Dataset',
                 description: 'New description',
@@ -181,6 +181,7 @@ describe('aiObservabilityDatasetLogic', () => {
 
             mockDatasetsApi.createDataset.mockResolvedValue(mockDataset)
             const routerReplaceSpy = jest.spyOn(router.actions, 'replace')
+            router.actions.push(urls.aiObservabilityDataset('new'), { search: 'quality', datasets_page: '2' })
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
@@ -193,7 +194,12 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: { test: 'value' },
             })
             expect(lemonToast.success).toHaveBeenCalledWith('Dataset created successfully')
-            expect(routerReplaceSpy).toHaveBeenCalledWith(urls.aiObservabilityDataset(mockDataset.id))
+            expect(routerReplaceSpy).toHaveBeenCalledWith(
+                `/ai-evals/evaluations/offline/datasets/${mockDataset.id}?search=quality&datasets_page=2`
+            )
+            expect(logic.values.breadcrumbs[0].path).toBe(
+                '/ai-evals/evaluations/offline/experiments?tab=datasets&search=quality&datasets_page=2'
+            )
             expect(logic.values.dataset).toEqual(mockDataset)
             expect(logic.values.isEditingDataset).toBe(false)
         })

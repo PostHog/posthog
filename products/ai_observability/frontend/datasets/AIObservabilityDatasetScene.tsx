@@ -56,7 +56,9 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
+import { OfflineEvaluationsTabs } from '../offline-evaluations/OfflineEvaluationsTabs'
 import { truncateValue } from '../utils'
 import {
     DATASET_ITEM_VERSIONS_PER_PAGE,
@@ -193,8 +195,8 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                     </LemonBanner>
                 )}
                 <SceneTitleSection
-                    name={datasetForm.name}
-                    resourceType={{ type: 'llm_analytics' }}
+                    name={isNewDataset ? 'New dataset' : datasetForm.name}
+                    resourceType={{ type: 'llm_evaluations' }}
                     isLoading={datasetLoading}
                     actions={
                         !shouldDisplaySkeleton && displayEditForm ? (
@@ -263,89 +265,101 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                     }
                 />
 
-                {isDataset(dataset) && sceneMenuBarEnabled && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                            <SceneMenuBarSeparator />
-                            <SceneMenuBarItem
-                                disabled={datasetExportLoading || !!datasetExportDisabledReason}
-                                tooltip={datasetExportDisabledReason}
-                                onClick={() => exportDataset(filters.revision ?? undefined)}
-                                data-attr={`${RESOURCE_TYPE}-menubar-export`}
-                            >
-                                <IconDownload />
-                                Export
-                            </SceneMenuBarItem>
-                            {canChangeDatasetStatus && (
-                                <>
-                                    <SceneMenuBarSeparator />
-                                    <SceneMenuBarItem
-                                        variant={dataset.archived ? undefined : 'destructive'}
-                                        disabled={datasetLoading || isArchivingDataset}
+                <EvaluationsTabs activeTab="offline-evals">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <OfflineEvaluationsTabs activeTab="datasets" />
+                        <LemonButton size="small" data-attr="back-to-datasets" to={getDatasetListUrl(searchParams)}>
+                            Back to datasets
+                        </LemonButton>
+                    </div>
+                    {isDataset(dataset) && sceneMenuBarEnabled && (
+                        <SceneMenuBar>
+                            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                                <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                                <SceneMenuBarSeparator />
+                                <SceneMenuBarItem
+                                    disabled={datasetExportLoading || !!datasetExportDisabledReason}
+                                    tooltip={datasetExportDisabledReason}
+                                    onClick={() => exportDataset(filters.revision ?? undefined)}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-export`}
+                                >
+                                    <IconDownload />
+                                    Export
+                                </SceneMenuBarItem>
+                                {canChangeDatasetStatus && (
+                                    <>
+                                        <SceneMenuBarSeparator />
+                                        <SceneMenuBarItem
+                                            variant={dataset.archived ? undefined : 'destructive'}
+                                            disabled={datasetLoading || isArchivingDataset}
+                                            onClick={archiveOrRestoreDataset}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-${
+                                                dataset.archived ? 'unarchive' : 'archive'
+                                            }`}
+                                        >
+                                            <IconArchive />
+                                            {dataset.archived ? 'Unarchive' : 'Archive'}
+                                        </SceneMenuBarItem>
+                                    </>
+                                )}
+                            </SceneMenuBarMenu>
+                        </SceneMenuBar>
+                    )}
+                    {isDataset(dataset) && (
+                        <ScenePanel>
+                            <ScenePanelInfoSection>
+                                <SceneTextInput
+                                    name="name"
+                                    defaultValue={datasetForm.name}
+                                    onSave={(value) => {
+                                        setDatasetFormValue('name', value)
+                                        submitDatasetForm()
+                                    }}
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    isLoading={datasetLoading || isDatasetFormSubmitting}
+                                    canEdit={canEditDataset}
+                                />
+                                <SceneTextarea
+                                    name="description"
+                                    defaultValue={datasetForm.description}
+                                    onSave={(value) => {
+                                        setDatasetFormValue('description', value)
+                                        submitDatasetForm()
+                                    }}
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    optional
+                                    isLoading={datasetLoading || isDatasetFormSubmitting}
+                                    canEdit={canEditDataset}
+                                />
+                            </ScenePanelInfoSection>
+                            <ScenePanelDivider />
+                            <ScenePanelActionsSection>
+                                <ScenePanelDivider />
+                                {canChangeDatasetStatus && (
+                                    <ButtonPrimitive
                                         onClick={archiveOrRestoreDataset}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-${
-                                            dataset.archived ? 'unarchive' : 'archive'
-                                        }`}
+                                        variant={dataset.archived ? undefined : 'danger'}
+                                        menuItem
+                                        data-attr={`${RESOURCE_TYPE}-${dataset.archived ? 'unarchive' : 'archive'}`}
+                                        disabledReasons={{
+                                            'Dataset is loading': datasetLoading,
+                                            'Dataset status is changing': isArchivingDataset,
+                                        }}
                                     >
                                         <IconArchive />
                                         {dataset.archived ? 'Unarchive' : 'Archive'}
-                                    </SceneMenuBarItem>
-                                </>
-                            )}
-                        </SceneMenuBarMenu>
-                    </SceneMenuBar>
-                )}
-                {isDataset(dataset) && (
-                    <ScenePanel>
-                        <ScenePanelInfoSection>
-                            <SceneTextInput
-                                name="name"
-                                defaultValue={datasetForm.name}
-                                onSave={(value) => {
-                                    setDatasetFormValue('name', value)
-                                    submitDatasetForm()
-                                }}
-                                dataAttrKey={RESOURCE_TYPE}
-                                isLoading={datasetLoading || isDatasetFormSubmitting}
-                                canEdit={canEditDataset}
-                            />
-                            <SceneTextarea
-                                name="description"
-                                defaultValue={datasetForm.description}
-                                onSave={(value) => {
-                                    setDatasetFormValue('description', value)
-                                    submitDatasetForm()
-                                }}
-                                dataAttrKey={RESOURCE_TYPE}
-                                optional
-                                isLoading={datasetLoading || isDatasetFormSubmitting}
-                                canEdit={canEditDataset}
-                            />
-                        </ScenePanelInfoSection>
-                        <ScenePanelDivider />
-                        <ScenePanelActionsSection>
-                            <ScenePanelDivider />
-                            {canChangeDatasetStatus && (
-                                <ButtonPrimitive
-                                    onClick={archiveOrRestoreDataset}
-                                    variant={dataset.archived ? undefined : 'danger'}
-                                    menuItem
-                                    data-attr={`${RESOURCE_TYPE}-${dataset.archived ? 'unarchive' : 'archive'}`}
-                                    disabledReasons={{
-                                        'Dataset is loading': datasetLoading,
-                                        'Dataset status is changing': isArchivingDataset,
-                                    }}
-                                >
-                                    <IconArchive />
-                                    {dataset.archived ? 'Unarchive' : 'Archive'}
-                                </ButtonPrimitive>
-                            )}
-                        </ScenePanelActionsSection>
-                    </ScenePanel>
-                )}
+                                    </ButtonPrimitive>
+                                )}
+                            </ScenePanelActionsSection>
+                        </ScenePanel>
+                    )}
 
-                {displayEditForm ? <EditDatasetForm /> : isDataset(dataset) ? <DatasetTabs dataset={dataset} /> : null}
+                    {displayEditForm ? (
+                        <EditDatasetForm />
+                    ) : isDataset(dataset) ? (
+                        <DatasetTabs dataset={dataset} />
+                    ) : null}
+                </EvaluationsTabs>
             </SceneContent>
         </Form>
     )

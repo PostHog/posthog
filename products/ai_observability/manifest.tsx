@@ -193,7 +193,7 @@ export const manifest: ProductManifest = {
         '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
-        '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+        '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
         '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
         '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
@@ -239,6 +239,8 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/ai-evals/datasets': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
+        '/ai-evals/datasets/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
         '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
         '/ai-evals/tags': (_params, searchParams, hashParams) =>
@@ -408,7 +410,7 @@ export const manifest: ProductManifest = {
         aiObservabilityPlayground: (): string => '/ai-observability/playground',
         aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
         aiObservabilityDataset: (id: string, params?: { item?: string }): string =>
-            combineUrl(`/ai-evals/datasets/${id}`, params).url,
+            combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
         aiObservabilityTags: (): string => '/ai-evals/taggers',
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',

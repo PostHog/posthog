@@ -555,7 +555,10 @@ Opening those resources requires their own permissions.
 Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
 When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
 with `tab=datasets` in the query string. Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
-links redirect there, preserving filters and pagination. Dataset detail URLs remain unchanged.
+links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
+`/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
+detail routes redirect there, preserving item deep links, revisions, tabs, filters, and hashes.
+Creating a dataset preserves the list filters used by Back to datasets.
 Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
 including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers

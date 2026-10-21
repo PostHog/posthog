@@ -88,7 +88,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
-    '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+    '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
     '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
     '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
     '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
@@ -412,6 +412,8 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
     '/ai-evals/datasets': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
+    '/ai-evals/datasets/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
     '/ai-evals/tags': (_params, searchParams, hashParams) =>
@@ -1386,7 +1388,7 @@ export const productUrls = {
         params?: {
             item?: string
         }
-    ): string => combineUrl(`/ai-evals/datasets/${id}`, params).url,
+    ): string => combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
     aiObservabilityTags: (): string => '/ai-evals/taggers',
     aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
     aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',

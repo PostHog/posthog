@@ -9,6 +9,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { OfflineEvaluationsGate } from './OfflineEvaluationsGate'
+import { OfflineEvaluationsTabs } from './OfflineEvaluationsTabs'
 import { OfflineExperimentContent } from './OfflineExperimentContent'
 
 export const scene: SceneExport<{ experimentId: string }> = {
@@ -23,6 +24,9 @@ export function OfflineExperimentScene({ experimentId }: { experimentId: string 
         <SceneContent>
             <SceneTitleSection name="Offline experiment" resourceType={{ type: 'evaluation' }} />
             <EvaluationsTabs activeTab="offline-evals">
+                <div>
+                    <OfflineEvaluationsTabs activeTab="experiments" />
+                </div>
                 <OfflineEvaluationsGate isAvailable={!!currentTeamId}>
                     {currentTeamId && (
                         <OfflineExperimentContent

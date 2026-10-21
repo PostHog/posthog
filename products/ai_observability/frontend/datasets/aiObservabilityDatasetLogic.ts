@@ -41,7 +41,7 @@ import type {
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
-import { aiObservabilityDatasetsLogic, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
+import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON, isStringJsonObject, parseJsonObject, prettifyJson } from './utils'
 
@@ -866,7 +866,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             metadata: parseJsonObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
-                        router.actions.replace(urls.aiObservabilityDataset(savedDataset.id))
+                        router.actions.replace(getDatasetDetailUrl(savedDataset.id, router.values.searchParams))
 
                         void actions.addProductIntent({
                             product_type: ProductKey.LLM_DATASETS,
