@@ -27,6 +27,19 @@ class ReportTaskActionKind(LabeledStrEnum):
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
 
 
+class ReviewerSelectionOutcome(LabeledStrEnum):
+    SELECTED = "selected", "Selected"
+    NO_SUITABLE_OWNER = "no_suitable_owner", "No suitable owner"
+    LOOKUP_FAILED = "lookup_failed", "Lookup failed"
+
+
+class ReviewerEditAction(LabeledStrEnum):
+    ADD = "add", "Add"
+    REMOVE = "remove", "Remove"
+    REPLACE = "replace", "Replace"
+    CONFIRM = "confirm", "Confirm"
+
+
 class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
