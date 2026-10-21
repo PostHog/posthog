@@ -1329,11 +1329,6 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
-class ErrorTrackingLinkedDataKind(StrEnum):
-    LOGS = "logs"
-    RECORDING = "recording"
-
-
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"

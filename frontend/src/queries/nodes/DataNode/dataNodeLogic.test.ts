@@ -679,14 +679,13 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.ErrorTrackingIssueEventsQuery,
                 issueId: 'issue',
                 source,
-                requiredLinkedData: ['logs'],
+                onlyWithRecording: true,
             }),
         })
         mockedQuery.mockResolvedValueOnce({
             results: [['first']],
             hasMore: true,
             nextCursor: 'cursor-1',
-            checkedCount: 2000,
         })
         logic.mount()
         await expectLogic(logic).delay(0)
@@ -698,13 +697,12 @@ describe('dataNodeLogic', () => {
             results: [['second']],
             hasMore: true,
             nextCursor: 'cursor-2',
-            checkedCount: 500,
         })
         logic.actions.loadNextData()
         await expectLogic(logic).delay(0)
 
         await expectLogic(logic).toMatchValues({
-            response: partial({ results: [['first'], ['second']], checkedCount: 2500 }),
+            response: partial({ results: [['first'], ['second']] }),
             nextQuery: partial({ source: { ...source, before: 'cursor-2' } }),
         })
     })

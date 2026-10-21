@@ -117,7 +117,6 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
-    ErrorTrackingLinkedDataKind as ErrorTrackingLinkedDataKind,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -12354,10 +12353,6 @@ class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    checkedCount: int | None = Field(
-        default=None,
-        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
-    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -12370,10 +12365,7 @@ class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    nextCursor: str | None = Field(
-        default=None,
-        description=("Where the next page starts. With a logs requirement, it can point past the last returned row."),
-    )
+    nextCursor: str | None = Field(default=None, description="Where the next page starts.")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
@@ -18388,10 +18380,6 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    checkedCount: int | None = Field(
-        default=None,
-        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
-    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -18402,10 +18390,7 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    nextCursor: str | None = Field(
-        default=None,
-        description=("Where the next page starts. With a logs requirement, it can point past the last returned row."),
-    )
+    nextCursor: str | None = Field(default=None, description="Where the next page starts.")
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21630,10 +21615,6 @@ class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    checkedCount: int | None = Field(
-        default=None,
-        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
-    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -21644,10 +21625,7 @@ class QueryResponseAlternative18(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    nextCursor: str | None = Field(
-        default=None,
-        description=("Where the next page starts. With a logs requirement, it can point past the last returned row."),
-    )
+    nextCursor: str | None = Field(default=None, description="Where the next page starts.")
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -33322,15 +33300,15 @@ class ErrorTrackingIssueEventsQuery(BaseModel):
     issueId: str
     kind: Literal["ErrorTrackingIssueEventsQuery"] = "ErrorTrackingIssueEventsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    requiredLinkedData: list[ErrorTrackingLinkedDataKind] | None = Field(
+    onlyWithRecording: bool | None = Field(
         default=None,
-        description="Keep only the exceptions that link to every kind of data listed.",
+        description=("Keep only the exceptions whose session has a recording the player can open."),
     )
     response: ErrorTrackingIssueEventsQueryResponse | None = None
     source: EventsQuery = Field(
         ...,
         description=(
-            "The issue's exceptions list. Its `select` must contain `*`, and it must order by `timestamp DESC`."
+            "The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor."
         ),
     )
     tags: QueryLogTags | None = None

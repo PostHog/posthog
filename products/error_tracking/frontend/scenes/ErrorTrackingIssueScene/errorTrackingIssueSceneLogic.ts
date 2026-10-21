@@ -50,7 +50,6 @@ import type {
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueCohort,
     ErrorTrackingIssueEventsQuery,
-    ErrorTrackingLinkedDataKind,
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -67,12 +66,12 @@ import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/
 import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
 import {
     errorTrackingIssueEventsQuery,
-    errorTrackingIssueEventsWithLinkedDataQuery,
+    errorTrackingIssueEventsListQuery,
     errorTrackingIssueQuery,
 } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
-import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -89,7 +88,7 @@ export interface errorTrackingIssueSceneLogicValues {
     filterGroup: UniversalFiltersGroup // issueFiltersLogic
     filterTestAccounts: boolean // issueFiltersLogic
     searchQuery: string // issueFiltersLogic
-    requiredLinks: ErrorTrackingLinkedDataKind[] // issueLinkedDataLogic
+    onlyWithRecording: boolean // issueRecordingFilterLogic
     linkedReports: SignalReportApi[] // linkedReportsLogic
     linkedReportsLoading: boolean // linkedReportsLogic
     aggregations: ErrorTrackingIssueAggregations | undefined
@@ -656,7 +655,7 @@ export interface errorTrackingIssueSceneLogicMeta {
         issueEventsQuery: (
             issueId: string,
             eventsQuery: EventsQuery,
-            requiredLinks: ErrorTrackingLinkedDataKind[]
+            onlyWithRecording: boolean
         ) => ErrorTrackingIssueEventsQuery
         issueEventsQueryKey: (issueEventsQuery: ErrorTrackingIssueEventsQuery) => string
         maxContext: (issue: ErrorTrackingRelationalIssue | null, issueId: string) => MaxContextInput[]
@@ -688,8 +687,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             linkedReportsLogic({ issueId: props.id }),
             ['linkedReports', 'linkedReportsLoading'],
-            issueLinkedDataLogic({ issueId: props.id }),
-            ['requiredLinks'],
+            issueRecordingFilterLogic({ issueId: props.id }),
+            ['onlyWithRecording'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
@@ -1039,17 +1038,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         issueEventsQuery: [
-            (s) => [s.issueId, s.eventsQuery, s.requiredLinks],
-            (
-                issueId: string,
-                eventsQuery: EventsQuery,
-                requiredLinks: ErrorTrackingLinkedDataKind[]
-            ): ErrorTrackingIssueEventsQuery =>
-                errorTrackingIssueEventsWithLinkedDataQuery({
-                    issueId,
-                    source: eventsQuery,
-                    requiredLinkedData: requiredLinks,
-                }),
+            (s) => [s.issueId, s.eventsQuery, s.onlyWithRecording],
+            (issueId: string, eventsQuery: EventsQuery, onlyWithRecording: boolean): ErrorTrackingIssueEventsQuery =>
+                errorTrackingIssueEventsListQuery({ issueId, source: eventsQuery, onlyWithRecording }),
             { resultEqualityCheck: objectsEqual },
         ],
 

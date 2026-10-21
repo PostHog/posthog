@@ -8659,10 +8659,6 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
-                "checkedCount": {
-                    "$ref": "#/definitions/integer",
-                    "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
-                },
                 "columns": {
                     "items": {},
                     "type": "array"
@@ -8690,7 +8686,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "nextCursor": {
-                    "description": "Where the next page starts. With a logs requirement, it can point past the last returned row.",
+                    "description": "Where the next page starts.",
                     "type": "string"
                 },
                 "next_allowed_client_refresh": {
@@ -23627,7 +23623,7 @@
         },
         "ErrorTrackingIssueEventsQuery": {
             "additionalProperties": false,
-            "description": "The exceptions of one issue, optionally only the ones with linked logs or a recording.",
+            "description": "The exceptions of one issue, optionally only the ones with a recording.",
             "properties": {
                 "issueId": {
                     "type": "string"
@@ -23640,19 +23636,16 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "requiredLinkedData": {
-                    "description": "Keep only the exceptions that link to every kind of data listed.",
-                    "items": {
-                        "$ref": "#/definitions/ErrorTrackingLinkedDataKind"
-                    },
-                    "type": "array"
+                "onlyWithRecording": {
+                    "description": "Keep only the exceptions whose session has a recording the player can open.",
+                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingIssueEventsQueryResponse"
                 },
                 "source": {
                     "$ref": "#/definitions/EventsQuery",
-                    "description": "The issue's exceptions list. Its `select` must contain `*`, and it must order by `timestamp DESC`."
+                    "description": "The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -23668,10 +23661,6 @@
         "ErrorTrackingIssueEventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "checkedCount": {
-                    "$ref": "#/definitions/integer",
-                    "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
-                },
                 "columns": {
                     "items": {},
                     "type": "array"
@@ -23692,7 +23681,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "nextCursor": {
-                    "description": "Where the next page starts. With a logs requirement, it can point past the last returned row.",
+                    "description": "Where the next page starts.",
                     "type": "string"
                 },
                 "query_status": {
@@ -23865,11 +23854,6 @@
         "ErrorTrackingIssueStatus": {
             "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
             "title": "ErrorTrackingIssueStatus",
-            "type": "string"
-        },
-        "ErrorTrackingLinkedDataKind": {
-            "description": "Data an exception can link to: logs through its trace or session ID, or a session recording.",
-            "enum": ["logs", "recording"],
             "type": "string"
         },
         "ErrorTrackingOrderBy": {
@@ -43293,10 +43277,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "checkedCount": {
-                            "$ref": "#/definitions/integer",
-                            "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
-                        },
                         "columns": {
                             "items": {},
                             "type": "array"
@@ -43317,7 +43297,7 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "nextCursor": {
-                            "description": "Where the next page starts. With a logs requirement, it can point past the last returned row.",
+                            "description": "Where the next page starts.",
                             "type": "string"
                         },
                         "query_status": {

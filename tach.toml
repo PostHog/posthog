@@ -485,7 +485,6 @@ depends_on = [
     # Facade-only: new issue severity inference calls the shared decision-model client.
     "products.ml_inference",
     "products.notifications",
-    "products.logs",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
 ]

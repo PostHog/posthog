@@ -5,24 +5,16 @@ import { IconFilter } from '@posthog/icons'
 
 import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from 'lib/ui/quill'
 
-import type { ErrorTrackingLinkedDataKind } from '~/queries/schema/schema-general'
-
 import { exceptionCardLogic } from '../exceptionCardLogic'
 
-const FILTER_LABELS: Record<ErrorTrackingLinkedDataKind, string> = {
-    logs: 'Show only exceptions with logs',
-    recording: 'Show only exceptions with a recording',
-}
-
-export interface LinkedDataEmptyStateProps {
-    kind: ErrorTrackingLinkedDataKind
+export interface RecordingEmptyStateProps {
     title: string
     description?: ReactNode
     children?: ReactNode
 }
 
-export function LinkedDataEmptyState({ kind, title, description, children }: LinkedDataEmptyStateProps): JSX.Element {
-    const { linkedData } = useValues(exceptionCardLogic)
+export function RecordingEmptyState({ title, description, children }: RecordingEmptyStateProps): JSX.Element {
+    const { onShowOnlyWithRecording } = useValues(exceptionCardLogic)
 
     return (
         <Empty className="h-full p-4">
@@ -30,16 +22,16 @@ export function LinkedDataEmptyState({ kind, title, description, children }: Lin
                 <EmptyTitle>{title}</EmptyTitle>
                 {description && <EmptyDescription>{description}</EmptyDescription>}
             </EmptyHeader>
-            {(linkedData || children) && (
+            {(onShowOnlyWithRecording || children) && (
                 <EmptyContent>
-                    {linkedData && (
+                    {onShowOnlyWithRecording && (
                         <Button
                             variant="primary"
-                            onClick={() => linkedData.showOnlyExceptionsWith(kind)}
-                            data-attr={`error-tracking-show-only-with-${kind}`}
+                            onClick={onShowOnlyWithRecording}
+                            data-attr="error-tracking-show-only-with-recording"
                         >
                             <IconFilter />
-                            {FILTER_LABELS[kind]}
+                            Show only exceptions with a recording
                         </Button>
                     )}
                     {children}

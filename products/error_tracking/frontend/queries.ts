@@ -7,7 +7,6 @@ import {
     ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingIssueEventsQuery,
-    ErrorTrackingLinkedDataKind,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
@@ -234,20 +233,20 @@ export const errorTrackingIssueEventsQuery = ({
     return eventsQuery
 }
 
-export const errorTrackingIssueEventsWithLinkedDataQuery = ({
+export const errorTrackingIssueEventsListQuery = ({
     issueId,
     source,
-    requiredLinkedData,
+    onlyWithRecording,
 }: {
     issueId: string
     source: EventsQuery
-    requiredLinkedData: ErrorTrackingLinkedDataKind[]
+    onlyWithRecording: boolean
 }): ErrorTrackingIssueEventsQuery => {
     return setLatestVersionsOnQuery<ErrorTrackingIssueEventsQuery>({
         kind: NodeKind.ErrorTrackingIssueEventsQuery,
         issueId,
         source,
-        requiredLinkedData,
+        onlyWithRecording,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }

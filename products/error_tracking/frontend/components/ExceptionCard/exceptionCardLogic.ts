@@ -2,17 +2,11 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, sel
 
 import posthog from 'lib/posthog-typed'
 
-import type { ErrorTrackingLinkedDataKind } from '~/queries/schema/schema-general'
-
-export interface ExceptionLinkedData {
-    showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => void
-}
-
 export type ExceptionCardLogicProps = {
     issueId: string
     loading: boolean
     logicKey?: string
-    linkedData?: ExceptionLinkedData
+    onShowOnlyWithRecording?: () => void
 }
 
 export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs'
@@ -24,9 +18,9 @@ export interface exceptionCardLogicValues {
     currentTab: ExceptionCardTab
     expandedFrameRawIds: Set<string>
     issueId: string
-    linkedData: ExceptionLinkedData | null
     loading: boolean
     logsScope: ExceptionLogsScope
+    onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
     showJSONProperties: boolean
 }
@@ -60,7 +54,7 @@ export interface exceptionCardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         issueId: (issueId: string) => string
         loading: (loading: boolean) => boolean
-        linkedData: (linkedData: ExceptionLinkedData | undefined) => ExceptionLinkedData | null
+        onShowOnlyWithRecording: (onShowOnlyWithRecording: (() => void) | undefined) => (() => void) | null
     }
 }
 
@@ -132,9 +126,9 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     selectors({
         issueId: [(_, p) => [p.issueId], (issueId: string) => issueId],
         loading: [(_, p) => [p.loading], (loading: boolean) => loading],
-        linkedData: [
-            () => [(_, props) => props.linkedData],
-            (linkedData: ExceptionLinkedData | undefined): ExceptionLinkedData | null => linkedData ?? null,
+        onShowOnlyWithRecording: [
+            () => [(_, props) => props.onShowOnlyWithRecording],
+            (onShowOnlyWithRecording: (() => void) | undefined): (() => void) | null => onShowOnlyWithRecording ?? null,
         ],
     }),
 

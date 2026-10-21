@@ -4513,17 +4513,14 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-/** Data an exception can link to: logs through its trace or session ID, or a session recording. */
-export type ErrorTrackingLinkedDataKind = 'logs' | 'recording'
-
-/** The exceptions of one issue, optionally only the ones with linked logs or a recording. */
+/** The exceptions of one issue, optionally only the ones with a recording. */
 export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIssueEventsQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueEventsQuery
     issueId: string
-    /** The issue's exceptions list. Its `select` must contain `*`, and it must order by `timestamp DESC`. */
+    /** The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor. */
     source: EventsQuery
-    /** Keep only the exceptions that link to every kind of data listed. */
-    requiredLinkedData?: ErrorTrackingLinkedDataKind[]
+    /** Keep only the exceptions whose session has a recording the player can open. */
+    onlyWithRecording?: boolean
 }
 
 export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4531,10 +4528,8 @@ export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryRes
     columns: any[]
     types: string[]
     hasMore?: boolean
-    /** Where the next page starts. With a logs requirement, it can point past the last returned row. */
+    /** Where the next page starts. */
     nextCursor?: string
-    /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
-    checkedCount?: integer
 }
 export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
 

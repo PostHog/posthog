@@ -12,8 +12,7 @@ import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLog
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsEmptyState } from './IssueEventsEmptyState'
 import { IssueEventsToolbar } from './IssueEventsToolbar'
-import { issueLinkedDataLogic } from './issueLinkedDataLogic'
-import { linkedLogsCheckLogic } from './linkedLogsCheckLogic'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -33,8 +32,8 @@ function LoadedIssueEventsPanel(): JSX.Element {
     const { issueEventsQuery, issueEventsQueryKey, selectedEvent, summary, issueId } =
         useValues(errorTrackingIssueSceneLogic)
     const { selectEvent, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
-    const { requiredLinks } = useValues(issueLinkedDataLogic({ issueId }))
-    const { clearRequiredLinks } = useActions(issueLinkedDataLogic({ issueId }))
+    const { onlyWithRecording } = useValues(issueRecordingFilterLogic({ issueId }))
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const { dateRange } = useValues(issueFiltersLogic)
     const { hasActiveFilters } = useValues(issueFilterPreviewLogic)
     const { clearNonDateFilters } = useActions(issueFilterPreviewLogic)
@@ -42,9 +41,6 @@ function LoadedIssueEventsPanel(): JSX.Element {
     const dataSource = eventsSourceLogic({ query: issueEventsQuery, queryKey: issueEventsQueryKey })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadData, loadNextData } = useActions(dataSource)
-    const linkedLogsCheck = linkedLogsCheckLogic({ query: issueEventsQuery, queryKey: issueEventsQueryKey })
-    const { status: linkedLogsCheckStatus, checkedCount } = useValues(linkedLogsCheck)
-    const { checkOlderExceptions } = useActions(linkedLogsCheck)
     const nextDateRange = getNextErrorTrackingDateRange(dateRange)
     const previousEventsQueryKey = useRef(issueEventsQueryKey)
 
@@ -69,16 +65,15 @@ function LoadedIssueEventsPanel(): JSX.Element {
             loading={itemsLoading}
             onReload={() => loadData('force_blocking')}
             onScrollNearEnd={() => {
-                // An empty list belongs to linkedLogsCheckLogic, which loads older pages up to its limit.
-                if (canLoadNextData && !itemsLoading && items.length > 0) {
+                if (canLoadNextData && !itemsLoading) {
                     loadNextData()
                 }
             }}
         >
-            {items.length === 0 && (!itemsLoading || linkedLogsCheckStatus === 'checking') ? (
+            {!itemsLoading && items.length === 0 ? (
                 <IssueEventsEmptyState
                     nextDateRangeLabel={nextDateRange?.label ?? null}
-                    hasActiveFilters={hasActiveFilters || requiredLinks.length > 0}
+                    hasActiveFilters={hasActiveFilters || onlyWithRecording}
                     loading={itemsLoading}
                     onIncreaseDateRange={() => {
                         if (nextDateRange) {
@@ -87,13 +82,8 @@ function LoadedIssueEventsPanel(): JSX.Element {
                     }}
                     onClearFilters={() => {
                         clearNonDateFilters()
-                        clearRequiredLinks()
+                        setOnlyWithRecording(false)
                     }}
-                    linkedLogsCheck={
-                        linkedLogsCheckStatus
-                            ? { status: linkedLogsCheckStatus, checkedCount, onCheckOlder: checkOlderExceptions }
-                            : undefined
-                    }
                 />
             ) : (
                 <EventsTable

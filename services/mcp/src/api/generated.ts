@@ -41187,17 +41187,7 @@ export namespace Schemas {
       breakdown?: ErrorTrackingIssueBreakdown;
     }
 
-    export type ErrorTrackingLinkedDataKind = typeof ErrorTrackingLinkedDataKind[keyof typeof ErrorTrackingLinkedDataKind];
-
-
-    export const ErrorTrackingLinkedDataKind = {
-      Logs: 'logs',
-      Recording: 'recording',
-    } as const;
-
     export interface ErrorTrackingIssueEventsQueryResponse {
-      /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
-      checkedCount?: number | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -41206,7 +41196,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** Where the next page starts. With a logs requirement, it can point past the last returned row. */
+      /** Where the next page starts. */
       nextCursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -41229,10 +41219,10 @@ export namespace Schemas {
       kind?: 'ErrorTrackingIssueEventsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** Keep only the exceptions that link to every kind of data listed. */
-      requiredLinkedData?: ErrorTrackingLinkedDataKind[] | null;
+      /** Keep only the exceptions whose session has a recording the player can open. */
+      onlyWithRecording?: boolean | null;
       response?: ErrorTrackingIssueEventsQueryResponse | null;
-      /** The issue's exceptions list. Its `select` must contain `*`, and it must order by `timestamp DESC`. */
+      /** The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor. */
       source: EventsQuery;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -94397,8 +94387,6 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative18 {
-      /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
-      checkedCount?: number | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -94407,7 +94395,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** Where the next page starts. With a logs requirement, it can point past the last returned row. */
+      /** Where the next page starts. */
       nextCursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;

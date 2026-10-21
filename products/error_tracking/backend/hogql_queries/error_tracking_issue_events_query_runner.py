@@ -1,38 +1,57 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.schema import (
     CachedErrorTrackingIssueEventsQueryResponse,
     ErrorTrackingIssueEventsQuery,
     ErrorTrackingIssueEventsQueryResponse,
-    ErrorTrackingLinkedDataKind,
     EventsQuery,
-    EventsQueryResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
+from posthog.hogql.escape_sql import escape_hogql_string
 
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner, split_pagination_cursor
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import User
+from posthog.models import Team
+from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
-from products.error_tracking.backend.hogql_queries.linked_data import (
-    SCAN_BATCH_SIZE,
-    ExceptionLinks,
-    exception_links_from_scan_row,
-    exception_links_from_star,
-    log_linked_uuids,
-    recording_condition,
-    rows_by_uuid_query,
-    scan_query,
-)
-from products.logs.backend.facade.linked_logs import LinkedLogsLookupError
 
-DEFAULT_PAGE_SIZE = 100
-# A logs-filtered page checks at most this many exceptions. A page that runs out returns what it
-# found and a cursor, so that loading more continues the scan from there.
-PAGE_SCAN_BUDGET = 2_000
+
+def _datetime_literal(value: datetime) -> str:
+    return f"toDateTime({escape_hogql_string(value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S'))}, 'UTC')"
+
+
+def recording_condition(issue_id: str, source: EventsQuery, team: Team) -> str:
+    """A HogQL condition that keeps the exceptions whose session has a recording the player can open.
+
+    It applies the checks of `SessionReplayEvents.batch_exists`, which the Recording tab uses: a deleted
+    recording or one past its retention does not count. The subquery reads only the sessions of the
+    issue's exceptions in the list's time range, so its set stays small for large teams.
+    """
+    # The same defaults EventsQueryRunner applies to an unset range. `before` can be a page cursor.
+    after = source.after or "-24h"
+    before = split_pagination_cursor(source.before)[0] if source.before else None
+    date_to = relative_date_parse(before, team.timezone_info) if before else datetime.now(UTC) + timedelta(seconds=5)
+    date_from = None if after == "all" else relative_date_parse(split_pagination_cursor(after)[0], team.timezone_info)
+    recording_from = f"AND min_first_timestamp >= {_datetime_literal(date_from)} - INTERVAL 1 DAY" if date_from else ""
+    events_from = f"AND timestamp >= {_datetime_literal(date_from)}" if date_from else ""
+    # A recording can start up to a day before the exception it contains.
+    return f"""$session_id IN (
+        SELECT session_id FROM raw_session_replay_events
+        WHERE min_first_timestamp <= {_datetime_literal(date_to)} {recording_from}
+            AND session_id IN (
+                SELECT $session_id FROM events
+                WHERE event = '$exception'
+                    AND issue_id = toUUID({escape_hogql_string(issue_id)})
+                    AND notEmpty($session_id)
+                    AND timestamp <= {_datetime_literal(date_to)} {events_from}
+            )
+        GROUP BY session_id
+        HAVING max(is_deleted) = 0
+            AND dateTrunc('day', min(min_first_timestamp)) + toIntervalDay(coalesce(max(retention_period_days), 30)) >= now()
+    )"""
 
 
 class ErrorTrackingIssueEventsQueryRunner(
@@ -44,31 +63,16 @@ class ErrorTrackingIssueEventsQueryRunner(
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
-        if "*" not in self.query.source.select:
-            raise QueryError("The source query must select `*`")
-
-    @property
-    def _required(self) -> list[ErrorTrackingLinkedDataKind]:
-        return self.query.requiredLinkedData or []
-
-    def validate_query_runner_access(self, user: User) -> bool:
-        super().validate_query_runner_access(user)
-        if ErrorTrackingLinkedDataKind.LOGS in self._required:
-            UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("logs", "viewer")
-        return True
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        return self._events_runner(self._source()).to_query()
+        return self._events_runner().to_query()
 
-    def _source(self) -> EventsQuery:
+    def _events_runner(self) -> EventsQueryRunner:
         source = self.query.source.model_copy(deep=True)
-        if ErrorTrackingLinkedDataKind.RECORDING in self._required:
+        if self.query.onlyWithRecording:
             source.where = [*(source.where or []), recording_condition(self.query.issueId, source, self.team)]
-        return source
-
-    def _events_runner(self, query: EventsQuery) -> EventsQueryRunner:
         return EventsQueryRunner(
-            query=query,
+            query=source,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
@@ -77,91 +81,13 @@ class ErrorTrackingIssueEventsQueryRunner(
         )
 
     def _calculate(self) -> ErrorTrackingIssueEventsQueryResponse:
-        source = self._source()
-        if ErrorTrackingLinkedDataKind.LOGS in self._required:
-            return self._scan_for_linked_logs(source)
-
-        response = self._events_runner(source).calculate()
-        return self._response(
-            source,
-            response,
-            has_more=bool(response.hasMore),
-            next_cursor=self._last_row_cursor(source, response),
-        )
-
-    def _scan_for_linked_logs(self, source: EventsQuery) -> ErrorTrackingIssueEventsQueryResponse:
-        page_size = source.limit or DEFAULT_PAGE_SIZE
-        cursor = source.before
-        matched: list[ExceptionLinks] = []
-        scanned = 0
-        exhausted = False
-
-        while len(matched) < page_size and scanned < PAGE_SCAN_BUDGET:
-            with self.timings.measure("linked_logs_scan_batch"):
-                batch = self._events_runner(
-                    scan_query(source, before=cursor, limit=min(SCAN_BATCH_SIZE, PAGE_SCAN_BUDGET - scanned))
-                ).calculate()
-            exceptions = [exception_links_from_scan_row(row) for row in batch.results]
-            if not exceptions:
-                exhausted = True
-                break
-            try:
-                with self.timings.measure("linked_logs"):
-                    linked = log_linked_uuids(self.team, exceptions)
-            except LinkedLogsLookupError as error:
-                raise QueryError(
-                    "Couldn't check these exceptions for logs in time. Try a shorter date range."
-                ) from error
-
-            examined = 0
-            for exception in exceptions:
-                examined += 1
-                cursor = exception.cursor
-                if exception.uuid in linked:
-                    matched.append(exception)
-                    if len(matched) == page_size:
-                        break
-            scanned += examined
-            if examined == len(exceptions) and not batch.hasMore:
-                exhausted = True
-                break
-
-        response = (
-            self._events_runner(rows_by_uuid_query(source, [exception.uuid for exception in matched])).calculate()
-            if matched
-            else None
-        )
-        return self._response(
-            source,
-            response,
-            has_more=not exhausted,
-            next_cursor=None if exhausted else cursor,
-            checked_count=scanned,
-        )
-
-    def _last_row_cursor(self, source: EventsQuery, response: EventsQueryResponse) -> str | None:
-        if not response.hasMore or not response.results:
-            return None
-        last_event = response.results[-1][source.select.index("*")]
-        link = exception_links_from_star(last_event) if isinstance(last_event, dict) else None
-        return link.cursor if link else response.nextCursor
-
-    def _response(
-        self,
-        source: EventsQuery,
-        response: EventsQueryResponse | None,
-        *,
-        has_more: bool,
-        next_cursor: str | None,
-        checked_count: int | None = None,
-    ) -> ErrorTrackingIssueEventsQueryResponse:
+        response = self._events_runner().calculate()
         return ErrorTrackingIssueEventsQueryResponse(
-            results=response.results if response else [],
-            columns=list(response.columns) if response and response.columns else list(source.select),
-            types=list(response.types) if response and response.types else [],
-            hasMore=has_more,
-            nextCursor=next_cursor,
-            checkedCount=checked_count,
+            results=response.results,
+            columns=response.columns or [],
+            types=response.types or [],
+            hasMore=response.hasMore,
+            nextCursor=response.nextCursor,
             timings=self.timings.to_list(),
             modifiers=self.modifiers,
         )

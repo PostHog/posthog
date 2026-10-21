@@ -1,17 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { IconFilter } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { Button, TabsContent } from 'lib/ui/quill'
+import { TabsContent } from 'lib/ui/quill'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 import { EXCEPTION_LOGS_WINDOW_MINUTES, buildLogsSessionScope } from 'products/logs/frontend/utils'
 
 import { exceptionCardLogic, type ExceptionLogsScope } from '../../exceptionCardLogic'
-import { LinkedDataEmptyState } from '../LinkedDataEmptyState'
 import { SubHeader } from '../SubHeader'
 import { TabSpinner } from '../TabSpinner'
 import {
@@ -32,7 +30,7 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
-    const { loading, issueId, logsScope, linkedData } = useValues(exceptionCardLogic)
+    const { loading, issueId, logsScope } = useValues(exceptionCardLogic)
     const { setLogsScope } = useActions(exceptionCardLogic)
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
 
@@ -76,26 +74,13 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                             {!hasCorrelationScope && (
                                 <>
                                     This exception has no trace or session ID, so these are all logs in that window.{' '}
-                                    {linkedData ? (
-                                        <Button
-                                            variant="link"
-                                            size="inline"
-                                            className="text-xs"
-                                            onClick={() => linkedData.showOnlyExceptionsWith('logs')}
-                                            data-attr="error-tracking-show-only-with-logs"
-                                        >
-                                            <IconFilter />
-                                            Show only exceptions with logs
-                                        </Button>
-                                    ) : (
-                                        <Link
-                                            to="https://posthog.com/docs/logs/link-session-replay"
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            Link your logs to sessions
-                                        </Link>
-                                    )}
+                                    <Link
+                                        to="https://posthog.com/docs/logs/link-session-replay"
+                                        target="_blank"
+                                        className="text-xs"
+                                    >
+                                        Link your logs to sessions
+                                    </Link>
                                 </>
                             )}
                         </span>
@@ -126,25 +111,6 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                             showFullScreenButton={false}
                             defaultFacetRailCollapsed
                             defaultSparklineCollapsed
-                            // Only the issue page can filter its list, and only a trace or session scope can be
-                            // empty for lack of linked logs. The window scope keeps the viewer's own empty state.
-                            emptyState={
-                                linkedData && effectiveScope !== 'window' ? (
-                                    <LinkedDataEmptyState
-                                        kind="logs"
-                                        title="No logs linked to this exception"
-                                        description="Logs link to an exception through its trace ID or session ID."
-                                    >
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => setLogsScope('window')}
-                                            data-attr="error-tracking-logs-show-window"
-                                        >
-                                            Show all logs around this time
-                                        </Button>
-                                    </LinkedDataEmptyState>
-                                ) : undefined
-                            }
                         />
                     </div>
                 </>

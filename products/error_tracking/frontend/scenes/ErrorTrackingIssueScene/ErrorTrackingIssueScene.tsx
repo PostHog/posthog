@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -29,7 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ErrorTrackingLinkedDataKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -40,7 +40,6 @@ import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueB
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
-import type { ExceptionLinkedData } from '../../components/ExceptionCard/exceptionCardLogic'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
@@ -59,7 +58,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
-import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -330,13 +329,10 @@ const RightHandColumn = ({
 }): JSX.Element | null => {
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
-    const { setLinkRequired } = useActions(issueLinkedDataLogic({ issueId }))
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
-    const exceptionLinkedData = useMemo<ExceptionLinkedData>(
-        () => ({ showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => setLinkRequired(kind, true) }),
-        [setLinkRequired]
-    )
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -364,7 +360,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
-                    linkedData={exceptionLinkedData}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

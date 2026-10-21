@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
-import { type ExceptionLinkedData, exceptionCardLogic } from './exceptionCardLogic'
+import { exceptionCardLogic } from './exceptionCardLogic'
 import { LogsTab } from './Tabs/LogsTab/LogsTab'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
@@ -37,7 +37,7 @@ export interface ExceptionCardProps extends ExceptionCardContentProps {
     event?: ErrorEventType
     loading: boolean
     logicKey?: string
-    linkedData?: ExceptionLinkedData
+    onShowOnlyWithRecording?: () => void
 }
 
 export function ExceptionCard({
@@ -46,12 +46,12 @@ export function ExceptionCard({
     event,
     loading,
     logicKey,
-    linkedData,
+    onShowOnlyWithRecording,
     ...contentProps
 }: ExceptionCardProps): JSX.Element {
     const cardLogicProps = useMemo(
-        () => ({ issueId, loading, logicKey, linkedData }),
-        [issueId, loading, logicKey, linkedData]
+        () => ({ issueId, loading, logicKey, onShowOnlyWithRecording }),
+        [issueId, loading, logicKey, onShowOnlyWithRecording]
     )
 
     const eventProps = useMemo<ErrorPropertiesLogicProps>(

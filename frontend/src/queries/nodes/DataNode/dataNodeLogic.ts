@@ -1374,10 +1374,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             results: results,
                             hasMore: newResponse?.hasMore,
                             ...(isErrorTrackingIssueEventsQuery(props.query)
-                                ? mergedIssueEventsPaging(
-                                      queryResponse as ErrorTrackingIssueEventsQueryResponse | null,
-                                      newResponse as ErrorTrackingIssueEventsQueryResponse | null
-                                  )
+                                ? {
+                                      nextCursor: (newResponse as ErrorTrackingIssueEventsQueryResponse | null)
+                                          ?.nextCursor,
+                                  }
                                 : {}),
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -1755,8 +1755,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
-                // The server decides where the next page starts: a page that filters by linked logs can
-                // stop its scan past the last row it returns.
+                // The page's source query is nested, so the server's cursor goes onto `source.before`.
                 if (isErrorTrackingIssueEventsQuery(query)) {
                     const issueEventsResponse = response as ErrorTrackingIssueEventsQueryResponse | null
                     if (
@@ -2411,19 +2410,6 @@ const dedupeResults = (arr: any[], key: string): any[] => {
             return acc
         }, {})
     )
-}
-
-// The merged response keeps the newest page's cursor, and adds up the exceptions every loaded page
-// checked for linked logs, so the list can tell how far back its check got.
-function mergedIssueEventsPaging(
-    loaded: ErrorTrackingIssueEventsQueryResponse | null,
-    next: ErrorTrackingIssueEventsQueryResponse | null
-): Pick<ErrorTrackingIssueEventsQueryResponse, 'nextCursor' | 'checkedCount'> {
-    const checked = [loaded?.checkedCount, next?.checkedCount].filter((count): count is number => count != null)
-    return {
-        nextCursor: next?.nextCursor,
-        checkedCount: checked.length ? checked.reduce((sum, count) => sum + count, 0) : undefined,
-    }
 }
 
 // Pull the event uuid out of a result row to use as a stable pagination tiebreaker. It lives either

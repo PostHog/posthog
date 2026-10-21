@@ -1,7 +1,7 @@
 import './VirtualizedLogsList.scss'
 
 import { useActions, useValues } from 'kea'
-import { CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
@@ -49,8 +49,6 @@ interface VirtualizedLogsListProps {
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
     onExpandTimeRange?: () => void
-    /** Replaces the default "No logs found" content when there are no rows. */
-    emptyState?: ReactNode
     orderBy?: LogsOrderBy
     onChangeOrderBy?: (orderBy: LogsOrderBy) => void
     /** Uuids of the latest live-tail batch — these rows play the one-shot arrival highlight. */
@@ -157,7 +155,6 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
     onExpandTimeRange,
-    emptyState,
     orderBy,
     onChangeOrderBy,
     newLogUuids,
@@ -353,10 +350,6 @@ export function VirtualizedLogsList({
             newLogUuids,
         ]
     )
-
-    if (dataSource.length === 0 && !loading && emptyState) {
-        return <div className="h-full min-h-40">{emptyState}</div>
-    }
 
     if (dataSource.length === 0 && !loading) {
         return (

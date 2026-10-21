@@ -28,7 +28,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Button, TabsContent } from 'lib/ui/quill'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { LinkedDataEmptyState } from '../LinkedDataEmptyState'
+import { RecordingEmptyState } from '../RecordingEmptyState'
 import { TabSpinner } from '../TabSpinner'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
@@ -180,8 +180,7 @@ export function NoSessionIdFound(): JSX.Element {
 
 function NoSessionRecording(): JSX.Element {
     return (
-        <LinkedDataEmptyState
-            kind="recording"
+        <RecordingEmptyState
             title="No session found"
             description="There is no $session_id associated with this exception, so it has no recording. If it was captured from a server SDK, you can forward the session ID."
         >
@@ -197,7 +196,7 @@ function NoSessionRecording(): JSX.Element {
                 Learn how to forward session IDs
                 <IconExternal />
             </Button>
-        </LinkedDataEmptyState>
+        </RecordingEmptyState>
     )
 }
 
