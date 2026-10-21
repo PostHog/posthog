@@ -372,6 +372,18 @@ class TestBulkUpdateTags(APIBaseTest):
 
         assert not Tag.objects.filter(name="orphan-soon", team_id=self.team.id).exists()
 
+    @parameterized.expand([("unchanged", ["kept"]), ("added", ["kept", "new"])])
+    def test_save_without_removed_tags_leaves_unrelated_orphans(self, _name, tags):
+        dashboard = self._create_dashboard_with_tags("dash", ["kept"])
+        Tag.objects.create(name="unrelated-orphan", team_id=self.team.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": tags}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert Tag.objects.filter(name="unrelated-orphan", team_id=self.team.id).exists()
+
     def test_tag_shared_by_other_objects_is_not_deleted_on_remove(self):
         d1 = self._create_dashboard_with_tags("d1", ["shared-tag"])
         d2 = self._create_dashboard_with_tags("d2", ["shared-tag"])

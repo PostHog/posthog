@@ -553,6 +553,8 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             # the per-instance delete() so the signal fires for them too; a bulk queryset
             # delete would skip it. The trigger context attributes every resulting entry
             # to the workflow that made the change.
+            # Only a removed TaggedItem can orphan a tag, so the cleanup checks just those tags.
+            removed_tag_ids: set[int] = set()
             with ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
                     for tagged_item in (
@@ -560,8 +562,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         .select_related("tag__team")
                         .prefetch_related("uuid_object")
                     ):
+                        removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    if removed_tag_ids:
+                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
                 elif tags_mode == "set":
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
@@ -571,8 +575,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         .select_related("tag__team")
                         .prefetch_related("uuid_object")
                     ):
+                        removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    if removed_tag_ids:
+                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
                 else:
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
