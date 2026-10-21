@@ -293,6 +293,7 @@ SnowflakeTypeName = typing.Literal[
     "DOUBLE",
     "DOUBLE PRECISION",
     "BOOLEAN",
+    "DATE",
     "TIMESTAMP",
     "TIMESTAMP_NTZ",
     "TIMESTAMP_LTZ",
@@ -337,6 +338,9 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     elif pa.types.is_boolean(data_type):
         snowflake_type_name = "BOOLEAN"
 
+    elif pa.types.is_date(data_type):
+        snowflake_type_name = "DATE"
+
     elif pa.types.is_timestamp(data_type):
         snowflake_type_name = "TIMESTAMP"
 
@@ -363,6 +367,8 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
+        case "DATE":
+            base_type = pa.date32()
         case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ" | "TIMESTAMP_TZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
