@@ -85,6 +85,8 @@ Each sessionless legacy batch item resolves its own request properties, state, a
 
 Credential, user, and entity lookup promises are shared within an HTTP request, keyed by credential cache scope and entity. Per-item state managers and active selections remain independent. Existing Redis TTLs control freshness; rejected promises are removed to permit retries. A newly minted conversation's state resolution uses the same request-local lookup cache.
 
+Remote flag evaluation uses this cache too, keyed by credential, distinct ID, normalized groups, and flag keys. Both flag values and payloads are shared only for matching contexts; each call applies its own overrides afterward. Failed evaluations leave the cache before the resolver returns its empty fallback.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:

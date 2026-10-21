@@ -490,7 +490,15 @@ export class RequestStateResolver {
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
+            const key = JSON.stringify([
+                'featureFlags',
+                distinctId,
+                Object.entries(groups ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+                [...flagKeys].sort(),
+            ])
+            return await reqCtx.lookups.get(reqCtx.tokenCache.scope, key, () =>
+                evaluateFeatureFlags(flagKeys, distinctId, groups)
+            )
         } catch {
             return { flags: {}, payloads: {} }
         }
