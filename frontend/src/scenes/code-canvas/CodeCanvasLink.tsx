@@ -32,7 +32,9 @@ export function CodeCanvasLink({ dashboardId }: CodeCanvasLinkProps): JSX.Elemen
 
     useEffect(() => {
         if (webUrl) {
-            router.actions.replace(webUrl)
+            // A full page load, because a client-side route change skips the server login gate
+            // and a signed-out visitor would see a blank page instead of the login page.
+            window.location.replace(webUrl)
         }
     }, [webUrl])
 

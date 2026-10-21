@@ -9,7 +9,15 @@ import { initKeaTests } from '~/test/init'
 import { CodeCanvasLink } from './CodeCanvasLink'
 
 describe('CodeCanvasLink', () => {
+    const replace = jest.fn()
+
     beforeEach(() => {
+        replace.mockReset()
+        // jsdom refuses a real navigation, so stand in a location whose replace we can read back.
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { ...window.location, replace },
+        })
         initKeaTests()
     })
 
@@ -32,6 +40,6 @@ describe('CodeCanvasLink', () => {
             </Provider>
         )
 
-        expect(router.values.location.pathname).toMatch(expectedPath)
+        expect(replace).toHaveBeenCalledWith(expect.stringMatching(expectedPath))
     })
 })
