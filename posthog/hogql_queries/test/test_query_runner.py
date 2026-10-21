@@ -1991,6 +1991,8 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert worker.modifiers.useNewEventsSchema is True
         assert worker.get_cache_key() == runner.get_cache_key()
         assert mock_enqueue.call_args.kwargs["query_json"] == legacy.query.model_dump()
+        assert legacy.get_cache_key() != runner.get_cache_key()
+        assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
 
 
 @pytest.mark.ee

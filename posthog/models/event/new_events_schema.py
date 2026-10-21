@@ -15,8 +15,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
+
 # TODO: Remove the per-query rollout option after the events cluster migration is complete.
 _query_host: ContextVar[list[str | None] | None] = ContextVar("new_events_cluster_host", default=None)
+_query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
 
 
 def get_new_events_cluster_host() -> str | None:
@@ -41,9 +44,6 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         yield
     finally:
         _query_host.reset(token)
-
-
-EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
 
 
 def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> list[dict[str, Any]]:
@@ -87,7 +87,16 @@ def get_new_events_cluster_host_or_none() -> str | None:
         return None
 
 
-_query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
+def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: bool) -> dict[str, Any]:
+    """Remove the route values that a legacy-table query resolves to, so its cache key does not change.
+
+    A query that reads no events table never has the events table in its cache key.
+    """
+    if modifiers.get("useNewEventsSchema") is False or not reads_events:
+        modifiers.pop("useNewEventsSchema", None)
+    if not modifiers.get("useNewEventsCluster"):
+        modifiers.pop("useNewEventsCluster", None)
+    return modifiers
 
 
 def get_events_route() -> "HogQLQueryModifiers | None":
