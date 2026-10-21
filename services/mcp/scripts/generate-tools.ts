@@ -812,10 +812,13 @@ function composeToolSchema(
             // When the original is also a path param, the body copy was already dropped above
             // and the surviving key addresses the resource, so omitting it here would leave the
             // handler with no value for the URL.
+            const fieldSource = queryParamNames.includes(original)
+                ? `(${schemaExpr}).shape['${original}']`
+                : `${bodyImport}.shape['${original}']`
             if (!pathParamNames.includes(original)) {
                 schemaExpr += `\n    .omit({ '${original}': true })`
             }
-            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+            schemaExpr += `\n    .extend({ ${alias}: ${fieldSource} })`
         }
     }
 
@@ -882,8 +885,8 @@ function composeToolSchema(
         schemaRefBlocks,
         schemaExpr,
         pathParamNames,
-        queryParamNames,
-        csvQueryParamNames,
+        queryParamNames: queryParamNames.map((name) => renameMap.get(name) ?? name),
+        csvQueryParamNames: new Set([...csvQueryParamNames].map((name) => renameMap.get(name) ?? name)),
         bodyFieldNames,
         variantSpecificBodyFieldNames,
         renamedFields,
@@ -1255,15 +1258,16 @@ function generateToolCode(
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
             .map((qn) => {
+                const queryKey = composition.renamedFields[qn] ?? qn
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
                 // json.loads()-style contract), which DRF CSV filters can't parse.
                 // Callers may pass either the array shape or a single string, so
                 // only join when it's actually an array; an empty array is omitted.
                 if (composition.csvQueryParamNames.has(qn)) {
-                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                    return `                ${queryKey}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
-                return `                ${qn}: params.${qn},`
+                return `                ${queryKey}: params.${qn},`
             })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`

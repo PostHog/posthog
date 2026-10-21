@@ -45,6 +45,15 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+export const DashboardInsightTileIdsSchema = z
+    .array(z.number().int().positive())
+    .min(1)
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids) => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
     x: z.number().int().min(0).optional(),
     y: z.number().int().min(0).optional(),

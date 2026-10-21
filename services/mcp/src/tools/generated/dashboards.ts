@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/dashboards/api'
-import { DashboardTileCreateSchema } from '@/schema/tool-inputs'
+import { DashboardInsightTileIdsSchema, DashboardTileCreateSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -337,7 +337,19 @@ const DashboardInsightsRunSchema = () => {
     const DashboardsRunInsightsRetrieveQueryParams = orvalSchemas.DashboardsRunInsightsRetrieveQueryParams()
     return DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
         .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
+        .extend({
+            tile_ids: DashboardInsightTileIdsSchema,
+            id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']),
+        })
+        .omit({ tile_ids: true })
+        .extend({
+            dashboard_tile_ids: DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
+                .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+                .extend({
+                    tile_ids: DashboardInsightTileIdsSchema,
+                    id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']),
+                }).shape['tile_ids'],
+        })
         .extend({
             filters_override: z
                 .union([z.string(), z.record(z.string(), z.unknown())])
@@ -370,7 +382,7 @@ const dashboardInsightsRun = (): ToolBase<
                 max_result_chars: params.max_result_chars,
                 output_format: params.output_format,
                 refresh: params.refresh,
-                tile_ids: params.tile_ids,
+                tile_ids: params.dashboard_tile_ids,
                 variables_override: params.variables_override,
             },
         })

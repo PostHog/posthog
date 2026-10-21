@@ -988,6 +988,35 @@ describe('anyOf / oneOf body schemas (discriminated unions)', () => {
 })
 
 describe('rename_params', () => {
+    it('maps a query alias to the original HTTP key and preserves its schema override', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            rename_params: { tile_ids: 'dashboard_tile_ids' },
+            param_overrides: { tile_ids: { input_schema: 'DashboardInsightTileIdsSchema' } },
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [{ in: 'query', name: 'tile_ids', schema: { type: 'string' } }],
+            },
+        })
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('dashboard_tile_ids:')
+        expect(result.code).toContain('DashboardInsightTileIdsSchema')
+        expect(result.code).toContain('tile_ids: params.dashboard_tile_ids')
+        expect(result.code).not.toContain('ThingsListBody')
+    })
+
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
             operation: 'things_create',
