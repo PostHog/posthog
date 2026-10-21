@@ -6934,6 +6934,9 @@
         "BoxPlotDatum": {
             "additionalProperties": false,
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
                 "day": {
                     "type": "string"
                 },
