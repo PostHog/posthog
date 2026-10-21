@@ -639,6 +639,8 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
    #### Typed-confirm paradigm for destructive tools
 
    For destructive or security-sensitive tools (account changes, key revocation, bulk deletes),
