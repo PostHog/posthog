@@ -346,6 +346,75 @@ class TestGetCountEngineChoice:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
 
 
+class TestChdbEngineChoiceByFormat:
+    def _table(self, table_format: str, has_credential: bool) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=table_format,
+            team=Team(id=1),
+            url_pattern="https://bucket.example.com/t/",
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+        )
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, False, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+            (DataWarehouseTable.TableFormat.CSVWithNames, True, True),
+            (DataWarehouseTable.TableFormat.JSON, True, True),
+        ],
+    )
+    def test_get_columns_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="id,String\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[("id", "String")]
+            ) as mock_sync_execute,
+        ):
+            columns = self._table(table_format, has_credential).get_columns()
+
+        assert columns["id"]["clickhouse"] == "String"
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            # A count of a DeltaS3Wrapper table reads its parquet files through s3(), not deltaLake().
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+        ],
+    )
+    def test_get_count_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(table_format, has_credential).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
