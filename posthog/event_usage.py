@@ -437,6 +437,8 @@ AnalyticsProps = TypedDict(
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "upload_attempt_id": NotRequired[str],
+        "upload_run_id": NotRequired[str],
     },
     total=False,
 )
