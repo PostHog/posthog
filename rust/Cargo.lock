@@ -9179,7 +9179,6 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
- "common-kafka",
  "common-metrics",
  "futures",
  "hdrhistogram",
