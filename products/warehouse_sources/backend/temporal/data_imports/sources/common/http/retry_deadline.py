@@ -88,21 +88,23 @@ def retry_with_deadline(
     deadline, so a function that pages through a whole collection would fail after the deadline.
     """
     deadline_stop = stop_at_request_deadline(requested_wait)
-    with_retries = tenacity.retry(
-        stop=deadline_stop if stop is None else tenacity.stop_any(cast(stop_base, stop), deadline_stop), **retry_kwargs
-    )
+    with_retries = tenacity.retry(stop=_combined_stop(stop, deadline_stop), **retry_kwargs)
 
     def decorate(fn: Callable[P, R]) -> Callable[P, R]:
         if inspect.isgeneratorfunction(fn) or inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
             # tenacity retries only the creation of a generator, and the deadline block would end before
             # the generator or the coroutine runs. Such a source keeps `tenacity.retry`.
             raise TypeError(f"retry_with_deadline supports plain functions only, not {fn.__qualname__}")
-        return _with_deadline(cast(Callable[P, R], with_retries(fn)), fn)
+        return _with_deadline(cast(Callable[P, R], with_retries(fn)), fn, deadline_stop)
 
     return decorate
 
 
-def _with_deadline(retried: Callable[P, R], fn: Callable[P, R]) -> Callable[P, R]:
+def _combined_stop(stop: Callable[[RetryCallState], bool] | None, deadline_stop: stop_base) -> stop_base:
+    return deadline_stop if stop is None else tenacity.stop_any(cast(stop_base, stop), deadline_stop)
+
+
+def _with_deadline(retried: Callable[P, R], fn: Callable[P, R], deadline_stop: stop_base) -> Callable[P, R]:
     @functools.wraps(retried)
     def call(*args: P.args, **kwargs: P.kwargs) -> R:
         with request_deadline():
@@ -113,5 +115,14 @@ def _with_deadline(retried: Callable[P, R], fn: Callable[P, R]) -> Callable[P, R
     # so it stays the undecorated function, as with `tenacity.retry`.
     wrapper = cast(Any, call)
     wrapper.__wrapped__ = fn
-    wrapper.retry_with = lambda *args, **kwargs: _with_deadline(cast(Any, retried).retry_with(*args, **kwargs), fn)
+    wrapper.retry_with = functools.partial(_retry_with, retried, fn, deadline_stop)
     return call
+
+
+def _retry_with(
+    retried: Callable[P, R], fn: Callable[P, R], deadline_stop: stop_base, *args: Any, **kwargs: Any
+) -> Callable[P, R]:
+    # A `stop` given here replaces the whole stop condition in tenacity, so it is combined with the deadline again.
+    if "stop" in kwargs:
+        kwargs["stop"] = _combined_stop(kwargs["stop"], deadline_stop)
+    return _with_deadline(cast(Any, retried).retry_with(*args, **kwargs), fn, deadline_stop)

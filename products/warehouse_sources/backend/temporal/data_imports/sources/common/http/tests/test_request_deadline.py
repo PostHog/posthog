@@ -344,3 +344,13 @@ class TestSourceRetryLoop:
 
         assert len(calls) == 1
         assert isinstance(cast(Any, fetch).retry, tenacity.Retrying)
+
+    def test_a_stop_given_to_retry_with_keeps_the_deadline(self) -> None:
+        send, tries = _source_loop(retry_with_deadline, 30)
+        tries.clear()
+
+        run = _run(cast(Any, send).retry_with(stop=stop_after_attempt(10)), TOO_MANY_REQUESTS * 2)
+
+        assert isinstance(run.error, requests.RequestException)
+        assert len(tries) == 4
+        assert run.elapsed == pytest.approx(90, abs=SLACK * 4)
