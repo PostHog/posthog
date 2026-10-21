@@ -14,6 +14,7 @@ from uuid import NAMESPACE_URL, uuid5
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import ensure_utc
 
+from products.alerts.backend.insight_alert_state_machine import apply_platform_state
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import insight_state_of_platform
 from products.alerts_platform.backend.facade.api import (
@@ -50,13 +51,15 @@ def with_platform_runtime(alerts: Sequence[AlertConfiguration], *, now: datetime
         history = {}
     for alert in moved:
         if (alert_runtime := runtime.get(alert.id)) is not None:
-            alert.state = insight_state_of_platform(alert_runtime.state, snoozed_until=alert.snoozed_until, at=now)
+            apply_platform_state(
+                alert, insight_state_of_platform(alert_runtime.state, snoozed_until=alert.snoozed_until, at=now)
+            )
             alert.next_check_at = alert_runtime.next_check_at
             alert.last_notified_at = alert_runtime.last_notified_at
         if (alert_history := history.get(alert.id)) is not None:
             alert.last_checked_at = ensure_utc(alert_history.last_checked_at)
             # Annotated from the alert's own checks, which stop once the shadow ends.
-            alert.last_value = alert_history.last_value
+            alert.last_value = alert_history.last_value  # type: ignore[attr-defined]
 
 
 def platform_checks(
