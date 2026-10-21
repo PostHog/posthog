@@ -36,7 +36,7 @@ from posthog.hogql_queries.actor_strategies import SessionStrategy
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, get_query_runner_or_none
 from posthog.models import Organization, Team, User
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
@@ -267,15 +267,22 @@ class TestActorExecutionUserContext(APIBaseTest):
         runner = get_query_runner_or_none(query=queries[kind], team=self.team, user=self.user)
         assert runner is not None
 
-        def execution_context() -> HogQLContext:
+        def source_runner() -> QueryRunner:
             if isinstance(runner, ActorsQueryRunner):
                 assert runner.source_query_runner is not None
-                return runner.source_query_runner.build_hogql_context()
+                return runner.source_query_runner
             assert isinstance(runner, (InsightActorsQueryRunner, InsightActorsQueryOptionsRunner))
-            return cast(FunnelsQueryRunner, runner.source_runner).context.hogql_context
+            return runner.source_runner
 
+        def execution_context() -> HogQLContext:
+            child = source_runner()
+            if isinstance(runner, ActorsQueryRunner):
+                return child.build_hogql_context()
+            return cast(FunnelsQueryRunner, child).context.hogql_context
+
+        child = source_runner()
         assert execution_context().user is self.user
         other_user = User.objects.create_and_join(self.organization, "context-user@example.com", None)
-        runner.user = other_user
-        runner._on_user_changed()
+        runner.set_user(other_user)
+        assert source_runner() is child
         assert execution_context().user is other_user

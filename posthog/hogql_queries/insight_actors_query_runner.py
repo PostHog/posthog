@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from functools import cached_property
 from typing import Optional, cast
 
@@ -38,10 +39,8 @@ from products.product_analytics.backend.facade.queries import (
 class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: InsightActorsQueryNode
 
-    def _on_user_changed(self) -> None:
-        super()._on_user_changed()
-        # source_runner is cached with the user it was built for, so drop it to rebuild under the new user's access control.
-        self.__dict__.pop("source_runner", None)
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> QueryRunner:
