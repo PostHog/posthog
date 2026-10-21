@@ -1,7 +1,8 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -30,11 +31,13 @@ from products.experiments.backend.temporal.scheduled_recalculation_activities im
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     SKIP_ACTIVE_RUN,
+    SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_BACKOFF,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
     SKIP_NO_METRICS,
     SKIP_RECENT_RUN,
+    SKIP_START_WINDOW_ELAPSED,
     SKIP_ZERO_ROLLOUT,
     ScheduledRecalculationDiscovery,
 )
@@ -57,9 +60,11 @@ def _check_exposures(experiment_id: int, hour: int) -> bool:
         return _check_exposures_raw(experiment_id, hour)
 
 
-def _start_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+def _start_recalculation(
+    experiment_id: int, hour: int, start_before: datetime | None = None
+) -> ScheduledRecalculationStartResult:
     with patch(f"{MODULE}.close_old_connections"):
-        return _start_recalculation_raw(experiment_id, hour)
+        return _start_recalculation_raw(experiment_id, hour, start_before)
 
 
 def _discover() -> ScheduledRecalculationDiscovery:
@@ -225,9 +230,12 @@ class TestScheduledRecalculationActivities(BaseTest):
         ):
             assert _check_exposures(self.experiment.id, 12) is expected
 
-    def test_start_creates_a_row_and_dispatches_the_workflow(self):
+    @parameterized.expand([("legacy", False), ("within_deadline", True)])
+    def test_start_creates_a_row_and_dispatches_the_workflow(self, _name: str, with_deadline: bool):
         with patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch:
-            result = _start_recalculation(self.experiment.id, 2)
+            result = _start_recalculation(
+                self.experiment.id, 2, timezone.now() + timedelta(minutes=1) if with_deadline else None
+            )
         assert result.started is True
         assert result.recalculation_id is not None
         with team_scope(self.team.id, canonical=True):
@@ -273,6 +281,8 @@ class TestScheduledRecalculationActivities(BaseTest):
         ):
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
+        assert result.skip_reason == SKIP_DISPATCH_UNCERTAIN
+        assert result.recalculation_id is not None
         started_event.assert_not_called()
 
     def test_deleted_experiment_is_skipped_not_raised(self):
@@ -289,3 +299,19 @@ class TestScheduledRecalculationActivities(BaseTest):
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
         dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("seconds_late", [0, 60])
+def test_start_picked_up_after_deadline_does_not_create_a_run(seconds_late):
+    deadline = datetime(2026, 10, 19, 6, 50, tzinfo=UTC)
+    with (
+        time_machine.travel(deadline + timedelta(seconds=seconds_late), tick=False),
+        patch(f"{MODULE}.close_old_connections"),
+        patch(f"{RECALCULATION}.request_recalculation") as request,
+        patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch,
+    ):
+        result = _start_recalculation_raw(1, 2, deadline)
+    assert result.started is False
+    assert result.skip_reason == SKIP_START_WINDOW_ELAPSED
+    request.assert_not_called()
+    dispatch.assert_not_called()

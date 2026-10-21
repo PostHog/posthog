@@ -18,6 +18,7 @@ env:
 jobs:
     release:
         name: Publish agent to npm
+        if: github.repository == 'PostHog/posthog'
         # npm provenance requires a github-hosted runner; Depot registers as self-hosted
         runs-on: ubuntu-24.04
         timeout-minutes: 30
@@ -97,7 +98,7 @@ jobs:
     notify-release:
         name: Post the release to Slack
         needs: release
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:

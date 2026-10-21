@@ -21,6 +21,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
   `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
+    Read its [ordered-image reference](../gating-production-deploys/references/ordered-image-releases.md) for new monorepo publishers and shared-build consumers.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
   - `/depot-github-runners` — Depot runner labels and sizing.
   - `/debugging-ci-failures` — CI is red and you need to know why.
@@ -519,6 +520,8 @@ A workflow edit hits every open PR the instant it merges (it runs against PR-mer
 If the workflow starts _requiring_ something unrebased branches lack, every in-flight PR fails before its tests run.
 Make new behavior degrade gracefully when the prerequisite is absent, or gate it.
 Roll out a new blocking lint the same way: ship `continue-on-error`, clear the inbox, promote to blocking.
+A new or tightened baseline ratchet in `posthog/test/repo_invariants/` meets queued PRs that passed CI before it existed, so report its mismatch through `enforce_baseline` in `ratchet.py` with a `blocking_from` date a few days out: new violations only warn until then.
+Before that date, fix or add to the baseline every violation that landed during the grace period, or master goes red on it.
 
 ## New-workflow checklist
 

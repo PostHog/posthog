@@ -425,7 +425,7 @@
         "scope": "project"
     },
     "cohortsStaffTools": {
-        "template": "/feature_flags/staff/cohorts",
+        "template": "/feature-flags/staff/cohorts",
         "params": [],
         "scope": "global"
     },
@@ -845,27 +845,27 @@
         "scope": "project"
     },
     "featureFlag": {
-        "template": "/feature_flags/{id}",
+        "template": "/feature-flags/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "featureFlagNew": {
-        "template": "/feature_flags/new",
+        "template": "/feature-flags/new",
         "params": [],
         "scope": "project"
     },
     "featureFlagTemplates": {
-        "template": "/feature_flags/templates",
+        "template": "/feature-flags/templates",
         "params": [],
         "scope": "project"
     },
     "featureFlags": {
-        "template": "/feature_flags",
+        "template": "/feature-flags",
         "params": [],
         "scope": "project"
     },
     "featureFlagsStaffTools": {
-        "template": "/feature_flags/staff",
+        "template": "/feature-flags/staff",
         "params": [],
         "scope": "global"
     },
@@ -1309,6 +1309,11 @@
         "params": [],
         "scope": "project"
     },
+    "onboardingWelcome": {
+        "template": "/welcome",
+        "params": [],
+        "scope": "project"
+    },
     "organizationBilling": {
         "template": "/organization/billing",
         "params": [],
@@ -1489,6 +1494,11 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionNewScanner": {
+        "template": "/replay-vision/new/goal",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1509,13 +1519,13 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerOverview": {
-        "template": "/replay-vision/{id}/overview",
+    "replayVisionScannerGoal": {
+        "template": "/replay-vision/{id}/goal",
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerTemplate": {
-        "template": "/replay-vision/{id}/template",
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1526,11 +1536,6 @@
     },
     "replayVisionTab": {
         "template": "/replay-vision",
-        "params": [],
-        "scope": "project"
-    },
-    "replayVisionTemplates": {
-        "template": "/replay-vision/new/template",
         "params": [],
         "scope": "project"
     },
@@ -1598,6 +1603,11 @@
         "template": "/signup",
         "params": [],
         "scope": "global"
+    },
+    "simpleOnboarding": {
+        "template": "/onboarding/simple",
+        "params": [],
+        "scope": "project"
     },
     "site": {
         "template": "/site/{url}",
@@ -1831,6 +1841,11 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
+        "params": [],
+        "scope": "project"
+    },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
         "params": [],
         "scope": "project"
     },

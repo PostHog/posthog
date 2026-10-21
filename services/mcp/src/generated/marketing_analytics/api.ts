@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -21879,6 +21879,39 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
         .describe('Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.')
         .describe(
             'The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored.'
+        ),
+})
+
+/**
+ * @summary Read persisted conversion recommendations
+ */
+export const MarketingAnalyticsConversionRecommendationsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const MarketingAnalyticsConversionRecommendationsStartCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault = false
+
+export const MarketingAnalyticsConversionRecommendationsStartCreateBody = () => zod.object({
+    refresh: zod
+        .boolean()
+        .default(marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault)
+        .describe(
+            'False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.'
         ),
 })
 

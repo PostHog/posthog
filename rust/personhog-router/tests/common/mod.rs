@@ -9,6 +9,8 @@ use std::time::Duration;
 use dashmap::DashMap;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::NOT_APPLIED_HEADER;
+use personhog_coordination::changelog::LiveChangelog;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_proto::personhog::identity::v1 as identity;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::{
     PersonHogIdentity, PersonHogIdentityServer,
@@ -36,8 +38,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -50,13 +52,16 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
-    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, Person,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse, Person, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse, RestorePersonsRequest, RestorePersonsResponse,
     SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
     SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
@@ -546,6 +551,41 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Ok(Response::new(EnsurePersonVersionFloorsResponse::default()))
     }
+
+    async fn get_distinct_id_rows(
+        &self,
+        _request: Request<GetDistinctIdRowsRequest>,
+    ) -> Result<Response<GetDistinctIdRowsResponse>, Status> {
+        Ok(Response::new(GetDistinctIdRowsResponse::default()))
+    }
+
+    async fn list_persons_for_team(
+        &self,
+        _request: Request<ListPersonsForTeamRequest>,
+    ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
+        Ok(Response::new(ListPersonsForTeamResponse::default()))
+    }
+
+    async fn raise_person_version_floors(
+        &self,
+        _request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(RaisePersonVersionFloorsResponse::default()))
+    }
+
+    async fn restore_persons(
+        &self,
+        _request: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        Ok(Response::new(RestorePersonsResponse::default()))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        _request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Ok(Response::new(WriteDistinctIdsResponse::default()))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -723,6 +763,9 @@ pub struct TestLeaderService {
     /// partition fence above this one names its holder, which is the fact
     /// the refusal has to carry all the way back to the caller.
     person_fence_op: Arc<Mutex<Option<String>>>,
+    /// Runs on every write before it is answered, so a test can change the
+    /// router's view at an exact point between its attempts.
+    on_write: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl TestLeaderService {
@@ -731,7 +774,13 @@ impl TestLeaderService {
             persons: DashMap::new(),
             fenced: Arc::new(AtomicBool::new(false)),
             person_fence_op: Arc::new(Mutex::new(None)),
+            on_write: None,
         }
+    }
+
+    pub fn on_write(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_write = Some(Arc::new(hook));
+        self
     }
 
     /// Refuse every write for this person the way the leader refuses one
@@ -851,6 +900,9 @@ impl PersonHogLeader for TestLeaderService {
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         require_partition_metadata(&request)?;
+        if let Some(hook) = &self.on_write {
+            hook();
+        }
         let req = request.into_inner();
         if self.fenced.load(Ordering::SeqCst) {
             return Err(Status::failed_precondition(
@@ -972,16 +1024,17 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
     let leader_url = format!("http://{}", leader_addr);
     let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
         Arc::new(move |_pod_name| Some(leader_url.clone()));
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions));
     Arc::new(LeaderBackend::new(
         routing_table,
         address_resolver,
         LeaderBackendConfig {
-            num_partitions,
+            changelog: changelog.clone(),
             timeout: Duration::from_secs(5),
             num_channels: 1,
             http2_windows: Http2Windows::default(),
         },
-        StashTable::with_bounds(usize::MAX, usize::MAX),
+        StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
     ))
 }
 
@@ -1006,16 +1059,17 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
                 Some("http://192.0.2.1:1".to_string())
             }
         });
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions));
     Arc::new(LeaderBackend::new(
         routing_table,
         address_resolver,
         LeaderBackendConfig {
-            num_partitions,
+            changelog: changelog.clone(),
             timeout: Duration::from_millis(200),
             num_channels: 1,
             http2_windows: Http2Windows::default(),
         },
-        StashTable::with_bounds(usize::MAX, usize::MAX),
+        StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
     ))
 }
 

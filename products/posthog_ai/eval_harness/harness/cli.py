@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, cast, get_args
+
+from posthog.dataclasses import frozen
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
 from .retries import DEFAULT_INFRA_RETRIES
@@ -12,13 +15,21 @@ from .retries import DEFAULT_INFRA_RETRIES
 # bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
 # finishes without doing anything. A run that dies at the gate fails as an error rather than
 # scoring zero on every outcome scorer.
-DEFAULT_AGENT_MODEL = "claude-opus-5"
-DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
+DEFAULT_AGENT_MODEL = "claude-opus-5-5"
+DEFAULT_CODEX_AGENT_MODEL = "gpt-6.1-sol"
 
 # Literal mirror of products.tasks' RuntimeAdapter values: this module must stay
 # Django-free (see harness/AGENTS.md), so it cannot import the enum.
 AGENT_RUNTIMES = ("claude", "codex")
 DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAULT_CODEX_AGENT_MODEL}
+
+
+@frozen
+class ModelTarget:
+    runtime: str
+    model: str
+
+
 SkillDelivery = Literal["bundled", "exec"]
 DEFAULT_SKILL_DELIVERY: SkillDelivery = "bundled"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
@@ -64,6 +75,10 @@ class HarnessOptions:
     verbose: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
     interactive: bool | None = None
+    comparison_models: tuple[ModelTarget, ...] = ()
+    comparison_dir: Path | None = None
+    results_file: Path | None = None
+    check_only: bool = False
 
 
 def _default_case_timeout() -> int:
@@ -190,12 +205,57 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Exit nonzero when the mean score across all experiments falls below this fraction (0-1).",
     )
+    parser.add_argument("--compare", action="store_true", help="Compare the default Claude and Codex models in order.")
+    parser.add_argument(
+        "--compare-model",
+        action="append",
+        default=[],
+        metavar="RUNTIME:MODEL",
+        help="Compare explicit runtime/model pairs. Repeat at least twice; replaces --compare defaults.",
+    )
+    parser.add_argument("--comparison-dir", type=Path, help="New directory for comparison reports.")
+    parser.add_argument("--results-file", type=Path, help="Save a machine-readable run report to this path.")
+    parser.add_argument(
+        "--check",
+        dest="check_only",
+        action="store_true",
+        help="Check configuration without starting services or agents.",
+    )
     return parser
 
 
 def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    comparison_models: list[ModelTarget] = []
+    for value in args.compare_model:
+        runtime, separator, model = value.partition(":")
+        if not separator or runtime not in AGENT_RUNTIMES or not model.strip():
+            parser.error("--compare-model must be claude:MODEL or codex:MODEL")
+        comparison_models.append(ModelTarget(runtime=runtime, model=model))
+    if args.compare and not comparison_models:
+        comparison_models = [
+            ModelTarget(runtime=runtime, model=model) for runtime, model in DEFAULT_AGENT_MODEL_BY_RUNTIME.items()
+        ]
+    if comparison_models:
+        if not args.selectors:
+            parser.error("Model comparisons require at least one suite selector")
+        if len(comparison_models) < 2 or len(set(comparison_models)) != len(comparison_models):
+            parser.error("Compare at least two distinct runtime/model pairs")
+        if (
+            args.agent_runtime
+            or args.agent_model
+            or args.list_only
+            or args.results_file
+            or args.check_only
+            or args.interactive
+        ):
+            parser.error(
+                "Model comparisons cannot use --agent-runtime, --agent-model, --list, --results-file, --check, or --tui"
+            )
+    elif args.comparison_dir:
+        parser.error("--comparison-dir requires --compare or --compare-model")
 
     # Sandbox-only flags keep None/False defaults so an explicit use is
     # detectable: a run without sandboxed suites rejects them in preflight
@@ -268,4 +328,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         infrastructure_retries=args.infra_retries,
         verbose=args.verbose,
         interactive=args.interactive,
+        comparison_models=tuple(comparison_models),
+        comparison_dir=args.comparison_dir,
+        results_file=args.results_file,
+        check_only=args.check_only,
     )

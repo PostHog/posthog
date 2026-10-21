@@ -1562,7 +1562,7 @@ export const getVisionScannersDraftCreateUrl = (projectId: string) => {
 }
 
 /**
- * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ * Draft a full scanner configuration from a natural-language goal and a monthly credit budget.
  */
 export const visionScannersDraftCreate = async (
     projectId: string,

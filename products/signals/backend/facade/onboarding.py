@@ -7,14 +7,13 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-import posthoganalytics
-
-from posthog.event_usage import groups
+from posthog.event_usage import report_user_action
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
+from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalScoutConfig,
@@ -205,6 +204,7 @@ class InboxOnboarding:
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
+                register_first_report_notification(team=self.team, user=user)
                 if resume_operational_scouts:
                     InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
                 transaction.on_commit(lambda: self._report_completion(user, config), robust=True)
@@ -224,21 +224,23 @@ class InboxOnboarding:
             if status in ("pending", "failed"):
                 launch_inbox_onboarding_job.delay(self.team_id, job)
 
-    def _capture(self, user: User, event: str, properties: dict[str, object]) -> None:
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event=event,
-            groups=groups(team=self.team),
-            properties=properties,
-        )
-
     def _report_completion(self, user: User, config: SignalTeamConfig) -> None:
-        self._capture(
-            user, "self-driving onboarding completed", InboxOnboardingAnalytics.completion_properties(config, user)
+        report_user_action(
+            user,
+            "self-driving onboarding completed",
+            InboxOnboardingAnalytics.completion_properties(config, user),
+            team=self.team,
+            organization=self.team.organization,
         )
 
     def _report_exposure(self, user: User, config: SignalTeamConfig) -> None:
-        self._capture(user, "self-driving onboarding exposed", InboxOnboardingAnalytics.properties(config, user))
+        report_user_action(
+            user,
+            "self-driving onboarding exposed",
+            InboxOnboardingAnalytics.properties(config, user),
+            team=self.team,
+            organization=self.team.organization,
+        )
         if (config.onboarding or {}).get("variant") == "control":
             from products.signals.backend.tasks import (
                 reconcile_inbox_onboarding,  # noqa: PLC0415 - avoid task imports during API initialization

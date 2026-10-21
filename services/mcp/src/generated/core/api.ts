@@ -424,7 +424,6 @@ export const OrganizationsProjectsCreateBody = () => zod
             .array(zod.string().max(organizationsProjectsCreateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -3174,6 +3173,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .describe(
                 'Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.'
             ),
+        logo_media_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
+            ),
         product_description: zod
             .string()
             .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
@@ -3226,7 +3231,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -5905,7 +5909,7 @@ export const UploadedMediaListParams = () => zod.object({
 export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
+    purpose: zod.enum(['canvas', 'email', 'experiment']).describe('The library to list.'),
     search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),
 })
 
