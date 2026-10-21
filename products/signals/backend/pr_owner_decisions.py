@@ -26,6 +26,7 @@ from products.signals.backend.pr_owner_selection import owner_input_version, sel
 from products.signals.backend.report_generation.resolve_reviewers import (
     _github_identity_prefetches,
     get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
 )
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerSnapshot
 
@@ -150,6 +151,14 @@ class PROwnerDecisionService:
     def eligible_logins(self, selected: PROwnerSelection) -> EligiblePROwners:
         wanted = {candidate.login for candidate in selected.decision.candidates}
         identities = [identity for identity in selected.inputs.identities if identity.login in wanted]
+        unresolved_logins = {identity.login for identity in identities if not identity.user_uuid}
+        linked = resolve_org_github_login_to_users(self.team.id, unresolved_logins) if unresolved_logins else {}
+        identities = [
+            identity.model_copy(update={"user_uuid": member.uuid})
+            if not identity.user_uuid and (member := linked.get(identity.login))
+            else identity
+            for identity in identities
+        ]
         uuids = [str(identity.user_uuid) for identity in identities if identity.user_uuid]
         members = (
             list(

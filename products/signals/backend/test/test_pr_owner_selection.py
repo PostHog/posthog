@@ -9,11 +9,13 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from posthog.constants import AvailableFeature
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import GitHubIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PROwnerSelection,
@@ -31,6 +33,7 @@ from products.signals.backend.pr_owner_decisions import PROwnerDecisionService
 from products.signals.backend.pr_owning_team import OwningTeam
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_generation.repo_activity import area_for_path
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.test.test_reviewer_pr_assignment import (
@@ -161,6 +164,50 @@ class TestRelevantPROwner:
         assert self.run_assignment(report, github, model) == ["github-only"]
         github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["github-only"])
         assert "github-only" not in github.request_pull_request_reviews.call_args.args[2]
+
+    @pytest.mark.parametrize("candidate_count", [1, 5])
+    def test_saved_github_only_candidates_use_current_accounts(self, org_and_team, candidate_count):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        logins = [f"newly-linked-{index}" for index in range(candidate_count)]
+        github.list_team_members.return_value = {"success": True, "logins": logins}
+        model = self.model(self.decision("current-owner", *logins))
+        assert self.run_assignment(report, github, model) == ["current-owner"]
+        saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
+        assert all(identity.user_uuid is None for identity in saved.inputs.identities if identity.login in logins)
+        for login in logins:
+            _make_reviewer(org, login, opted_in=True)
+        service = PROwnerDecisionService(team_id=team.id, report_id=str(report.id), github=github)
+        with patch(
+            "products.signals.backend.pr_owner_decisions.resolve_org_github_login_to_users",
+            wraps=resolve_org_github_login_to_users,
+        ) as resolve:
+            eligible = service.eligible_logins(saved)
+        resolve.assert_called_once_with(team.id, set(logins))
+        assert eligible.opted_in == frozenset(logins)
+        assert self.run_assignment(report, github, model) == [logins[0]]
+        assert model.call_count == 1
+
+    @pytest.mark.parametrize("change", ["inactive", "no_project_access"])
+    def test_newly_linked_ineligible_account_cannot_use_github_team_fallback(self, org_and_team, change):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        model = self.model(self.decision("github-only"))
+        assert self.run_assignment(report, github, model) == ["github-only"]
+        user = _make_reviewer(org, "github-only", opted_in=True)
+        if change == "inactive":
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+        else:
+            org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+            org.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+        github.add_pull_request_assignees.reset_mock()
+        github.list_team_members.reset_mock()
+        assert self.run_assignment(report, github, model) == []
+        github.add_pull_request_assignees.assert_not_called()
+        github.list_team_members.assert_not_called()
+        assert model.call_count == 1
 
     @pytest.mark.parametrize("ownerless_rule", ["src/payments.py", "src/payments.py # No owner"])
     def test_ownerless_codeowners_rule_clears_previous_owners(self, org_and_team, selection_enabled, ownerless_rule):
