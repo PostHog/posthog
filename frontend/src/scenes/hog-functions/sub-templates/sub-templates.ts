@@ -1104,7 +1104,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/feature_flags/{event.properties.item_id}',
+                                    url: '{project.url}/feature-flags/{event.properties.item_id}',
                                     text: { text: 'View feature flag', type: 'plain_text' },
                                     type: 'button',
                                 },

@@ -15,6 +15,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import openai_gateway_configured
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
 from posthog.schema_enums import EmbeddingModelName
@@ -47,6 +48,7 @@ EMBEDDING_RENDERING = "summary_text"
 STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
 STOP_MAX_PAIRS_PER_DAY = "max_pairs_per_day"
 STOP_MAX_COST_USD_PER_DAY = "max_cost_usd_per_day"
+STOP_GATEWAY_NOT_CONFIGURED = "gateway_not_configured"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=5)
 # One model call has a 120 second request timeout and one retry on a malformed answer.
@@ -109,7 +111,12 @@ class ActivitySummaryTickResult:
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
     config = read_config()
-    usage = daily_usage(now) if config.enabled else None
+    gateway_missing = config.enabled and not openai_gateway_configured()
+    if gateway_missing:
+        # Every pair would fail on the same missing gateway, so the tick runs none.
+        logger.warning("activity_summary_tick_gateway_not_configured")
+    enabled = config.enabled and not gateway_missing
+    usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick
@@ -117,14 +124,16 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     due = select_pairs(config, now, tick_limit + 1) if updates_left and cost_left else []
 
     stop_reason: str | None = None
-    if config.enabled and not updates_left:
+    if gateway_missing:
+        stop_reason = STOP_GATEWAY_NOT_CONFIGURED
+    elif enabled and not updates_left:
         stop_reason = STOP_MAX_PAIRS_PER_DAY
-    elif config.enabled and not cost_left:
+    elif enabled and not cost_left:
         stop_reason = STOP_MAX_COST_USD_PER_DAY
     elif len(due) > tick_limit:
         stop_reason = STOP_MAX_PAIRS_PER_TICK
     return ActivitySummaryTickPlan(
-        enabled=config.enabled,
+        enabled=enabled,
         pairs=due[:tick_limit],
         candidates=len(due),
         updates_left=updates_left,
@@ -267,7 +276,7 @@ class ActivitySummaryTickWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         if not plan.enabled:
-            return ActivitySummaryTickResult()
+            return ActivitySummaryTickResult(stop_reason=plan.stop_reason)
 
         statuses: Counter[str] = Counter()
         errored = 0
