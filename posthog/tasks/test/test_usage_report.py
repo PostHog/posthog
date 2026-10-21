@@ -10,6 +10,7 @@ import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseDestroyTablesMixin,
     ClickhouseTestMixin,
     QueryMatchingTest,
@@ -72,6 +73,8 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_dwh_tables_storage_in_s3,
+    get_teams_with_dwh_total_storage_in_s3,
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
@@ -3102,6 +3105,28 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
+
+
+class TestDWHStorageMetersSkipFreeMigrationCopies(BaseTest):
+    @parameterized.expand(
+        [
+            ("synced_table", {}, 4.0),
+            ("free_migration_copy", {"self_managed_migration": {"state": "triggered"}}, 0.0),
+            ("migration_copy_after_a_billable_sync", {"csv_header": True}, 4.0),
+        ]
+    )
+    def test_storage_meters(self, _name: str, options: dict[str, Any], expected_mib: float) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="AmazonS3")
+        DataWarehouseTable.objects.create(
+            team=self.team, name="orders", size_in_s3_mib=4.0, external_data_source=source, options=options
+        )
+        DataWarehouseTable.objects.create(team=self.team, name="no_size", size_in_s3_mib=None)
+
+        def totals(rows: list) -> float:
+            return sum(row["total"] for row in rows if row["team_id"] == self.team.pk)
+
+        assert totals(get_teams_with_dwh_tables_storage_in_s3()) == expected_mib
+        assert totals(get_teams_with_dwh_total_storage_in_s3()) == expected_mib
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)

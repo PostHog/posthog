@@ -86,8 +86,12 @@ def trigger_ad_hoc_sync(
     billable: bool,
     reset_pipeline: bool,
     workflow_id_prefix: str,
+    workflow_id: str | None = None,
 ) -> AdHocSyncTrigger:
     """Pause the schedule, stage the reset when asked, and start one run.
+
+    A caller that passes its own `workflow_id` can start again with the same id after a crash, and
+    Temporal then refuses a second run while the first one exists.
 
     Pausing comes first because Temporal's "OnlyOne" overlap policy is per-schedule, not across a
     schedule plus an ad-hoc workflow, so without it the scheduled run can race this one. A schedule
@@ -153,7 +157,7 @@ def trigger_ad_hoc_sync(
         billable=billable,
         reset_pipeline=None,
     )
-    workflow_id = f"{schema.id}-{workflow_id_prefix}-{int(time.time())}"
+    workflow_id = workflow_id or f"{schema.id}-{workflow_id_prefix}-{int(time.time())}"
     try:
         start_external_data_workflow(client, workflow_id, inputs)
     except Exception as e:

@@ -2202,7 +2202,8 @@ def get_teams_with_active_batch_exports_in_period() -> list:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_tables_storage_in_s3() -> list:
     return list(
-        DataWarehouseTable.objects.filter(
+        DataWarehouseTable.objects.storage_billable()
+        .filter(
             ~Q(deleted=True),
             size_in_s3_mib__isnull=False,
             external_data_source_id__isnull=False,
@@ -2231,7 +2232,8 @@ def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_total_storage_in_s3() -> list:
     return list(
-        DataWarehouseTable.objects.filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
+        DataWarehouseTable.objects.storage_billable()
+        .filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
         .values("team_id")
         .annotate(total=Sum("size_in_s3_mib"))
     )

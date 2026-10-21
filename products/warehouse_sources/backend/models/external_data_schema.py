@@ -1505,8 +1505,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             except Exception as e:
                 capture_exception(e)
 
-            if not self.table.deleted:
-                self.table.soft_delete()
+            self.table.delete_with_schema()
 
             self.table_id = None
             self.last_synced_at = None
@@ -2347,6 +2346,16 @@ def get_schemas_for_direct_reconciliation(
 # offering the new name as a separate one.
 SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
 
+# Set to True in a schema's `schema_metadata` when the schema reads a definition PostHog stored on it,
+# not one that discovery reports (a self-managed table copied into an object storage source reads the
+# exact files of its old URL pattern). Discovery can't report such a schema, so it must not disable it.
+SCHEMA_PINNED_METADATA_KEY = "pinned"
+
+
+def is_pinned_schema(schema: "ExternalDataSchema") -> bool:
+    metadata = (schema.sync_type_config or {}).get("schema_metadata")
+    return isinstance(metadata, dict) and metadata.get(SCHEMA_PINNED_METADATA_KEY) is True
+
 
 def _resource_id(metadata: object) -> str | None:
     if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
@@ -2582,6 +2591,8 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
+            if is_pinned_schema(s):
+                continue
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).

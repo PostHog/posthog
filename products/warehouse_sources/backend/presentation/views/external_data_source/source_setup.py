@@ -1870,8 +1870,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
             for schema in schemas:
-                if schema.table:
-                    schema.table.soft_delete()
+                if schema.table and not schema.table.delete_with_schema():
+                    # A self-managed table the source had not imported yet stays, unlinked.
+                    ExternalDataSchema.objects.filter(team_id=self.team_id, id=schema.id).update(table=None)
+                    schema.table = None
 
             # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
             # runs a SELECT + UPDATE + activity-log write each, which does not scale to

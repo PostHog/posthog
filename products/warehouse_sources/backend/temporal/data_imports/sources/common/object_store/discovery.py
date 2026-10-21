@@ -15,6 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FileFormat,
     FileFormatChoice,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    csv_column_types_from_metadata,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -24,14 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStore,
     StoredObject,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import (
+    compile_clickhouse_glob,
+    glob_key_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     MAX_TABLE_OBJECTS,
     MAX_TABLES,
 )
 
 TableKind = Literal["files", "delta"]
-# Which files a `files` table reads: one file, a folder and its hive partitions, or every file.
-FileScope = Literal["file", "folder", "all"]
+# Which files a `files` table reads: one file, a folder and its hive partitions, every file, or the
+# files a ClickHouse-style glob in `pattern` matches. Discovery never makes a `glob` table: it keeps
+# the file set of a table that ClickHouse read from a URL pattern before it was imported.
+FileScope = Literal["file", "folder", "all", "glob"]
+_FILE_SCOPES: frozenset[str] = frozenset(get_args(FileScope))
 
 DELTA_LOG_DIRECTORY = "_delta_log"
 COMPRESSED_SUFFIX = ".gz"
@@ -65,6 +75,8 @@ class TableDefinition:
     # The source's configured format at discovery, replayed at sync so the same files group together.
     source_format: FileFormatChoice
     files: tuple[StoredObject, ...] = ()
+    # Keep the column names as the files write them, so queries written against them keep working.
+    preserve_column_names: bool = False
 
     def same_location(self, other: "TableDefinition") -> bool:
         return (
@@ -75,15 +87,23 @@ class TableDefinition:
         )
 
     def schema_metadata(self) -> dict[str, Any]:
-        return {
+        csv: dict[str, Any] = {"has_header": self.csv.has_header, "allow_double_quotes": self.csv.allow_double_quotes}
+        if self.csv.column_types:
+            csv["column_types"] = {column.name: column.to_metadata() for column in self.csv.column_types}
+        if self.csv.null_marker:
+            csv["null_marker"] = True
+        metadata: dict[str, Any] = {
             "kind": self.kind,
             "scope": self.scope,
             "path": self.path,
             "pattern": self.pattern,
             "format": self.file_format,
             "source_format": self.source_format,
-            "csv": {"has_header": self.csv.has_header, "allow_double_quotes": self.csv.allow_double_quotes},
+            "csv": csv,
         }
+        if self.preserve_column_names:
+            metadata["preserve_column_names"] = True
+        return metadata
 
     @classmethod
     def from_schema_metadata(cls, name: str, metadata: Mapping[str, Any] | None) -> "TableDefinition | None":
@@ -99,7 +119,8 @@ class TableDefinition:
         csv = metadata.get("csv") or {}
         if (
             kind not in ("files", "delta")
-            or (kind == "files" and scope not in ("file", "folder", "all"))
+            or (kind == "files" and scope not in _FILE_SCOPES)
+            or (kind == "files" and scope == "glob" and not isinstance(pattern, str))
             or not isinstance(path, str)
             or file_format not in _FILE_FORMAT_CHOICES
             or source_format not in _FILE_FORMAT_CHOICES
@@ -116,9 +137,12 @@ class TableDefinition:
             csv=CsvOptions(
                 has_header=bool(csv.get("has_header", True)),
                 allow_double_quotes=bool(csv.get("allow_double_quotes", True)),
+                column_types=csv_column_types_from_metadata(csv.get("column_types")),
+                null_marker=csv.get("null_marker") is True,
             ),
             pattern=pattern,
             source_format=cast(FileFormatChoice, source_format),
+            preserve_column_names=metadata.get("preserve_column_names") is True,
         )
 
 
@@ -318,13 +342,19 @@ def resolve_table_files(
     """
     if table.kind != "files":
         return table
-    listing_prefix = "" if table.scope == "all" else table.path
-    objects = store.list_objects(listing_prefix, max_objects + 1)
+    if table.scope == "glob":
+        listing_prefix = glob_key_prefix(table.pattern or "")
+        objects = store.list_key_prefix(listing_prefix, max_objects + 1)
+    else:
+        listing_prefix = "" if table.scope == "all" else table.path
+        objects = store.list_objects(listing_prefix, max_objects + 1)
     if len(objects) > max_objects:
         raise ObjectStorageError(
             f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the source at a "
             "narrower folder, or set a file pattern that matches fewer files."
         )
+    if table.scope == "glob":
+        return _resolve_glob_files(objects, table)
     options = DiscoveryOptions(
         file_format=table.source_format,
         file_pattern=table.pattern,
@@ -339,3 +369,18 @@ def resolve_table_files(
         f"{NO_TABLE_FILES_ERROR} '{table.name}'. The files it was discovered from may have been renamed, moved, "
         "or removed from the bucket."
     )
+
+
+def _resolve_glob_files(objects: list[StoredObject], table: TableDefinition) -> TableDefinition:
+    """Every listed file the table's glob matches, with no other filter.
+
+    Hidden files, Delta folders and file extensions are not checked, because the files ClickHouse
+    read for the same pattern were not filtered either.
+    """
+    glob = compile_clickhouse_glob(table.pattern or "")
+    files = tuple(stored for stored in objects if glob.matches(stored.path))
+    if not files:
+        raise ObjectStorageError(
+            f"{NO_TABLE_FILES_ERROR} '{table.name}'. No file in the bucket matches '{table.pattern}'."
+        )
+    return dataclasses.replace(table, files=files)

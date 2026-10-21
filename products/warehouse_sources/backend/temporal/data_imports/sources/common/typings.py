@@ -134,6 +134,9 @@ class SourceResponse:
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
+    preserve_column_names: bool = False
+    """Write the column names as the source yields them instead of normalizing them to snake_case.
+    Set for a table whose existing queries name its columns as they were before the import."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source

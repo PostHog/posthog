@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -596,6 +597,103 @@ class TestValidateSchemaAndUpdateTable:
         assert schema.table is not None
         assert schema.table.size_in_s3_mib == expected_size_mib
         assert job.storage_delta_mib == expected_delta_mib
+
+    @pytest.mark.parametrize("row_count", [10, 0])
+    def test_a_linked_self_managed_table_is_adopted_in_the_final_update(self, team: Team, row_count: int) -> None:
+        schema, job = self._schema_and_job(team)
+        ExternalDataJob.objects.filter(pk=job.pk).update(billable=False)
+        credential = DataWarehouseCredential.objects.create(access_key="AKIAEXAMPLE", access_secret="secret", team=team)
+        table = DataWarehouseTable.objects.create(
+            name="Raw_Orders",
+            format=DataWarehouseTableFormat.CSVWithNames,
+            url_pattern="https://exports.s3.us-east-1.amazonaws.com/orders/*.csv",
+            team=team,
+            credential=credential,
+            options={"csv_allow_double_quotes": False, "self_managed_migration": {"state": "triggered"}},
+            columns={"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}},
+        )
+        schema.table = table
+        schema.save()
+        credential_seen_by_introspection: list[object] = []
+
+        def get_columns(table_self: DataWarehouseTable, safe_expose_ch_error: bool = True) -> dict:
+            credential_seen_by_introspection.append(table_self.credential_id)
+            return {"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", get_columns),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=row_count,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="raw_orders__query_a",
+            )
+
+        table.refresh_from_db()
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+        assert (table.name, table.external_data_source_id, table.credential_id) == ("Raw_Orders", job.pipeline_id, None)
+        assert (table.format, table.queryable_folder) == (
+            DataWarehouseTableFormat.DeltaS3Wrapper,
+            "raw_orders__query_a",
+        )
+        names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        assert table.url_pattern == job.url_pattern_by_schema(names.folder_name)
+        assert table.options == {"self_managed_migration": {"state": "triggered"}}
+        # The customer's key can't read PostHog's bucket, so introspection must see the adopted row.
+        assert credential_seen_by_introspection == [None]
+
+    @pytest.mark.parametrize(("billable", "keeps_marker"), [(False, True), (True, False)])
+    def test_only_a_billable_sync_ends_the_free_migration_copy(
+        self, team: Team, billable: bool, keeps_marker: bool
+    ) -> None:
+        schema, job = self._schema_and_job(team)
+        ExternalDataJob.objects.filter(pk=job.pk).update(billable=billable)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        marker = {"self_managed_migration": {"state": "triggered"}}
+        DataWarehouseTable.objects.filter(id=table.id).update(options={**marker, "kept": 1})
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_b",
+                live_size_mib=3.0,
+            )
+
+        table.refresh_from_db()
+        assert table.options == ({**marker, "kept": 1} if keeps_marker else {"kept": 1})
+        assert table.queryable_folder == "orders__query_b"
+
+    def test_a_synced_table_keeps_its_options(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        DataWarehouseTable.objects.filter(id=table.id).update(options={"csv_allow_double_quotes": True})
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_b",
+            )
+
+        table.refresh_from_db()
+        assert table.options == {"csv_allow_double_quotes": True}
 
     def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
         schema, job = self._schema_and_job(team)

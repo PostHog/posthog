@@ -1172,6 +1172,37 @@ class TestSingleTableRunIsUntouched:
         assert set(base) - set(laned) == set()
 
 
+class TestColumnNamesReachTheWrite:
+    @pytest.mark.parametrize(
+        "preserve, expected",
+        [
+            (False, ["order_id", "total_amount", "_ph_debug"]),
+            (True, ["Order ID", "totalAmount", "_ph_debug"]),
+        ],
+    )
+    async def test_preserving_names_skips_the_snake_case_rename(self, preserve: bool, expected: list[str]) -> None:
+        # A self-managed table moved into a source keeps the column names its queries use.
+        pipeline = _make_pipeline()
+        pipeline._resource = SourceResponse(
+            name="orders", items=lambda: [], primary_keys=None, preserve_column_names=preserve
+        )
+        cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        table = pa.table({"Order ID": pa.array([1], pa.int64()), "totalAmount": pa.array([2.5], pa.float64())})
+
+        with (
+            patch.object(PipelineV3, "_stage_batch", AsyncMock(return_value=1)),
+            patch.object(PipelineV3, "_advance_handoff_checkpoint", AsyncMock()),
+            patch(f"{_PIPELINE}.update_incremental_field_values", AsyncMock(return_value=MagicMock())),
+            patch(f"{_PIPELINE}.update_row_tracking_after_batch", AsyncMock()),
+        ):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        staged = cast(AsyncMock, pipeline._sinks.stage_chunk).call_args.args[1]
+        assert staged.column_names == expected
+
+
 class TestFinalizeStagesTheWatermarkFirst:
     @pytest.mark.asyncio
     async def test_desc_watermark_is_staged_before_the_final_batch_notification(self) -> None:

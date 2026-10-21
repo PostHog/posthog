@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Generic, NoReturn, Optional
+from typing import Any, ClassVar, Generic, NoReturn, Optional
 
 import pyarrow as pa
 from botocore.exceptions import ClientError
@@ -52,6 +52,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FILE_PRIMARY_KEYS,
     READ_ALL,
     FileSelection,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
+    StorageService,
+    UnmappableTableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CHUNK_SIZE_BYTES,
@@ -107,6 +113,36 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
 
     @abstractmethod
     def discovery_options(self, config: ConfigType) -> DiscoveryOptions: ...
+
+    # The service whose self-managed warehouse tables this source can take over.
+    self_managed_service: ClassVar[StorageService]
+
+    @abstractmethod
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        """The job inputs that reach the table's bucket with the table's own credential."""
+
+    def job_inputs_for_self_managed(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        """Job inputs for a source rooted at the bucket of a self-managed table.
+
+        The inputs go through the same parsing and location checks as a source a user creates, so
+        a credential or bucket the source would refuse is refused here too.
+        """
+        raw = {
+            **self.self_managed_connection_inputs(location, credential),
+            "path": "",
+            "file_format": "infer",
+            "csv_allow_double_quotes": "true",
+        }
+        try:
+            config = self.parse_config(raw)
+            validate_store_location(self.object_store_config(config))
+        except (ObjectStorageError, TypeError, ValueError) as e:
+            raise UnmappableTableError(str(e)) from e
+        return self.serialize_config(config)
 
     def cursor_class(self) -> type[ObjectStorageDeltaCursor]:
         return ObjectStorageDeltaCursor
@@ -211,6 +247,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             # Only a merge needs a key. Without one, a full refresh replaces the table and an append adds to it.
             primary_keys=FILE_PRIMARY_KEYS if selection.merges else None,
             chunk_size_bytes=CHUNK_SIZE_BYTES,
+            preserve_column_names=table.preserve_column_names,
         )
 
     def _delta_response(self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs) -> SourceResponse:
@@ -238,6 +275,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             primary_keys=None,
             chunk_size_bytes=CHUNK_SIZE_BYTES,
             destination_reset_required=read.reset_required,
+            preserve_column_names=table.preserve_column_names,
         )
 
     def _find_table(

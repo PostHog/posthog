@@ -772,6 +772,85 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["name"] == "test_table2"
 
+    @parameterized.expand(
+        [
+            ("add_marker_to_plain_table", {}, {"self_managed_migration": {}}, 400, {}),
+            (
+                "replace_the_stored_marker",
+                {"self_managed_migration": {"state": "triggered"}},
+                {"self_managed_migration": {}},
+                400,
+                {"self_managed_migration": {"state": "triggered"}},
+            ),
+            (
+                "clear_options_keeps_marker",
+                {"self_managed_migration": {"state": "triggered"}, "csv_allow_double_quotes": True},
+                {},
+                200,
+                {"self_managed_migration": {"state": "triggered"}},
+            ),
+            (
+                "edit_other_option_keeps_marker",
+                {"self_managed_migration": {"state": "triggered"}},
+                {"csv_allow_double_quotes": False},
+                200,
+                {"self_managed_migration": {"state": "triggered"}, "csv_allow_double_quotes": False},
+            ),
+            ("edit_without_marker", {}, {"csv_allow_double_quotes": True}, 200, {"csv_allow_double_quotes": True}),
+        ]
+    )
+    def test_clients_cannot_write_the_migration_marker(
+        self,
+        _name: str,
+        stored: dict[str, Any],
+        requested: dict[str, Any],
+        expected_status: int,
+        expected_options: dict[str, Any],
+    ) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, columns={}, options=stored
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"options": requested},
+            content_type="application/json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        table.refresh_from_db()
+        assert table.options == expected_options
+        if expected_status == 200:
+            assert "self_managed_migration" not in response.json()["options"]
+
+    def test_create_refuses_the_migration_marker(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "events",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "format": "Parquet",
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "options": {"self_managed_migration": {}},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert not DataWarehouseTable.objects.filter(team=self.team, name="events").exists()
+
+    def test_get_hides_the_migration_marker(self) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            options={"self_managed_migration": {"state": "planned"}, "csv_allow_double_quotes": True},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_tables/{table.id}")
+
+        assert response.status_code == 200
+        assert response.json()["options"] == {"csv_allow_double_quotes": True}
+
     def test_update_table_url_pattern_to_internal_bucket(self):
         table = DataWarehouseTable.objects.create(
             name="test_table",

@@ -392,7 +392,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def validate_options(self, options):
         if not isinstance(options, dict):
             raise serializers.ValidationError("Options must be a JSON object.")
+        if reserved := DataWarehouseTable.server_held_options_in(options):
+            raise serializers.ValidationError(f"PostHog sets {', '.join(reserved)}, so it can't be written.")
         return options
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if "options" in data:
+            data["options"] = instance.client_visible_options()
+        return data
 
     def validate_name(self, name):
         if self.instance and self.instance.name == name:
@@ -561,6 +569,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             if access_secret is not None:
                 credential.access_secret = access_secret
             credential.save()
+
+        if "options" in validated_data:
+            validated_data["options"] = instance.with_server_held_options(validated_data["options"])
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         for attr, value in validated_data.items():
