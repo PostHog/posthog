@@ -87,7 +87,6 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
-    follow_insight_alert,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -102,6 +101,7 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
