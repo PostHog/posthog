@@ -98,6 +98,10 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
     parse_artefact_content,
 )
+from products.signals.backend.assignment_service import (
+    AssignmentWriteError as ReviewerWriteError,
+    ReportAssignmentService,
+)
 from products.signals.backend.background_pilot import (
     BACKGROUND_REPORT_DISMISSED_EVENT,
     BACKGROUND_REPORT_RATED_EVENT,
@@ -1384,6 +1388,7 @@ class SignalReportViewSet(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
             .exclude(
                 type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
+                | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES
                 | (
                     {SignalReportArtefact.ArtefactType.CHECK_OBSERVATION}
                     if not self._report_monitoring_enabled
@@ -4828,10 +4833,6 @@ _REPORT_ID_PARAMETER = OpenApiParameter(
 )
 
 
-class ReviewerWriteError(Exception):
-    """A reviewer write payload that couldn't be resolved. Callers surface it as a 400 `{"error": ...}`."""
-
-
 @frozen
 class _ResolvedReviewerWrite:
     """One reviewer write entry after identity resolution, ready to merge onto the stored list.
@@ -5061,15 +5062,11 @@ def append_suggested_reviewers(
                 }
             )
 
-        # Append a new status row rather than mutating in place: a human reviewer edit becomes a
-        # point-in-time entry in the work log, and latest-wins keeps it current. Appending a
-        # reviewers status also re-evaluates auto-start (handled in `append_status`, on commit).
-        new_artefact = SignalReportArtefact.append_status(
-            team_id=team.id,
-            report_id=str(report_id),
-            content=SuggestedReviewers.model_validate(new_content),
-            attribution=attribution,
+        new_artefact = ReportAssignmentService(team=team, report_id=str(report_id)).edit_reviewers(
+            SuggestedReviewers.model_validate(new_content),
+            actor=attribution,
         )
+        new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
         # membership changes by a human, not agent writes or order-only rewrites.
@@ -5272,13 +5269,12 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
             return False
 
         new_content = [_stored_reviewer_entry(entry) for entry in kept]
-        SignalReportArtefact.append_status(
-            team_id=team.id,
-            report_id=str(report_id),
-            content=SuggestedReviewers.model_validate(new_content),
-            attribution=attribution,
-            reevaluate_autostart=False,
+        new_artefact = ReportAssignmentService(team=team, report_id=str(report_id)).edit_reviewers(
+            SuggestedReviewers.model_validate(new_content),
+            actor=attribution,
+            removal=True,
         )
+        new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
 
         log_activity(
             organization_id=None,
@@ -5597,6 +5593,8 @@ class SignalReportArtefactViewSet(
         # Scoring rows are staff-only on every artefact route, not only in the log.
         if not self.request.user.is_staff:
             queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
+        if self.action == "list":
+            queryset = queryset.exclude(type__in=SignalReportArtefact.INTERNAL_ARTEFACT_TYPES)
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
@@ -5960,6 +5958,13 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        if was_reviewers and artefact.report.assignment_revisions.filter(reviewers_artefact=artefact).exists():
+            return Response(
+                {
+                    "error": "This reviewer list records an assignment decision. Edit the report's reviewers to change it."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         report_id = str(artefact.report_id)
         artefact.delete()
         if was_reviewers:
