@@ -1,0 +1,201 @@
+import json
+from collections.abc import Callable
+from typing import Any
+from urllib.parse import urlparse
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+import requests
+from parameterized import parameterized
+from rest_framework import status
+
+from products.error_tracking.backend.models import ErrorTrackingSettings, ErrorTrackingSuppressionRule
+
+TOKEN = "sntryu_test_token_value"
+PROJECT_PATH = "/api/0/projects/acme/web/"
+
+
+def _response(body: Any, status_code: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    response.headers.update(headers or {})
+    return response
+
+
+def _no_more_pages(cursor: str = "0:100:0") -> dict[str, str]:
+    return {"Link": f'<https://sentry.io/x>; rel="next"; results="false"; cursor="{cursor}"'}
+
+
+PROJECT_RESPONSES: dict[str, requests.Response] = {
+    PROJECT_PATH: _response(
+        {
+            "slug": "web",
+            "options": {
+                "filters:error_messages": "*ResizeObserver loop*\nTypeError: Failed to fetch*",
+                "filters:releases": "",
+                "filters:blacklisted_ips": "",
+                "filters:react-hydration-errors": False,
+                "filters:chunk-load-error": False,
+            },
+        }
+    ),
+    f"{PROJECT_PATH}filters/": _response(
+        [
+            {"id": "browser-extensions", "active": False},
+            {"id": "legacy-browsers", "active": ["ie", "safari"]},
+            {"id": "localhost", "active": True},
+            {"id": "web-crawlers", "active": False},
+        ]
+    ),
+    f"{PROJECT_PATH}keys/": _response(
+        [
+            {"id": "key1", "label": "Default", "isActive": True, "rateLimit": {"window": 3600, "count": 5000}},
+            {"id": "key2", "label": "Backend", "isActive": True, "rateLimit": {"window": 60, "count": 100}},
+            {"id": "key3", "label": "Old", "isActive": False, "rateLimit": {"window": 60, "count": 1}},
+        ],
+        headers=_no_more_pages(),
+    ),
+}
+
+
+class TestSentryMigrationAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.requested: list[tuple[str, str | None]] = []
+
+    def _url(self, action: str) -> str:
+        return f"/api/projects/{self.team.id}/error_tracking/sentry_migration/{action}/"
+
+    def _fake_sentry(self, routes: dict[str, requests.Response]) -> Callable[..., requests.Response]:
+        def fake(method: str, url: str, *, timeout: float, headers: dict[str, str]) -> requests.Response:
+            parsed = urlparse(url)
+            self.requested.append((f"{parsed.scheme}://{parsed.netloc}{parsed.path}", headers.get("Authorization")))
+            route = f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
+            return routes[route] if route in routes else _response({"detail": "not found"}, status_code=404)
+
+        return fake
+
+    def _post(self, action: str, routes: dict[str, requests.Response], body: dict) -> Any:
+        with patch(
+            "products.error_tracking.backend.logic.sentry_migration.client.pinned_request",
+            side_effect=self._fake_sentry(routes),
+        ):
+            return self.client.post(self._url(action), {"auth_token": TOKEN, **body}, format="json")
+
+    def _project_body(self, **extra: object) -> dict:
+        return {"organization_slug": "acme", "project_slug": "web", **extra}
+
+    def test_projects_follow_pagination_and_keep_the_token_on_the_sentry_host(self) -> None:
+        routes = {
+            "/api/0/organizations/": _response(
+                [
+                    {"slug": "acme", "name": "Acme", "links": {"regionUrl": "https://de.sentry.io"}},
+                    {"slug": "rogue", "name": "Rogue", "links": {"regionUrl": "https://sentry.example.com"}},
+                ],
+                headers=_no_more_pages(),
+            ),
+            "/api/0/organizations/acme/projects/": _response(
+                [{"slug": "web", "name": "Web", "platform": "javascript"}],
+                headers={"Link": '<https://de.sentry.io/x>; rel="next"; results="true"; cursor="0:100:0"'},
+            ),
+            "/api/0/organizations/acme/projects/?cursor=0%3A100%3A0": _response(
+                [{"slug": "api", "name": "API", "platform": "python"}], headers=_no_more_pages("0:200:0")
+            ),
+            "/api/0/organizations/rogue/projects/": _response([{"slug": "app", "name": "App"}]),
+        }
+
+        response = self._post("projects", routes, {})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(p["organization_slug"], p["project_slug"]) for p in response.json()["projects"]] == [
+            ("acme", "web"),
+            ("acme", "api"),
+            ("rogue", "app"),
+        ]
+        assert {(url, auth) for url, auth in self.requested} == {
+            ("https://sentry.io/api/0/organizations/", f"Bearer {TOKEN}"),
+            ("https://de.sentry.io/api/0/organizations/acme/projects/", f"Bearer {TOKEN}"),
+            ("https://sentry.io/api/0/organizations/rogue/projects/", f"Bearer {TOKEN}"),
+        }
+
+    @parameterized.expand(
+        [
+            (401, "didn't accept the token"),
+            (403, "org:read and project:read"),
+            (429, "Try again in 30 seconds"),
+        ]
+    )
+    def test_sentry_errors_become_a_message_without_the_token(self, sentry_status: int, message: str) -> None:
+        routes = {
+            "/api/0/organizations/": _response(
+                {"detail": "nope"}, status_code=sentry_status, headers={"Retry-After": "30"}
+            )
+        }
+
+        response = self._post("projects", routes, {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+        assert TOKEN not in response.content.decode()
+
+    def test_preview_then_apply_imports_only_the_selected_items(self) -> None:
+        preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
+
+        assert preview.status_code == status.HTTP_200_OK, preview.json()
+        items = {item["sentry_value"]: item for item in preview.json()["items"]}
+        assert set(items) == {
+            "5,000 events per 1 hour",
+            "100 events per 1 minute",
+            "*ResizeObserver loop*",
+            "TypeError: Failed to fetch*",
+            "Internet Explorer, all versions",
+            "Safari 15 and older",
+            "On",
+        }
+        assert not any(item["already_in_posthog"] for item in items.values())
+        selected = [
+            items["5,000 events per 1 hour"]["id"],
+            items["*ResizeObserver loop*"]["id"],
+            items["On"]["id"],
+        ]
+
+        applied = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=selected))
+
+        assert applied.status_code == status.HTTP_200_OK, applied.json()
+        assert applied.json() == {"suppression_rules_created": 2, "rate_limit_updated": True}
+        rule_filters = sorted(
+            json.dumps(filters, sort_keys=True)
+            for filters in ErrorTrackingSuppressionRule.objects.filter(team=self.team).values_list("filters", flat=True)
+        )
+        assert rule_filters == sorted(
+            json.dumps(items[value]["suppression_rule_filters"], sort_keys=True)
+            for value in ("*ResizeObserver loop*", "On")
+        )
+        settings = ErrorTrackingSettings.objects.get(team=self.team)
+        assert (settings.project_rate_limit_value, settings.project_rate_limit_bucket_size_minutes) == (5000, 60)
+
+        second_preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
+
+        second_items = {item["id"]: item for item in second_preview.json()["items"]}
+        assert {item_id for item_id, item in second_items.items() if item["already_in_posthog"]} == set(selected)
+        assert (
+            "replaces the project's current rate limit of 5,000 exceptions per 1 hour"
+            in (second_items["rate_limit:key2"]["note"])
+        )
+
+    @parameterized.expand(
+        [
+            ("two_rate_limits", ["rate_limit:key1", "rate_limit:key2"], "Select only one rate limit"),
+            ("item_not_in_sentry", ["error_message:000000000000"], "Load the preview again"),
+            ("inactive_key", ["rate_limit:key3"], "Load the preview again"),
+        ]
+    )
+    def test_apply_rejects_selections_it_cannot_import(self, _name: str, item_ids: list[str], message: str) -> None:
+        response = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=item_ids))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+        assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
+        assert not ErrorTrackingSettings.objects.filter(team=self.team, project_rate_limit_value__isnull=False).exists()
