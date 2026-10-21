@@ -88,15 +88,8 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
-    close_moved_alert_firings,
-    delete_moved_alert_copy,
-    follow_insight_alert,
-    hand_over_new_alert,
     is_llm_detector_config,
     llm_detector_access_error,
-    moved_alert_check_page,
-    moved_alert_statuses,
-    write_moved_alert_edit,
 )
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_TYPES,
@@ -114,6 +107,15 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    follow_insight_alert,
+    hand_over_new_alert,
+    moved_alert_check_page,
+    moved_alert_statuses,
+    write_moved_alert_edit,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,

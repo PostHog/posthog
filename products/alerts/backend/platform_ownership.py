@@ -143,7 +143,7 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
     try:
         # The rules the insight API applies, so the insight stack never holds a pair it cannot check.
         validate_alert_config(
-            alert.insight.query,
+            alert.insight.query or {},
             condition["comparison"],
             alert.config,
             condition["threshold"],
