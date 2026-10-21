@@ -1520,7 +1520,7 @@ Diffed against: <https://developers.beehiiv.com/api-reference>
 
 ## Bettermode — **thin**
 
-Today (12): `collections`, `members`, `moderation_items`, `post_reaction_participants`, `post_types`, `posts`, `replies`, `roles`, `space_members`, `space_post_types`, `spaces`, `tags`
+Today (13): `collections`, `member_invitations`, `members`, `moderation_items`, `post_reaction_participants`, `post_types`, `posts`, `replies`, `roles`, `space_members`, `space_post_types`, `spaces`, `tags`
 
 Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of queryType fields; 159 root queries)>
 
@@ -1532,10 +1532,10 @@ Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of quer
 - [ ] `eventRegistrations / memberEventRegistrations` — skipped: no such query, object, input, or enum in the current API reference. RSVP data, where present, lives in post custom fields rather than a queryable registrations collection.
 - [ ] `activityLogs` — skipped: appears only in the legacy Tribe schema listing; the current reference documents no `ActivityLog` object type, so a GraphQL selection set can't be verified without live introspection. Flagged for follow-up when API access is available.
 - [x] `postReactionParticipants` — per-reaction engagement records tied to posts we sync (medium), added here
-- [ ] `tagPosts` — post-to-tag join; we sync both tags and posts but not the link (medium)
-- [ ] `analytics` — vendor's aggregated community analytics reports (medium)
-- [ ] `chats / messages / chatParticipants` — direct messaging is an entire engagement channel currently missing (medium)
-- [ ] `memberInvitations` — invitation funnel data explaining member acquisition (medium)
+- [ ] `tagPosts` — post-to-tag join; we sync both tags and posts but not the link (medium) — skipped: the link is already synced, because every row of the `posts` table carries `tagIds`. `tagPosts(tagId)` returns the same posts again, at one request per tag.
+- [ ] `analytics` — vendor's aggregated community analytics reports (medium) — skipped: `analytics(queries: [String!]!)` runs caller-written report query strings and returns untyped `ReportRecord { entities, payload }` rows. It has no fixed resource to sync as a table, and the public reference documents no query language.
+- [ ] `chats / messages / chatParticipants` — direct messaging is an entire engagement channel currently missing (medium) — skipped: these queries list the inbox of the authenticated member (`Chat.currentParticipant` is "the participation record of the authenticated user"). The source authenticates as an app, so no query lists the private chats of the whole community.
+- [x] `memberInvitations` — invitation funnel data explaining member acquisition (medium), added here
 
 ## BetterStack — gaps
 
