@@ -22,7 +22,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
-    PlatformAlertNotEditable,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
@@ -125,14 +124,13 @@ def mirror_platform_edit(
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
         .select_related("threshold")
-        .filter(team__project_id=team_id, id=legacy_configuration_id)
+        # A copy lives on the project's team. An insight alert in one of its environments is never
+        # handed over, so the copy of one is the insight stack's and refuses the edit.
+        .filter(team_id=team_id, id=legacy_configuration_id)
         .first()
     )
     if alert is None:
         return None
-    if alert.team_id != team_id:
-        # A copy lives on the project, and an insight alert in an environment is never handed over.
-        raise PlatformAlertNotEditable("This alert belongs to one of this project's environments.")
     return lambda edit: _write_insight_row(alert, edit)
 
 
