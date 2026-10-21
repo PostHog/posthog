@@ -931,6 +931,7 @@ def give_back_ownership(
             last_notified_at=alert.last_notified_at if alert is not None else None,
             consecutive_failures=configuration.consecutive_failures,
             next_check_at=configuration.next_check_at,
+            enabled=configuration.enabled,
         )
         configuration.owner = PlatformAlertOwner.SOURCE
         configuration.owner_changed_at = at

@@ -440,6 +440,12 @@ def _decide(
     check = _following(check, alert)
     if not alert.enabled or alert.insight.deleted or not is_evaluated_on_the_platform(alert):
         return _skipped(check, snapshot, now=now)
+    # As production: a plan that lost a cadence stops the alert, because the API checks it only on a write.
+    entitlement_error = AlertConfiguration.interval_entitlement_error(
+        calculation_interval=alert.calculation_interval, organization=alert.team.organization
+    )
+    if entitlement_error:
+        return _broken(check, snapshot, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
     if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
