@@ -103,35 +103,44 @@ describe('update-feature-flag preserving groups', () => {
         expect(result).toMatchObject({ id: 9 })
     })
 
-    it('matches conditions by condition_id and keeps the IDs out of the PATCH', async () => {
-        const storedGroups = [0, 1].map((group_type_index) => ({
-            properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' }],
-            rollout_percentage: 100,
-        }))
-        const existing = { id: 9, key: 'plan-rollout', filters: { groups: storedGroups } }
-        const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
+    it.each([
+        { name: 'no flag-level aggregation', flagLevel: {}, sentIndexes: [1, 0] },
+        // A group property takes its condition's index. Both conditions aggregate on the flag level.
+        { name: 'a flag-level aggregation', flagLevel: { aggregation_group_type_index: 0 }, sentIndexes: [0, 0] },
+    ])(
+        'matches conditions by condition_id and keeps the IDs out of the PATCH on a flag with $name',
+        async ({ flagLevel, sentIndexes }) => {
+            const storedGroups = [0, 1].map((group_type_index) => ({
+                properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' }],
+                rollout_percentage: 100,
+            }))
+            const existing = { id: 9, key: 'plan-rollout', filters: { ...flagLevel, groups: storedGroups } }
+            const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
 
-        const readIds = (withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]).map(
-            (group) => group.condition_id
-        )
+            const readIds = (withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]).map(
+                (group) => group.condition_id
+            )
 
-        const params = tool.schema.parse({
-            id: 9,
-            filters: {
-                groups: [...readIds].reverse().map((condition_id) => ({
-                    condition_id,
-                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
-                    rollout_percentage: 100,
-                })),
-            },
-        })
-        const result = (await tool.handler(createMockContext(request), params)) as typeof existing
+            const params = tool.schema.parse({
+                id: 9,
+                filters: {
+                    groups: [...readIds].reverse().map((condition_id) => ({
+                        condition_id,
+                        properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                        rollout_percentage: 100,
+                    })),
+                },
+            })
+            const result = (await tool.handler(createMockContext(request), params)) as typeof existing
 
-        const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
-        expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual([1, 0])
-        expect(patchGroups.some((group) => 'condition_id' in group)).toBe(false)
-        expect(result.filters.groups.map((group) => (group as { condition_id?: string }).condition_id)).toEqual(readIds)
-    })
+            const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
+            expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual(sentIndexes)
+            expect(patchGroups.some((group) => 'condition_id' in group)).toBe(false)
+            expect(result.filters.groups.map((group) => (group as { condition_id?: string }).condition_id)).toEqual(
+                readIds
+            )
+        }
+    )
 
     it('surfaces GET failures instead of PATCHing unmerged filters', async () => {
         const request = vi.fn().mockRejectedValueOnce(new Error('HTTP 429: rate limited'))
