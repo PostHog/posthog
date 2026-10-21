@@ -482,8 +482,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
+            // A finding keeps its label, because the icon alone does not say what the person needs to look at.
             (status: InsightDataChecksStatus, labelHeldOpen: boolean): boolean =>
-                status === 'checking' || labelHeldOpen,
+                status === 'checking' || status === 'warning' || status === 'problem' || labelHeldOpen,
         ],
     }),
     listeners(({ actions, values, cache }) => ({

@@ -211,6 +211,19 @@ describe('insightDataChecksLogic', () => {
         expect(logic.values.status).toBe(expected)
     })
 
+    it.each([
+        ['problem', true],
+        ['warning', true],
+        ['passed', false],
+    ])('keeps the label open after a %s result only when there is a finding', async (result, open) => {
+        dataChecks.mockImplementation(answer([200, checksOf(result)]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        logic.actions.closeLabel()
+
+        expect(logic.values.labelOpen).toBe(open)
+    })
+
     it('checks again when the chart type changes and the chart reuses its result', async () => {
         dataChecks.mockImplementation(answer([200, checksOf('passed')]))
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
