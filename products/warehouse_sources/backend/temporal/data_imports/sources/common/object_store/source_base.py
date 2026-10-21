@@ -94,7 +94,7 @@ def validate_store_location(config: StoreConfig) -> None:
 
 
 class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDeltaCursor], Generic[ConfigType]):
-    """Imports the files in a bucket folder: CSV, JSON Lines and Parquet files, and Delta tables.
+    """Imports the files a bucket URL selects: CSV, JSON Lines and Parquet files, and Delta tables.
 
     A full refresh reads each table in full, so the table matches the bucket at the time of the sync.
     The incremental and append sync types read only the files modified since the last sync. They
@@ -124,8 +124,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 "The storage provider rejected these credentials. Check the access key and secret, and that "
                 "the key can list and read the bucket, then reconnect the source."
             ),
-            NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket name, then reconnect the source.",
-            WRONG_REGION_ERROR: "The bucket is in a different region. Fix the region, then reconnect the source.",
+            NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
+            WRONG_REGION_ERROR: (
+                "The bucket is in a different region. Fix the region in the URL, then reconnect the source."
+            ),
             NO_TABLE_FILES_ERROR: (
                 "The files behind this table are no longer in the bucket. Refresh the source's tables, or "
                 "restore the files."
@@ -140,13 +142,20 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     ) -> list[TableDefinition]:
         store_config = self.object_store_config(config)
         try:
-            objects = store.list_objects("", MAX_DISCOVERY_OBJECTS)
+            objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
             _raise_translated(e, store_config.display_location)
         if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
             logger.warning("Reached the object storage listing limit; later objects are ignored")
         root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
-        return group_tables(objects, self.discovery_options(config), root_name=root_name, logger=logger)
+        return group_tables(
+            objects,
+            self.discovery_options(config),
+            root_name=root_name,
+            pattern=store_config.pattern,
+            listing_prefix=store_config.listing_prefix,
+            logger=logger,
+        )
 
     def validate_credentials(
         self,
@@ -172,7 +181,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         if not tables:
             return False, (
                 f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
-                "found nothing to import there. Check the folder, the file pattern, and the file format."
+                "found nothing to import there. Check the URL and the file format."
             )
         return True, None
 

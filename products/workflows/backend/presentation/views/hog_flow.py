@@ -55,6 +55,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -3016,6 +3021,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "last_run",
             "pending_suggestions",
             "suggestions_enabled",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -3440,10 +3446,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
             "last_run",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "version",
+            "tags",
             "created_at",
             "created_by",
             "updated_at",
@@ -4765,9 +4773,19 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             ),
         ]
     ),
+    # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4812,8 +4830,11 @@ class HogFlowViewSet(
         "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
+        "bulk_update_tags",
     ]
     queryset = HogFlow.objects.all()
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
+    bulk_tag_activity_scope = "HogFlow"
     pagination_class = HogFlowPagination
     log_source = "hog_flow"
     app_source = "hog_flow"

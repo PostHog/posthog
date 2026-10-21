@@ -413,6 +413,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
 
+    def test_bulk_update_tags_sets_tags_and_the_list_filters_on_them(self):
+        tagged = HogFlow.objects.create(team=self.team, name="Tagged", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Untagged", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_update_tags",
+            {"ids": [str(tagged.id)], "action": "set", "tags": ["Launch", "q4"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["updated"] == [{"id": str(tagged.id), "tags": ["launch", "q4"]}]
+
+        # The filter takes a JSON list of stored names.
+        response = self.client.get(f'/api/projects/{self.team.id}/hog_flows?tags=["launch"]')
+        assert response.status_code == 200, response.json()
+        assert [(flow["name"], flow["tags"]) for flow in response.json()["results"]] == [("Tagged", ["launch", "q4"])]
+
     @parameterized.expand(
         [
             ("one_tag", '["growth"]', {"Onboarding", "Upsell"}),

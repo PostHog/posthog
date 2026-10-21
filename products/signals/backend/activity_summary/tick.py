@@ -27,6 +27,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    MAX_VERSIONS,
     ActivitySummaryUpdate,
     UpdateAfterModelCallError,
     UpdateStatus,
@@ -86,6 +87,7 @@ class ActivitySummaryTickPlan:
     emit_embeddings: bool
     capture_events: bool
     stop_reason: str | None
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -96,6 +98,8 @@ class ActivitySummaryPairInput:
     min_update_interval_hours: float
     emit_embeddings: bool
     capture_events: bool
+    # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -152,6 +156,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         emit_embeddings=config.emit_embeddings,
         capture_events=config.capture_events,
         stop_reason=stop_reason,
+        max_versions=config.max_versions,
     )
 
 
@@ -213,6 +218,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             input.user_id,
             min_units=input.min_units,
             min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
+            max_versions=input.max_versions,
         )
         called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
     except Exception as error:
@@ -326,6 +332,7 @@ class ActivitySummaryTickWorkflow:
                             min_update_interval_hours=plan.min_update_interval_hours,
                             emit_embeddings=plan.emit_embeddings,
                             capture_events=plan.capture_events,
+                            max_versions=plan.max_versions,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
