@@ -24,7 +24,6 @@ const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or c
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
-// Bounds the memory that an outage under heavy keyed traffic can hold.
 const MAX_PENDING_COMPLETIONS = 10_000
 
 const idempotencyOperationsTotal = new Counter({
@@ -124,7 +123,6 @@ export type IdempotencyReservation =
 
 type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
 
-// expiresAt ends the replay window of the run, counted from when it was queued.
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
 /**
