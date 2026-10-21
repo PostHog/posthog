@@ -52,18 +52,19 @@ class ViewedItem:
 def find(context: Context) -> Found:
     pinned = _pinned_metrics(context)
     shown = {metric.key for metric in pinned}
+    budget = FRECENCY_TILES - len(pinned)
     ranking = pulse_ranking(context.user, context.team)
     if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
-        return Found(pulse=(*pinned, *_frecent_metrics(context, ranking, shown, FRECENCY_TILES - len(pinned))))
+        return Found(pulse=(*pinned, *_frecent_metrics(context, ranking, shown, budget)))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
+        if len(metrics) >= min(ROUTINE_TILES, budget):
+            break
         if f"insight:{item.ref}" in shown:
             continue
         metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
         if metric is not None:
             metrics.append(metric)
-        if len(metrics) == ROUTINE_TILES:
-            break
     return Found(pulse=(*pinned, *metrics))
 
 
@@ -133,15 +134,13 @@ def _frecent_metrics(
     context: Context, ranking: str, excluded: Collection[str], budget: int
 ) -> list[contracts.HighlightMetric]:
     metrics: list[contracts.HighlightMetric] = []
-    if budget <= 0:
-        return metrics
     for item in _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]:
+        if len(metrics) >= budget:
+            break
         shown = frozenset([*excluded, *(metric.key for metric in metrics)])
         metric = context.guard(f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown), None)
         if metric is not None:
             metrics.append(metric)
-        if len(metrics) == budget:
-            break
     return metrics
 
 
