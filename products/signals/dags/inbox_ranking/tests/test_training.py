@@ -50,6 +50,7 @@ from products.signals.backend.ranking.serving_manifest import (
     ServingManifest,
     ServingManifestEntry,
     model_key,
+    serving_engagement_key,
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
@@ -2502,6 +2503,11 @@ def test_the_serving_prefix_layout_is_stable():
     assert (
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
         == "inbox_ranking/serving/models/report_embeddings_xgb@2026-08-19"
+    )
+    # The mirror's write grant covers only the serving prefix.
+    assert (
+        serving_engagement_key("inbox_ranking", "2026-08-19")
+        == "inbox_ranking/serving/engagement/2026-08-19/engagement.parquet"
     )
 
 

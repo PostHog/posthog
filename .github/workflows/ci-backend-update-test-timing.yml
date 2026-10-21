@@ -28,6 +28,7 @@ permissions:
 jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:

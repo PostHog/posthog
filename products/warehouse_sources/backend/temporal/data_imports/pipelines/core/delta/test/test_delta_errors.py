@@ -10,6 +10,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_invalid_version_race,
+    is_missing_scan_file_race,
     is_offset_overflow_compaction_error,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
@@ -361,6 +362,51 @@ class TestIsInvalidVersionRace:
     )
     def test_classifies_invalid_version_race(self, _name: str, error: Exception, expected: bool):
         assert is_invalid_version_race(error) is expected
+
+
+class TestIsMissingScanFileRace:
+    @parameterized.expand(
+        [
+            (
+                "data_file_404_during_scan",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Parquet error: Failed to fetch metadata "
+                    "for file dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store "
+                    "error: Object at location dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet "
+                    "not found: Error performing GET in 20ms - Server returned non-2xx status code: "
+                    "404 Not Found"
+                ),
+                True,
+            ),
+            # Same needle, but the object store refused the read rather than reporting it missing —
+            # a real, non-racy refusal that must stay out of this classifier.
+            (
+                "metadata_fetch_permission_denied_not_matched",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Failed to fetch metadata for file "
+                    "dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store error: "
+                    "The operation lacked the necessary privileges to complete"
+                ),
+                False,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # `CommitFailedError` is a `DeltaError` subclass, but this classifier is deliberately exact-type
+            # only, mirroring `is_invalid_version_race` — a missing-file 404 during a commit itself isn't
+            # this scan-planning race.
+            (
+                "commit_failed_error_not_matched",
+                deltalake.exceptions.CommitFailedError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+            (
+                "wrong_exception_type",
+                RuntimeError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+        ]
+    )
+    def test_classifies_missing_scan_file_race(self, _name: str, error: Exception, expected: bool):
+        assert is_missing_scan_file_race(error) is expected
 
 
 class TestIsOffsetOverflowCompactionError:
