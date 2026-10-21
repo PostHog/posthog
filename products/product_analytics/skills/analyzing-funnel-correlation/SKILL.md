@@ -37,26 +37,20 @@ Add more `event = '...'` conditions to `windowFunnel` for more steps, and set `s
 
 ```sql
 WITH
-    actor_steps AS (
+    funnel_actors AS (
         SELECT
             person_id AS actor_id,
             windowFunnel(1209600)(toDateTime(timestamp), event = 'step one', event = 'step two') AS steps,
-            arraySort(groupArrayIf(toDateTime(timestamp), event = 'step one')) AS entry_times,
-            arraySort(groupArrayIf(toDateTime(timestamp), event = 'step two')) AS final_times
+            arraySort(groupArrayIf((toUnixTimestamp(timestamp), event = 'step two'), event IN ('step one', 'step two'))) AS step_events,
+            arrayReverseFill(t -> t > 0, arrayMap(x -> if(x.2, x.1, 0), step_events)) AS next_final,
+            arrayFirstIndex((x, t) -> NOT x.2 AND t > 0 AND t <= x.1 + 1209600, step_events, next_final) AS attempt,
+            toDateTime(if(attempt > 0, step_events[attempt].1, arrayFirst(x -> NOT x.2, step_events).1)) AS first_timestamp,
+            toDateTime(next_final[greatest(attempt, 1)]) AS final_timestamp
         FROM events
         WHERE event IN ('step one', 'step two')
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY actor_id
         HAVING steps >= 1
-    ),
-    funnel_actors AS (
-        SELECT
-            actor_id,
-            steps,
-            arrayFirstIndex(t1 -> arrayExists(t2 -> t2 >= t1 AND t2 <= t1 + INTERVAL 14 DAY, final_times), entry_times) AS attempt,
-            entry_times[greatest(attempt, 1)] AS first_timestamp,
-            arrayFirst(t2 -> t2 >= first_timestamp, final_times) AS final_timestamp
-        FROM actor_steps
     ),
     totals AS (
         SELECT countIf(steps = 2) AS success_total, countIf(steps < 2) AS failure_total
@@ -91,10 +85,11 @@ LIMIT 20
 ```
 
 The query only counts events between funnel entry and conversion.
-For people who converted, `attempt` picks the first entry that has a final step inside the window, so both timestamps come from the same attempt.
-For more steps, add one array per step and chain the `arrayExists` checks: each step must be at or after the step before it and inside the window.
+`step_events` holds the first-step and last-step events in time order. `next_final` gives the next last-step time for each of them in one pass.
+For people who converted, `attempt` picks the first entry that has a last step inside the window, so both timestamps come from the same attempt.
+For more steps, keep only the first and last step events in `groupArrayIf`. The attempt then ignores the middle steps, so the interval can start at an earlier entry than the one that converted.
 For people who did not convert, it counts events from their first entry until the conversion window closes.
-The arrays use `toDateTime` because `windowFunnel` compares whole seconds. Keep them the same, or some converters get no matched attempt.
+The timestamps use whole seconds because `windowFunnel` compares whole seconds. Keep them the same, or some converters get no matched attempt.
 It excludes the funnel step events, because they correlate with conversion by definition.
 
 ## Property correlation
