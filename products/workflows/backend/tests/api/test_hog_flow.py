@@ -17,6 +17,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -251,6 +252,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("name_match", "search=welcome", {"Welcome email"}),
             ("case_insensitive", "search=WELCOME", {"Welcome email"}),
             ("description_match", "search=quarterly", {"Digest"}),
+            ("tag_match", "search=retent", {"Digest"}),
             ("space_matches_separators", "search=password reset", {"Password reset"}),
             ("step_name_match", "search=monthly invoice", {"Billing"}),
             ("email_subject_match", "search=for march", {"Billing"}),
@@ -279,7 +281,12 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        set_tags_on_object(
+            ["retention"],
+            HogFlow.objects.create(
+                team=self.team, name="Digest", description="quarterly summary", created_by=self.user
+            ),
+        )
         HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
         HogFlow.objects.create(
             team=self.team,
@@ -405,6 +412,67 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+
+    @parameterized.expand(
+        [
+            ("one_tag", '["growth"]', {"Onboarding", "Upsell"}),
+            ("any_of_several_tags", '["billing", "support"]', {"Upsell", "Refunds"}),
+            ("unused_tag", '["unknown"]', set()),
+        ]
+    )
+    def test_list_filter_by_tags(self, _name, tags_param, expected_names):
+        for name, tags in (
+            ("Onboarding", ["growth"]),
+            ("Upsell", ["growth", "billing"]),
+            ("Refunds", ["support"]),
+            ("Untagged", []),
+        ):
+            set_tags_on_object(tags, HogFlow.objects.create(team=self.team, name=name, created_by=self.user))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    @parameterized.expand([("not_json", "growth"), ("not_a_list", '"growth"'), ("not_strings", "[1]")])
+    def test_list_rejects_malformed_tags_filter(self, _name, tags_param):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", {"tags": tags_param})
+        assert response.status_code == 400, response.json()
+
+    def test_tags_round_trip_through_create_update_and_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "tags": ["Onboarding", "growth"]}, format="json"
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["tags"] == ["growth"]
+        tag_changes = [
+            change
+            for entry in ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="updated")
+            for change in (entry.detail or {}).get("changes") or []
+            if change["field"] == "tag"
+        ]
+        assert {(change["action"], change["before"], change["after"]) for change in tag_changes} == {
+            ("created", None, "growth"),
+            ("created", None, "onboarding"),
+            ("deleted", "onboarding", None),
+        }
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert [flow["tags"] for flow in list_response.json()["results"]] == [["growth"]]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
 
     @parameterized.expand(
         [
@@ -1119,6 +1187,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("hours", "2h"),
             ("days", "1d"),
             ("fractional", "1.5h"),
+            ("past_the_wait_cap", "42d"),
+            ("day_cap", "365d"),
+            ("hour_cap", "24h"),
         ]
     )
     def test_hog_flow_delay_validation_accepts_canonical_config(self, _name, delay_duration):
@@ -1175,6 +1246,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds", "30s"),
             ("minutes", "30m"),
             ("fractional_days", "1.5d"),
+            ("day_cap", "30d"),
             # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
             ("null", None),
             ("empty_string", ""),
@@ -1183,6 +1255,118 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("delay_days", "delay_duration", "400d", 365),
+            ("delay_hours", "delay_duration", "36h", 365),
+            ("delay_minutes", "delay_duration", "90m", 365),
+            ("delay_until_ceiling", "max_delay_duration", "400d", 365),
+            ("wait_timeout", "max_wait_duration", "31d", 30),
+            # A web draft save is otherwise lenient, but the cap is checked on every save.
+            ("delay_days_on_a_web_draft", "delay_duration", "400d", 365, "draft"),
+        ]
+    )
+    def test_hog_flow_rejects_a_duration_the_executor_would_clamp(self, _name, field, value, max_days, status="active"):
+        if field == "max_wait_duration":
+            flow = self._make_wait_flow(value)
+        elif field == "max_delay_duration":
+            flow = self._make_delay_flow(
+                {"delay_until": {"expression": "person.properties.trial_end"}, "max_delay_duration": value}
+            )
+        else:
+            flow = self._make_delay_flow({field: value}, status=status)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                f"{field} can be at most {max_days}d, 24h, 60m or 60s, and a longer value only waits that long. "
+                "Use a larger unit, for example '1.5d' instead of '36h'."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("unrelated_edit_on_an_active_flow", "active", {}),
+            # Disabling sets the status to draft, so re-enabling revalidates every stored step.
+            ("re_enabling_a_disabled_flow", "draft", {"status": "active"}),
+        ]
+    )
+    def test_hog_flow_grandfathers_a_stored_over_cap_delay(self, _name, status, extra_payload):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_duration": "5m"}, status=status),
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the cap check existed, bypassing the serializer that now refuses it.
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["delay_duration"] = "400d"
+        flow.actions = actions
+        flow.save()
+
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": actions, **extra_payload},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["actions"][1]["config"]["delay_duration"] == "400d"
+
+        changed = [{**action} for action in actions]
+        changed[1] = {**changed[1], "config": {**changed[1]["config"], "delay_duration": "450d"}}
+        changed_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": changed})
+        assert changed_response.status_code == 400, changed_response.json()
+
+    @parameterized.expand(
+        [
+            # A fixed delay ignores max_delay_duration, so nothing checked the stored value.
+            (
+                "unused_by_the_stored_step",
+                "active",
+                {"delay_duration": "1d", "max_delay_duration": "400d"},
+                {
+                    "config": {
+                        "delay_until": {"expression": "person.properties.trial_end"},
+                        "max_delay_duration": "400d",
+                    }
+                },
+            ),
+        ]
+    )
+    def test_hog_flow_does_not_grandfather_an_unchecked_over_cap_value(self, _name, status, stored_config, change):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_delay_flow({"delay_duration": "5m"}, status=status)
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"] = stored_config
+        flow.actions = actions
+        flow.save()
+
+        payload: dict = {"actions": actions}
+        if "config" in change:
+            payload["actions"] = [actions[0], {**actions[1], "config": change["config"]}]
+        else:
+            payload.update(change)
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 400, response.json()
+        assert "can be at most 365d" in response.json()["detail"]
+
+    def test_hog_flow_web_draft_rejects_an_over_cap_max_delay_before_the_date_is_picked(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_until": {"offset": "-1d"}, "max_delay_duration": "400d"}, status="draft"),
+        )
+        assert response.status_code == 400, response.json()
+        assert "max_delay_duration can be at most 365d" in response.json()["detail"]
 
     def _make_conditional_branch_flow(self, config: dict) -> dict:
         flow = self._make_delay_flow({"delay_duration": "5m"})
