@@ -619,6 +619,15 @@ describe('preserveGroupTargetingFilters', () => {
             expected: { type: 'person' },
         },
         {
+            name: 'two person candidates differ only in a numeric group_type_index',
+            stored: [
+                { key: 'name', type: 'person', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
+            ],
+            operator: 'regex',
+            expected: { type: 'person' },
+        },
+        {
             name: 'the edit omits the operator and a person candidate uses exact',
             stored: groupAndPersonCandidates,
             operator: undefined,
@@ -634,6 +643,27 @@ describe('preserveGroupTargetingFilters', () => {
             operator: 'exact',
             value: 'pro',
             expected: { type: 'person' },
+        },
+        {
+            name: 'two group candidates on different group types match neither the value nor a sent index',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            expected: {},
+        },
+        {
+            name: 'the edit sends a group index and a person and a group candidate disagree on type',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            index: 0,
+            expected: { group_type_index: 0 },
         },
         {
             name: 'the edit sends a group index and two group candidates differ only in index',

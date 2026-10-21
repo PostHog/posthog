@@ -23,8 +23,7 @@
  * when the set states or implies its own group type. A group-aggregated set types a property as
  * `group` against its own group type index when the stored filters it reads hold the key as a group
  * property or hold no person-aggregated type for it. Otherwise the person-aggregated filters decide
- * the type. When they hold more than one type, and the incoming operator and value do not narrow
- * them to one, the property stays untyped. The API then rejects the write.
+ * the type.
  *
  * A person-aggregated set can filter on a group property. The flag evaluator reads each property
  * by its own type and group_type_index (see mixed_targeting_flag in
@@ -41,6 +40,12 @@
  * check_property_types_match_aggregation in products/feature_flags/backend/filters_validation.py
  * reports a group property in a person set and a person-aggregated property in a group set. The
  * evaluator supports both shapes. The merge keeps them where the stored flag already has them.
+ *
+ * In either kind of set, the stored filters that decide a type narrow to the ones that match the
+ * incoming operator and value, then to the ones with its operator. When the rest hold more than one
+ * typing, the property stays untyped. The API then rejects the write. A person-aggregated set with a
+ * source reads other stored sets only when the source holds no filter on the key whose type it can
+ * restore.
  *
  * An incoming person-aggregated set can keep the filters of other person-aggregated sets with the
  * same keys. The merge checks the incoming set's types against those sets only when the incoming set
@@ -204,19 +209,24 @@ function hasSameKeySet(incoming: ReadonlyMap<string, unknown>, existing: Readonl
 /** The flag evaluator ignores the value of an existence filter. */
 const EXISTENCE_OPERATORS = new Set(['is_set', 'is_not_set'])
 
+/** The flag evaluator reads a missing operator as `exact`. */
+function evaluatedOperator(prop: FlagProperty): string {
+    return prop.operator ?? 'exact'
+}
+
 /**
- * The flag evaluator reads a missing operator as `exact`. matchesFilter applies the same rule
- * without building the pair. A filter that matches another therefore always shares its signature.
+ * matchesFilter compares the same operator and value without building the pair. A filter that
+ * matches another therefore always shares its signature.
  */
 function evaluatedFilter(prop: FlagProperty): [operator: string, value: unknown] {
-    const operator = prop.operator ?? 'exact'
+    const operator = evaluatedOperator(prop)
     return [operator, EXISTENCE_OPERATORS.has(operator) ? null : prop.value]
 }
 
 function matchesFilter(stored: FlagProperty, incoming: FlagProperty): boolean {
-    const operator = stored.operator ?? 'exact'
+    const operator = evaluatedOperator(stored)
     return (
-        operator === (incoming.operator ?? 'exact') &&
+        operator === evaluatedOperator(incoming) &&
         (EXISTENCE_OPERATORS.has(operator) || isDeepStrictEqual(stored.value, incoming.value))
     )
 }
@@ -369,22 +379,23 @@ function hasSameTypeAndGroupIndex(a: FlagProperty, b: FlagProperty): boolean {
 
 /**
  * Prefers the candidates that match the incoming filter, then the ones with its operator, then all
- * of them. A missing operator reads as `exact`. Returns undefined when those candidates hold more
- * than one typing. The result therefore never depends on the order of the stored filters. A group
- * index that the incoming filter sends replaces the stored index. Only the types must then agree.
+ * of them. Returns undefined when those candidates would restore different typings. The result
+ * therefore never depends on the order of the stored filters. mergeProperty copies a stored
+ * group_type_index only onto a `group` property that the incoming filter sends no index for. Only
+ * then must the candidates' indexes agree.
  */
 function pickCandidate(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
-    const operator = incoming.operator ?? 'exact'
+    const operator = evaluatedOperator(incoming)
     const matching = usable.filter((candidate) => matchesFilter(candidate, incoming))
-    const sameOperator = usable.filter((candidate) => (candidate.operator ?? 'exact') === operator)
+    const sameOperator = usable.filter((candidate) => evaluatedOperator(candidate) === operator)
     const remaining = [matching, sameOperator, usable].find((tier) => tier.length > 0) ?? []
     const first = remaining[0]
     if (!first) {
         return undefined
     }
-    const agrees = isPresentGroupIndex(incoming.group_type_index)
-        ? (candidate: FlagProperty) => candidate.type === first.type
-        : (candidate: FlagProperty) => hasSameTypeAndGroupIndex(candidate, first)
+    const restoresIndex = first.type === 'group' && !isPresentGroupIndex(incoming.group_type_index)
+    const agrees = (candidate: FlagProperty): boolean =>
+        restoresIndex ? hasSameTypeAndGroupIndex(candidate, first) : candidate.type === first.type
     return remaining.every(agrees) ? first : undefined
 }
 
