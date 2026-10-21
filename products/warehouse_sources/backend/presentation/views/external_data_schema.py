@@ -42,6 +42,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -66,10 +67,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
-    ConfigValueError,
     RowFilterValidationError,
     SourceRegistry,
-    UndecryptedConfigError,
     WebhookSource,
     add_table_failure_message,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
