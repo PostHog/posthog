@@ -421,6 +421,7 @@ def _fold_commit_stats(
         return None
     row_count = row_counts.pop()
 
+    added_stats: list[str] = []
     for version in range(base_version + 1, delta_version + 1):
         for action in read_commit_actions(version):
             kinds = set(action) - _NEUTRAL_ACTIONS
@@ -431,13 +432,18 @@ def _fold_commit_stats(
             add = action["add"]
             if not add.get("dataChange", True) or not add.get("stats"):
                 return None
-            stats = json.loads(add["stats"], parse_float=Decimal)
-            num_records = stats.get("numRecords")
-            if not isinstance(num_records, int) or isinstance(num_records, bool):
-                return None
-            row_count += num_records
-            for name, state in states.items():
-                state.fold(stats, name)
+            added_stats.append(add["stats"])
+
+    # Stats parse under the current schema, so only once no commit in the range changed it: a file
+    # added before a later column type change carries its bounds in the old type.
+    for raw_stats in added_stats:
+        stats = json.loads(raw_stats, parse_float=Decimal)
+        num_records = stats.get("numRecords")
+        if not isinstance(num_records, int) or isinstance(num_records, bool):
+            return None
+        row_count += num_records
+        for name, state in states.items():
+            state.fold(stats, name)
 
     return row_count, {
         name: _ColumnStat(

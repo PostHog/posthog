@@ -565,6 +565,7 @@ class TestComputeTableStatisticsSync:
         [
             ("a_file_was_removed", "remove", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("the_schema_changed", "metadata", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("a_later_commit_changed_the_type", "type_change", 9, dt.timedelta(days=2), {"amount": "string"}, True),
             ("a_file_carries_no_stats", "no_stats", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("a_column_was_added", "append", 8, dt.timedelta(days=2), {"amount": "long", "total": "long"}, False),
             (
@@ -593,7 +594,11 @@ class TestComputeTableStatisticsSync:
         )
         self._stored(team, table, age=age)
         commit: list[dict[str, Any]]
-        if commit_kind == "remove":
+        commits: dict[int, list[dict[str, Any]]] = {}
+        if commit_kind == "type_change":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=("a", "z", 0))]
+            commits[8] = [self._add(10, amount=(1, 60, 0))]
+        elif commit_kind == "remove":
             commit = [self._add(1, amount=(1, 1, 0)), {"remove": {"path": "old.parquet", "dataChange": True}}]
         elif commit_kind == "metadata":
             commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 1, 0))]
@@ -611,7 +616,9 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
         with (
-            patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
+            patch.object(
+                comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits.get(version, commit)
+            ) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
