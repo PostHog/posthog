@@ -3,12 +3,18 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import (
     SignalReport,
@@ -25,6 +31,7 @@ from products.signals.backend.report_assignments import (
 from products.signals.backend.reviewer_pr_assignment import (
     assign_reviewers_to_pull_request,
     opted_in_assignee_logins,
+    ranked_reviewer_logins,
     schedule_reviewer_pr_assignment,
 )
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -105,6 +112,83 @@ class TestOptedInReviewerLogins:
         report = _make_report(team, ["opted-in", "opted-out"])
 
         assert opted_in_assignee_logins(team_id=team.id, report_id=str(report.id)) == ["opted-in"]
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("reviewer_count", [1, 5])
+    @pytest.mark.parametrize("identity_source", ["oauth", "personal"])
+    def test_uuid_reviewer_identity_queries_are_batched(
+        self, org_and_team, django_assert_num_queries, reviewer_count, identity_source
+    ):
+        org, team = org_and_team
+        logins = [f"reviewer-{index}" for index in range(reviewer_count)]
+        users = [_make_reviewer(org, login, opted_in=False) for login in logins]
+        if identity_source == "personal":
+            for user, login in zip(users, logins):
+                UserIntegration.objects.create(
+                    user=user,
+                    kind=UserIntegration.IntegrationKind.GITHUB,
+                    integration_id=f"installation-{login}",
+                    config={"github_user": {"login": login}},
+                )
+                user.social_auth.update(extra_data={"login": "outdated-login"})
+        report = _make_report(team)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type="suggested_reviewers",
+            content=json.dumps([{"user_uuid": str(user.uuid)} for user in users]),
+        )
+
+        with django_assert_num_queries(9):
+            result = ranked_reviewer_logins(team_id=team.id, report_id=str(report.id))
+
+        assert result == logins
+
+    @pytest.mark.django_db
+    def test_no_reviewers_skips_member_and_access_queries(self, org_and_team, django_assert_num_queries):
+        _, team = org_and_team
+        report = _make_report(team, [])
+
+        with django_assert_num_queries(1):
+            assert ranked_reviewer_logins(team_id=team.id, report_id=str(report.id)) == []
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("member_rule", [False, True])
+    def test_access_checks_only_load_reviewer_memberships(self, org_and_team, member_rule):
+        org, team = org_and_team
+        reviewer = _make_reviewer(org, "reviewer", opted_in=False)
+        uuid_reviewer = _make_reviewer(org, "uuid-reviewer", opted_in=False)
+        unrelated = _make_reviewer(org, "unrelated", opted_in=False)
+        if member_rule:
+            org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+            org.save()
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=OrganizationMembership.objects.get(organization=org, user=unrelated),
+                access_level="none",
+            )
+        report = _make_report(team, ["reviewer"])
+        report.artefacts.update(
+            content=json.dumps([{"github_login": "reviewer"}, {"user_uuid": str(uuid_reviewer.uuid)}])
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            assert ranked_reviewer_logins(team_id=team.id, report_id=str(report.id)) == ["reviewer", "uuid-reviewer"]
+
+        access_query = (
+            next(
+                q["sql"]
+                for q in queries.captured_queries
+                if q["sql"].startswith('SELECT "posthog_organizationmembership"')
+            )
+            if member_rule
+            else queries.captured_queries[-1]["sql"]
+        )
+        assert "posthog_organizationmembership" in access_query
+        assert reviewer.uuid.hex in access_query.replace("-", "")
+        assert uuid_reviewer.uuid.hex in access_query.replace("-", "")
 
     @pytest.mark.django_db
     def test_reviewer_without_a_config_row_is_not_assigned(self, org_and_team):

@@ -26,6 +26,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import prefetch_related_objects
 
 import structlog
 from pydantic import ValidationError
@@ -56,6 +57,7 @@ from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolv
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
+    _github_identity_prefetches,
     _normalized_reviewer_user_uuid,
     normalized_github_logins_from_reviewer_payloads,
     resolve_org_github_login_to_users,
@@ -252,21 +254,26 @@ def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
         (row, _normalized_reviewer_user_uuid(row.get("user_uuid")))
         for row in _latest_reviewer_rows(team_id=team_id, report_id=report_id)
     ]
+    if not rows_with_uuid:
+        return []
     members_by_uuid = resolve_org_users_by_uuid(team_id, [uuid for _, uuid in rows_with_uuid if uuid])
+    prefetch_related_objects(list(members_by_uuid.values()), *_github_identity_prefetches())
     # A row stored by uuid names the reviewer by that uuid, so its login is only read for a row without one.
     member_logins = resolve_org_github_login_to_users(
         team_id,
         normalized_github_logins_from_reviewer_payloads(row for row, uuid in rows_with_uuid if uuid is None),
     )
-    eligible_members = list(
-        Team.objects.get(id=team_id).all_users_with_access().filter(is_active=True).values_list("id", "uuid")
+    candidate_uuids = {str(member.uuid) for member in [*members_by_uuid.values(), *member_logins.values()]}
+    eligible_ids = set(
+        Team.objects.get(id=team_id)
+        .all_users_with_access(user_uuids=candidate_uuids)
+        .filter(is_active=True)
+        .values_list("id", flat=True)
     )
-    eligible_ids = {member_id for member_id, _ in eligible_members}
-    eligible_uuids = {uuid for _, uuid in eligible_members}
     login_by_uuid = {
         uuid: login.lower()
         for uuid, member in members_by_uuid.items()
-        if UUID(uuid) in eligible_uuids and (login := member.get_github_login(include_team_fallback=False))
+        if member.id in eligible_ids and (login := member.get_github_login(include_team_fallback=False))
     }
     member_logins = {
         login: user

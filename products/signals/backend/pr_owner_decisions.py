@@ -17,8 +17,9 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PROwnerDecision, PROwnerInput, PROwnerSelection
 from products.signals.backend.assignment_service import AssignmentSnapshot, ReportAssignmentService
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
-from products.signals.backend.pr_owner_evidence import PROwnerEvidenceReader, report_owner_version
+from products.signals.backend.pr_owner_evidence import MAX_OWNER_CANDIDATES, PROwnerEvidenceReader, report_owner_version
 from products.signals.backend.pr_owner_selection import owner_input_version, select_pr_owner, validate_owner_decision
+from products.signals.backend.report_generation.resolve_reviewers import _github_identity_prefetches
 
 logger = structlog.get_logger(__name__)
 FAILURE_RETRY_AFTER = timedelta(minutes=10)
@@ -118,7 +119,15 @@ class PROwnerDecisionService:
         wanted = {candidate.login for candidate in selected.decision.candidates}
         identities = [identity for identity in selected.inputs.identities if identity.login in wanted]
         uuids = [str(identity.user_uuid) for identity in identities if identity.user_uuid]
-        members = list(self.team.all_users_with_access(user_uuids=uuids).filter(is_active=True)) if uuids else []
+        members = (
+            list(
+                self.team.all_users_with_access(user_uuids=uuids)
+                .filter(is_active=True)
+                .prefetch_related(*_github_identity_prefetches())
+            )
+            if uuids
+            else []
+        )
         logins = {
             str(member.uuid): login.lower()
             for member in members
@@ -141,7 +150,9 @@ class PROwnerDecisionService:
                 continue
             for slug in identity.teams:
                 if slug not in team_logins:
-                    result = self.github.list_team_members(selected.inputs.repository.split("/", 1)[0], slug)
+                    result = self.github.list_team_members(
+                        selected.inputs.repository.split("/", 1)[0], slug, max_members=MAX_OWNER_CANDIDATES
+                    )
                     if not result.get("success"):
                         raise ValueError("Current team membership unavailable")
                     team_logins[slug] = {login.lower() for login in result["logins"]}

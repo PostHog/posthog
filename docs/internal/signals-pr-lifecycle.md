@@ -261,6 +261,8 @@ verified identities, and scoped corrections. `pr_owner_selection.py` runs one bo
 the existing Signals LLM client on the assignment worker, without mutation tools. The first assessment needs
 the PR's actual scope; retries reuse it. Repository content and corrections are evidence, never application rules.
 A correction on another report is scoped evidence, not a project-wide exclusion.
+Ownership evidence retains every declared team and person, including ownerless CODEOWNERS overrides.
+Team roster reads stop at the candidate budget; an incomplete roster is a lookup failure, never an empty team.
 
 `PROwnerDecisionService` stores a server-only `pr_owner_selection` artefact with the captured inputs, their hash,
 the report reviewer state and evidence version, PR head/base SHAs, ordered candidates, reasons, and evidence references.

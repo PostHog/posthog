@@ -8,13 +8,13 @@ from collections import defaultdict
 from django.db.models import Q
 from django.utils import timezone
 
+from owners_yaml import OwnersResolver
 from owners_yaml.matcher import compile_pattern
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.integration import GitHubIntegration
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
-from posthog.ownership.paths import UNOWNED_TEAM, own_paths
 
 from products.signals.backend.artefact_schemas import PROwnerEvidence, PROwnerIdentity, PROwnerInput
 from products.signals.backend.assignment_service import AssignmentSnapshot
@@ -73,13 +73,15 @@ class PROwnerEvidenceReader:
         candidates: set[str] = set()
         root = reader.read("owners.yaml")
         if root is not None:
-            ownership = own_paths(reader, root, list(paths))
-            for path, slug in ownership.team_by_path.items():
-                if slug != UNOWNED_TEAM:
-                    team_paths[slug].append(path)
-            evidence.append(
-                PROwnerEvidence(ref="owners.yaml", kind="ownership", content=json.dumps(dict(ownership.team_by_path)))
-            )
+            ownership = OwnersResolver(source=reader).map(list(paths))
+            owners_by_path = {path: resolved.owners or [] for path, resolved in ownership.items()}
+            for path, owners in owners_by_path.items():
+                for owner in owners:
+                    if owner.startswith("@"):
+                        candidates.add(owner[1:].lower())
+                    else:
+                        team_paths[owner].append(path)
+            evidence.append(PROwnerEvidence(ref="owners.yaml", kind="ownership", content=json.dumps(owners_by_path)))
 
         for location in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
             content = reader.read(location)
@@ -89,8 +91,8 @@ class PROwnerEvidenceReader:
                 raise OwnerEvidenceUnavailable("codeowners_too_large")
             matches: dict[str, list[str]] = {}
             for line in content.splitlines():
-                parts = line.split()
-                if len(parts) < 2 or parts[0].startswith(("#", "!")) or "[" in parts[0]:
+                parts = line.split("#", 1)[0].split()
+                if not parts or parts[0].startswith("!") or "[" in parts[0]:
                     continue
                 matcher = compile_pattern(parts[0])
                 for path in paths:
@@ -115,13 +117,17 @@ class PROwnerEvidenceReader:
         for slug in sorted(team_paths):
             if not _TEAM_SLUG.fullmatch(slug):
                 raise OwnerEvidenceUnavailable("invalid_owning_team")
-            members = self.github.list_team_members(inputs.repository.split("/", 1)[0], slug)
+            members = self.github.list_team_members(
+                inputs.repository.split("/", 1)[0], slug, max_members=MAX_OWNER_CANDIDATES
+            )
             if not members.get("success"):
                 raise OwnerEvidenceUnavailable("owning_team_lookup_failed")
             for login in members["logins"]:
                 normalized = login.lower()
                 candidates.add(normalized)
                 candidate_teams[normalized].add(slug)
+            if len(candidates) > MAX_OWNER_CANDIDATES:
+                raise OwnerEvidenceUnavailable("candidate_budget_exceeded")
 
         for entry in snapshot.reviewers:
             if entry.github_login:
@@ -225,7 +231,11 @@ class PROwnerEvidenceReader:
         if len(candidates) > MAX_OWNER_CANDIDATES:
             raise OwnerEvidenceUnavailable("candidate_budget_exceeded")
         members_by_login = resolve_org_github_login_to_users(self.team.id, candidates)
-        eligible = set(self.team.all_users_with_access().filter(is_active=True).values_list("id", flat=True))
+        eligible = set(
+            self.team.all_users_with_access(user_uuids=[str(user.uuid) for user in members_by_login.values()])
+            .filter(is_active=True)
+            .values_list("id", flat=True)
+        )
         opted_in = set(
             SignalUserAutonomyConfig.objects.filter(
                 user_id__in=[user.id for user in members_by_login.values()], github_assign_on_pull_request=True

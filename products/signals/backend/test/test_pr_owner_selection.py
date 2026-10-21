@@ -8,14 +8,16 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.ownership.paths import PathOwnership
+from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PROwnerSelection, SuggestedReviewerEntry, SuggestedReviewers
 from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.models import SignalReport, SignalRepositoryAreaActivity, SignalUserAutonomyConfig
+from products.signals.backend.pr_owner_decisions import PROwnerDecisionService
 from products.signals.backend.pr_owning_team import OwningTeam
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_generation.repo_activity import area_for_path
@@ -47,17 +49,11 @@ class TestRelevantPROwner:
                 return_value=True,
             ),
             patch("products.signals.backend.pr_owner_evidence.AuthenticatedRepoFiles") as files,
-            patch(
-                "products.signals.backend.pr_owner_evidence.own_paths",
-                return_value=PathOwnership(
-                    team_by_path={"src/payments.py": "payments"},
-                    registry={},
-                    resolved=True,
-                ),
-            ),
         ):
-            files.return_value.read.side_effect = lambda path: "ownership" if path == "owners.yaml" else None
-            yield
+            files.return_value.read.side_effect = lambda path: (
+                "version: 1\nowners: [payments]\n" if path == "owners.yaml" else None
+            )
+            yield files.return_value
 
     def setup_report(self, org: Organization, team: Team) -> tuple[SignalReport, MagicMock]:
         _make_reviewer(org, "prolific", opted_in=False)
@@ -141,6 +137,93 @@ class TestRelevantPROwner:
         assert self.run_assignment(report, github, model) == ["github-only"]
         github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["github-only"])
         assert "github-only" not in github.request_pull_request_reviews.call_args.args[2]
+
+    @pytest.mark.parametrize("ownerless_rule", ["src/payments.py", "src/payments.py # No owner"])
+    def test_ownerless_codeowners_rule_clears_previous_owners(self, org_and_team, selection_enabled, ownerless_rule):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        selection_enabled.read.side_effect = lambda path: (
+            f"* @PostHog/payments @stale-owner\n{ownerless_rule}\n" if path == ".github/CODEOWNERS" else None
+        )
+        _make_reviewer(org, "stale-owner", opted_in=False)
+
+        assert self.run_assignment(report, github, self.model(self.decision())) == []
+
+        saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
+        ownership = next(entry for entry in saved.inputs.evidence if entry.ref == ".github/CODEOWNERS")
+        assert json.loads(ownership.content) == {"src/payments.py": []}
+        assert {identity.login for identity in saved.inputs.identities} == {"prolific", "current-owner"}
+        github.list_team_members.assert_not_called()
+
+    @pytest.mark.parametrize("chosen", ["support-owner", "specialist"])
+    def test_all_declared_owners_can_reach_assignment(self, org_and_team, selection_enabled, chosen):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        _make_reviewer(org, "specialist", opted_in=False)
+        selection_enabled.read.side_effect = lambda path: (
+            "version: 1\nowners: [payments, support, '@specialist']\n" if path == "owners.yaml" else None
+        )
+        github.list_team_members.side_effect = lambda _org, slug, **kwargs: {
+            "success": True,
+            "logins": {"payments": ["current-owner"], "support": ["support-owner"]}[slug],
+        }
+
+        assert self.run_assignment(report, github, self.model(self.decision(chosen))) == [chosen]
+
+        saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
+        ownership = next(entry for entry in saved.inputs.evidence if entry.ref == "owners.yaml")
+        assert json.loads(ownership.content) == {"src/payments.py": ["payments", "support", "@specialist"]}
+        assert {identity.login for identity in saved.inputs.identities} == {
+            "prolific",
+            "current-owner",
+            "support-owner",
+            "specialist",
+        }
+        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, [chosen])
+
+    @pytest.mark.parametrize("candidate_count", [1, 5])
+    def test_candidate_identity_queries_are_batched(self, org_and_team, django_assert_num_queries, candidate_count):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        logins = [f"candidate-{index}" for index in range(candidate_count)]
+        for login in logins:
+            _make_reviewer(org, login, opted_in=True)
+        github.list_team_members.return_value = {"success": True, "logins": logins}
+        assert self.run_assignment(report, github, self.model(self.decision(*logins))) == [logins[0]]
+        saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
+        service = PROwnerDecisionService(team_id=team.id, report_id=str(report.id), github=github)
+
+        with django_assert_num_queries(6):
+            eligible = service.eligible_logins(saved)
+
+        assert eligible.logins == frozenset(logins)
+        assert eligible.opted_in == frozenset(logins)
+
+    def test_large_team_stops_fetching_and_records_failed_lookup(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        roster_github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.BATCH)
+        github.list_team_members.side_effect = roster_github.list_team_members
+        page = MagicMock(
+            status_code=200,
+            links={"next": {"url": "https://api.github.com/orgs/PostHog/teams/payments/members?page=2"}},
+        )
+        page.json.return_value = [{"login": f"owner-{index}"} for index in range(100)]
+        second_page = MagicMock(
+            status_code=200,
+            links={"next": {"url": "https://api.github.com/orgs/PostHog/teams/payments/members?page=3"}},
+        )
+        second_page.json.return_value = [{"login": f"owner-{index}"} for index in range(100, 200)]
+        model = self.model(self.decision("current-owner"))
+
+        with patch.object(roster_github, "api_request", side_effect=[page, second_page]) as request:
+            assert self.run_assignment(report, github, model) == []
+
+        assert request.call_count == 2
+        model.assert_not_called()
+        github.add_pull_request_assignees.assert_not_called()
+        saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
+        assert saved.decision.outcome == "lookup_failed"
 
     @pytest.mark.parametrize("related", [True, False])
     def test_corrections_reach_selection_as_scoped_evidence(self, org_and_team, related):
