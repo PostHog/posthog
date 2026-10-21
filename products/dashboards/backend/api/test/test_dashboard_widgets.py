@@ -600,6 +600,27 @@ class TestDashboardWidgets(APIBaseTest):
         assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
+    @parameterized.expand(
+        [
+            ("single_type", "?widget_type=logs_list", {"logs_list"}),
+            ("comma_separated", "?widget_type=logs_list,survey_results", {"logs_list", "survey_results"}),
+            ("repeated_param", "?widget_type=logs_list&widget_type=survey_results", {"logs_list", "survey_results"}),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_filters_by_widget_type(self, _name: str, query: str, expected: set[str]) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/widget_catalog/{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert {entry["widget_type"] for entry in response.json()["results"]} == expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_rejects_unknown_widget_type(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/widget_catalog/?widget_type=logs_list,not_a_widget"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not_a_widget" in response.json()["detail"]
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_add_widget_via_batch_endpoint(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
