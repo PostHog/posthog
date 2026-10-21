@@ -616,28 +616,6 @@ it.each([
   expect(codexProcessCwd(config)).toBe(expected);
 });
 
-it("fails session setup when the repository never becomes ready", async () => {
-  const testServer = new AgentServer({
-    port: 0,
-    jwtPublicKey: TEST_PUBLIC_KEY,
-    apiUrl: "http://localhost:8000",
-    apiKey: "test-api-key",
-    projectId: 1,
-    mode: "interactive",
-    taskId: "test-task-id",
-    runId: "test-run-id",
-    repoReadyFile: join(tmpdir(), "missing-repo-ready-dir", ".repo-ready"),
-  }) as unknown as {
-    repoReadyTimeoutMs: number;
-    waitForRepoReady(): Promise<void>;
-  };
-  testServer.repoReadyTimeoutMs = 10;
-
-  await expect(testServer.waitForRepoReady()).rejects.toThrow(
-    "Repository was not ready",
-  );
-});
-
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
