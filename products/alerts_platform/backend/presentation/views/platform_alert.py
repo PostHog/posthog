@@ -205,6 +205,13 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     )
 
 
+class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
+    legacy_configuration_id = serializers.UUIDField(
+        required=False,
+        help_text="Only the alert copied from, or created with, this source configuration, such as a logs alert's id.",
+    )
+
+
 # A configuration shows the source product's data (its filters and firing state), so a reader
 # also needs read access to that product. `alert:read` alone must not reveal it.
 SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
@@ -605,7 +612,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise NotFound()
         return Response(PlatformAlertSerializer(group).data)
 
+    @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
     def list(self, request: Request, **kwargs) -> Response:
+        query = PlatformAlertConfigurationListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         limit = paginator.get_limit(request)
         assert limit is not None
@@ -614,6 +624,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             source_kinds=self._readable_source_kinds(),
             limit=limit,
             offset=paginator.get_offset(request),
+            legacy_configuration_id=query.validated_data.get("legacy_configuration_id"),
         )
         paginator.set_count(page.total)
         return self.get_paginated_response(

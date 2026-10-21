@@ -131733,6 +131733,10 @@ export namespace Schemas {
 
     export type PlatformAlertsListParams = {
     /**
+     * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
+     */
+    legacy_configuration_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;

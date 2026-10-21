@@ -212,10 +212,11 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert [r["id"] for r in list_response.json()["results"]] == []
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
-    def test_a_malformed_id_is_refused_rather_than_raising(self) -> None:
+    @parameterized.expand([("retrieve", "not-a-uuid/"), ("legacy_id_filter", "?legacy_configuration_id=not-a-uuid")])
+    def test_a_malformed_id_is_refused_rather_than_raising(self, _name: str, path: str) -> None:
         self._set_flag(True)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{path}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
@@ -236,6 +237,19 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert len(second_ids) == 1
         assert set(first_ids).isdisjoint(second_ids)
         assert set(first_ids) | set(second_ids) == created
+
+    def test_the_legacy_id_filter_finds_the_copy_of_one_source_alert(self) -> None:
+        self._set_flag(True)
+        legacy_configuration_id = uuid4()
+        wanted = self._create_configuration(self.team, "Copied", legacy_configuration_id=legacy_configuration_id)
+        self._create_configuration(self.team, "Another copy", legacy_configuration_id=uuid4())
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/platform_alerts/?legacy_configuration_id={legacy_configuration_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(row["id"], response.json()["count"]) for row in response.json()["results"]] == [(str(wanted.id), 1)]
 
     def test_a_page_costs_the_same_queries_however_many_rows_it_holds(self) -> None:
         # A filter added to the prefetched relation would bypass the cache and cost a query per
