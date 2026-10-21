@@ -139,6 +139,9 @@ class RenderedInput:
     input_chars: int
     input_tokens_estimate: int
     drops: dict[str, int]
+    # Units of each source before its line cap, so a caller can tell when the cap binds.
+    task_pool: int
+    activity_pool: int
 
     @property
     def units(self) -> int:
@@ -371,6 +374,8 @@ def build_input(
     drops: Counter[str] = Counter()
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops), drops), drops)
     activity_lines = activity_units(activity, drops)
+    # Only `activity_units` has counted a sample cap drop so far.
+    activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP]
     if not task_pool and not activity_lines:
         return None
     chosen_tasks = sample_units(task_pool, limit=TASK_LINES, as_of=as_of, seed=seed)
@@ -388,4 +393,6 @@ def build_input(
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
+        task_pool=len(task_pool),
+        activity_pool=activity_pool,
     )
