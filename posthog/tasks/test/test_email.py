@@ -3015,7 +3015,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]
         assert [(v["name"], v["suspended"]) for v in views] == expected_rows
-        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
         assert "Started failing" in html

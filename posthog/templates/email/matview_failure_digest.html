@@ -6,28 +6,11 @@
         In project <strong>{{ team.name }}</strong>: {{ summary }}. Their data may be out of date until a run succeeds.
     </p>
     {% for section in sections %}
-        <h3 style="color: #111827; font-size: 1em; margin: 20px 0 4px 0;">
-            {% if section.key == "action" %}
-                Needs action
-            {% elif section.key == "new" %}
-                Started failing
-            {% else %}
-                Still failing
-            {% endif %}
-            ({{ section.views|length }})
-        </h3>
-        <p style="color: #6b7280; font-size: 0.85em; margin: 0 0 8px 0;">
-            {% if section.key == "action" %}
-                These views stopped running. They won't update until you fix them.
-            {% elif section.key == "new" %}
-                These started failing in the last 24 hours. They retry on their next scheduled run, so a temporary problem can clear on its own.
-            {% else %}
-                These have failed every run for more than a day. Retrying hasn't fixed them, so they likely need a change.
-            {% endif %}
-        </p>
+        <h3 style="color: #111827; font-size: 1em; margin: 20px 0 4px 0;">{{ section.title }} ({{ section.views|length }})</h3>
+        <p style="color: #6b7280; font-size: 0.85em; margin: 0 0 8px 0;">{{ section.description }}</p>
         <div style="background-color: #ffffff;
                     border: 1px solid #e5e7eb;
-                    border-left: 4px solid {% if section.key == "action" %}#dc3545{% elif section.key == "new" %}#fd7e14{% else %}#9ca3af{% endif %};
+                    border-left: 4px solid {{ section.color }};
                     border-radius: 8px;
                     padding: 8px 20px;
                     margin-bottom: 12px">

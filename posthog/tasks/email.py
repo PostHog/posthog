@@ -1,6 +1,7 @@
 import uuid
 import hashlib
 import datetime
+import collections
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
@@ -1335,26 +1336,40 @@ def send_warehouse_destination_paused(
 
 MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
-DIGEST_SECTION_ORDER = ("action", "new", "ongoing")
+# Most urgent first: this order drives the email layout, the subject line and which rows the cap keeps.
+DIGEST_SECTIONS: dict[str, dict[str, Any]] = {
+    "action": {
+        "title": "Needs action",
+        "description": "These views stopped running. They won't update until you fix them.",
+        "color": "#dc3545",
+        "verbs": ("needs action", "need action"),
+    },
+    "new": {
+        "title": "Started failing",
+        "description": "These started failing in the last 24 hours. They retry on their next scheduled run, so a temporary problem can clear on its own.",
+        "color": "#fd7e14",
+        "verbs": ("started failing", "started failing"),
+    },
+    "ongoing": {
+        "title": "Still failing",
+        "description": "These have failed every run for more than a day. Retrying hasn't fixed them, so they likely need a change.",
+        "color": "#9ca3af",
+        "verbs": ("is still failing", "are still failing"),
+    },
+}
+DIGEST_SECTION_ORDER = tuple(DIGEST_SECTIONS)
 # Older than any job, so a view that never succeeded counts every failure in its streak.
 STREAK_FLOOR_BEFORE_ANY_RUN = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
 
 
-_DIGEST_SECTION_VERBS = {
-    "action": ("needs action", "need action"),
-    "new": ("started failing", "started failing"),
-    "ongoing": ("is still failing", "are still failing"),
-}
-
-
 def _matview_digest_summary(counts: dict[str, int]) -> str:
     """Count each section, e.g. "1 materialized view needs action, 3 started failing"."""
-    parts = []
+    parts: list[str] = []
     for key in DIGEST_SECTION_ORDER:
         count = counts.get(key, 0)
         if not count:
             continue
-        verb = _DIGEST_SECTION_VERBS[key][count != 1]
+        verb = DIGEST_SECTIONS[key]["verbs"][count != 1]
         if not parts:
             noun = "materialized view" if count == 1 else "materialized views"
             parts.append(f"{count} {noun} {verb}")
@@ -1453,13 +1468,8 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     last_success_at = (
         clickhouse_jobs.filter(status=DataModelingJob.Status.COMPLETED).order_by("-last_run_at").values("last_run_at")
     )
-    streak_jobs = DataModelingJob.objects.filter(
-        saved_query_id=OuterRef("id"),
-        engine=DataModelingJobEngine.CLICKHOUSE,
-        status=DataModelingJob.Status.FAILED,
-        last_run_at__gt=OuterRef("streak_floor"),
-    )
-    queries = {
+    streak_jobs = clickhouse_jobs.filter(status=DataModelingJob.Status.FAILED, last_run_at__gt=OuterRef("streak_floor"))
+    queries: dict[str, DataWarehouseSavedQuery] = {
         str(sq.id): sq
         for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id).annotate(
             streak_floor=Coalesce(Subquery(last_success_at[:1]), Value(STREAK_FLOOR_BEFORE_ANY_RUN)),
@@ -1551,21 +1561,27 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
         listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
-        counts = {key: sum(1 for v in visible_views if v["section"] == key) for key in DIGEST_SECTION_ORDER}
+        # Count before the cap, so the subject reflects every failing view the reader can see.
+        summary = _matview_digest_summary(collections.Counter(v["section"] for v in visible_views))
+        sections = [
+            {
+                "key": key,
+                "title": DIGEST_SECTIONS[key]["title"],
+                "description": DIGEST_SECTIONS[key]["description"],
+                "color": DIGEST_SECTIONS[key]["color"],
+                "views": [v for v in listed_views if v["section"] == key],
+            }
+            for key in DIGEST_SECTION_ORDER
+        ]
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"PostHog: {_matview_digest_summary(counts)} in {team.name}",
+            subject=f"PostHog: {summary} in {team.name}",
             template_name="matview_failure_digest",
             template_context={
                 "team": team,
                 "views": listed_views,
-                "sections": [
-                    {"key": key, "views": [v for v in listed_views if v["section"] == key]}
-                    for key in DIGEST_SECTION_ORDER
-                    if any(v["section"] == key for v in listed_views)
-                ],
-                "summary": _matview_digest_summary(counts),
-                "has_suspended": any(v["suspended"] for v in listed_views),
+                "sections": [section for section in sections if section["views"]],
+                "summary": summary,
                 "omitted_count": omitted_count,
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },
