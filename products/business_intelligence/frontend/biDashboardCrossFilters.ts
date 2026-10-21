@@ -13,6 +13,10 @@ export interface BIDashboardSelection {
     selection: BIDrillSelection
 }
 
+export function getBIDashboardItemId(dashboardId: number, tileId: number, filtered: boolean): `new-${string}` {
+    return `new-SQL-cross-filter-${dashboardId}-${tileId}-${filtered ? 'selection' : 'saved'}`
+}
+
 export function isCrossFilterWorksheet(query: unknown): query is BIVisualizationNode {
     return (
         !!query &&

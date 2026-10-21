@@ -8,7 +8,7 @@ import { HogQLVariable } from '~/queries/schema/schema-general'
 import { InsightModel } from '~/types'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
-import { canSelectBIWorksheet } from './biDashboardCrossFilters'
+import { canSelectBIWorksheet, getBIDashboardItemId } from './biDashboardCrossFilters'
 
 export interface BIDashboardTileProps {
     dashboardId: number
@@ -50,7 +50,8 @@ export function BIDashboardTile({
                 variablesOverride={variablesOverride}
                 context={{
                     insightProps: {
-                        dashboardItemId: `new-SQL-cross-filter-${dashboardId}-${tileId}-${filtered ? 'selection' : 'saved'}`,
+                        dashboardItemId: getBIDashboardItemId(dashboardId, tileId, !!filtered),
+                        cachedInsight: { ...insight, query: effectiveQuery, result: filtered ? null : insight.result },
                         query: effectiveQuery,
                         loadPriority,
                     },
