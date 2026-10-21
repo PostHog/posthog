@@ -11,7 +11,7 @@ from pydantic import (
 
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.errors import NotImplementedError, ResolutionError
+from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
 # Import Workload at module level for Pydantic (needed at runtime)
 from posthog.clickhouse.workload import Workload
@@ -257,7 +257,7 @@ class Table(FieldOrTable):
         name = str(name)
         if self.has_field(name):
             return self.fields[name]
-        raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
+        raise QueryError(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         raise NotImplementedError("Table.to_printed_clickhouse not overridden")
