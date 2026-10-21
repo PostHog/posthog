@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     MapStringDatabaseField,
     StringDatabaseField,
+    TableNode,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -85,7 +86,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
-        from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.schedule_reconcile import (  # noqa: PLC0415 keeps temporalio off django.setup()
+            apply_saved_query_frequency_target,
+            maybe_reconcile_dag,
+        )
 
         provider = get_expected_views_provider(self.kind)
         if provider is None:
@@ -120,13 +124,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
         external_tables_by_view: dict[str, list] = {}
-        stored_views = {
-            query.name: query for query in self.saved_queries.filter(name__in=expected_view_names).exclude(deleted=True)
-        }
-        incremental_config_by_view = {
-            view.name: self._eligible_incremental_config(view, stored_views.get(view.name), database)
-            for view in expected_views
-        }
         for view in expected_views:
             temp_sq = DataWarehouseSavedQuery(
                 name=view.name,
@@ -145,6 +142,15 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     error=str(e),
                 )
                 external_tables_by_view[view.name] = []
+            # Eligibility must see updated upstream definitions, even before this batch is saved.
+            database.tables.add_child(
+                TableNode.create_nested_for_chain(view.name.split("."), table=temp_sq.hogql_definition()),
+                table_conflict_mode="override",
+            )
+
+        incremental_config_by_view = {
+            view.name: self._eligible_incremental_config(view, database) for view in expected_views
+        }
 
         views_created = 0
         views_updated = 0
@@ -274,6 +280,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
+            for saved_query in saved_queries_to_schedule:
+                if not saved_query.is_materialized:
+                    apply_saved_query_frequency_target(saved_query, None, reconcile=False)
             Node.objects.filter(
                 team_id=self.team_id,
                 saved_query_id__in=[view.id for view in saved_queries_to_schedule if not view.is_materialized],
@@ -362,15 +371,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             ),
         }
 
-    def _eligible_incremental_config(
-        self, view: ExpectedView, stored: DataWarehouseSavedQuery | None, database: "Database"
-    ) -> dict[str, Any] | None:
+    def _eligible_incremental_config(self, view: ExpectedView, database: "Database") -> dict[str, Any] | None:
         """The provider's incremental config, or None when the query cannot carry it.
 
         The API runs this check before it saves a config. Without it a key the query does not
         output only fails on the second run, and every later run alternates a rebuild and a failure.
-        The check resolves the whole query, so a view whose query and config the sync already stored
-        skips it.
         """
         from products.data_modeling.backend.logic.incremental_eligibility import (  # noqa: PLC0415 keeps posthog.schema off django.setup()
             check_incremental_eligibility,
@@ -378,8 +383,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         if view.incremental_config is None or not view.materialized:
             return None
-        if stored is not None and stored.query == view.query and stored.incremental_config == view.incremental_config:
-            return view.incremental_config
         config = parse_incremental_config(view.incremental_config)
         if config is None:
             logger.warning("managed_view_incremental_config_malformed", team_id=self.team_id, view_name=view.name)
