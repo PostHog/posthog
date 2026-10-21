@@ -1971,6 +1971,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("2026-07-30 12:00:00.000000",)])
 
+    def test_expression_placeholder_reads_request_variable(self) -> None:
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Company",
+            code_name="company_name",
+            type=InsightVariable.Type.STRING,
+        )
+        variables = {
+            "company_name": HogQLVariable(
+                code_name="company_name",
+                value="Acme",
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        response = execute_hogql_query(
+            "SELECT {variables.company_name == 'Acme' ? 1 : 2}",
+            team=self.team,
+            variables=variables,
+        )
+
+        self.assertEqual(response.results, [(1,)])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
         with time_machine.travel("2020-01-10", tick=False):
