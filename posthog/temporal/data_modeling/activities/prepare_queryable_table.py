@@ -1,6 +1,8 @@
 import asyncio
 import dataclasses
 
+from django.db import transaction
+
 import deltalake
 from structlog import get_logger
 from temporalio import activity
@@ -46,11 +48,12 @@ def _stopped_materializing(saved_query: DataWarehouseSavedQuery) -> bool:
 
 
 def _discard_published_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> None:
-    if saved_query.table_id == saved_query_table.id:
-        saved_query.table_id = None
-        saved_query.save(update_fields=["table", "updated_at"])
-    if not saved_query_table.deleted:
-        saved_query_table.soft_delete()
+    with transaction.atomic():
+        if saved_query.table_id == saved_query_table.id:
+            saved_query.table_id = None
+            saved_query.save(update_fields=["table", "updated_at"])
+        if not saved_query_table.deleted:
+            saved_query_table.soft_delete()
     LOGGER.info(
         "discarded_table_published_after_revert",
         team_id=saved_query.team_id,
