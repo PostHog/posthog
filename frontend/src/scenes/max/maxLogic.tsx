@@ -389,7 +389,7 @@ export interface maxLogicMeta {
             conversationHistoryVisible: boolean,
             searchParams: Record<string, any>,
             activeStreamingThreads: number,
-            taskTitle: string | null
+            arg: string | null
         ) => Breadcrumb[]
     }
 }
