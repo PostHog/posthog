@@ -30,7 +30,7 @@ export function RailFacet({ facet, hidden }: { facet: MetricFacetConfig; hidden:
             excluded={excluded}
             onToggle={(value) => toggleFacetValue(facet.attributeKey, value)}
             dataAttrPrefix="metrics-facet"
-            zeroCountReason="No series of this metric have this value"
+            zeroCountReason="No data points of this metric have this value in this time range"
             loading={facetValuesLoading}
             emptyLabel={`No ${facet.title} values`}
             searchValue={facetSearch}

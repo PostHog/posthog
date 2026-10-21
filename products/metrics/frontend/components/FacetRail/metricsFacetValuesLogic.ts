@@ -96,7 +96,7 @@ export type metricsFacetValuesLogicType = MakeLogicType<
 >
 
 /**
- * One facet's values and series counts for the active metric. A collapsed facet does not fetch,
+ * One facet's values and data point counts for the active metric. A collapsed facet does not fetch,
  * so a metric with many attributes costs one query per facet the user opens.
  */
 export const metricsFacetValuesLogic = kea<metricsFacetValuesLogicType>([
