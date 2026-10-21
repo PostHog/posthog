@@ -8,6 +8,7 @@ from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
@@ -18,6 +19,8 @@ from products.access_control.backend.facade.testing import add_role_member, crea
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
     ArtefactContentValidationError,
     AssignedPerson,
     AssignmentSelection,
@@ -28,6 +31,9 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.assignment_flags import (
     assignment_agent_selection_enabled,
     assignment_github_application_enabled,
+    assignment_human_writer_enabled,
+    assignment_side_effects_allowed,
+    assignment_side_effects_enabled,
 )
 from products.signals.backend.assignment_service import (
     AssignmentOperationConflict,
@@ -36,8 +42,15 @@ from products.signals.backend.assignment_service import (
     ReportAssignmentService,
     StaleAssignmentProposal,
 )
+from products.signals.backend.auto_start import maybe_autostart_implementation_task
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignmentRevision
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.slack_inbox_notifications import (
+    dispatch_inbox_item_notifications,
+    dispatch_reviewer_added_notifications,
+)
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
 
@@ -55,6 +68,11 @@ class TestReportAssignmentService(BaseTest):
         )
         self.flag.start()
         self.addCleanup(self.flag.stop)
+        self.human_flag = patch(
+            "products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True
+        )
+        self.human_flag.start()
+        self.addCleanup(self.human_flag.stop)
 
     def _proposal(
         self,
@@ -341,6 +359,107 @@ class TestReportAssignmentService(BaseTest):
             self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
         assert self.service.read().overrides.unassigned
 
+    @parameterized.expand([("replace",), ("remove",), ("resume",)])
+    def test_direct_human_proposals_require_the_human_flag(self, action: str) -> None:
+        proposal = self._proposal(selection=AssignmentSelection()).model_copy(update={"action": action})
+        with patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=False):
+            with self.assertRaises(AssignmentWriteError):
+                self.service.apply(proposal, actor=self.actor)
+        assert not self.report.artefacts.exists()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_disabled_human_writer_keeps_legacy_edits_on_untouched_reports(self, removal: bool) -> None:
+        with (
+            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=False),
+            self.captureOnCommitCallbacks(execute=False) as callbacks,
+        ):
+            result = self.service.edit_reviewers(
+                SuggestedReviewers(root=list(self.selection.people)), actor=self.actor, removal=removal
+            )
+        assert SuggestedReviewers.model_validate_json(result.content).root[0].user_uuid == str(self.member.uuid)
+        assert not self.report.assignment_revisions.exists()
+        assert len(callbacks) == (0 if removal else 1)
+
+    def test_disabled_human_writer_preserves_trial_state_until_reenabled(self) -> None:
+        self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
+        before = self.service.read()
+        with patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=False):
+            with self.assertRaisesMessage(AssignmentWriteError, "Reviewer edits are paused"):
+                self.service.edit_reviewers(SuggestedReviewers(root=list(self.selection.people)), actor=self.actor)
+        assert self.service.read() == before
+        result = self.service.apply(self._proposal(), actor=ArtefactAttribution.system())
+        assert result.decision.overrides.unassigned
+        assert result.decision.selection.people == ()
+        self.service.edit_reviewers(SuggestedReviewers(root=list(self.selection.people)), actor=self.actor)
+        assert self.service.read().selection == self.selection
+
+    def test_legacy_writer_cannot_overwrite_a_versioned_assignment(self) -> None:
+        self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
+        with self.assertRaisesMessage(ArtefactContentValidationError, "requires the shared assignment writer"):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=SuggestedReviewers(root=list(self.selection.people)),
+                attribution=ArtefactAttribution.system(),
+            )
+        assert self.service.read().overrides.unassigned
+        assert self.service.read().reviewers == ()
+        assert self.report.assignment_revisions.count() == 1
+
+    @parameterized.expand([(False, False, False), (True, False, False), (True, True, False), (True, True, True)])
+    def test_effects_need_separate_enablement_for_versioned_reports(
+        self, versioned: bool, effects: bool, github: bool
+    ) -> None:
+        if versioned:
+            self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=effects),
+            patch(
+                "products.signals.backend.assignment_flags.assignment_github_application_enabled", return_value=github
+            ),
+        ):
+            assert assignment_side_effects_allowed(team_id=self.team.id, report_id=str(self.report.id)) == (
+                not versioned or effects
+            )
+            assert assignment_side_effects_allowed(
+                team_id=self.team.id, report_id=str(self.report.id), github=True
+            ) == (not versioned or (effects and github))
+
+    def test_workers_recheck_effects_after_the_writer_is_disabled(self) -> None:
+        self.service.edit_reviewers(SuggestedReviewers(root=list(self.selection.people)), actor=self.actor)
+        with (
+            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=False),
+            patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository"
+            ) as github,
+            patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack,
+        ):
+            report_id = str(self.report.id)
+            pr_url = "https://github.com/example/repo/pull/1"
+            assert assign_reviewers_to_pull_request(team_id=self.team.id, report_id=report_id, pr_url=pr_url) == []
+            assert not open_pull_request_ready_for_review(team_id=self.team.id, report_id=report_id, pr_url=pr_url)
+            assert dispatch_inbox_item_notifications(report_id, self.team.id) == 0
+            assert dispatch_reviewer_added_notifications(report_id, self.team.id, ["example-reviewer"]) == 0
+            outcome = async_to_sync(maybe_autostart_implementation_task)(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="example/repo",
+                title=self.report.title,
+                summary=self.report.summary,
+                actionability=ActionabilityAssessment(
+                    actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                    explanation="A fix is possible",
+                    already_addressed=False,
+                ),
+                reviewers_content=[],
+                priority=None,
+            )
+        assert outcome.status == "cancelled"
+        assert outcome.reason == "Assignment side effects are disabled"
+        github.assert_not_called()
+        slack.assert_not_called()
+
 
 class TestAssignmentReleaseControls(SimpleTestCase):
     @parameterized.expand([(None, False), (False, False), ("enabled", False), (True, True)])
@@ -353,14 +472,20 @@ class TestAssignmentReleaseControls(SimpleTestCase):
             ) as evaluate:
                 assert assignment_agent_selection_enabled(1) is enabled
                 assert assignment_github_application_enabled(1) is enabled
+                assert assignment_human_writer_enabled(1) is enabled
+                assert assignment_side_effects_enabled(1) is enabled
         assert [call.args[0] for call in evaluate.call_args_list] == [
             "signals-assignment-agent-selection",
             "signals-assignment-github-application",
+            "signals-assignment-human-writer",
+            "signals-assignment-side-effects",
         ]
 
-    def test_unavailable_flag_service_disables_both_controls(self) -> None:
+    def test_unavailable_flag_service_disables_all_controls(self) -> None:
         with patch("products.signals.backend.assignment_flags.Team.objects") as teams:
             teams.values_list.return_value.get.return_value = "example-org"
             with patch("products.signals.backend.assignment_flags.feature_enabled_or_false", side_effect=RuntimeError):
                 assert not assignment_agent_selection_enabled(1)
                 assert not assignment_github_application_enabled(1)
+                assert not assignment_human_writer_enabled(1)
+                assert not assignment_side_effects_enabled(1)

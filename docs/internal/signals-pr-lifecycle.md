@@ -156,7 +156,9 @@ When an implementation pull request reaches the report, the worker requests revi
 
 ## Assignment decisions
 
-The reviewer PUT and step-off API use `ReportAssignmentService` to record assignment decisions.
+The existing Inbox controls save reviewer edits during the API request: **Suggested reviewers**, the **Reviewers** menu, and **Unassign me**.
+With `signals-assignment-human-writer` off, reports without assignment decisions keep the existing writer and its effects.
+With it on, the report and artefact reviewer PUTs and step-off API use `ReportAssignmentService`.
 Each decision is an append-only `assignment_decision` artefact.
 These internal records stay out of the normal work log and its count.
 `SignalReportAssignmentRevision` indexes the current revision and operation IDs.
@@ -169,10 +171,10 @@ The fingerprint covers report text, signal totals, findings, repository selectio
 The writer rejects a stale proposal.
 Repeating an operation ID with the same request returns the original decision without another write or callback.
 Reusing that ID for different input fails.
-The legacy reviewer API allocates an operation ID for each edit; it does not expose a retry token.
+The reviewer API allocates an operation ID for each edit; it does not expose a retry token.
 
 Human additions, removals, and explicit empty PUTs are stored as report-level overrides.
-A person can clear those overrides with a `resume` proposal through the service.
+A person can clear those overrides with a `resume` proposal through the service, under the same human-writer flag.
 Existing suggestions remain suggestions when a person keeps them in the list.
 A successful empty selection clears automatic assignments but preserves human overrides.
 A failed lookup preserves valid assignments and records a reason for reassessment.
@@ -182,14 +184,39 @@ Loss of access removes an assignment even when a person selected it earlier.
 The generic artefact API cannot edit or delete decisions or their reviewer projections.
 The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.
 
-`signals-assignment-agent-selection` gates automatic proposals through this writer.
-`signals-assignment-github-application` reserves a separate control for decision-based GitHub delivery.
-Both require explicit enablement and fail closed, including in development.
-The shared writer does not start work or send GitHub updates for automatic proposals.
-The existing human-edit side effects remain in the API adapter.
-Research, scouts, team-provider validation, and GitHub delivery move to the shared contract in later change sets.
+The release controls require literal `true`. Missing flags and failed evaluations keep the new operations off, including in development.
+They evaluate for the report's organization; use an isolated test organization for the first trial.
+
+| Control                                 | Operation allowed when enabled                                                                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signals-assignment-human-writer`       | Save human edits and resume automatic selection through the versioned writer.                                                                                        |
+| `signals-assignment-agent-selection`    | Apply automatic proposals through the versioned writer.                                                                                                              |
+| `signals-assignment-side-effects`       | Send report/reviewer Slack notifications, start implementation work automatically, and publish reviewer corrections to scouts for reports with assignment decisions. |
+| `signals-assignment-github-application` | Assign GitHub owners, request reviews, and mark PRs ready for reports with assignment decisions. This also requires the side-effects flag.                           |
+
+The side-effects checks use the presence of assignment decisions, not the current writer flag.
+They still apply after a writer is disabled and when an existing worker handles queued work.
+The task creation path checks again under the report lock.
+With side effects disabled, human edits do not write scout correction activity or forward correction notes.
+The assignment decision remains the audit record.
+Suppressed actions are not saved for later delivery; enabling a flag does not replay them.
+
+To stop the trial, disable side effects and both writers.
+Human edits on reports with decisions then return an error and leave saved state intact.
+They do not fall back to the old writer, which cannot preserve override history.
+Re-enable the human writer to continue edits on those reports.
+Reports without decisions keep their existing behavior.
+Flag changes cannot retract sent messages, reverse GitHub changes, or stop work already started.
+An external call that passed its check can still finish after a flag changes.
+
+This is a live writer, not a shadow copy: enabling it changes the real Inbox reviewer list and its read index.
+Research, scouts, team-provider validation, and decision-based GitHub delivery move to the shared contract in later change sets.
+Once a report has assignment decisions, the status appender refuses legacy reviewer writes under the report lock.
+Scouts and other old writers must move to the shared service before they can update reviewers on those reports.
+The GitHub control gates the current delivery worker; it does not yet make that worker apply the decision's separate PR roles.
 Team identities are part of the contract, but the writer refuses team assignments until a provider can validate them.
 Keep automatic application disabled until all producers and readers use the shared state.
+A full shadow comparison and a controlled end-to-end delivery test remain required before rollout.
 
 ## Report links
 

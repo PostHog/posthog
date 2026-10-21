@@ -701,7 +701,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
     # --- PUT reviewers (report-level, works with no existing artefact) ---
 
-    def test_reviewers_action_assigns_first_reviewer_when_none_exist(self):
+    @patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True)
+    def test_reviewers_action_assigns_first_reviewer_when_none_exist(self, _human_flag):
         # A report that never had a suggested_reviewers artefact must still be assignable: the
         # report-level PUT creates the first status row from scratch (the artefact PUT couldn't,
         # since it required an existing artefact to address).
@@ -735,6 +736,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert edit.status_code == status.HTTP_400_BAD_REQUEST
         assert "assignment decision" in edit.json()["error"]
+        legacy_write = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": []},
+            format="json",
+        )
+        assert legacy_write.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires the shared assignment writer" in legacy_write.json()["error"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
 
     def test_put_user_uuid_not_in_org_returns_400(self):
@@ -1092,6 +1100,53 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
 
         assert self._reviewer_filter_matches(report, alice)
+
+    @parameterized.expand(
+        [
+            ("report", False),
+            ("report", True),
+            ("artefact", False),
+            ("artefact", True),
+            ("leave", False),
+            ("leave", True),
+        ]
+    )
+    def test_human_writer_rollout_covers_every_reviewer_adapter(self, adapter: str, enabled: bool) -> None:
+        member = self._create_org_member("added-reviewer@example.com", github_login="added-reviewer")
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        with (
+            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=enabled),
+            patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.models.SignalReportArtefact._schedule_autostart_reevaluation") as autostart,
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications.delay") as notify,
+            patch("products.signals.backend.views.schedule_reviewer_pr_assignment") as assign,
+            patch("products.signals.backend.views.forward_reviewer_correction_note") as steer,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if adapter == "leave":
+                response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+            else:
+                url = (
+                    self._detail_url(str(report.id), str(artefact.id))
+                    if adapter == "artefact"
+                    else f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+                )
+                response = self.client.put(url, {"content": [{"user_uuid": str(member.uuid)}]}, format="json")
+        assert response.status_code == (status.HTTP_204_NO_CONTENT if adapter == "leave" else status.HTTP_200_OK)
+        assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == (
+            [] if adapter == "leave" else [str(member.uuid)]
+        )
+        assert report.assignment_revisions.count() == int(enabled)
+        assert (
+            ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport", item_id=str(report.id)).exists()
+            is not enabled
+        )
+        if enabled:
+            autostart.assert_not_called()
+            notify.assert_not_called()
+            assign.assert_not_called()
+            steer.assert_not_called()
 
     # --- DELETE reviewers/me (step off a report) ---
 

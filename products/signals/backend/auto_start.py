@@ -25,6 +25,7 @@ from posthog.user_permissions import UserPermissions
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import AutostartSkip, ImplementationDispatch, ImplementationReplacement
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -790,6 +791,8 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return False
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
         if requested_after_run_count is not None and (
@@ -1396,6 +1399,9 @@ async def maybe_autostart_implementation_task(
     their report and artefacts. Callers should wrap this in try/except so an
     autostart failure does not fail the report itself.
     """
+    if not await database_sync_to_async(assignment_side_effects_allowed)(team_id=team_id, report_id=report_id):
+        return AutostartOutcome(status="cancelled", reason="Assignment side effects are disabled")
+
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
     task_exists = bool(

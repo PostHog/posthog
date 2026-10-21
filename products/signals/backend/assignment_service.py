@@ -22,7 +22,11 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.assignment_flags import assignment_agent_selection_enabled
+from products.signals.backend.assignment_flags import (
+    assignment_agent_selection_enabled,
+    assignment_human_writer_enabled,
+    assignment_side_effects_enabled,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignmentRevision
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
@@ -256,7 +260,11 @@ class ReportAssignmentService:
 
     def apply(self, proposal: AssignmentProposal, *, actor: ArtefactAttribution) -> AssignmentWrite:
         request_hash = hashlib.sha256((proposal.model_dump_json() + repr(actor)).encode()).hexdigest()
-        automatic_enabled = proposal.action != "automatic" or assignment_agent_selection_enabled(self.team.id)
+        writer_enabled = (
+            assignment_agent_selection_enabled(self.team.id)
+            if proposal.action == "automatic"
+            else assignment_human_writer_enabled(self.team.id)
+        )
         with transaction.atomic():
             report = (
                 SignalReport.objects.select_for_update()
@@ -285,8 +293,8 @@ class ReportAssignmentService:
                 raise StaleAssignmentProposal(
                     "The report or assignment changed. Read it again before applying this proposal."
                 )
-            if not automatic_enabled:
-                raise AssignmentWriteError("Automatic assignment is disabled.")
+            if not writer_enabled:
+                raise AssignmentWriteError("Assignment writes are disabled.")
             if proposal.action != "automatic" and actor.kind != "user":
                 raise AssignmentWriteError("Only a person can change assignment overrides.")
 
@@ -339,7 +347,8 @@ class ReportAssignmentService:
                 report_id=self.report_id,
                 content=SuggestedReviewers(root=list(reviewers)),
                 attribution=actor,
-                reevaluate_autostart=proposal.action == "replace",
+                reevaluate_autostart=proposal.action == "replace" and assignment_side_effects_enabled(self.team.id),
+                assignment_writer=True,
             )
             SignalReportAssignmentRevision.objects.for_team(self.team.id).create(
                 team_id=self.team.id,
@@ -359,8 +368,24 @@ class ReportAssignmentService:
         actor: ArtefactAttribution,
         removal: bool = False,
     ) -> SignalReportArtefact:
+        if actor.kind != "user":
+            raise AssignmentWriteError("Only a person can change assignment overrides.")
         with transaction.atomic():
-            report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=self.report_id)
+            report = (
+                SignalReport.objects.select_for_update()
+                .exclude(status=SignalReport.Status.DELETED)
+                .get(team_id=self.team.id, id=self.report_id)
+            )
+            if not assignment_human_writer_enabled(self.team.id):
+                if self._revisions().exists():
+                    raise AssignmentWriteError("Reviewer edits are paused for this report during assignment testing.")
+                return SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    content=reviewers,
+                    attribution=actor,
+                    reevaluate_autostart=not removal,
+                )
             snapshot = self._snapshot(report)
             return self.apply(
                 AssignmentProposal(
