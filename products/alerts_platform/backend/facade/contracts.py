@@ -1054,6 +1054,35 @@ class AlertDestinationData(TypedDict):
     in_app_url: NotRequired[str]
 
 
+# The transitions a destination can send about. `CHECK` announces nothing, so no destination hears it.
+DESTINATION_EVENT_KINDS: Final = frozenset(
+    {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
+)
+
+
+@frozen
+class NewAlertDestination:
+    """One destination to add to an alert the platform owns the destinations of."""
+
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool = True
+    legacy_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class StoredAlertDestination:
+    """One `AlertDestination` row, with its configuration decrypted."""
+
+    id: UUID
+    configuration_id: UUID
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+    consecutive_failures: int
+    legacy_hog_function_ids: tuple[UUID, ...]
+
+
 class AlertDestinationValidationError(Exception):
     """A destination payload the platform refuses. Callers at an HTTP boundary translate
     this into their own framework's validation error."""
@@ -1254,44 +1283,6 @@ class LegacyEventEmitter(Protocol):
         announcement: EvaluationAnnouncement,
         emissions: Sequence[LegacyEventEmission],
     ) -> None: ...
-
-
-# The internal event a workflow subscribes to for an alert's transitions. One name for every source.
-ALERT_TRANSITION_EVENT: Final = "$alert_transition"
-
-
-@frozen
-class TransitionEvent:
-    """One `$alert_transition` event."""
-
-    properties: dict[str, Any]
-    timestamp: datetime
-    # Stable across attempts, so a receiver can drop an event a retry emits again.
-    uuid: str
-
-
-class TransitionEventProducer(Protocol):
-    """Puts `$alert_transition` events on the internal events topic.
-
-    Returns only once the broker has every event, and raises otherwise, so delivery can retry.
-    """
-
-    def __call__(self, *, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None: ...
-
-
-class SourceFacts(Protocol):
-    """A source's facts about one transition, under the property names its own alert events used.
-
-    A HogFunction ported to a workflow renders these names, so they must match the legacy events.
-    """
-
-    def __call__(
-        self,
-        *,
-        request: AlertDeliveryRequest,
-        announcement: EvaluationAnnouncement,
-        transition: AnnouncedTransition,
-    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.
