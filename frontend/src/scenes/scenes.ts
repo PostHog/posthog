@@ -692,9 +692,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
-    '/feature-flags': urls.featureFlags(),
-    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/instance/query_performance': urls.experimentsStaffTools(),
