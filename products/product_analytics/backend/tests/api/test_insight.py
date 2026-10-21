@@ -74,6 +74,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
+from products.product_analytics.backend.presentation.insight import chart_display_filter
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -1261,6 +1262,47 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
 
         self.assertEqual(len(response.json()["results"]), 2)
+
+    @parameterized.expand(
+        [
+            ("line graphs", "ActionsLineGraph", ["no display", "line", "sql line"]),
+            ("several chart types", "ActionsBar,ActionsPie", ["bar", "pie"]),
+            ("a chart type no insight uses", "WorldMap", []),
+        ]
+    )
+    def test_filtering_insights_by_chart_type(self, _name: str, display: str, expected: list[str]) -> None:
+        trends = [
+            ("no display", {}),
+            ("line", {"trendsFilter": {"display": "ActionsLineGraph"}}),
+            ("bar", {"trendsFilter": {"display": "ActionsBar"}}),
+            ("pie", {"trendsFilter": {"display": "ActionsPie"}}),
+        ]
+        for name, query in [
+            *(
+                (name, {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], **chart}})
+                for name, chart in trends
+            ),
+            (
+                "sql line",
+                {
+                    "kind": "DataVisualizationNode",
+                    "display": "ActionsLineGraph",
+                    "source": {"kind": "HogQLQuery", "query": "select 1"},
+                },
+            ),
+            ("sql table", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("funnel", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}}),
+        ]:
+            Insight.objects.create(team=self.team, name=name, query=query)
+
+        found = Insight.objects.filter(team=self.team).filter(chart_display_filter(display))
+
+        assert sorted(insight.name for insight in found) == sorted(expected)
+
+    def test_listing_insights_by_an_unknown_chart_type_is_rejected(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?display=ActionsLineGraph,Sparkles")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_listing_insights_by_journeys_type(self) -> None:
         journeys_insight_id, _ = self.dashboard_api.create_insight(
