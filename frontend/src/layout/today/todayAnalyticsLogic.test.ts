@@ -35,7 +35,7 @@ describe('todayAnalyticsLogic', () => {
         expect(remounted.values.collapsedSections).toEqual(['monitor'])
     })
 
-    it('lists recently viewed analytics, insights included, and keeps them while the shared list reloads', () => {
+    it('lists recently viewed analytics, insights included, and clears them when the shared list loads empty', () => {
         const logic = todayAnalyticsLogic()
         logic.mount()
         const row = (type: string, ref: string, name: string): FileSystemEntry =>
@@ -52,6 +52,6 @@ describe('todayAnalyticsLogic', () => {
         ])
 
         recentItemsModel.actions.loadRecentsSuccess([])
-        expect(logic.values.recentAnalytics.map((item) => item.name)).toEqual(['Signups', 'Revenue'])
+        expect(logic.values.recentAnalytics).toEqual([])
     })
 })

@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
@@ -54,20 +55,6 @@ export interface todayAnalyticsLogicActions {
     createSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     } // projectTreeDataLogic
-    loadRecentsSuccess: (
-        recents: FileSystemEntry[],
-        payload?: any
-    ) => {
-        payload?: any
-        recents: FileSystemEntry[]
-    } // recentItemsModel
-    recordView: (
-        type: string,
-        ref: string
-    ) => {
-        ref: string
-        type: string
-    } // recentItemsModel
     createFolder: (name: string) => {
         name: string
     }
@@ -98,6 +85,7 @@ export interface todayAnalyticsLogicMeta {
         fromPostHog: (featureFlags: FeatureFlagsSet) => FromPostHogItem[]
         freshRecentAnalytics: (recents: FileSystemEntry[]) => AnalyticsItem[]
         recentAnalytics: (
+            recentsHasLoaded: boolean,
             freshRecentAnalytics: AnalyticsItem[],
             savedRecentAnalytics: AnalyticsItem[]
         ) => AnalyticsItem[]
@@ -115,7 +103,7 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
     path(['layout', 'today', 'todayAnalyticsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], recentItemsModel, ['recents', 'recentsHasLoaded']],
-        actions: [projectTreeDataLogic, ['createSavedItem'], recentItemsModel, ['loadRecentsSuccess', 'recordView']],
+        actions: [projectTreeDataLogic, ['createSavedItem']],
     })),
     actions({
         toggleSection: (section: TodayAnalyticsSection) => ({ section }),
@@ -175,58 +163,49 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
                     })
                     .slice(0, TODAY_ANALYTICS_RECENTS_LIMIT),
         ],
-        // The shared list empties and reloads while the app starts, so an empty fresh list falls back to the saved one.
+        // The saved list covers only the wait for the shared list. Once it has loaded, even empty, it is the answer.
         recentAnalytics: [
-            (s) => [s.freshRecentAnalytics, s.savedRecentAnalytics],
-            (fresh: AnalyticsItem[], saved: AnalyticsItem[]): AnalyticsItem[] => (fresh.length ? fresh : saved),
+            (s) => [s.recentsHasLoaded, s.freshRecentAnalytics, s.savedRecentAnalytics],
+            (recentsHasLoaded: boolean, fresh: AnalyticsItem[], saved: AnalyticsItem[]): AnalyticsItem[] =>
+                recentsHasLoaded ? fresh : saved,
         ],
     }),
-    listeners(({ actions, values }) => {
-        const storeFresh = (): void => {
-            if (values.freshRecentAnalytics.length) {
-                actions.storeRecentAnalytics(values.freshRecentAnalytics)
+    listeners(({ actions, values }) => ({
+        toggleSection: ({ section }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('analytics section toggled', {
+                section,
+                open: !values.collapsedSections.includes(section),
+            })
+        },
+        createFolder: async ({ name }) => {
+            const parent = values.newFolderParent
+            // One name is one segment: a slash in it must not create a nested folder.
+            const path = parent ? `${parent}/${escapePath(name.trim())}` : escapePath(name.trim())
+            if (!name.trim()) {
+                actions.folderCreationFailed()
+                return
             }
-        }
-        return {
-            loadRecentsSuccess: () => storeFresh(),
-            recordView: () => storeFresh(),
-            toggleSection: ({ section }) => {
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('analytics section toggled', {
-                    section,
-                    open: !values.collapsedSections.includes(section),
+            try {
+                // The project tree keeps the rows, so the new folder shows wherever the tree is open.
+                const entry = await api.fileSystem.create({ path, type: 'folder' } as FileSystemEntry)
+                actions.createSavedItem(entry)
+                actions.folderCreated()
+                // pinned: analytics event name. Renaming it breaks dashboards.
+                posthog.capture('analytics folder created', { nested: parent !== null })
+                toast.success({ title: parent ? 'Folder created' : 'Collection created' })
+            } catch {
+                actions.folderCreationFailed()
+                toast.error({
+                    title: parent
+                        ? 'Couldn’t create the folder. Try again.'
+                        : 'Couldn’t create the collection. Try again.',
                 })
-            },
-            createFolder: async ({ name }) => {
-                const parent = values.newFolderParent
-                // One name is one segment: a slash in it must not create a nested folder.
-                const path = parent ? `${parent}/${escapePath(name.trim())}` : escapePath(name.trim())
-                if (!name.trim()) {
-                    actions.folderCreationFailed()
-                    return
-                }
-                try {
-                    // The project tree keeps the rows, so the new folder shows wherever the tree is open.
-                    const entry = await api.fileSystem.create({ path, type: 'folder' } as FileSystemEntry)
-                    actions.createSavedItem(entry)
-                    actions.folderCreated()
-                    // pinned: analytics event name. Renaming it breaks dashboards.
-                    posthog.capture('analytics folder created', { nested: parent !== null })
-                    toast.success({ title: parent ? 'Folder created' : 'Collection created' })
-                } catch {
-                    actions.folderCreationFailed()
-                    toast.error({
-                        title: parent
-                            ? 'Couldn’t create the folder. Try again.'
-                            : 'Couldn’t create the collection. Try again.',
-                    })
-                }
-            },
-        }
-    }),
-    afterMount(({ actions, values }) => {
-        if (values.freshRecentAnalytics.length) {
-            actions.storeRecentAnalytics(values.freshRecentAnalytics)
-        }
-    }),
+            }
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        // Saves what the section shows, so the next page load starts from it.
+        recentAnalytics: (items: AnalyticsItem[]) => actions.storeRecentAnalytics(items),
+    })),
 ])
