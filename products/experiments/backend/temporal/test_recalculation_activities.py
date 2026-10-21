@@ -902,7 +902,7 @@ class TestCalculateActivity(BaseTest):
             status=ExperimentMetricsRecalculation.Status.FAILED,
             metric_uuids=["m1"],
             metric_errors={"m1": {**failure, "timestamp": failed_at}},
-            completed_at=timezone.now(),
+            completed_at=datetime.fromisoformat(failed_at),
         )
         failed_recalculation_id = "run-that-failed" if previous_skipped else str(previous.id)
         recalc = ExperimentMetricsRecalculation.objects.create(
