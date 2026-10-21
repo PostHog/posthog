@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -55,6 +55,8 @@ export interface LogsViewerProps {
     defaultSparklineCollapsed?: boolean
     // A panel embedded under other keyboard controls leaves focus where it is.
     autoFocusSearch?: boolean
+    // Shown in place of the default "No logs found" content when the results are empty.
+    emptyState?: ReactNode
 }
 
 export function LogsViewer({
@@ -68,6 +70,7 @@ export function LogsViewer({
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
     autoFocusSearch = true,
+    emptyState,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -84,6 +87,7 @@ export function LogsViewer({
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
                                         autoFocusSearch={autoFocusSearch}
+                                        emptyState={emptyState}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -109,11 +113,13 @@ function LogsViewerContent({
     showSavedViewsButton,
     autoFocusSearch,
     scope,
+    emptyState,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
     autoFocusSearch: boolean
     scope: LogsViewerScope
+    emptyState?: ReactNode
 }): JSX.Element {
     const {
         id,
@@ -379,6 +385,7 @@ function LogsViewerContent({
                     hasMoreLogsToLoad={hasMoreLogsToLoad}
                     onLoadMore={fetchNextLogsPage}
                     onExpandTimeRange={() => zoomDateRange(2)}
+                    emptyState={emptyState}
                     orderBy={orderBy}
                     onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
                 />

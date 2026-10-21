@@ -109,7 +109,6 @@ export enum NodeKind {
     ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     ErrorTrackingIssueEventsQuery = 'ErrorTrackingIssueEventsQuery',
-    ErrorTrackingLinkedDataSummaryQuery = 'ErrorTrackingLinkedDataSummaryQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
@@ -268,7 +267,6 @@ export type AnyDataNode =
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ErrorTrackingIssueEventsQuery
-    | ErrorTrackingLinkedDataSummaryQuery
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
@@ -341,7 +339,6 @@ export type QuerySchema =
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ErrorTrackingIssueEventsQuery
-    | ErrorTrackingLinkedDataSummaryQuery
     | ExperimentQuery
     | ExperimentExposureQuery
     | DocumentSimilarityQuery
@@ -4519,7 +4516,7 @@ export type CachedErrorTrackingIssueCorrelationQueryResponse =
 /** Data an exception can link to: logs through its trace or session ID, or a session recording. */
 export type ErrorTrackingLinkedDataKind = 'logs' | 'recording'
 
-/** The exceptions of one issue, with the logs and recordings each one links to. */
+/** The exceptions of one issue, optionally only the ones with linked logs or a recording. */
 export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIssueEventsQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueEventsQuery
     issueId: string
@@ -4527,8 +4524,6 @@ export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIss
     source: EventsQuery
     /** Keep only the exceptions that link to every kind of data listed. */
     requiredLinkedData?: ErrorTrackingLinkedDataKind[]
-    /** Add a `linked_logs` column that says whether each exception has linked logs. */
-    withLinkedLogs?: boolean
 }
 
 export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4540,33 +4535,6 @@ export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryRes
     nextCursor?: string
 }
 export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
-
-/** How many exceptions link to each kind of data. */
-export interface ErrorTrackingLinkedDataSummaryQuery extends DataNode<ErrorTrackingLinkedDataSummaryQueryResponse> {
-    kind: NodeKind.ErrorTrackingLinkedDataSummaryQuery
-    issueId: string
-    /** The issue's exceptions list, so the counts follow its filters. */
-    source: EventsQuery
-    linkedData: ErrorTrackingLinkedDataKind[]
-}
-
-export interface ErrorTrackingLinkedDataCount {
-    count: integer
-    /** False when only the most recent exceptions were checked, so `count` is a lower bound. */
-    complete: boolean
-}
-
-export interface ErrorTrackingLinkedDataSummary {
-    /** Null when the kind was not requested or the check failed. */
-    logs: ErrorTrackingLinkedDataCount | null
-    recording: ErrorTrackingLinkedDataCount | null
-}
-
-export interface ErrorTrackingLinkedDataSummaryQueryResponse extends AnalyticsQueryResponseBase {
-    results: ErrorTrackingLinkedDataSummary
-}
-export type CachedErrorTrackingLinkedDataSummaryQueryResponse =
-    CachedQueryResponse<ErrorTrackingLinkedDataSummaryQueryResponse>
 
 export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
     ErrorTrackingQuery,

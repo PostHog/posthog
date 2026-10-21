@@ -1187,18 +1187,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "ErrorTrackingLinkedDataSummaryQuery":
-        from products.error_tracking.backend.facade.queries import ErrorTrackingLinkedDataSummaryQueryRunner
-
-        return ErrorTrackingLinkedDataSummaryQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "ErrorTrackingSimilarIssuesQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 

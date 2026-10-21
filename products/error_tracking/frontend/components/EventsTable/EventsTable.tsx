@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -35,7 +35,6 @@ export interface EventsTableProps {
     lastEventUuid?: string
     onEventSelect: (event: ErrorEventType) => void
     onLoadMore: () => void
-    renderBadges?: (record: ErrorEventType) => ReactNode
 }
 
 export function EventsTable({
@@ -47,7 +46,6 @@ export function EventsTable({
     lastEventUuid,
     onEventSelect,
     onLoadMore,
-    renderBadges,
 }: EventsTableProps): JSX.Element {
     return (
         <div data-quill>
@@ -66,7 +64,6 @@ export function EventsTable({
                                 firstEventUuid={firstEventUuid}
                                 lastEventUuid={lastEventUuid}
                                 onSelect={onEventSelect}
-                                renderBadges={renderBadges}
                             />
                         ))}
                     </TableBody>
@@ -108,14 +105,12 @@ function EventRow({
     firstEventUuid,
     lastEventUuid,
     onSelect,
-    renderBadges,
 }: {
     record: ErrorEventType
     selected: boolean
     firstEventUuid?: string
     lastEventUuid?: string
     onSelect: (event: ErrorEventType) => void
-    renderBadges?: (record: ErrorEventType) => ReactNode
 }): JSX.Element {
     const rowRef = useRef<HTMLTableRowElement>(null)
 
@@ -157,7 +152,7 @@ function EventRow({
                         <EventTitle record={record} />
                     </div>
                     <div className="w-[35%] min-w-28 max-w-56 shrink-0 overflow-hidden py-2 pl-3 pr-4 text-right">
-                        <EventMetadata record={record} badges={renderBadges?.(record)} />
+                        <EventMetadata record={record} />
                     </div>
                     <div className="flex w-10 shrink-0 justify-end py-2 pr-4">
                         <EventActions record={record} />
@@ -186,7 +181,7 @@ function EventTitle({ record }: { record: ErrorEventType }): JSX.Element {
     )
 }
 
-function EventMetadata({ record, badges }: { record: ErrorEventType; badges?: ReactNode }): JSX.Element {
+function EventMetadata({ record }: { record: ErrorEventType }): JSX.Element {
     const hasPerson = Boolean(record.person?.id || record.person?.uuid)
 
     return (
@@ -196,8 +191,7 @@ function EventMetadata({ record, badges }: { record: ErrorEventType; badges?: Re
                     <Person person={record.person} />
                 </div>
             )}
-            <div className="flex shrink-0 items-center gap-1.5">
-                {badges}
+            <div className="shrink-0">
                 <span className="contents">
                     <TZLabel time={record.timestamp} hoverOpenDelayMs={500} />
                 </span>

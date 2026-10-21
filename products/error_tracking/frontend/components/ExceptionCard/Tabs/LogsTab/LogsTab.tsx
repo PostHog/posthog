@@ -32,13 +32,9 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
-    const { loading, issueId, logsScope, linkedData, showUnlinkedLogs } = useValues(exceptionCardLogic)
-    const { setLogsScope, setShowUnlinkedLogs } = useActions(exceptionCardLogic)
+    const { loading, issueId, logsScope, linkedData } = useValues(exceptionCardLogic)
+    const { setLogsScope } = useActions(exceptionCardLogic)
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
-    const hasNoLinkedLogs = linkedData?.hasLogs === false
-    const linkedLogsCount = linkedData?.exceptionCounts?.logs ?? null
-    const noExceptionHasLogs = !!linkedLogsCount && linkedLogsCount.complete && linkedLogsCount.count === 0
-    const canFilterToLogs = !!linkedLogsCount && !noExceptionHasLogs
 
     // logsViewerFiltersLogic re-applies `initialFilters` whenever the object identity changes, which
     // resets the date range the user set, so the window depends on the occurrence and not the scope.
@@ -47,8 +43,7 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
         [timestamp]
     )
     const { availableScopes, effectiveScope, pinnedFilters } = useMemo(() => {
-        // A trace or session scope with no linked logs is always empty, so only the window is left.
-        const correlationIds = hasNoLinkedLogs ? {} : { sessionId, spanId, traceId }
+        const correlationIds = { sessionId, spanId, traceId }
         const nextAvailableScopes = getAvailableExceptionLogScopes(correlationIds)
         const nextEffectiveScope = getEffectiveExceptionLogScope(logsScope, nextAvailableScopes)
 
@@ -57,46 +52,20 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
             effectiveScope: nextEffectiveScope,
             pinnedFilters: buildExceptionLogPinnedFilters(nextEffectiveScope, correlationIds),
         }
-    }, [hasNoLinkedLogs, logsScope, sessionId, spanId, traceId])
+    }, [logsScope, sessionId, spanId, traceId])
     const scopedSessionId = effectiveScope === 'session' ? sessionId : undefined
     const hasCorrelationScope = availableScopes.length > 1
 
     useEffect(() => {
-        // Keep the user's scope for the next exception that has linked logs.
-        if (!loading && !hasNoLinkedLogs && logsScope !== effectiveScope) {
+        if (!loading && logsScope !== effectiveScope) {
             setLogsScope(effectiveScope)
         }
-    }, [effectiveScope, hasNoLinkedLogs, loading, logsScope, setLogsScope])
+    }, [effectiveScope, loading, logsScope, setLogsScope])
 
     return (
         <TabsContent value="logs" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {loading ? (
                 <TabSpinner />
-            ) : hasNoLinkedLogs && !showUnlinkedLogs ? (
-                <LinkedDataEmptyState
-                    kind="logs"
-                    title="No logs linked to this exception"
-                    description={
-                        !noExceptionHasLogs ? (
-                            'Logs link to an exception through its trace ID or session ID.'
-                        ) : (
-                            <>
-                                None of this issue's exceptions in the selected date range have linked logs.{' '}
-                                <Link to="https://posthog.com/docs/logs/link-session-replay" target="_blank">
-                                    Link your logs to sessions
-                                </Link>
-                            </>
-                        )
-                    }
-                >
-                    <Button
-                        variant="outline"
-                        onClick={() => setShowUnlinkedLogs(true)}
-                        data-attr="error-tracking-logs-show-unlinked"
-                    >
-                        Show all logs around this time
-                    </Button>
-                </LinkedDataEmptyState>
             ) : (
                 <>
                     {/* The caption wraps rather than truncates, because truncating it in a narrow
@@ -104,10 +73,10 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                     <SubHeader className="h-auto min-h-9 justify-between gap-2 py-1">
                         <span className="min-w-0 text-xs text-secondary">
                             Logs from {EXCEPTION_LOGS_WINDOW_MINUTES} minutes before and after this exception.{' '}
-                            {hasNoLinkedLogs ? (
+                            {!hasCorrelationScope && (
                                 <>
-                                    No logs link to this exception, so these are all logs in that window.{' '}
-                                    {canFilterToLogs && linkedData && (
+                                    This exception has no trace or session ID, so these are all logs in that window.{' '}
+                                    {linkedData ? (
                                         <Button
                                             variant="link"
                                             size="inline"
@@ -118,12 +87,7 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                                             <IconFilter />
                                             Show only exceptions with logs
                                         </Button>
-                                    )}
-                                </>
-                            ) : (
-                                !hasCorrelationScope && (
-                                    <>
-                                        This exception has no trace or session ID, so these are all logs in that window.{' '}
+                                    ) : (
                                         <Link
                                             to="https://posthog.com/docs/logs/link-session-replay"
                                             target="_blank"
@@ -131,8 +95,8 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                                         >
                                             Link your logs to sessions
                                         </Link>
-                                    </>
-                                )
+                                    )}
+                                </>
                             )}
                         </span>
                         {hasCorrelationScope && (
@@ -162,6 +126,25 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                             showFullScreenButton={false}
                             defaultFacetRailCollapsed
                             defaultSparklineCollapsed
+                            // Only the issue page can filter its list, and only a trace or session scope can be
+                            // empty for lack of linked logs. The window scope keeps the viewer's own empty state.
+                            emptyState={
+                                linkedData && effectiveScope !== 'window' ? (
+                                    <LinkedDataEmptyState
+                                        kind="logs"
+                                        title="No logs linked to this exception"
+                                        description="Logs link to an exception through its trace ID or session ID."
+                                    >
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setLogsScope('window')}
+                                            data-attr="error-tracking-logs-show-window"
+                                        >
+                                            Show all logs around this time
+                                        </Button>
+                                    </LinkedDataEmptyState>
+                                ) : undefined
+                            }
                         />
                     </div>
                 </>

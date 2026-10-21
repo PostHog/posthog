@@ -330,21 +330,12 @@ const RightHandColumn = ({
 }): JSX.Element | null => {
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
-    const { summary: linkedDataSummary } = useValues(issueLinkedDataLogic({ issueId }))
     const { setLinkRequired } = useActions(issueLinkedDataLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
-    // An exception loaded straight from a link, rather than from the list, carries no logs flag.
-    const detailEventHasLogs = detailEvent?.linkedLogs ?? null
     const exceptionLinkedData = useMemo<ExceptionLinkedData>(
-        () => ({
-            hasLogs: detailEventHasLogs,
-            exceptionCounts: linkedDataSummary
-                ? { logs: linkedDataSummary.logs, recording: linkedDataSummary.recording }
-                : null,
-            showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => setLinkRequired(kind, true),
-        }),
-        [detailEventHasLogs, linkedDataSummary, setLinkRequired]
+        () => ({ showOnlyExceptionsWith: (kind: ErrorTrackingLinkedDataKind) => setLinkRequired(kind, true) }),
+        [setLinkRequired]
     )
 
     if (isMobile && !isOpen) {

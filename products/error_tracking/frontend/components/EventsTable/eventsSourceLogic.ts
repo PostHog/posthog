@@ -15,11 +15,9 @@ type EventsQueryRow = [
     event: Pick<ErrorEventType, 'uuid' | 'properties'>,
     timestamp: ErrorEventType['timestamp'],
     person: EventsQueryPerson,
-    // Only an ErrorTrackingIssueEventsQuery that checks linked logs returns this column.
-    linkedLogs?: boolean | null,
 ]
 
-function rowToRecord([event, timestamp, person, linkedLogs]: EventsQueryRow): ErrorEventType {
+function rowToRecord([event, timestamp, person]: EventsQueryRow): ErrorEventType {
     return {
         event: '$exception',
         uuid: event.uuid,
@@ -27,7 +25,6 @@ function rowToRecord([event, timestamp, person, linkedLogs]: EventsQueryRow): Er
         person,
         distinct_id: event.properties.distinct_id || person.distinct_id,
         properties: event.properties,
-        ...(linkedLogs !== undefined ? { linkedLogs } : {}),
     }
 }
 

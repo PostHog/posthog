@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useEffect, useRef } from 'react'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { EventsTable, EventsTableLoading } from '../../components/EventsTable/EventsTable'
@@ -14,13 +13,9 @@ import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsEmptyState } from './IssueEventsEmptyState'
 import { IssueEventsToolbar } from './IssueEventsToolbar'
 import { issueLinkedDataLogic } from './issueLinkedDataLogic'
-import { LinkedDataBadges } from './LinkedDataBadges'
 
 export function IssueEventsPanel(): JSX.Element {
-    const { issueFingerprintsLoading, issueId } = useValues(errorTrackingIssueSceneLogic)
-    const { requestSummary } = useActions(issueLinkedDataLogic({ issueId }))
-
-    useOnMountEffect(requestSummary)
+    const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
 
     if (issueFingerprintsLoading) {
         return (
@@ -103,7 +98,6 @@ function LoadedIssueEventsPanel(): JSX.Element {
                     lastEventUuid={summary?.last_event_uuid}
                     onEventSelect={selectEvent}
                     onLoadMore={loadNextData}
-                    renderBadges={(record) => <LinkedDataBadges record={record} />}
                 />
             )}
         </IssueEventsLayout>

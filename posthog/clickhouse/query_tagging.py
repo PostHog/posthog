@@ -234,7 +234,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
             | NodeKind.ERROR_TRACKING_RELEASES_QUERY
             | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
-            | NodeKind.ERROR_TRACKING_LINKED_DATA_SUMMARY_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:

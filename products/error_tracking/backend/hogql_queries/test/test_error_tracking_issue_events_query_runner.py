@@ -5,24 +5,14 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
-from posthog.schema import (
-    ErrorTrackingIssueEventsQuery,
-    ErrorTrackingLinkedDataKind,
-    ErrorTrackingLinkedDataSummaryQuery,
-    EventsQuery,
-)
+from posthog.schema import ErrorTrackingIssueEventsQuery, ErrorTrackingLinkedDataKind, EventsQuery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-from products.error_tracking.backend.hogql_queries import error_tracking_linked_data_summary_query_runner
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_events_query_runner import (
     ErrorTrackingIssueEventsQueryRunner,
-)
-from products.error_tracking.backend.hogql_queries.error_tracking_linked_data_summary_query_runner import (
-    ErrorTrackingLinkedDataSummaryQueryRunner,
 )
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -36,7 +26,7 @@ FINGERPRINT = "linked_data_fingerprint"
 
 
 @time_machine.travel(NOW, tick=False)
-class TestErrorTrackingLinkedDataQueryRunners(ClickhouseTestMixin, APIBaseTest):
+class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         issue = ErrorTrackingIssue.objects.create(id=ISSUE_ID, team=self.team)
@@ -104,17 +94,6 @@ class TestErrorTrackingLinkedDataQueryRunners(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def _summary(self) -> ErrorTrackingLinkedDataSummaryQueryRunner:
-        return ErrorTrackingLinkedDataSummaryQueryRunner(
-            team=self.team,
-            query=ErrorTrackingLinkedDataSummaryQuery(
-                kind="ErrorTrackingLinkedDataSummaryQuery",
-                issueId=ISSUE_ID,
-                source=self._source(),
-                linkedData=[ErrorTrackingLinkedDataKind.RECORDING, ErrorTrackingLinkedDataKind.LOGS],
-            ),
-        )
-
     def test_logs_filter_pages_through_every_exception_with_logs(self) -> None:
         traces = [uuid4().hex for _ in range(6)]
         exceptions = [self._exception(hours_ago=index + 1, trace_id=trace) for index, trace in enumerate(traces)]
@@ -127,25 +106,11 @@ class TestErrorTrackingLinkedDataQueryRunners(ClickhouseTestMixin, APIBaseTest):
         for _ in range(10):
             response = self._events(source, requiredLinkedData=[ErrorTrackingLinkedDataKind.LOGS]).calculate()
             seen += [str(row[0]["uuid"]) for row in response.results]
-            assert all(row[-1] is True for row in response.results)
             if not response.hasMore:
                 break
             source = source.model_copy(update={"before": response.nextCursor})
 
         assert seen == [exceptions[0], exceptions[2], exceptions[3], exceptions[5]]
-
-    def test_linked_logs_column_marks_each_row(self) -> None:
-        linked_trace, unlinked_trace = uuid4().hex, uuid4().hex
-        self._exception(hours_ago=1, trace_id=linked_trace)
-        self._exception(hours_ago=2, trace_id=unlinked_trace)
-        self._exception(hours_ago=3)
-        self._log(hours_ago=1, trace_id=linked_trace)
-        flush_persons_and_events()
-
-        response = self._events(self._source(), withLinkedLogs=True).calculate()
-
-        assert response.columns[-1] == "linked_logs"
-        assert [row[-1] for row in response.results] == [True, False, False]
 
     def test_recording_filter_skips_deleted_recordings(self) -> None:
         active, deleted = str(uuid4()), str(uuid4())
@@ -157,23 +122,5 @@ class TestErrorTrackingLinkedDataQueryRunners(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         filtered = self._events(self._source(), requiredLinkedData=[ErrorTrackingLinkedDataKind.RECORDING]).calculate()
-        unfiltered = self._events(self._source()).calculate()
 
         assert [str(row[0]["uuid"]) for row in filtered.results] == [with_recording]
-        assert [row[0]["properties"]["$has_recording"] for row in unfiltered.results] == [True, False, False]
-        recording = self._summary().calculate().results.recording
-        assert recording is not None
-        assert recording.count == 1
-
-    def test_logs_count_is_a_lower_bound_past_the_scan_budget(self) -> None:
-        traces = [uuid4().hex for _ in range(3)]
-        for index, trace in enumerate(traces):
-            self._exception(hours_ago=index + 1, trace_id=trace)
-            self._log(hours_ago=index + 1, trace_id=trace)
-        flush_persons_and_events()
-
-        with patch.object(error_tracking_linked_data_summary_query_runner, "LOGS_COUNT_SCAN_BUDGET", 2):
-            logs = self._summary().calculate().results.logs
-
-        assert logs is not None
-        assert (logs.count, logs.complete) == (2, False)
