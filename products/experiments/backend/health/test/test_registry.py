@@ -16,11 +16,13 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.context import (
+    ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
     FlagState,
     FlagVariant,
     HealthContext,
+    MetricEvents,
 )
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -59,6 +61,17 @@ Key = ExperimentHealthCheckKey
 Status = ExperimentHealthCheckStatus
 NOT_LOOKED = (Status.NOT_APPLICABLE, Status.NOT_CHECKED)
 FLAG_CHANGE_KEYS = (Key.SPLIT_CHANGED_MID_RUN, Key.BUCKETING_CHANGED_MID_RUN, Key.RELEASE_CONDITIONS_CHANGED_MID_RUN)
+EVENT_KEYS = (Key.METRIC_EVENT_NOT_INGESTED, Key.EXPOSURE_CRITERIA_CANNOT_MATCH)
+
+
+def _events(name: str, received: dict[str, bool]) -> dict[str, Any]:
+    return {
+        "metric_events": (MetricEvents(name="Metric", role="primary", events=(name,)),),
+        "exposure_events": ExposureEvents(custom_event=name, required_flag_key=None, flag_key_filters=()),
+        "events_received": received,
+    }
+
+
 EVEN_SPLIT_FLAG = FlagState(
     active=True,
     deleted=False,
@@ -156,6 +169,8 @@ class TestEvaluate(TestCase):
                     Key.FLAG_HISTORY: Status.NOT_APPLICABLE,
                     **dict.fromkeys(FLAG_CHANGE_KEYS, Status.NOT_APPLICABLE),
                     Key.NO_METRIC: Status.NOT_APPLICABLE,
+                    Key.METRIC_EVENT_NOT_INGESTED: Status.NOT_APPLICABLE,
+                    Key.EXPOSURE_CRITERIA_CANNOT_MATCH: Status.PASSED,
                     Key.ZERO_EXPOSURES: Status.NOT_APPLICABLE,
                     Key.SRM: Status.NOT_APPLICABLE,
                     Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_APPLICABLE,
@@ -190,9 +205,24 @@ class TestEvaluate(TestCase):
                 {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
             ),
             (
+                "flag_traffic_is_left_to_zero_exposures_after_launch",
+                {"flag_called": False},
+                {Key.NEW_FLAG_NO_TRAFFIC: Status.NOT_APPLICABLE},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},
+            ),
+            (
+                "events_not_received_are_not_reported_after_the_end",
+                {**ENDED, **_events("purchase", {"purchase": False})},
+                dict.fromkeys(EVENT_KEYS, Status.NOT_APPLICABLE),
+            ),
+            (
+                "event_names_that_get_no_definition_are_not_checked",
+                _events("$$plugin_metrics", {}),
+                dict.fromkeys(EVENT_KEYS, Status.NOT_CHECKED),
             ),
         ]
     )

@@ -211,6 +211,19 @@ describe('insightDataChecksLogic', () => {
         expect(logic.values.status).toBe(expected)
     })
 
+    it.each([
+        ['problem', true],
+        ['warning', true],
+        ['passed', false],
+    ])('keeps the label open after a %s result only when there is a finding', async (result, open) => {
+        dataChecks.mockImplementation(answer([200, checksOf(result)]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        logic.actions.closeLabel()
+
+        expect(logic.values.labelOpen).toBe(open)
+    })
+
     it('checks again when the chart type changes and the chart reuses its result', async () => {
         dataChecks.mockImplementation(answer([200, checksOf('passed')]))
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
@@ -299,6 +312,21 @@ describe('insightDataChecksLogic', () => {
     const addTheRule = (): void => {
         logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
     }
+    it("adds the check's rule to this insight's filters once, then checks the filtered chart", async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+        const check = { key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi
+
+        await expectLogic(logic, () => {
+            logic.actions.excludeFromInsight(check)
+            logic.actions.excludeFromInsight(check)
+        }).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.properties).toEqual([rule])
+        expect(sentSources.at(-1)?.properties).toEqual([rule])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
     it("adds the check's rule to the project's filter, then checks again", async () => {
         const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
         dataChecks.mockImplementation(answer([200, checksOf('warning')]))

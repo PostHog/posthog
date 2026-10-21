@@ -13,6 +13,10 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded, bias_risk_skip
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.exposure_criteria import (
+    exposure_criteria_cannot_match,
+    exposure_criteria_skip,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     flag_change_skip,
     flag_history_not_readable,
@@ -24,10 +28,15 @@ from products.experiments.backend.health.checks.forced_variant import (
     forced_variant_release_condition,
     forced_variant_skip,
 )
+from products.experiments.backend.health.checks.metric_event_not_ingested import (
+    metric_event_not_ingested,
+    metric_event_not_ingested_skip,
+)
 from products.experiments.backend.health.checks.multiple_variants import (
     multiple_variants_share,
     multiple_variants_share_skip,
 )
+from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic, new_flag_no_traffic_skip
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_skip
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm, srm_skip
@@ -90,10 +99,28 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         skip=forced_variant_skip,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC,
+        name="Feature flag traffic",
+        find=new_flag_no_traffic,
+        skip=new_flag_no_traffic_skip,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.NO_METRIC,
         name="Metrics",
         find=no_metric,
         skip=no_metric_skip,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
+        name="Metric events",
+        find=metric_event_not_ingested,
+        skip=metric_event_not_ingested_skip,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
+        name="Exposure criteria",
+        find=exposure_criteria_cannot_match,
+        skip=exposure_criteria_skip,
     ),
 )
 
