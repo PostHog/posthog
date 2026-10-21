@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLogomark } from '@posthog/icons'
-
+import { Logo } from 'lib/brand'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -100,10 +99,9 @@ export function ExtensionPanel(): JSX.Element {
 
     return (
         <div className="flex min-h-screen flex-col gap-3 p-3">
-            <div className="flex items-center gap-2 font-semibold">
-                <IconLogomark className="text-xl" />
-                PostHog toolbar
-            </div>
+            <h1 className="m-0 flex">
+                <Logo size="xs" title="PostHog" />
+            </h1>
             <ExtensionPanelBody panelState={panelState} />
             <ExtensionPanelSettings />
         </div>

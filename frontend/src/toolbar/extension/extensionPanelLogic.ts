@@ -44,6 +44,14 @@ const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
     'error',
 ]
 
+// States the user may fix with the project or host settings, for example a session on the other cloud region.
+const OPEN_SETTINGS_IN: ExtensionPanelState['kind'][] = [
+    'host-permission-needed',
+    'signed-out',
+    'no-toolbar-access',
+    'error',
+]
+
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
     return await readResponse(
@@ -73,6 +81,8 @@ export interface extensionPanelLogicValues {
     projectUrl: (path: string) => string
     sessionUser: SessionUserResult | null
     sessionUserLoading: boolean
+    settingsExpanded: boolean
+    settingsNeeded: boolean
     tabUrl: string | null | undefined
     toolbarAccess: ToolbarAccessResult | null
     toolbarAccessLoading: boolean
@@ -161,6 +171,9 @@ export interface extensionPanelLogicActions {
     setProjectSwitchFailed: (failed: boolean) => {
         failed: boolean
     }
+    setSettingsExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     setTabUrl: (tabUrl: string | null) => {
         tabUrl: string | null
     }
@@ -186,6 +199,7 @@ export interface extensionPanelLogicMeta {
             toolbarAccess: ToolbarAccessResult | null,
             authorizedUrls: string[] | 'error' | null
         ) => ExtensionPanelState
+        settingsNeeded: (panelState: ExtensionPanelState, projectSwitchFailed: boolean) => boolean
     }
 }
 
@@ -209,6 +223,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         openFeature: (feature: ExtensionFeatureKey, path: string) => ({ feature, path }),
         retry: true,
         setProjectSwitchFailed: (failed: boolean) => ({ failed }),
+        setSettingsExpanded: (expanded: boolean) => ({ expanded }),
     }),
     reducers({
         tabUrl: [undefined as string | null | undefined, { setTabUrl: (_, { tabUrl }) => tabUrl }],
@@ -221,6 +236,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             null as boolean | null,
             { setUiHost: () => null, setHostPermission: (_, { granted }) => granted },
         ],
+        settingsExpanded: [false, { setSettingsExpanded: (_, { expanded }) => expanded }],
     }),
     loaders(({ values }) => ({
         sessionUser: [
@@ -333,6 +349,11 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                     authorizedUrls,
                 }),
         ],
+        settingsNeeded: [
+            (s) => [s.panelState, s.projectSwitchFailed],
+            (panelState: ExtensionPanelState, projectSwitchFailed: boolean): boolean =>
+                projectSwitchFailed || OPEN_SETTINGS_IN.includes(panelState.kind),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         setUiHost: async ({ uiHost }) => {
@@ -404,7 +425,14 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             actions.openProjectPath(path)
         },
     })),
-    subscriptions({
+    subscriptions(({ actions }) => ({
+        settingsNeeded: (settingsNeeded: boolean, previous: boolean | undefined) => {
+            // Opens the settings when a problem starts and closes them when it ends, so the user can still toggle
+            // them in between.
+            if (settingsNeeded || previous) {
+                actions.setSettingsExpanded(settingsNeeded)
+            }
+        },
         panelState: (panelState: ExtensionPanelState, previous: ExtensionPanelState | undefined) => {
             if (panelState.kind === 'checking' || panelState.kind === previous?.kind) {
                 return
@@ -415,7 +443,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 unsupported_reason: panelState.kind === 'unsupported-page' ? panelState.reason : undefined,
             })
         },
-    }),
+    })),
     afterMount(({ actions, cache }) => {
         toolbarPosthogJS.opt_in_capturing()
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))

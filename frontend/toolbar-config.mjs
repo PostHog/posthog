@@ -328,12 +328,12 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
 function buildToolbarExtensionManifest(browser) {
     const manifest = {
         manifest_version: 3,
-        name: 'PostHog toolbar',
+        name: 'PostHog',
         description: 'Use the PostHog toolbar in a side panel next to your website.',
         version: TOOLBAR_EXTENSION_VERSION,
         icons: TOOLBAR_EXTENSION_ICONS,
         action: {
-            default_title: 'Open the PostHog toolbar',
+            default_title: 'Open PostHog',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
         permissions: ['storage'],
@@ -341,7 +341,7 @@ function buildToolbarExtensionManifest(browser) {
     }
     if (browser === 'firefox') {
         manifest.sidebar_action = {
-            default_title: 'PostHog toolbar',
+            default_title: 'PostHog',
             default_panel: 'panel.html',
             default_icon: TOOLBAR_EXTENSION_ICONS,
             open_at_install: false,
