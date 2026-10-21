@@ -6,7 +6,7 @@ from uuid import UUID
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
-from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
+from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.inventory import TeamInventory
 from products.warehouse_suggestions.backend.logic.reads import (
@@ -36,6 +36,7 @@ def busy_reads(**overrides: Any) -> SubjectReads:
         human_users=6,
         human_days=25,
         background_requests=0,
+        background_reads=0,
         human_reads=200,
         human_duration_ms=200 * 20_000,
         human_read_bytes=200 * 10**9,
@@ -93,6 +94,7 @@ def context(
     direct_table_ids: frozenset[UUID] = frozenset(),
     team_id: int = 1,
     rules: Rules = RULES,
+    recent_accepts: Mapping[WarehouseSuggestionKind, frozenset[UUID]] | None = None,
 ) -> CandidateContext:
     return CandidateContext(
         team_id=team_id,
@@ -105,6 +107,7 @@ def context(
         ),
         rules=rules,
         run_id="run-1",
+        recent_accepts=recent_accepts or {},
     )
 
 

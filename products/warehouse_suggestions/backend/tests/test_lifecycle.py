@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
+    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionDraft,
@@ -46,6 +47,14 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         freshness_after_seconds=86400,
         live_sources=(),
         unknown_sources=(),
+    ),
+    WarehouseSuggestionKind.DEMATERIALIZE: DematerializePayload(
+        subject_name="orders",
+        refresh_seconds_per_month=3600,
+        refresh_bytes_per_month=0,
+        live_seconds_per_month=20,
+        live_bytes_per_month=0,
+        read_seconds=5,
     ),
 }
 
@@ -173,6 +182,38 @@ class TestApplyRun(BaseTest):
         apply_run(ctx, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().status == expected
+
+    @parameterized.expand(
+        [
+            ("after_the_cooldown", 40, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("inside_the_cooldown", 10, WarehouseSuggestionStatus.ACCEPTED, 0),
+        ]
+    )
+    def test_an_accepted_materialize_returns_once_the_view_was_dematerialized_and_the_cooldown_passed(
+        self, _name: str, dematerialized_days_ago: int, expected_status: WarehouseSuggestionStatus, reproposed: int
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        materialize = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)
+        apply_run(
+            ctx,
+            self.team,
+            [materialize, self._draft(ctx, WarehouseSuggestionKind.DEMATERIALIZE, view_id, 1)],
+            NOW - timedelta(days=60),
+            surface=True,
+        )
+        suggestions = WarehouseSuggestion.objects.for_team(self.team.pk)
+        suggestions.filter(kind=WarehouseSuggestionKind.MATERIALIZE).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=60)
+        )
+        suggestions.filter(kind=WarehouseSuggestionKind.DEMATERIALIZE).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=dematerialized_days_ago)
+        )
+
+        apply_run(ctx, self.team, [materialize], NOW, surface=False)
+
+        row = suggestions.get(kind=WarehouseSuggestionKind.MATERIALIZE)
+        assert (row.status, row.reproposed_count) == (expected_status, reproposed)
 
     @parameterized.expand(
         [("expired", WarehouseSuggestionStatus.EXPIRED), ("auto_resolved", WarehouseSuggestionStatus.AUTO_RESOLVED)]

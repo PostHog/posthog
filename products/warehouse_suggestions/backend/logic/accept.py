@@ -37,6 +37,8 @@ from ..facade.contracts import (
     AcceptOptions,
     CertificationAsset,
     CreatedAsset,
+    DematerializationAsset,
+    DematerializePayload,
     DeprecatePayload,
     MaterializationAsset,
     MaterializePayload,
@@ -180,6 +182,37 @@ def stop_materializing(suggestion: WarehouseSuggestion, request: AcceptRequest) 
         raise AcceptFailedError(str(error))
 
 
+NO_LONGER_MATERIALIZED = "This view is no longer materialized."
+NOW_REFRESHES_INCREMENTALLY = (
+    "This view now refreshes incrementally, so the suggestion's cost estimate no longer applies."
+)
+NOW_CALLS_MODELS = "This view now calls a model per row, which would run on every read."
+
+
+class DematerializeAcceptor(Acceptor):
+    def accept(
+        self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
+    ) -> CreatedAsset:
+        definition = _definition(suggestion)
+        if definition is None:
+            raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        blocker = _dematerialize_blocker(suggestion.team_id, definition)
+        if blocker is not None:
+            raise SuggestionOutdatedError(blocker)
+        stop_materializing(suggestion, request)
+        return DematerializationAsset(saved_query_id=str(suggestion.subject_id))
+
+
+def _dematerialize_blocker(team_id: int, definition: SavedQueryDefinition) -> str | None:
+    if not definition.materializes:
+        return NO_LONGER_MATERIALIZED
+    if definition.refreshes_incrementally:
+        return NOW_REFRESHES_INCREMENTALLY
+    if definition.calls_models:
+        return NOW_CALLS_MODELS
+    return stop_blocker(team_id, definition)
+
+
 VIEW_CHANGED_SINCE_SUGGESTED = (
     "This view changed after the suggestion was made, so it can no longer refresh incrementally on the suggested keys."
 )
@@ -313,6 +346,7 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
         status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True, stops_materialization=True
     ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
+    WarehouseSuggestionKind.DEMATERIALIZE: DematerializeAcceptor(),
 }
 
 
@@ -400,15 +434,19 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
 
 
 def refresh_savings(created_asset: CreatedAsset, payload: SuggestionPayload) -> RefreshSavings:
-    if not isinstance(created_asset, CertificationAsset) or not created_asset.stopped_materialization:
-        return NO_REFRESH_SAVINGS
-    if not isinstance(payload, DeprecatePayload):
+    if not _stopped_materialization(created_asset) or not isinstance(payload, DeprecatePayload | DematerializePayload):
         return NO_REFRESH_SAVINGS
     return RefreshSavings(
         stopped_materialization=True,
         refresh_seconds_per_month=payload.refresh_seconds_per_month,
         refresh_bytes_per_month=payload.refresh_bytes_per_month,
     )
+
+
+def _stopped_materialization(created_asset: CreatedAsset) -> bool:
+    if isinstance(created_asset, DematerializationAsset):
+        return True
+    return isinstance(created_asset, CertificationAsset) and created_asset.stopped_materialization
 
 
 def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggestionKind, options: AcceptOptions) -> None:

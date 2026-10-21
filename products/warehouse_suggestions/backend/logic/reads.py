@@ -64,6 +64,7 @@ class SubjectReads:
     human_users: int
     human_days: int
     background_requests: int
+    background_reads: int
     human_reads: int
     human_duration_ms: int
     human_read_bytes: int
@@ -85,6 +86,7 @@ class SubjectRefreshes:
     runs: int
     duration_ms: int
     read_bytes: int
+    p90_duration_ms: float
 
 
 @frozen
@@ -209,6 +211,7 @@ SELECT
     uniqMergeIf(users, is_human),
     uniqIf(day, is_human),
     uniqMergeIf(requests, NOT is_human),
+    sumIf(read_count, NOT is_human),
     sumIf(read_count, is_human),
     sumIf(duration_ms_sum, is_human),
     sumIf(read_bytes_sum, is_human),
@@ -237,7 +240,12 @@ GROUP BY subject_kind, subject_id, surface
 """
 
 REFRESHES_SQL = f"""
-SELECT subject_id, uniq(workflow_id), sum(duration_ms_sum), sum(read_bytes_sum)
+SELECT
+    subject_id,
+    uniq(workflow_id),
+    sum(duration_ms_sum),
+    sum(read_bytes_sum),
+    quantilesMerge(0.5, 0.9)(duration_ms_quantiles)[{SECOND_QUANTILE}]
 FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
 WHERE {WINDOW_FILTER}
     AND read_kind = %(refresh)s
@@ -278,15 +286,16 @@ def _subject_reads(
             human_users=row[3],
             human_days=row[4],
             background_requests=row[5],
-            human_reads=row[6],
-            human_duration_ms=row[7],
-            human_read_bytes=row[8],
-            alone_reads=row[9],
-            alone_duration_ms_median=float(row[10]),
-            alone_read_bytes_median=float(row[11]),
-            alone_duration_ms_p90=float(row[12]),
-            alone_read_bytes_p90=float(row[13]),
-            last_read_at=row[14],
+            background_reads=row[6],
+            human_reads=row[7],
+            human_duration_ms=row[8],
+            human_read_bytes=row[9],
+            alone_reads=row[10],
+            alone_duration_ms_median=float(row[11]),
+            alone_read_bytes_median=float(row[12]),
+            alone_duration_ms_p90=float(row[13]),
+            alone_read_bytes_p90=float(row[14]),
+            last_read_at=row[15],
             requests_by_surface=surface_counts.get(subject, {}),
         )
     return reads
@@ -294,8 +303,10 @@ def _subject_reads(
 
 def _refreshes(params: Mapping[str, Any], team_id: int) -> dict[UUID, SubjectRefreshes]:
     refreshes: dict[UUID, SubjectRefreshes] = {}
-    for subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params, team_id):
+    for subject_id, runs, duration_ms, read_bytes, p90_duration_ms in _execute(REFRESHES_SQL, params, team_id):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
-            refreshes[subject.id] = SubjectRefreshes(runs=runs, duration_ms=duration_ms, read_bytes=read_bytes)
+            refreshes[subject.id] = SubjectRefreshes(
+                runs=runs, duration_ms=duration_ms, read_bytes=read_bytes, p90_duration_ms=float(p90_duration_ms)
+            )
     return refreshes

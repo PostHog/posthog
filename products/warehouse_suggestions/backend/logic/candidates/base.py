@@ -4,10 +4,12 @@ from collections.abc import Mapping
 from datetime import datetime
 from math import ceil
 from typing import Any, ClassVar
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
+from products.data_modeling.backend.facade.api import upstream_table_refs
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import PAYLOAD_VERSION, SuggestionDraft, SuggestionPayload
@@ -18,6 +20,9 @@ from ..rules import Rules, rules_version
 
 DAYS_PER_MONTH = 30
 MILLISECONDS_PER_SECOND = 1000
+DEPENDENTS_REJECTION = "other views read from it"
+FEEDS_CONSUMERS_REJECTION = "its refreshes feed person or account properties, a destination or a workflow"
+DIRECT_SOURCE_REJECTION = "reads a direct-connection source, whose reads are not logged"
 
 
 @frozen
@@ -27,6 +32,22 @@ class CandidateContext:
     inventory: TeamInventory
     rules: Rules
     run_id: str
+    recent_accepts: Mapping[WarehouseSuggestionKind, frozenset[UUID]]
+
+    def accepted_recently(self, kind: WarehouseSuggestionKind, saved_query_id: UUID) -> bool:
+        return saved_query_id in self.recent_accepts.get(kind, frozenset())
+
+    def is_read(self, subject: Subject) -> bool:
+        reads = self.reads.reads_of(subject)
+        if reads is None:
+            return False
+        return self.rules.deprecate.counts_background_reads or reads.human_requests > 0
+
+    def reads_direct_source(self, saved_query_id: UUID) -> bool:
+        return any(
+            ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in self.inventory.direct_table_ids
+            for ref in upstream_table_refs(self.team_id, saved_query_id)
+        )
 
     @property
     def days_observed(self) -> int:

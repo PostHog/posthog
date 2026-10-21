@@ -11,13 +11,24 @@ from parameterized import parameterized
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
-from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload, MaterializePayload
+from products.warehouse_suggestions.backend.facade.contracts import (
+    CertifyPayload,
+    DematerializePayload,
+    MaterializePayload,
+)
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
+    WarehouseSuggestionKind,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
 )
+from products.warehouse_suggestions.backend.logic.candidates.base import (
+    DEPENDENTS_REJECTION,
+    FEEDS_CONSUMERS_REJECTION,
+    CandidateContext,
+)
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
+from products.warehouse_suggestions.backend.logic.candidates.dematerialize import DematerializeCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
     MaterializeCandidate,
@@ -331,5 +342,140 @@ class TestDeprecateBackgroundReads(BaseTest):
 
         assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
             (),
-            ["its refreshes feed person or account properties, a destination or a workflow"],
+            [FEEDS_CONSUMERS_REJECTION],
+        )
+
+
+HOURLY_RUNS = 720
+FIVE_SECONDS_MS = 5_000
+RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
+DEMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.dematerialize"
+
+
+def hourly_refreshes(**overrides: float) -> SubjectRefreshes:
+    refreshes = SubjectRefreshes(
+        runs=HOURLY_RUNS,
+        duration_ms=HOURLY_RUNS * FIVE_SECONDS_MS,
+        read_bytes=HOURLY_RUNS * 10**6,
+        p90_duration_ms=float(FIVE_SECONDS_MS),
+    )
+    return replace(refreshes, **overrides)
+
+
+def dematerialize_context(
+    team_id: int,
+    *,
+    view_overrides: dict | None = None,
+    read_overrides: dict | None = None,
+    refreshes: SubjectRefreshes | None = None,
+    recent_accepts: dict | None = None,
+) -> CandidateContext:
+    subject = view_subject(VIEW_ID)
+    return context(
+        team_reads(
+            {subject: busy_reads(**{**RARE_READS, **(read_overrides or {})})},
+            refreshes={VIEW_ID: refreshes or hourly_refreshes()},
+        ),
+        views=[view(VIEW_ID, materializes=True, **(view_overrides or {}))],
+        team_id=team_id,
+        recent_accepts=recent_accepts,
+    )
+
+
+class TestDematerializeCandidate(BaseTest):
+    def test_proposes_a_rarely_read_view_with_refresh_cost_against_live_cost(self) -> None:
+        result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
+
+        [draft] = result.drafts
+        assert draft.payload == DematerializePayload(
+            subject_name="orders",
+            refresh_seconds_per_month=3600.0,
+            refresh_bytes_per_month=720.0 * 10**6,
+            live_seconds_per_month=20.0,
+            live_bytes_per_month=4.0 * 10**6,
+            read_seconds=5.0,
+        )
+
+    @parameterized.expand(
+        [
+            ("few_runs", {}, {}, hourly_refreshes(runs=2, duration_ms=10_000), None, "refreshed 2 times"),
+            ("incremental", {"refreshes_incrementally": True}, {}, None, None, "refreshes incrementally"),
+            ("calls_a_model", {"calls_models": True}, {}, None, None, "calls a model per row"),
+            (
+                "materialized_on_a_recent_suggestion",
+                {},
+                {},
+                None,
+                {WarehouseSuggestionKind.MATERIALIZE: frozenset({VIEW_ID})},
+                "was materialized on a suggestion",
+            ),
+            ("read_too_often", {}, {"human_reads": 600}, None, None, "would not save enough"),
+            ("background_reads_count", {}, {"background_reads": 600}, None, None, "would not save enough"),
+            ("slow_tail", {}, {}, hourly_refreshes(p90_duration_ms=20_000.0), None, "a read could take 20 seconds"),
+        ]
+    )
+    def test_rejects_a_view_that_would_cost_more_or_read_slowly_when_computed_on_read(
+        self,
+        _name: str,
+        view_overrides: dict,
+        read_overrides: dict,
+        refreshes: SubjectRefreshes | None,
+        recent_accepts: dict | None,
+        expected_reason: str,
+    ) -> None:
+        candidate_context = dematerialize_context(
+            self.team.pk,
+            view_overrides=view_overrides,
+            read_overrides=read_overrides,
+            refreshes=refreshes,
+            recent_accepts=recent_accepts,
+        )
+
+        result = DematerializeCandidate().evaluate(candidate_context)
+
+        [rejection] = result.rejections
+        assert (result.drafts, expected_reason in rejection.reason) == ((), True), rejection.reason
+
+    @parameterized.expand(
+        [
+            ("has_dependents", "dependent_saved_query_ids", {VIEW_ID: frozenset({uuid4()})}, DEPENDENTS_REJECTION),
+            (
+                "feeds_a_consumer",
+                "saved_queries_feeding_consumers",
+                frozenset({VIEW_ID}),
+                FEEDS_CONSUMERS_REJECTION,
+            ),
+        ]
+    )
+    def test_rejects_a_view_others_rely_on(self, _name: str, lookup: str, found: object, expected_reason: str) -> None:
+        with patch(f"{DEMATERIALIZE_MODULE}.{lookup}", return_value=found):
+            result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == ((), [expected_reason])
+
+    def test_leaves_an_unread_view_to_deprecate(self) -> None:
+        candidate_context = context(
+            team_reads({}, refreshes={VIEW_ID: hourly_refreshes()}),
+            views=[view(VIEW_ID, materializes=True)],
+            team_id=self.team.pk,
+        )
+
+        result = DematerializeCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, result.rejections) == ((), ())
+
+
+class TestMaterializeAfterDematerialize(SimpleTestCase):
+    def test_a_view_dematerialized_on_a_recent_suggestion_is_not_proposed_again(self) -> None:
+        candidate_context = context(
+            team_reads({view_subject(VIEW_ID): busy_reads()}),
+            views=[view(VIEW_ID)],
+            recent_accepts={WarehouseSuggestionKind.DEMATERIALIZE: frozenset({VIEW_ID})},
+        )
+
+        result = MaterializeCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            ["was dematerialized on a suggestion in the last 30 days"],
         )

@@ -21,6 +21,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
+    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SourceRef,
@@ -131,11 +132,28 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
     def test_list_dismiss_and_resume(self) -> None:
         low = self._suggest(self.view.id, score=2.0)
         high = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=9.0)
+        dematerialize = ingest_surfaced(
+            self.team.id,
+            replace(
+                make_draft(fingerprint="dematerialize:orders", subject_id=self.view.id, score=5.0),
+                kind=WarehouseSuggestionKind.DEMATERIALIZE,
+                payload=DematerializePayload(
+                    subject_name="orders",
+                    refresh_seconds_per_month=3600.0,
+                    refresh_bytes_per_month=0.0,
+                    live_seconds_per_month=20.0,
+                    live_bytes_per_month=0.0,
+                    read_seconds=5.0,
+                ),
+            ),
+        )
         ingest_one(self.team.id, make_draft(fingerprint="certify:waiting", subject_id=self.view.id, score=99.0))
 
         listed = self.client.get(f"{self.url}/")
         assert listed.status_code == status.HTTP_200_OK, listed.json()
-        assert [row["id"] for row in listed.json()["results"]] == [str(high.id), str(low.id)]
+        rows = {row["id"]: row for row in listed.json()["results"]}
+        assert [row_id for row_id in rows if row_id != str(dematerialize.id)] == [str(high.id), str(low.id)]
+        assert rows[str(dematerialize.id)]["payload"]["read_seconds"] == 5.0
         assert all(row["can_act"] for row in listed.json()["results"])
 
         dismissed = self.client.post(

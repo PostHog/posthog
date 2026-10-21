@@ -18,10 +18,10 @@ export const WarehouseSuggestionsListParams = () => zod.object({
 
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
     kind: zod
-        .enum(['certify', 'deprecate', 'materialize'])
+        .enum(['certify', 'deprecate', 'materialize', 'dematerialize'])
         .optional()
         .describe(
-            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize'
+            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `dematerialize` - Dematerialize'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

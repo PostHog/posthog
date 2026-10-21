@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
@@ -23,7 +23,7 @@ from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import transition_to, upsert_suggestions
+from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -54,7 +54,7 @@ def apply_run(
 ) -> LifecycleResult:
     """Apply one run's drafts, show new suggestions when `surface` is set, and recheck accepted assets."""
     fingerprints = {draft.fingerprint for draft in drafts}
-    reopened = _reopen(context, drafts)
+    reopened = _reopen(context, drafts, now)
     created = _upsert(context.team_id, drafts)
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
@@ -94,9 +94,14 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
+OPPOSITE_KINDS = {
+    WarehouseSuggestionKind.MATERIALIZE: WarehouseSuggestionKind.DEMATERIALIZE,
+    WarehouseSuggestionKind.DEMATERIALIZE: WarehouseSuggestionKind.MATERIALIZE,
+}
+REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
-def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reopened:
+def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime) -> Reopened:
     """Move closed suggestions that match a draft back to proposed and unshown, dismissed ones only if they earn it."""
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
@@ -111,6 +116,8 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
             revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
+    for row in _accepted_then_reversed(context, drafts_by_fingerprint, now):
+        reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED, REOPEN_ACCEPTED))
     reproposed_ids = [row.id for row in reproposed]
     revived_ids = [row.id for row in revived]
     suggestions.filter(id__in=reproposed_ids).update(reproposed_count=F("reproposed_count") + 1)
@@ -119,6 +126,29 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
         reproposed=tuple(suggestions.filter(id__in=reproposed_ids)),
         revived=tuple(suggestions.filter(id__in=revived_ids)),
     )
+
+
+def _accepted_then_reversed(
+    context: CandidateContext, drafts_by_fingerprint: Mapping[str, SuggestionDraft], now: datetime
+) -> list[WarehouseSuggestion]:
+    """Accepted materialize and dematerialize suggestions the view has since flipped away from, past the cooldown."""
+    suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
+    accepted = suggestions.filter(
+        fingerprint__in=drafts_by_fingerprint, status=WarehouseSuggestionStatus.ACCEPTED, kind__in=OPPOSITE_KINDS
+    )
+    cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
+    return [
+        row
+        for row in accepted
+        if suggestions.filter(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            kind=OPPOSITE_KINDS[WarehouseSuggestionKind(row.kind)],
+            subject_kind=row.subject_kind,
+            subject_id=row.subject_id,
+            reviewed_at__gt=row.reviewed_at,
+            reviewed_at__lte=cooled_down_before,
+        ).exists()
+    ]
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:
@@ -237,10 +267,15 @@ def _move_all(
     return [moved for row in rows for moved in _moved(row, team_id, status)]
 
 
-def _moved(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> list[WarehouseSuggestion]:
+def _moved(
+    row: WarehouseSuggestion,
+    team_id: int,
+    status: WarehouseSuggestionStatus,
+    transitions: Transitions = ALLOWED_TRANSITIONS,
+) -> list[WarehouseSuggestion]:
     """The suggestion moved to `status` as the system, or nothing when a person already decided it."""
     try:
-        return [transition_to(row.id, team_id, status, user_id=None)]
+        return [transition_to(row.id, team_id, status, user_id=None, transitions=transitions)]
     except SuggestionAlreadyDecidedError:
         return []
 

@@ -80013,7 +80013,22 @@ export namespace Schemas {
       lookback_seconds?: number;
     }
 
-    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+    export interface WarehouseSuggestionDematerializePayload {
+      /** Name of the rarely read materialized view to turn back into a plain view. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+      /** Estimated time its reads would take in a month if each read computed the view, in seconds. The estimate uses a full refresh per read, so it leans high. */
+      live_seconds_per_month: number;
+      /** Estimated bytes its reads would scan in a month if each read computed the view. */
+      live_bytes_per_month: number;
+      /** How long one read would take once the view is computed on read, in seconds. Nine in ten of its refreshes finished within this time. */
+      read_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload | WarehouseSuggestionDematerializePayload;
 
     /**
      * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
@@ -80050,6 +80065,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `dematerialize` - Dematerialize
      */
     export type WarehouseSuggestionKindEnum = typeof WarehouseSuggestionKindEnum[keyof typeof WarehouseSuggestionKindEnum];
 
@@ -80058,6 +80074,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Dematerialize: 'dematerialize',
     } as const;
 
     /**
@@ -80122,11 +80139,12 @@ export namespace Schemas {
       created_asset: WarehouseSuggestionCreatedAsset;
       /** Who accepted or dismissed this suggestion. Null while it is open. */
       reviewed_by: WarehouseSuggestionReviewer | null;
-      /** What the suggestion proposes: certify, deprecate or materialize the subject.
+      /** What the suggestion proposes: certify, deprecate, materialize or dematerialize the subject. dematerialize turns a rarely read materialized view back into a plain view computed on read.
        *
        * * `certify` - Certify
        * * `deprecate` - Deprecate
-       * * `materialize` - Materialize */
+       * * `materialize` - Materialize
+       * * `dematerialize` - Dematerialize */
       kind: WarehouseSuggestionKindEnum;
       /** Whether the subject is a saved query (view) or a warehouse table.
        *
@@ -137103,6 +137121,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `dematerialize` - Dematerialize
      * @minLength 1
      */
     kind?: WarehouseSuggestionsListKind;
@@ -137138,6 +137157,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Dematerialize: 'dematerialize',
     } as const;
 
     export type WarehouseSuggestionsListStatus = typeof WarehouseSuggestionsListStatus[keyof typeof WarehouseSuggestionsListStatus];

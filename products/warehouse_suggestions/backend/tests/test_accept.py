@@ -23,6 +23,7 @@ from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
+    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionAlreadyDecidedError,
@@ -72,6 +73,14 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
     WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
+    WarehouseSuggestionKind.DEMATERIALIZE: DematerializePayload(
+        subject_name="orders",
+        refresh_seconds_per_month=3600,
+        refresh_bytes_per_month=10**9,
+        live_seconds_per_month=20,
+        live_bytes_per_month=10**6,
+        read_seconds=5,
+    ),
 }
 
 
@@ -109,6 +118,10 @@ def add_dependent_view(view: DataWarehouseSavedQuery) -> None:
         team=view.team, dag=node.dag, name="orders_daily", saved_query=dependent, type=NodeType.VIEW
     )
     Edge.objects.create(team=view.team, dag=node.dag, source=node, target=dependent_node)
+
+
+def switch_to_incremental(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=STORED_DAY_KEY)
 
 
 def add_destination(view: DataWarehouseSavedQuery) -> None:
@@ -314,6 +327,41 @@ class TestAcceptSuggestion(APIBaseTest):
         assert untouched == (True, table.id, False)
         assert retried["created_asset"]["stopped_materialization"] is True, retried
         assert (node.type, get_declared_target(node)) == (NodeType.VIEW, None)
+
+    @parameterized.expand(
+        [
+            ("stops_refreshes", None, status.HTTP_200_OK),
+            ("a_view_was_built_on_it_since", add_dependent_view, status.HTTP_409_CONFLICT),
+            ("it_refreshes_incrementally_since", switch_to_incremental, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_accepting_a_dematerialize_suggestion_turns_the_view_back_into_a_plain_view(
+        self, _name: str, change_since: Callable[[DataWarehouseSavedQuery], None] | None, expected_status: int
+    ) -> None:
+        table = materialize_in_place(self.view)
+        suggestion = self._suggest(WarehouseSuggestionKind.DEMATERIALIZE)
+        if change_since is not None:
+            change_since(self.view)
+
+        with patch(REPORT) as report:
+            accepted = self._accept(suggestion.id)
+
+        table.refresh_from_db()
+        suggestion.refresh_from_db()
+        stopped = expected_status == status.HTTP_200_OK
+        assert accepted["http_status"] == expected_status, accepted
+        assert (
+            Node.objects.get(team=self.team, saved_query=self.view).type,
+            bool(table.deleted),
+            suggestion.status,
+        ) == (
+            (NodeType.VIEW, True, WarehouseSuggestionStatus.ACCEPTED)
+            if stopped
+            else (NodeType.MAT_VIEW, False, WarehouseSuggestionStatus.PROPOSED)
+        )
+        if stopped:
+            assert accepted["created_asset"] == {"saved_query_id": str(self.view.id)}
+            assert report.call_args.args[1]["refresh_seconds_per_month"] == 3600
 
     def test_accepting_a_materialize_suggestion_materializes_the_view_on_the_chosen_interval(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)

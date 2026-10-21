@@ -6,10 +6,15 @@ from uuid import UUID
 
 from django.conf import settings
 
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions.prompt_jev import DECISION_FUNCTIONS, PromptJevFinder
+from posthog.hogql.parser import parse_select
+
 from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
+from .incremental import get_incremental_config
 from .saved_query_freshness import saved_query_materialized_at
 from .tier_run_report import MATERIALIZING_TYPES
 
@@ -105,7 +110,7 @@ def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None
         saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
     saved_queries = list(
         saved_queries_in_team.exclude(deleted=True)
-        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at")
+        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at", "incremental_config")
         .order_by("created_at", "id")
     )
     materializing_ids = set(
@@ -115,19 +120,34 @@ def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None
             type__in=MATERIALIZING_TYPES,
         ).values_list("saved_query_id", flat=True)
     )
-    return [
-        SavedQueryDefinition(
-            id=saved_query.id,
-            name=saved_query.name,
-            hogql=(saved_query.query or {}).get("query") or "",
-            materializes=saved_query.id in materializing_ids,
-            is_test=saved_query.is_test,
-            is_managed=saved_query.managed_viewset_id is not None,
-            origin=saved_query.origin,
-            created_at=saved_query.created_at,
-        )
-        for saved_query in saved_queries
-    ]
+    return [_definition(saved_query, materializes=saved_query.id in materializing_ids) for saved_query in saved_queries]
+
+
+def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> SavedQueryDefinition:
+    hogql = (saved_query.query or {}).get("query") or ""
+    return SavedQueryDefinition(
+        id=saved_query.id,
+        name=saved_query.name,
+        hogql=hogql,
+        materializes=materializes,
+        is_test=saved_query.is_test,
+        is_managed=saved_query.managed_viewset_id is not None,
+        origin=saved_query.origin,
+        created_at=saved_query.created_at,
+        refreshes_incrementally=get_incremental_config(saved_query) is not None,
+        calls_models=calls_models(hogql),
+    )
+
+
+def calls_models(hogql: str) -> bool:
+    """Whether the query calls a model per row, assuming it does when the query does not parse."""
+    lowered = hogql.lower()
+    if not any(name in lowered for name in DECISION_FUNCTIONS):
+        return False
+    try:
+        return PromptJevFinder.contains(parse_select(hogql))
+    except BaseHogQLError:
+        return True
 
 
 def allowed_saved_query_ids(
