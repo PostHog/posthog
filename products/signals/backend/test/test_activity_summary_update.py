@@ -10,7 +10,9 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog
 
+from products.signals.backend.activity_summary.inputs import user_activity
 from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
+from products.signals.backend.activity_summary.render import RenderLimits
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
@@ -28,7 +30,9 @@ ANSWER = json.dumps(
 
 @time_machine.travel(NOW, tick=False)
 class TestUpdateActivitySummary(BaseTest):
-    def _change(self, name: str, *, days_ago: float, intent: str | None = None, **overrides: Any) -> None:
+    def _change(
+        self, name: str, *, days_ago: float, intent: str | None = None, scope: str = "Insight", **overrides: Any
+    ) -> None:
         detail: dict[str, Any] = {"name": name}
         if intent:
             detail["trigger"] = {"job_type": "agent", "job_id": "", "payload": {"intent": intent}}
@@ -36,7 +40,7 @@ class TestUpdateActivitySummary(BaseTest):
             team_id=self.team.id,
             organization_id=self.organization.id,
             user=self.user,
-            scope="Insight",
+            scope=scope,
             activity="created",
             item_id=name,
             detail=detail,
@@ -83,6 +87,21 @@ class TestUpdateActivitySummary(BaseTest):
         assert "Signup funnel" not in next_sent.split("Recent activity")[1]
         assert "Builds the signup funnel." in next_sent
 
+    def test_limits_reach_the_model_call_and_the_stored_inputs(self) -> None:
+        self._changes(3, days_ago=2)
+        self._change("Old funnel", days_ago=10)
+        llm = FakeLLM([ANSWER])
+
+        self._update(llm, limits=RenderLimits(window_days=7, summary_max_words=2, max_completion_tokens=1234))
+
+        stored = self._stored()
+        assert stored is not None and stored.summary is not None
+        assert llm.requests[0]["max_completion_tokens"] == 1234
+        assert "at most 2 words" in llm.requests[0]["messages"][0]["content"]
+        assert stored.summary["summary"] == "Builds the"
+        assert stored.inputs_used["activity_lines"] == 3
+        assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
+
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)
         self._update(FakeLLM([ANSWER]))
@@ -113,6 +132,16 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(FakeLLM([ANSWER]), **kwargs).status == status
         assert self._stored() is None
+
+    @patch("products.signals.backend.activity_summary.inputs.MAX_ACTIVITY_ROWS_PER_PERSON", 1)
+    def test_noisy_rows_do_not_use_the_read_limit(self) -> None:
+        self._change("Signup funnel", days_ago=2)
+        self._change("Tagged report", days_ago=1, scope="TaggedItem")
+        self._change("Scout funnel", days_ago=1, client="scout:product-analytics")
+
+        rows = user_activity(self.team.id, self.user.id, NOW - datetime.timedelta(days=28), NOW)
+
+        assert [row.name for row in rows] == ["Signup funnel"]
 
     def test_too_few_units_backs_off_without_touching_the_stored_summary(self) -> None:
         self._changes(2)

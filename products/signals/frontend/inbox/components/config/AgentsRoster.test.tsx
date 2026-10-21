@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,6 +54,7 @@ describe('AgentsRoster', () => {
                 ],
                 '/api/projects/:team_id/event_definitions/': () => [200, EMPTY_LIST],
                 '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
+                '/api/environments/:team_id/integrations/': () => [200, EMPTY_LIST],
                 '/api/projects/:team_id/external_data_sources/wizard/': () => [200, { GitLab: GITLAB_WIZARD_CONFIG }],
             },
         })
@@ -82,6 +83,9 @@ describe('AgentsRoster', () => {
         const jiraToggle = await screen.findByLabelText('Turn on Jira')
         expect(jiraToggle.closest('[data-attr="signal-source-row"]')).toHaveAttribute('data-source', 'jira')
         expect(document.querySelector('[data-attr="signal-source-row"][data-source="github"]')).toBeNull()
+        const recommendations = await screen.findByTestId('signal-source-recommendations')
+        expect(within(recommendations).getByText('Jira')).toBeInTheDocument()
+        expect(within(recommendations).getByText('Turn on')).toBeInTheDocument()
 
         await userEvent.click(screen.getByText('Add source'))
         expect(await screen.findByText('Add a source')).toBeInTheDocument()
@@ -157,6 +161,7 @@ describe('AgentsRoster', () => {
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
+        expect(screen.queryByTestId('signal-source-recommendations')).not.toBeInTheDocument()
         await userEvent.click(screen.getByText('Add source'))
         await screen.findByText('Add a source')
         await userEvent.type(screen.getByLabelText('Search sources'), 'GitHub issues')
