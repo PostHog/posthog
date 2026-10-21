@@ -16,7 +16,6 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     MessageDetail,
-    MessageImage,
     MessageLink,
     SourceDescription,
 )
@@ -27,7 +26,6 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
     # A failure keeps the platform's own wording, so only a firing states breaches or offers a snooze.
     firing = transition.kind == AlertEventKind.FIRING
     breaches = (detail.get("breaches") or []) if firing else []
-    chart_url = detail.get("insight_chart_url") if firing else None
     alert_id = detail.get("alert_id") if firing else None
     insight_name = detail.get("insight_name")
     insight_short_id = detail.get("insight_short_id")
@@ -38,7 +36,6 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
         data_link=MessageLink(label="View insight", url=insight_url(project_id, insight_short_id))
         if insight_short_id
         else None,
-        image=MessageImage(url=chart_url, alt_text="Insight chart") if chart_url else None,
         slack_elements=(snooze_select(alert_id),) if alert_id else (),
     )
 

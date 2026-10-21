@@ -1191,8 +1191,6 @@ class SourceDescription:
     context: tuple[str, ...] = ()
     # Where the data behind the alert is, such as the matching logs.
     data_link: MessageLink | None = None
-    # A picture of that data, such as the insight's chart. A provider that cannot show one leaves it out.
-    image: MessageImage | None = None
     # Slack elements that act on the alert from the message, such as a snooze menu, beside the
     # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
     slack_elements: tuple[dict[str, Any], ...] = ()
@@ -1206,6 +1204,17 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceImageResolver(Protocol):
+    """The picture a message shows for a transition, such as an insight's chart, or None.
+
+    Runs on the send path like a describer, but it may read storage: a picture's URL can open it
+    without a login, so the source stores the picture by id and mints the URL as the message goes.
+    A provider that cannot show a picture leaves it out.
+    """
+
+    def __call__(self, *, team_id: int, transition: AnnouncedTransition) -> MessageImage | None: ...
 
 
 class LegacyWebhookBody(Protocol):
