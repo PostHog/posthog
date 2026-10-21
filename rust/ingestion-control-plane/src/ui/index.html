@@ -1731,6 +1731,7 @@
             summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
             mappingsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             mergesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            personsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
           };
           const matchesAny = (values, q) =>
             values.some((v) => v !== null && v !== undefined && String(v).toLowerCase().includes(q));
@@ -1749,10 +1750,18 @@
             renderTable: (rows) => this.renderMerges(rows),
             emptyText: "No merge disagreements in the sample.",
           });
+          this.personsView = listView({
+            placeholder: "Filter by team, person, or outcome…",
+            pageSize: 100,
+            matches: (s, q) => matchesAny([s.team_id, s.person_uuid, s.outcome, ...(s.differing_properties || [])], q),
+            renderTable: (rows) => this.renderPersons(rows),
+            emptyText: "No person disagreements in the sample. The monitor compares persons only when both person topics are set.",
+          });
           root.append(
             this.ui.summary,
             el("div", { class: "panel" }, el("h2", {}, "Distinct ids"), this.ui.mappingsBody),
-            el("div", { class: "panel" }, el("h2", {}, "Merges"), this.ui.mergesBody)
+            el("div", { class: "panel" }, el("h2", {}, "Merges"), this.ui.mergesBody),
+            el("div", { class: "panel" }, el("h2", {}, "Persons"), this.ui.personsBody)
           );
           this.refresh();
           this.timers.push(setInterval(() => this.refresh(), 30000));
@@ -1769,6 +1778,7 @@
             if (!this.loaded) {
               this.ui.mappingsBody.replaceChildren(el("div", { class: "empty" }, "No data."));
               this.ui.mergesBody.replaceChildren(el("div", { class: "empty" }, "No data."));
+              this.ui.personsBody.replaceChildren(el("div", { class: "empty" }, "No data."));
             }
             return;
           }
@@ -1783,7 +1793,7 @@
           const samples = data.samples.slice().reverse().sort((a, b) => at(b) - at(a));
           const counts = new Map();
           for (const s of samples) {
-            const label = s.kind === "merge" ? `merge ${s.outcome}` : s.outcome;
+            const label = s.kind === "mapping" ? s.outcome : `${s.kind} ${s.outcome}`;
             counts.set(label, (counts.get(label) || 0) + 1);
           }
           this.ui.summary.replaceChildren(
@@ -1797,6 +1807,8 @@
           this.ui.mappingsBody.replaceChildren(this.mappingsView.body);
           this.mergesView.setRows(samples.filter((s) => s.kind === "merge"));
           this.ui.mergesBody.replaceChildren(this.mergesView.body);
+          this.personsView.setRows(samples.filter((s) => s.kind === "person"));
+          this.ui.personsBody.replaceChildren(this.personsView.body);
         },
 
         when(sample) {
@@ -1832,6 +1844,33 @@
                 el("td", { class: personClass }, person(node)),
                 el("td", { class: personClass }, person(personhog)),
                 el("td", { class: `${deletedClass} nowrap` }, pair((r) => (r.is_deleted ? "yes" : "no"))),
+                el("td", { class: "muted mono nowrap" }, pair((r) => String(r.version))));
+            }))
+          ));
+        },
+
+        renderPersons(rows) {
+          return el("div", { class: "scroll-x" }, el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "time"), el("th", {}, "team"), el("th", {}, "person"), el("th", {}, "outcome"),
+              el("th", { title: "Top level property keys whose values differ or that one side lacks" }, "differing properties"),
+              el("th", {}, "deleted"), el("th", {}, "identified"), el("th", {}, "created at"),
+              el("th", { title: "Versions order rows within one feed and are not compared across feeds" }, "versions"))),
+            el("tbody", {}, rows.map((s) => {
+              const node = s.node, personhog = s.personhog;
+              const both = node && personhog;
+              const pair = (f) => `${node ? f(node) : "–"} / ${personhog ? f(personhog) : "–"}`;
+              const differs = (f) => (both && f(node) !== f(personhog) ? "mono diff nowrap" : "mono nowrap");
+              const keys = s.differing_properties || [];
+              return el("tr", {},
+                el("td", { class: "muted mono nowrap" }, this.when(s)),
+                el("td", { class: "mono" }, String(s.team_id)),
+                el("td", { class: "mono" }, this.shortId(s.person_uuid)),
+                el("td", { class: "nowrap" }, el("span", { class: "pill warn" }, s.outcome)),
+                el("td", { class: keys.length ? "mono diff" : "muted" }, keys.length ? keys.join(", ") : "–"),
+                el("td", { class: differs((r) => r.is_deleted) }, pair((r) => (r.is_deleted ? "yes" : "no"))),
+                el("td", { class: differs((r) => r.is_identified) }, pair((r) => (r.is_identified ? "yes" : "no"))),
+                el("td", { class: differs((r) => r.created_at) }, pair((r) => r.created_at)),
                 el("td", { class: "muted mono nowrap" }, pair((r) => String(r.version))));
             }))
           ));
