@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -110,6 +111,7 @@ class TestPostgresProducerSendBatch:
             cdc_write_mode="upsert",
             cdc_table_mode="merge",
         )
+        producer.replace_scope = ReplaceScopeRef(column="_file_name", manifest_path="s3://bucket/manifest.parquet")
         batch_result = dataclasses.replace(_make_batch_result(batch_index=1), arrow_bytes=4096)
 
         producer.send_batch_notification(batch_result)
@@ -122,6 +124,7 @@ class TestPostgresProducerSendBatch:
         assert metadata["partition_count"] == 4
         assert metadata["cdc_write_mode"] == "upsert"
         assert metadata["cdc_table_mode"] == "merge"
+        assert metadata["replace_scope"] == {"column": "_file_name", "manifest_path": "s3://bucket/manifest.parquet"}
         assert metadata["timestamp_ns"] == 123456789
 
 
@@ -184,18 +187,27 @@ class TestPostgresProducerSupersede:
         )
 
     @pytest.mark.parametrize(
-        "sync_type,spare",
-        [("full_refresh", False), ("incremental", True), ("append", False), ("cdc", True)],
+        "sync_type,replaces_rows,spare",
+        [
+            ("full_refresh", False, False),
+            ("incremental", False, True),
+            ("incremental", True, False),
+            ("append", False, False),
+            ("cdc", False, True),
+        ],
     )
-    def test_only_full_refresh_and_append_supersede_a_run_that_is_still_loading(
-        self, settings: Any, sync_type: str, spare: bool
+    def test_only_full_refresh_append_and_replace_scope_supersede_a_run_that_is_still_loading(
+        self, settings: Any, sync_type: str, replaces_rows: bool, spare: bool
     ) -> None:
         """A fresh full_refresh overwrites the table on batch 0, and the loader removes an older
-        append attempt's rows on batch 0, so the loaded rows of an older attempt are discarded
+        append attempt's rows on batch 0, and a run with a replace scope deletes on batch 0 the rows of
+        every file an older attempt read, so the loaded rows of an older attempt are discarded
         either way and its queued batches are dead weight on the serial per-schema gate. The other
         sync types keep the sparing rule, because partially merged work survives."""
         settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
         producer = _make_producer(is_resume=False, sync_type=sync_type)
+        if replaces_rows:
+            producer.replace_scope = ReplaceScopeRef(column="_file_name", manifest_path="s3://bucket/manifest.parquet")
         batch_result = _make_batch_result(batch_index=0)
 
         with patch(
