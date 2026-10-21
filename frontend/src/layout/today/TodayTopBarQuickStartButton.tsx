@@ -15,7 +15,7 @@ export function TodayTopBarQuickStartButton(): JSX.Element | null {
         toggle,
         close,
         setSelectedProduct,
-    } = useProductSetupButton()
+    } = useProductSetupButton('today_top_bar')
 
     if (!shouldShowButton) {
         return null
