@@ -28,6 +28,7 @@ import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowBatchOverview } from './overview/WorkflowBatchOverview'
 import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
@@ -176,12 +177,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
-        // Batch workflows report per run, so a rolling overview does not fit them.
-        overviewTabEnabled && originalWorkflow.trigger?.type !== 'batch' && originalWorkflow.status === 'active'
+        overviewTabEnabled && originalWorkflow.status === 'active'
             ? {
                   label: 'Overview',
                   key: 'overview',
-                  content: <WorkflowOverview id={workflowSceneProps.id!} />,
+                  content:
+                      originalWorkflow.trigger?.type === 'batch' ? (
+                          <WorkflowBatchOverview id={workflowSceneProps.id!} />
+                      ) : (
+                          <WorkflowOverview id={workflowSceneProps.id!} />
+                      ),
               }
             : null,
         {
