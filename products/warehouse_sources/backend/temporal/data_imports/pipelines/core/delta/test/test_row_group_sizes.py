@@ -112,3 +112,12 @@ class TestRowGroupSizeReader:
         footers = _Footers()
         assert _read({}, footers).bytes_by_path == {}
         assert footers.read == []
+
+    def test_reads_a_uri_encoded_path_by_its_decoded_name(self, tmp_path: Path) -> None:
+        (tmp_path / "p=a b").mkdir()
+        size = _write(tmp_path / "p=a b" / "file.parquet", 2000, 500)
+        encoded = str(tmp_path / "p=a%20b" / "file.parquet")
+
+        result = _read({encoded: size}, _Footers())
+
+        assert result.bytes_by_path == {encoded: _expected(str(tmp_path / "p=a b" / "file.parquet"))}

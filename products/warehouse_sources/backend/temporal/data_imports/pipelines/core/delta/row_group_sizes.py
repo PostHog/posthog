@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import urllib.parse
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -39,6 +40,10 @@ def largest_row_group_bytes(metadata: pq.FileMetaData) -> int:
         row_group = metadata.row_group(i)
         largest = max(largest, sum(row_group.column(c).total_compressed_size for c in range(row_group.num_columns)))
     return largest
+
+
+def _largest_row_group_of(path: str, filesystem: pafs.FileSystem) -> int:
+    return largest_row_group_bytes(pq.read_metadata(path, filesystem=filesystem))
 
 
 @frozen
@@ -79,6 +84,9 @@ class _FooterCache:
 
 _CACHE = _FooterCache(_CACHE_ENTRIES)
 
+#: Shared by all merges, so reads that outlive their deadline cannot add threads past this bound.
+_EXECUTOR = ThreadPoolExecutor(max_workers=_READ_CONCURRENCY, thread_name_prefix="row-group-footers")
+
 #: Opens a filesystem for a table that knows the sizes of the given files, so no read needs a HEAD.
 OpenFilesystem = Callable[[Mapping[str, int]], pafs.FileSystem]
 
@@ -97,7 +105,7 @@ class RowGroupSizeReader:
         *,
         open_filesystem: OpenFilesystem | None = None,
         max_reads: int = _MAX_READS,
-        concurrency: int = _READ_CONCURRENCY,
+        executor: ThreadPoolExecutor = _EXECUTOR,
         timeout_s: float = _READ_TIMEOUT_S,
         cache: _FooterCache = _CACHE,
     ) -> None:
@@ -105,7 +113,7 @@ class RowGroupSizeReader:
         self._storage_options = dict(storage_options or {})
         self._open_filesystem = open_filesystem or self._delta_filesystem
         self._max_reads = max_reads
-        self._concurrency = concurrency
+        self._executor = executor
         self._timeout_s = timeout_s
         self._cache = cache
 
@@ -126,13 +134,15 @@ class RowGroupSizeReader:
         if not to_read:
             return RowGroupSizes(bytes_by_path=found)
 
-        filesystem = self._open_filesystem(to_read)
-        executor = ThreadPoolExecutor(max_workers=min(self._concurrency, len(to_read)))
-        try:
-            futures = {executor.submit(pq.read_metadata, path, filesystem=filesystem): path for path in to_read}
-            done, not_done = wait(futures, timeout=self._timeout_s)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+        # Add action paths are URI-encoded; the storage handler takes decoded paths.
+        storage_paths = {path: urllib.parse.unquote(path) for path in to_read}
+        filesystem = self._open_filesystem({storage_paths[path]: size for path, size in to_read.items()})
+        futures = {
+            self._executor.submit(_largest_row_group_of, storage_paths[path], filesystem): path for path in to_read
+        }
+        done, not_done = wait(futures, timeout=self._timeout_s)
+        for future in not_done:
+            future.cancel()
 
         failed = 0
         for future in done:
@@ -140,7 +150,7 @@ class RowGroupSizeReader:
             if future.exception() is not None:
                 failed += 1
                 continue
-            largest = min(largest_row_group_bytes(future.result()), to_read[path])
+            largest = min(future.result(), to_read[path])
             self._cache.put((self._table_uri, path), largest)
             found[path] = largest
         if failed or not_done:

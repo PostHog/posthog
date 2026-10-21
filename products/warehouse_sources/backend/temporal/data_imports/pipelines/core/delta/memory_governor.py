@@ -371,12 +371,13 @@ def rewrite_profile(
     primary_keys: Sequence[str],
     target_file_size: int = _DEFAULT_TARGET_FILE_SIZE,
     row_groups: RowGroupSizes | None = None,
+    candidates: Sequence[CandidateFile] | None = None,
 ) -> RewriteProfile:
     """Upper bound on the existing files a merge of ``source`` rewrites, from the table's add actions.
 
     Every touched partition gets an entry with its share of the source, also when it has no
     candidate files. ``row_groups`` gives the largest row group of the files whose footer was read.
-    Each other file counts its whole size.
+    Each other file counts its whole size. ``candidates`` reuses a ``candidate_files`` result.
     """
     if source.num_rows == 0:
         return RewriteProfile(
@@ -392,7 +393,9 @@ def rewrite_profile(
     readers_by_partition: dict[str | None, list[int]] = {partition: [] for partition in rows_per_partition}
     rows_by_partition: dict[str | None, int | None] = dict.fromkeys(rows_per_partition, 0)
     row_group_sized = 0
-    for file in candidate_files(add_actions, source, partition_col, primary_keys):
+    if candidates is None:
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+    for file in candidates:
         sizes_by_partition[file.partition].append(file.size_bytes)
         largest_row_group = known_row_groups.get(file.path) if file.path is not None else None
         if largest_row_group is None:
@@ -445,7 +448,10 @@ def estimate_rewrite_profile(
     try:
         add_actions = pa.table(table.get_add_actions(flatten=True))
         target_file_size = table_target_file_size(table)
-        profile = rewrite_profile(add_actions, source, partition_col, primary_keys, target_file_size)
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+        profile = rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, candidates=candidates
+        )
     except Exception as e:  # noqa: BLE001 - an estimate must never fail a write; None sizes conservatively
         logger.debug("deltalite governor: could not estimate the rewrite size: %s", e)
         return None
@@ -456,11 +462,13 @@ def estimate_rewrite_profile(
             return profile
         to_read = {
             file.path: file.size_bytes
-            for file in candidate_files(add_actions, source, partition_col, primary_keys)
+            for file in candidates
             if file.path is not None and file.size_bytes > _ROW_GROUP_PROBE_MIN_BYTES
         }
         row_groups = row_group_reader.largest_row_groups(to_read)
-        return rewrite_profile(add_actions, source, partition_col, primary_keys, target_file_size, row_groups)
+        return rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, row_groups, candidates
+        )
     except Exception as e:  # noqa: BLE001 - row-group sizing is an optimization; keep the whole-file bound
         logger.debug("deltalite governor: could not read row group sizes: %s", e)
         return profile
@@ -651,9 +659,9 @@ def _partition_cap(profile: RewriteProfile, n_partitions: int | None) -> int:
 
 
 def is_widest_plan(plan: UpsertPlan, profile: RewriteProfile, n_partitions: int | None = None) -> bool:
-    """True when ``plan`` already runs the most workers and readers ``size_upsert`` ever picks."""
+    """True when ``plan`` fits and already runs the most workers and readers ``size_upsert`` ever picks."""
     partition_cap = _partition_cap(profile, n_partitions)
-    return (plan.max_parallel_partitions, plan.max_parallel_files) == (
+    return plan.fits and (plan.max_parallel_partitions, plan.max_parallel_files) == (
         partition_cap,
         _reader_options(partition_cap)[0],
     )
