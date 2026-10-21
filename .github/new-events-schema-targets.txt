@@ -28,6 +28,7 @@ products/ai_observability/backend/tests/logic/traces
 products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries
+products/error_tracking/backend/tests/test_issue_summaries.py
 products/experiments
 products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
