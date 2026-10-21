@@ -3756,6 +3756,7 @@ export interface CredentialApi {
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
  * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
  * * `FileUpload` - FileUpload
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -5165,6 +5166,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
     CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
     FileUpload: 'FileUpload',
 } as const
 

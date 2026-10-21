@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,7 @@ def _read(job_inputs: dict[str, str], schema_metadata: dict[str, Any] | None = N
     source = FileUploadSource()
     response = source.source_for_pipeline(source.parse_config(job_inputs), _inputs(schema_metadata))
     items = response.items()
-    assert not isinstance(items, pa.Table)
+    assert not isinstance(items, (pa.Table, AsyncIterable))
     return [row for table in items for row in table.to_pylist()]
 
 
@@ -145,7 +146,7 @@ def test_read_options_come_from_the_schema_and_the_path_from_the_inputs(
 
     response = source.source_for_pipeline(source.parse_config(_job_inputs()), _inputs(schema_metadata))
     items = response.items()
-    assert not isinstance(items, pa.Table)
+    assert not isinstance(items, (pa.Table, AsyncIterable))
     [row] = [row for table in items for row in table.to_pylist()]
 
     assert row["total"] == expected_total

@@ -9,7 +9,7 @@ the team still reads it, because one upload can back more than one table.
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -62,7 +62,10 @@ class SupersededUpload:
             if "legacy_filename" in raw:
                 upload = LegacyUpload(team_id=team_id, filename=raw["legacy_filename"])
             else:
-                upload = UploadLocation(team_id=team_id, upload_id=raw.get("upload_id"), filename=raw.get("filename"))
+                # A missing or non-string value fails validation, so the entry is dropped.
+                upload = UploadLocation(
+                    team_id=team_id, upload_id=cast(str, raw.get("upload_id")), filename=cast(str, raw.get("filename"))
+                )
         except (InvalidUploadError, TypeError, ValueError):
             return None
         return cls(upload=upload, superseded_at=superseded_at)
@@ -71,7 +74,9 @@ class SupersededUpload:
 def upload_from_job_inputs(team_id: int, job_inputs: Mapping[str, Any] | None) -> UploadLocation:
     """The file a source reads. The team comes from the source row, never from the inputs."""
     inputs = job_inputs or {}
-    return UploadLocation(team_id=team_id, upload_id=inputs.get("upload_id"), filename=inputs.get("filename"))
+    return UploadLocation(
+        team_id=team_id, upload_id=cast(str, inputs.get("upload_id")), filename=cast(str, inputs.get("filename"))
+    )
 
 
 def superseded_uploads(source: ExternalDataSource) -> list[SupersededUpload]:

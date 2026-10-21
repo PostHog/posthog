@@ -8,6 +8,7 @@ import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -126,6 +127,8 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
     requires_team_feature_flag = FEATURE_FLAG
     syncs_on_demand = True
     listed_in_catalog = False
+    # A file someone uploads leaves no trace in a codebase.
+    codebase_detection = NOT_DETECTABLE
 
     @property
     def source_type(self) -> ExternalDataSourceType:

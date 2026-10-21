@@ -2,7 +2,7 @@ import io
 import ipaddress
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -11,17 +11,16 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from products.warehouse_sources.backend.ad_hoc_sync import AdHocSyncTrigger, WorkflowStartError
 from products.warehouse_sources.backend.facade.api import FILE_FORMAT_READ_HINTS
+from products.warehouse_sources.backend.facade.testing import (
+    find_replaced_self_managed_table,
+    migrate_team_self_managed_tables,
+)
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.self_managed_migration import MigrationOptions, migrate_self_managed_tables
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
-    find_replaced_self_managed_table,
-)
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
@@ -503,9 +502,9 @@ class TestFileUploadSources(APIBaseTest):
         self.get_columns = self.columns.start()
         self.addCleanup(self.columns.stop)
 
-    def _trigger(self, *_args: object, **_kwargs: object) -> AdHocSyncTrigger:
+    def _trigger(self, *_args: object, **_kwargs: object) -> MagicMock:
         self.trigger_count += 1
-        return AdHocSyncTrigger(workflow_id=f"workflow-{self.trigger_count}", schedule_paused_now=False)
+        return MagicMock(workflow_id=f"workflow-{self.trigger_count}", schedule_paused_now=False)
 
     def _create(self, upload_id: str = UPLOAD_ID, **payload: str):
         return self.client.post(
@@ -574,7 +573,7 @@ class TestFileUploadSources(APIBaseTest):
         self.trigger.assert_not_called()
 
     def test_a_sync_that_fails_to_start_still_leaves_a_working_table(self) -> None:
-        self.trigger.side_effect = WorkflowStartError("temporal is down")
+        self.trigger.side_effect = RuntimeError("temporal is down")
 
         response = self._create()
 
@@ -609,7 +608,7 @@ class TestFileUploadSources(APIBaseTest):
         assert schema.source.job_inputs["filename"] == "orders_v2.csv"
         assert schema.schema_metadata is not None
         assert schema.schema_metadata["csv"]["column_types"] == {"id": "integer", "placed_at": "datetime"}
-        [superseded] = schema.source.connection_metadata["file_upload"]["superseded"]
+        [superseded] = (schema.source.connection_metadata or {})["file_upload"]["superseded"]
         assert (superseded["upload_id"], superseded["filename"]) == (UPLOAD_ID, "orders.csv")
         assert self.trigger_count == 2
         assert self.trigger.call_args.kwargs["billable"] is True
@@ -754,8 +753,9 @@ class TestFileUploadSources(APIBaseTest):
             columns=dict(FAKE_COLUMNS),
             options={"csv_allow_double_quotes": False},
         )
-        [outcome] = migrate_self_managed_tables(MigrationOptions(team_id=self.team.pk, live_run=True))
+        [outcome] = migrate_team_self_managed_tables(self.team.pk)
         assert outcome.action == "linked", outcome
+        assert outcome.status.schema_id is not None
         schema = ExternalDataSchema.objects.select_related("source").get(pk=outcome.status.schema_id)
         return table, schema
 
@@ -801,7 +801,7 @@ class TestFileUploadSources(APIBaseTest):
             [written] = self.s3.written
             assert written == (f"test-bucket/file_uploads/team_{self.team.pk}/{job_inputs['upload_id']}/orders_v2.csv")
         assert (job_inputs["filename"], job_inputs["file_format"]) == ("orders_v2.csv", "csv")
-        [superseded] = schema.source.connection_metadata["file_upload"]["superseded"]
+        [superseded] = (schema.source.connection_metadata or {})["file_upload"]["superseded"]
         if key.startswith("managed/"):
             assert superseded["legacy_filename"] == "orders.csv"
         else:

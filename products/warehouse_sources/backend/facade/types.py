@@ -1475,6 +1475,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     KLAR = "Klar", "Klar"
     CONECTOCRM = "ConectoCRM", "ConectoCRM"
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
+    PARTICLE = "Particle", "Particle"
     FILEUPLOAD = "FileUpload", "FileUpload"
 
 

@@ -337,7 +337,8 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
         source.job_inputs = {**(source.job_inputs or {}), **upload_job_inputs(upload, schema.name)}
         now = timezone.now()
         recorded = {entry.upload for entry in superseded_uploads(source)}
-        for old in dict.fromkeys(filter(None, (current, _file_read_in_place(schema)))):
+        replaced: list[HostedUpload] = [old for old in (current, _file_read_in_place(schema)) if old is not None]
+        for old in dict.fromkeys(replaced):
             if old != upload.location and old not in recorded:
                 source.connection_metadata = connection_metadata_with_superseded(
                     source, SupersededUpload(upload=old, superseded_at=now)

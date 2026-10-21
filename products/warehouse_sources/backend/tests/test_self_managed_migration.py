@@ -749,7 +749,7 @@ class TestUploadedTableMigration(_MigrationTest):
             ),
             (
                 "json_dates",
-                DataWarehouseTableFormat.JSONEachRow,
+                DataWarehouseTableFormat.JSON,
                 {"day": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"}},
                 "'day' is a Date",
             ),
