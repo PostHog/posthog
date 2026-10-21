@@ -61,4 +61,53 @@ describe('newNotificationDialogLogic', () => {
         expect(masking.hash).toContain("!= ''")
         expect(masking.hash).toContain('unknown-tool')
     })
+
+    it.each([
+        ['mcp-tool-error', ['slack', 'discord', 'microsoft-teams', 'webhook', 'github']],
+        ['data-warehouse-sync-failed', ['slack', 'discord', 'microsoft-teams', 'webhook']],
+        ['pa-rageclick', ['slack', 'discord', 'microsoft-teams', 'webhook']],
+    ] as const)('offers the destinations %s ships a variant for', (subTemplateId, expectedDestinations) => {
+        const subTemplateLogic = newNotificationDialogLogic({ subTemplateId, onCreated: () => {} })
+        subTemplateLogic.mount()
+
+        expect(subTemplateLogic.values.destinationOptions.map((option) => option.value)).toEqual(expectedDestinations)
+
+        subTemplateLogic.unmount()
+    })
+
+    it.each([
+        ['no installation', { githubIntegrationId: null, githubRepository: null }],
+        ['no repository', { githubIntegrationId: 7, githubRepository: null }],
+    ])('asks for a GitHub %s without asking for a webhook URL', async (_name, github) => {
+        logic.actions.setNotificationFormValues({ destination: 'github', ...github })
+
+        await expectLogic(logic, () => logic.actions.submitNotificationForm()).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(
+            Object.keys(logic.values.notificationFormErrors).filter(
+                (key) => (logic.values.notificationFormErrors as any)[key]
+            )
+        ).toEqual(github.githubIntegrationId ? ['githubRepository'] : ['githubIntegrationId', 'githubRepository'])
+    })
+
+    it('opens a GitHub issue for the failing tool, at most one per day', async () => {
+        logic.actions.setNotificationFormValues({
+            destination: 'github',
+            githubIntegrationId: 7,
+            githubRepository: 'mcp-server',
+        })
+
+        await expectLogic(logic, () => logic.actions.submitNotificationForm()).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        const payload = createSpy.mock.calls[0][0]
+        expect(payload.template_id).toBe('template-github')
+        expect(payload.inputs.github_installation).toEqual({ value: 7 })
+        expect(payload.inputs.repository).toEqual({ value: 'mcp-server' })
+        expect(payload.inputs.posthog_issue_id).toEqual({ value: '{event.uuid}' })
+        expect(payload.inputs.posthog_issue_url.value).toContain('/mcp-analytics/tool-quality')
+        expect(payload.masking.ttl).toBe(86400)
+        expect(payload.masking.hash).toMatch(/^\{substring\(md5Hex\(.*\), 1, 1\)\}$/s)
+    })
 })

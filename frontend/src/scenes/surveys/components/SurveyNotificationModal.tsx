@@ -8,7 +8,7 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+import { CHAT_DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { SurveyResponseFilters } from 'scenes/surveys/components/SurveyResponseFilters'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 import {
@@ -337,7 +337,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                     <LemonSelect
                                         value={value}
                                         onChange={onChange}
-                                        options={DESTINATION_OPTIONS.map((option) => ({
+                                        options={CHAT_DESTINATION_OPTIONS.map((option) => ({
                                             value: option.value,
                                             label: option.label,
                                             icon: (
