@@ -1948,7 +1948,7 @@ jobs:
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_review_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # The PR checkout above uses the PR head commit, which on unrebased PRs
                   # predates this script, so skip the CI report section rather than fail.
                   # An empty token would leave the ambient Depot token in place, so the
                   # section skips without one too.
@@ -2069,7 +2069,7 @@ jobs:
               env:
                   CI_REPORT_TOKEN: ${{ steps.ci-report.outputs.available == 'true' && steps.ci-report-app-token.outputs.token || '' }}
               run: |
-                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # The PR checkout above uses the PR head commit, which on unrebased PRs
                   # predates this script, so skip the CI report section rather than fail.
                   # An empty token would leave the ambient Depot token in place, so the
                   # section skips without one too.
