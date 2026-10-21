@@ -116,7 +116,14 @@ MISSING_SYMBOLS = Q(resolved=False) & functools.reduce(operator.or_, (rule.query
 # Frames whose code needs symbols to be readable: the ones resolved with a symbol set, plus the ones
 # missing it. Python frames and unminified JavaScript resolve without symbols, so they stay out. A
 # resolved frame that kept a failure text resolved without symbols, even when it links to the failed set.
-NEEDS_SYMBOLS = (Q(resolved=True, symbol_set__isnull=False) & ~Q(contents__has_key="resolve_failure")) | MISSING_SYMBOLS
+# A JavaScript frame that cymbal resolved through the URL fallback has no symbol set link, because
+# cymbal stores that set under the URL and looks it up under the chunk ID. It has a line from the
+# source map, and a frame resolved without location information has none.
+NEEDS_SYMBOLS = (
+    Q(resolved=True)
+    & ~Q(contents__has_key="resolve_failure")
+    & (Q(symbol_set__isnull=False) | Q(contents__lang="javascript", contents__has_key="line"))
+) | MISSING_SYMBOLS
 
 # Each platform is scored on its own, so good coverage on one platform cannot hide missing symbols on another.
 PLATFORM = Case(

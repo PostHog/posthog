@@ -311,7 +311,9 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
             self._make_frame(resolved=True, with_symbol_set=True)
         for _ in range(2):
             self._make_missing_symbols_frame()
+        self._make_frame(contents={"line": 12}, resolved=True)
         self._make_frame(contents={"lang": "python"}, resolved=True)
+        self._make_frame(resolved=True)
         self._make_frame(
             contents={"resolve_failure": "Could not find sourcemap for source url: https://example.com/app.js"},
             resolved=True,
@@ -321,9 +323,9 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
         meta = SourceMapsRecommendation().compute(self.team)
 
         self.assertEqual(meta["platform"], "javascript")
-        self.assertEqual(meta["total_frames"], 10)
+        self.assertEqual(meta["total_frames"], 11)
         self.assertEqual(meta["unresolved_frames"], 2)
-        self.assertEqual(meta["unresolved_pct"], 0.2)
+        self.assertEqual(meta["unresolved_pct"], 2 / 11)
 
     @parameterized.expand(
         [
