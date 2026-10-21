@@ -1,8 +1,8 @@
 """Lifecycle events for the email thread rematch Celery tasks.
 
 Each run emits `email_thread_rematch` with `status="started"` before any work, then one
-terminal status. A worker killed by SIGKILL, an out-of-memory kill or a hard time limit
-sends no terminal event, so a `started` event without a terminal event marks a lost run.
+terminal status. A worker that stops without unwinding, such as on SIGKILL, sends no
+terminal event, so a `started` event without a terminal event marks a lost run.
 Telemetry never raises into the rematch and never waits longer than the flush timeout.
 """
 
@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import time
 import functools
-from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Final, Literal
 
 import structlog
+from celery import current_task
 
 from posthog.cloud_utils import is_cloud
 from posthog.ph_client import get_client
@@ -25,41 +27,39 @@ EMAIL_THREAD_REMATCH_EVENT: Final = "email_thread_rematch"
 FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 EmailThreadRematchType = Literal["full", "threads", "account_properties"]
-EmailThreadRematchStatus = Literal["started", "completed", "retrying", "failed", "interrupted"]
 
 
-def run_tracked_email_thread_rematch(
-    *,
-    team_id: int,
-    rematch_type: EmailThreadRematchType,
-    task_id: str | None,
-    retries: int,
-    max_retries: int,
-    run: Callable[[], int],
-) -> int:
+@contextmanager
+def track_email_thread_rematch(team_id: int, rematch_type: EmailThreadRematchType) -> Iterator[None]:
+    retries = current_task.request.retries or 0
     client = _get_client_or_none()
-    base_properties: dict[str, object] = {
+    properties: dict[str, object] = {
         "$process_person_profile": False,
         "team_id": team_id,
         "rematch_type": rematch_type,
-        "task_id": task_id,
+        "task_id": current_task.request.id,
         "attempt": retries + 1,
-        "is_retry": retries > 0,
     }
     # Sent before the work, so a worker that dies mid-run still leaves its `started` event.
-    _send(client, team_id, {**base_properties, "status": "started"})
+    _send(client, team_id, {**properties, "status": "started"})
     started_at = time.monotonic()
     try:
-        threads_processed = run()
+        yield
     except Exception as error:
-        status: EmailThreadRematchStatus = "retrying" if retries < max_retries else "failed"
-        _send_terminal(client, team_id, base_properties, status, started_at, error=error)
+        status = "retrying" if retries < (current_task.max_retries or 0) else "failed"
+        # The class name only: the message can carry customer email addresses.
+        _send(
+            client,
+            team_id,
+            {
+                **properties,
+                "status": status,
+                "duration_seconds": _seconds_since(started_at),
+                "error_type": type(error).__name__,
+            },
+        )
         raise
-    except BaseException as error:
-        _send_terminal(client, team_id, base_properties, "interrupted", started_at, error=error)
-        raise
-    _send_terminal(client, team_id, base_properties, "completed", started_at, threads_processed=threads_processed)
-    return threads_processed
+    _send(client, team_id, {**properties, "status": "completed", "duration_seconds": _seconds_since(started_at)})
 
 
 @functools.cache
@@ -83,27 +83,8 @@ def _get_client_or_none() -> Any:
         return None
 
 
-def _send_terminal(
-    client: Any,
-    team_id: int,
-    base_properties: dict[str, object],
-    status: EmailThreadRematchStatus,
-    started_at: float,
-    *,
-    error: BaseException | None = None,
-    threads_processed: int | None = None,
-) -> None:
-    properties: dict[str, object] = {
-        **base_properties,
-        "status": status,
-        "duration_seconds": round(time.monotonic() - started_at, 3),
-    }
-    if error is not None:
-        # The class name only: the message can carry customer email addresses.
-        properties["error_type"] = type(error).__name__
-    if threads_processed is not None:
-        properties["threads_processed"] = threads_processed
-    _send(client, team_id, properties)
+def _seconds_since(started_at: float) -> float:
+    return round(time.monotonic() - started_at, 3)
 
 
 def _send(client: Any, team_id: int, properties: dict[str, object]) -> None:

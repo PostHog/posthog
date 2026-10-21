@@ -1,9 +1,8 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
 
 import structlog
 import posthoganalytics
-from celery import Task, current_task, shared_task
+from celery import Task, shared_task
 from structlog.contextvars import bound_contextvars
 
 from posthog.exceptions_capture import capture_exception
@@ -16,10 +15,7 @@ from products.customer_analytics.backend.facade.email_matching import (
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
-from products.customer_analytics.backend.logic.email_rematch_monitoring import (
-    EmailThreadRematchType,
-    run_tracked_email_thread_rematch,
-)
+from products.customer_analytics.backend.logic.email_rematch_monitoring import track_email_thread_rematch
 from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
 
 logger = structlog.get_logger(__name__)
@@ -155,19 +151,6 @@ def rematch_account_meetings(team_id: int, account_id: str) -> None:
     run_meeting_rematch(team_id=team_id, account_id=account_id)
 
 
-def _run_tracked_email_thread_rematch(
-    team_id: int, rematch_type: EmailThreadRematchType, run: Callable[[], int]
-) -> None:
-    run_tracked_email_thread_rematch(
-        team_id=team_id,
-        rematch_type=rematch_type,
-        task_id=current_task.request.id,
-        retries=current_task.request.retries or 0,
-        max_retries=current_task.max_retries or 0,
-        run=run,
-    )
-
-
 @shared_task(
     name="customer_analytics.recalculate_email_thread_account_links",
     ignore_result=True,
@@ -178,12 +161,9 @@ def _run_tracked_email_thread_rematch(
 )
 @with_team_scope()
 def recalculate_email_thread_account_links(team_id: int) -> None:
-    def run() -> int:
-        threads_processed = recalculate_email_thread_links(team_id)
+    with track_email_thread_rematch(team_id, "full"):
+        recalculate_email_thread_links(team_id)
         finish_email_thread_link_recalculation(team_id)
-        return threads_processed
-
-    _run_tracked_email_thread_rematch(team_id, "full", run)
 
 
 @shared_task(
@@ -202,16 +182,13 @@ def recalculate_email_thread_account_links_for_account_properties(
     previous_known_emails: list[str],
     previous_email_domains: list[str],
 ) -> None:
-    _run_tracked_email_thread_rematch(
-        team_id,
-        "account_properties",
-        lambda: recalculate_email_thread_links_for_account_properties(
+    with track_email_thread_rematch(team_id, "account_properties"):
+        recalculate_email_thread_links_for_account_properties(
             team_id,
             account_id,
             previous_known_emails=previous_known_emails,
             previous_email_domains=previous_email_domains,
-        ),
-    )
+        )
 
 
 @shared_task(
@@ -224,11 +201,8 @@ def recalculate_email_thread_account_links_for_account_properties(
 )
 @with_team_scope()
 def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids: list[str]) -> None:
-    _run_tracked_email_thread_rematch(
-        team_id,
-        "threads",
-        lambda: recalculate_email_thread_links(team_id, thread_ids=thread_ids, append_only=True),
-    )
+    with track_email_thread_rematch(team_id, "threads"):
+        recalculate_email_thread_links(team_id, thread_ids=thread_ids, append_only=True)
 
 
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
