@@ -159,10 +159,7 @@ services:
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
         healthcheck:
-            # Check over TCP because the entrypoint runs the init scripts on a temporary
-            # server that listens on the Unix socket only, then stops it. A socket check
-            # marks the container healthy during that phase, and clients that connect
-            # next get "the database system is shutting down".
+            # TCP, because the entrypoint runs init scripts on a socket-only temporary server.
             test: ['CMD-SHELL', 'pg_isready -U posthog -h 127.0.0.1']
             interval: 5s
             timeout: 30s
