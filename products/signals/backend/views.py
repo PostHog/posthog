@@ -98,6 +98,7 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
     parse_artefact_content,
 )
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.assignment_service import (
     AssignmentWriteError as ReviewerWriteError,
     ReportAssignmentService,
@@ -4881,6 +4882,9 @@ def _schedule_reviewer_added_slack_notifications(
     request. Best-effort — a Slack failure must never break the reviewer edit.
     """
     # robust=True: a broker outage while enqueuing must not 500 an edit that already committed.
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return
+
     transaction.on_commit(
         lambda: send_reviewer_added_slack_notifications.delay(
             report_id=report_id,
@@ -5088,27 +5092,28 @@ def append_suggested_reviewers(
             # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
             # note channel gates on the same signal to keep the two reviewer-correction paths agreeing.
             was_impersonated = is_impersonated_session(request)
-            log_activity(
-                organization_id=None,
-                team_id=team.id,
-                user=cast(User, request.user),
-                was_impersonated=was_impersonated,
-                item_id=report_id,
-                scope="SignalReport",
-                activity="suggested_reviewers_changed",
-                detail=Detail(
-                    name=report.title,
-                    changes=[
-                        Change(
-                            type="SignalReport",
-                            action="changed",
-                            field="suggested_reviewers",
-                            before=prior_identities,
-                            after=new_identities,
-                        )
-                    ],
-                ),
-            )
+            if assignment_side_effects_allowed(team_id=team.id, report_id=str(report_id)):
+                log_activity(
+                    organization_id=None,
+                    team_id=team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=was_impersonated,
+                    item_id=report_id,
+                    scope="SignalReport",
+                    activity="suggested_reviewers_changed",
+                    detail=Detail(
+                        name=report.title,
+                        changes=[
+                            Change(
+                                type="SignalReport",
+                                action="changed",
+                                field="suggested_reviewers",
+                                before=prior_identities,
+                                after=new_identities,
+                            )
+                        ],
+                    ),
+                )
 
             # A human added reviewers: ping the newly-added ones on their own Slack channel so
             # someone added after generation still hears about an actionable report, mirroring
@@ -5276,27 +5281,28 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
         )
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
 
-        log_activity(
-            organization_id=None,
-            team_id=team.id,
-            user=cast(User, request.user),
-            was_impersonated=was_impersonated,
-            item_id=report_id,
-            scope="SignalReport",
-            activity="suggested_reviewers_changed",
-            detail=Detail(
-                name=report.title,
-                changes=[
-                    Change(
-                        type="SignalReport",
-                        action="changed",
-                        field="suggested_reviewers",
-                        before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
-                        after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
-                    )
-                ],
-            ),
-        )
+        if assignment_side_effects_allowed(team_id=team.id, report_id=str(report_id)):
+            log_activity(
+                organization_id=None,
+                team_id=team.id,
+                user=cast(User, request.user),
+                was_impersonated=was_impersonated,
+                item_id=report_id,
+                scope="SignalReport",
+                activity="suggested_reviewers_changed",
+                detail=Detail(
+                    name=report.title,
+                    changes=[
+                        Change(
+                            type="SignalReport",
+                            action="changed",
+                            field="suggested_reviewers",
+                            before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
+                            after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
+                        )
+                    ],
+                ),
+            )
         correction = (
             None
             if was_impersonated or not github_login
@@ -5338,6 +5344,8 @@ def _record_reviewer_edit(
     Forwarding runs first so the analytics event can report what it achieved. `correction` is None
     for an agent write or an order-only rewrite, neither of which tells a scout anything.
     """
+    if not assignment_side_effects_allowed(team_id=team.id, report_id=report_id):
+        return
     forwarded = forward_reviewer_correction_note(team=team, correction=correction) if correction else None
     capture_suggested_reviewers_resolved(
         team_id=team.id,

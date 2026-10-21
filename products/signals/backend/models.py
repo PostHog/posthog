@@ -1664,6 +1664,7 @@ class SignalReportArtefact(UUIDModel):
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
         reevaluate_autostart: bool = True,
+        assignment_writer: bool = False,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1677,11 +1678,20 @@ class SignalReportArtefact(UUIDModel):
         """
         if artefact_type_for(content) not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a status artefact content model")
-        artefact = cls._create(
-            team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
-        )
-        if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
-            cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+        with ExitStack() as guard:
+            if artefact_type_for(content) == cls.ArtefactType.SUGGESTED_REVIEWERS:
+                guard.enter_context(transaction.atomic())
+                SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+                if (
+                    not assignment_writer
+                    and SignalReportAssignmentRevision.objects.for_team(team_id).filter(report_id=report_id).exists()
+                ):
+                    raise ArtefactContentValidationError("This report requires the shared assignment writer.")
+            artefact = cls._create(
+                team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
+            )
+            if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
+                cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
 
     @classmethod
