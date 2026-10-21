@@ -40,7 +40,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -48,13 +47,14 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
@@ -74,7 +74,6 @@ import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import {
     type AccessControlFilterWarning,
     type DataTableNode,
-    type DataWarehouseSyncWarning,
     type HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -88,6 +87,7 @@ import {
 
 import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import {
@@ -102,7 +102,6 @@ import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
-import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -763,7 +762,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 }
 
                 // Hack to get bools to render in the data grid
-                if (type && type.indexOf('Bool') !== -1) {
+                if (cleanClickhouseType(type) === 'Bool') {
                     return {
                         ...baseColumn,
                         renderCell: (props: any) => {
@@ -781,6 +780,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                     renderCell: (props: any) => {
                         const columnKey = `${column}_${index}`
                         const value = props.row[columnKey]
+                        if (response.column_formats?.[index] === 'mcp_harness' && typeof value === 'string') {
+                            return <HarnessLabel category={value} />
+                        }
                         if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
                             try {
                                 const parsedHogQLX = JSON.parse(value)
@@ -1171,7 +1173,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     if (!warnings || warnings.length === 0) {
         return null
     }
-    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const syncWarnings = warehouseSyncWarnings(warnings)
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
         <>
@@ -1182,24 +1184,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     data-attr="sql-editor-output-pane-sync-warnings"
                 >
                     Some warehouse sources used by this query are out of date — results may not reflect current data:
-                    <ul className="list-disc pl-5">
-                        {syncWarnings.map((warning, index) => (
-                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                                {trimRedundantTail(warning.message)}
-                                {warning.source_id && (
-                                    <>
-                                        {' '}
-                                        <Link
-                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
-                                            target="_blank"
-                                        >
-                                            Manage source
-                                        </Link>
-                                    </>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
+                    <WarehouseSyncWarningList warnings={syncWarnings} />
                 </LemonBanner>
             )}
             {acWarnings.length > 0 && (

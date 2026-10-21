@@ -3,6 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
@@ -10,6 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework.test import APIClient
@@ -45,18 +47,28 @@ TEST_PARTNER_SCOPES = [
 
 
 # A partner granted everything, so a test narrows to the one capability it is about rather
-# than restating the other eight. `provisioning_config(can_start_wizard_runs=False)` reads as
-# the thing under test; a literal dict at each call site does not.
+# than restating the rest. `provisioning_config(can_issue_deep_links=False)` reads as the
+# thing under test; a literal dict at each call site does not.
 TEST_PARTNER_PROVISIONING: dict[str, bool] = {
     "active": True,
     "can_create_accounts": True,
     "can_provision_resources": True,
-    "can_use_github_grants": True,
-    "can_start_wizard_runs": True,
     "can_issue_deep_links": True,
     # Stands in for the one grandfathered app that still mints a provisioned PAT.
     "issues_personal_api_key": True,
 }
+
+
+# Signing depends on the clock, so tests pin the window rather than age against the real dates.
+SIGNING_WINDOW_IN_THE_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
+SIGNING_WINDOW_IN_THE_PAST = datetime(2000, 1, 1, tzinfo=UTC)
+
+
+def signing_required() -> override_settings:
+    return override_settings(
+        PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_PAST,
+        PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_PAST,
+    )
 
 
 def provisioning_config(**overrides) -> dict:
@@ -81,6 +93,10 @@ def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=
     return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
 
 
+@override_settings(
+    PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_FUTURE,
+    PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_FUTURE,
+)
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()

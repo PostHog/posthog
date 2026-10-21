@@ -7,7 +7,12 @@ from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_T
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
+from posthog.models.utils import (
+    ai_credential_value,
+    generate_random_token_personal,
+    generate_random_token_secret,
+    hash_key_value,
+)
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -157,6 +162,50 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert response.json()["scopes"] == ["llm_gateway:read"]
 
+    @parameterized.expand(
+        [
+            ("granted_with_full_billing_access", False, True, 201),
+            ("refused_without_full_billing_access", True, True, 403),
+            ("refused_without_enterprise_billing", False, False, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_create_billing_read_scope_needs_full_billing_access(
+        self, _name, owner_only_billing, ee_available, expected_status, mock_owner_only
+    ):
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        with patch("posthog.api.project_secret_api_key.EE_AVAILABLE", ee_available):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "billing key", "scopes": ["billing:read"]},
+            )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("rolled_with_full_billing_access", False, 200),
+            ("refused_without_full_billing_access", True, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_roll_billing_read_key_needs_full_billing_access(
+        self, _name, owner_only_billing, expected_status, mock_owner_only
+    ):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="owner's billing key", secure_value="sha256$owner", scopes=["billing:read"]
+        )
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert (key.secure_value != "sha256$owner") == (expected_status == 200)
+
     @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
     def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
         self._make_staff()
@@ -294,6 +343,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key_id = data["id"]
         original_mask = data["mask_value"]
         original_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert original_secure_value is not None
+        assert data["ai_credential"] == ai_credential_value(original_secure_value)
 
         response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
         assert response.status_code == 200
@@ -306,8 +357,12 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert rolled["value"] is not None
         assert rolled["value"].startswith("phs_")
 
-        key = ProjectSecretAPIKey.objects.get(id=key_id)
-        assert key.secure_value != original_secure_value
+        rolled_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert rolled_secure_value is not None
+        assert rolled_secure_value != original_secure_value
+        # The gateway attribution follows the secret, so a rolled key reports a new value.
+        assert rolled["ai_credential"] == ai_credential_value(rolled_secure_value)
+        assert rolled["ai_credential"] != data["ai_credential"]
 
     def test_list_only_current_team_keys(self):
         self.client.post(

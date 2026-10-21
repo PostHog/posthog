@@ -606,10 +606,11 @@ def list_team_ci_health(
     limit: int | None = None,
     owner_team: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
     return logic.build_team_ci_health(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         min_failed_prs=min_failed_prs,
@@ -626,10 +627,11 @@ def get_team_ci_activity(
     date_to: str | None = None,
     test_limit: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIActivity:
     return logic.build_team_ci_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,
@@ -644,10 +646,11 @@ def get_team_merge_trend(
     date_from: str | None = None,
     date_to: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamMergeTrend:
     return logic.build_team_merge_trend(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,

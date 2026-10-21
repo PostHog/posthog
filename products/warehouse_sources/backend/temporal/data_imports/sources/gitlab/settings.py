@@ -40,6 +40,12 @@ class GitLabEndpointConfig:
     # Column the parent's iid is injected into on every child row. Part of the primary key, since
     # the child API has no project-wide uniqueness guarantee we can rely on.
     fan_out_parent_column: Optional[str] = None
+    # Static query params sent on every request to this endpoint.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # When set, the endpoint returns one object and its rows sit in the list under this key.
+    rows_key: Optional[str] = None
+    # When set, primary_key is copied onto each row from this nested path (the API nests the id).
+    primary_key_path: Optional[tuple[str, ...]] = None
 
 
 # Project-scoped endpoints. We cover the resources a user most commonly wants to analyze and that
@@ -126,6 +132,22 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
         # Tag name is the unique key. created_at can be absent for some tags, so don't partition.
         primary_key="name",
     ),
+    "jobs": GitLabEndpointConfig(
+        name="jobs",
+        path="/projects/{project}/jobs",
+        # No server-side timestamp filter -> full refresh only. GitLab recommends keyset pagination
+        # for this endpoint and only accepts it ordered by id descending.
+        extra_params={"pagination": "keyset"},
+        supports_order_by=True,
+        stable_order_by="id",
+        partition_key="created_at",
+        sort_mode="desc",
+    ),
+    "environments": GitLabEndpointConfig(
+        name="environments",
+        path="/projects/{project}/environments",
+        partition_key="created_at",
+    ),
     "labels": GitLabEndpointConfig(
         name="labels",
         path="/projects/{project}/labels",
@@ -203,6 +225,35 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
         ],
         default_incremental_field="created_at",
         partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="merge_requests",
+        fan_out_parent_column="merge_request_iid",
+    ),
+    "issue_label_events": GitLabEndpointConfig(
+        name="issue_label_events",
+        path="/projects/{project}/issues/{parent_iid}/resource_label_events",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="issues",
+        fan_out_parent_column="issue_iid",
+    ),
+    # One row per approver. Approving adds a system note, which bumps the merge request's
+    # updated_at, so the incremental parent walk still finds new approvals. Revoked approvals
+    # only drop out on a full refresh.
+    "merge_request_approvals": GitLabEndpointConfig(
+        name="merge_request_approvals",
+        path="/projects/{project}/merge_requests/{parent_iid}/approvals",
+        incremental_fields=[
+            _datetime_incremental_field("approved_at"),
+        ],
+        default_incremental_field="approved_at",
+        primary_key="user_id",
+        primary_key_path=("user", "id"),
+        rows_key="approved_by",
         sort_mode="desc",
         fan_out_parent="merge_requests",
         fan_out_parent_column="merge_request_iid",

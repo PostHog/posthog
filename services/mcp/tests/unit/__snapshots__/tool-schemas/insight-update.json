@@ -48,6 +48,73 @@
         "query": {
             "anyOf": [
                 {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "DataTableNode",
+                            "default": "DataTableNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "properties": {
+                                "kind": {
+                                    "const": "EventsQuery",
+                                    "default": "EventsQuery",
+                                    "type": "string"
+                                },
+                                "select": {
+                                    "description": "Event columns as HogQL expressions.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["select"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "config": {
+                            "additionalProperties": {},
+                            "description": "Complete worksheet configuration, including shelves and filters. Validated by the insight API.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "kind": {
+                            "const": "BIVisualizationNode",
+                            "default": "BIVisualizationNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "properties": {
+                                "kind": {
+                                    "const": "HogQLQuery",
+                                    "default": "HogQLQuery",
+                                    "type": "string"
+                                },
+                                "query": {
+                                    "description": "The HogQL query to run.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["query"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["config", "source"],
+                    "type": "object"
+                },
+                {
                     "properties": {
                         "kind": {
                             "const": "InsightVizNode",
@@ -59,6 +126,21 @@
                             "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
                             "propertyNames": {
                                 "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "vizSpecificOptions": {
+                            "description": "Chart rendering options.",
+                            "properties": {
+                                "ActionsPie": {
+                                    "properties": {
+                                        "hideAggregation": {
+                                            "description": "Hide the total on a pie chart.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
                             },
                             "type": "object"
                         }
@@ -294,12 +376,12 @@
                                                             "type": "string"
                                                         },
                                                         "displayType": {
-                                                            "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                            "description": "Chart type. `auto` uses `display`.",
                                                             "enum": ["auto", "line", "bar", "area"],
                                                             "type": "string"
                                                         },
                                                         "label": {
-                                                            "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                            "description": "Series label in legends and tooltips; replaces the column name.",
                                                             "type": "string"
                                                         },
                                                         "trendLine": {
@@ -326,12 +408,12 @@
                                                             "type": "string"
                                                         },
                                                         "style": {
-                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
+                                                            "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
                                                             "enum": ["none", "number", "short", "percent"],
                                                             "type": "string"
                                                         },
                                                         "suffix": {
-                                                            "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
+                                                            "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
                                                             "type": "string"
                                                         }
                                                     },
@@ -367,12 +449,12 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                                "description": "Series label in legends and tooltips; replaces the column name.",
                                                                 "type": "string"
                                                             },
                                                             "trendLine": {
@@ -399,12 +481,12 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
+                                                                "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
                                                                 "enum": ["none", "number", "short", "percent"],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
-                                                                "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
+                                                                "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
                                                                 "type": "string"
                                                             }
                                                         },
@@ -423,7 +505,7 @@
                             "type": "object"
                         },
                         "display": {
-                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.",
+                            "description": "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.",
                             "enum": [
                                 "ActionsTable",
                                 "BoldNumber",
@@ -433,6 +515,7 @@
                                 "ActionsBarValue",
                                 "ActionsPie",
                                 "ActionsDonut",
+                                "ActionsProportionBar",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
                                 "TwoDimensionalHeatmap",
@@ -476,12 +559,12 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                                "description": "Series label in legends and tooltips; replaces the column name.",
                                                                 "type": "string"
                                                             },
                                                             "trendLine": {
@@ -508,12 +591,12 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
+                                                                "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
                                                                 "enum": ["none", "number", "short", "percent"],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
-                                                                "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
+                                                                "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
                                                                 "type": "string"
                                                             }
                                                         },
@@ -581,6 +664,25 @@
                         }
                     },
                     "required": ["query"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "EventsQuery",
+                            "default": "EventsQuery",
+                            "type": "string"
+                        },
+                        "select": {
+                            "description": "Event columns as HogQL expressions.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["select"],
                     "type": "object"
                 }
             ]

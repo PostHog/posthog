@@ -153,6 +153,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_connection_metadata,
     get_enforced_unique_keys,
     get_foreign_keys,
     get_leading_index_columns,
@@ -566,19 +567,27 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
 
-    def test_database_not_accepting_connections_surfaces_actionable_message(self, source):
-        # A paused/disallowed database must stop retrying and tell the customer to restore it,
-        # rather than storing the raw driver text (which echoes the host, IP, and database name).
-        # Mirror the finalizer's first-match selection so a future reorder that shadows it with an
-        # earlier None-valued key is caught. Host/db are invented, not a real value.
-        error_msg = 'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections'
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
+            # A role without the LOGIN privilege.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  role "example_user" is not permitted to log in',
+        ],
+    )
+    def test_connection_refusal_surfaces_actionable_message(self, source, error_msg):
+        # A paused/disallowed database or a role that can't log in must stop retrying and tell the
+        # customer what to fix, rather than storing the raw driver text (which echoes the host, IP,
+        # and database or role name). Mirror the finalizer's first-match selection so a future
+        # reorder that shadows it with an earlier None-valued key is caught. Hosts, databases and
+        # roles are invented, not real values.
         matches = [
             friendly
             for pattern, friendly in source.get_non_retryable_errors().items()
             if error_message_matches(error_msg, [pattern])
         ]
-        assert matches, "a database not accepting connections must be classified non-retryable"
-        assert matches[0] is not None, "a database not accepting connections must surface an actionable message"
+        assert matches, "a connection refusal must be classified non-retryable"
+        assert matches[0] is not None, "a connection refusal must surface an actionable message"
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
@@ -692,6 +701,12 @@ class TestPostgresSourceNonRetryableErrors:
             # in-process fallback already retries elsewhere, unlike the "kept canceling reads..."/"no
             # key that can resume..." exhausted-retry aborts below, which stay non-retryable.
             "canceling statement due to conflict with recovery\nDETAIL:  User query might have needed to see row versions that must be removed.",
+            # Not our own client-side deadline (that path always converts to
+            # ClientDeadlineExceededError first) — either our watchdog's cancel request landed on a
+            # later statement after its own one already finished, or an external cancel (a pooler
+            # recycling the connection, an admin cancel) hit the query. Neither is a verdict on this
+            # query, so a fresh connection on retry recovers.
+            "canceling statement due to user request",
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -716,6 +731,10 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: sorry, too many clients already',
                 "connection slots",
+            ),
+            (
+                "canceling statement due to user request",
+                "canceled",
             ),
         ],
     )
@@ -1604,6 +1623,49 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class
+            # name. Unlike InsufficientPrivilege's SQLSTATE 42501 text, this wording is
+            # customer-authored RAISE text, but "access denied"/"unauthorized" is common enough
+            # phrasing for a hand-rolled access check to match directly, without a class name.
+            "Access denied: No user ID provided",
+            "unauthorized: missing tenant claim",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class
+            # name, matched the same way regardless.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_access_denial_raise_is_non_retryable(self, source, error_msg):
+        # Matching is case-insensitive in production (`error_message_matches`), unlike the
+        # customer-authored sentence-case wording a hand-rolled RAISE typically uses.
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Custom access-denial RAISE EXCEPTION should be non-retryable: {error_msg}"
+        )
+
+    def test_custom_access_denial_raise_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "RaiseException: Access denied: No user ID provided"
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, "Custom access-denial RAISE EXCEPTION should surface an actionable message"
+        assert "row-level security" in friendly[0]
+
+    def test_unrelated_custom_raise_exception_stays_retryable(self, source):
+        # A custom RAISE EXCEPTION that doesn't name an access denial (e.g. a lock wait or a
+        # maintenance-window check) must stay retryable — classifying every RaiseException would
+        # wrongly auto-disable a sync over a transient condition instead of a permanent one.
+        error_msg = "RaiseException: table is temporarily locked for maintenance, try again later"
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Unrelated custom RAISE EXCEPTION should stay retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -1621,6 +1683,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Unpopulated materialized view error should surface an actionable message"
         assert "REFRESH MATERIALIZED VIEW" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'pg_stat_statements must be loaded via "shared_preload_libraries"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: pg_stat_statements must be loaded via "shared_preload_libraries"',
+        ],
+    )
+    def test_pg_stat_statements_not_loaded_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"pg_stat_statements not loaded error should be non-retryable: {error_msg}"
+
+    def test_pg_stat_statements_not_loaded_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'pg_stat_statements must be loaded via "shared_preload_libraries"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "pg_stat_statements not loaded error should surface an actionable message"
+        assert "shared_preload_libraries" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1663,6 +1746,18 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "cannot delete path in scalar",
+            "InvalidParameterValue: cannot delete path in scalar",
+        ],
+    )
+    def test_jsonb_delete_path_on_scalar_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb path-deletion on scalar error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'unit "week" not supported for type interval',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -1680,6 +1775,49 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Unsupported interval-unit error should surface an actionable message"
         assert "interval" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "division by zero",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "DivisionByZero: division by zero",
+        ],
+    )
+    def test_division_by_zero_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Division-by-zero error should be non-retryable: {error_msg}"
+
+    def test_division_by_zero_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "division by zero"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Division-by-zero error should surface an actionable message"
+        assert "divides by" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/column's
+            # own PL/pgSQL function raising a custom access-check error during our read.
+            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function reject_anonymous_reads(uuid) line 9 at RAISE",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_function_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Custom function access-denied error should be non-retryable: {error_msg}"
+
+    def test_custom_function_access_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Access denied: No user ID provided"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Custom function access-denied error should surface an actionable message"
+        assert "auth.uid()" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1751,12 +1889,14 @@ class TestPostgresSourceNonRetryableErrors:
             'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+            'invalid input syntax for type uuid: "not-a-uuid"',
+            'InvalidTextRepresentation: invalid input syntax for type uuid: "not-a-uuid"',
         ],
     )
-    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+    def test_column_type_mismatch_is_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+        assert is_non_retryable, f"Column type mismatch error should be non-retryable: {error_msg}"
 
     def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
@@ -2473,6 +2613,19 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # A Neon-style proxy's own round trip to its control plane fails with the bare, generic
+            # "ERROR: Control plane request failed" — distinct from the specific, actionable
+            # control-plane rejections (quota exceeded, allow-listed IP, ...) that stay non-retryable
+            # in `get_non_retryable_errors`. The generic form means the round trip itself broke, not
+            # that it returned a customer-fixable rejection, so the reconnect must catch it. The real
+            # production message pairs it with the generic plaintext-fallback rejection on a second
+            # line, which must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "Control plane request failed\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
@@ -2509,6 +2662,14 @@ class TestIsConnectionDroppedError:
                 "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
                 'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
                 "failed: server closed the connection unexpectedly"
+            ),
+            # A TCP proxy fronting the actual backend (a public endpoint over a private-network
+            # database) reports a failed connect to its own upstream as a bare FATAL error. The
+            # proxy itself answered; the backend behind it was momentarily unreachable. Transient —
+            # the reconnect must catch it rather than letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  failed to connect to upstream 10.0.0.2:5432"
             ),
         ],
     )
@@ -4337,6 +4498,11 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        is_duckdb: bool = False,
+        child_partitions: list[ChildPartition] | None = None,
+        partition_strategy: PartitionStrategy | None = None,
+        text_ids: list[str] | None = None,
+        worker_deaths: int = 0,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4355,7 +4521,7 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         rows: list[tuple[Any, ...]] = list(self._XMIN_ROWS if is_xmin else self._ROWS)
         if column_type == "text":
-            rows = [(str(row[0]),) for row in rows]
+            rows = [(text_id,) for text_id in text_ids] if text_ids else [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
@@ -4372,10 +4538,12 @@ class TestChunkedRereadAfterRecoveryConflict:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
-            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=is_duckdb),
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
-            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._is_partitioned_table", return_value=child_partitions is not None),
+            patch(f"{module}.list_child_partitions", return_value=child_partitions or []),
+            patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
             patch(
                 f"{module}._get_table_chunk_size",
                 return_value=chunking or _TableChunking(batch_rows=2, fetch_rows=2),
@@ -4402,9 +4570,12 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                worker_deaths=worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
+            if pages_to_take == 0:
+                return []
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
             ids: list[int | str] = []
             taken = 0
@@ -4602,6 +4773,43 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         assert self.last_response.supports_resume is False
 
+    @pytest.mark.parametrize(
+        "kwargs,expected",
+        [
+            ({"should_use_incremental_field": True, "primary_keys": ["id"]}, True),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "is_duckdb": True}, False),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "child_partitions": []}, False),
+            (
+                {
+                    "should_use_incremental_field": True,
+                    "primary_keys": ["id"],
+                    "child_partitions": [ChildPartition(oid=1, schema="public", name="orders_p1", partbound="")],
+                    "partition_strategy": PartitionStrategy(strategy="r", key_columns=("id",)),
+                },
+                False,
+            ),
+            ({"should_use_incremental_field": False, "primary_keys": ["id"]}, False),
+            ({"should_use_incremental_field": False, "primary_keys": None}, False),
+            ({"should_use_incremental_field": False, "is_xmin": True, "primary_keys": ["id"]}, False),
+        ],
+        ids=[
+            "incremental_one_server_cursor",
+            "incremental_duckdb_offset_pages",
+            "incremental_partitioned_windows",
+            "incremental_per_child_partition",
+            "full_refresh_keyset",
+            "full_refresh_no_seekable_key",
+            "xmin",
+        ],
+    )
+    def test_only_one_ordered_statement_claims_ascending_for_the_whole_run(
+        self, kwargs: dict[str, Any], expected: bool
+    ) -> None:
+        # The claim is set when the response is built, so no page is read here.
+        self._read_ids(rows_before_conflict=0, pages_to_take=0, **kwargs)
+
+        assert self.last_response.sort_mode == ("asc" if expected else None)
+
     def test_a_text_primary_key_seeks_but_never_checkpoints(self):
         # The collation decision. Ordering a text key is stable within one process, so the in-process
         # seek keeps working, but a checkpoint would have that ordering assumption hold across a
@@ -4690,6 +4898,42 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    @parameterized.expand(
+        [
+            ("seek_walk_halves_its_pages", False, 2),
+            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
+            ("offset_walk_keeps_its_pages", True, 4),
+        ]
+    )
+    def test_page_size_after_a_worker_death(self, _name, should_use_incremental_field, expected_limit):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            worker_deaths=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == expected_limit
+
+    def test_one_wide_row_does_not_shrink_the_seek_pages(self):
+        text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", 300):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                arrow_schema=pa.schema([pa.field("id", pa.string())]),
+                column_type="text",
+                text_ids=text_ids,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=2),
+            )
+
+        assert ids == text_ids
+        assert set(self.last_scan.limits) == {2}
 
     def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
         # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
@@ -6441,6 +6685,64 @@ class TestGetSslmode:
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = True
             assert _get_sslmode(True) == "prefer"
+
+
+class TestPostgresConnectionMetadata:
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("table_functions", [False, True])
+    def test_failed_function_probe_does_not_block_extension_discovery(self, autocommit_pg_connection, table_functions):
+        connection = autocommit_pg_connection
+        connection.autocommit = False
+        execute = psycopg.Cursor.execute
+
+        def execute_with_failed_probe(cursor, query, *args, **kwargs):
+            if "FROM pg_proc" in query and ("proretset" in query) == table_functions:
+                return execute(cursor, "SELECT 1 / 0")
+            return execute(cursor, query, *args, **kwargs)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.pg_connection") as connect,
+            patch(f"{module}.capture_exception"),
+            patch.object(psycopg.Cursor, "execute", execute_with_failed_probe),
+        ):
+            connect.return_value.__enter__.return_value = connection
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert "pgcrypto_schema" in metadata
+        assert metadata["available_table_functions" if table_functions else "available_functions"] == []
+
+    @pytest.mark.parametrize(
+        "version,extension,expected",
+        [
+            ("PostgreSQL 15.12", ("crypto",), {"pgcrypto_schema": "crypto"}),
+            ("PostgreSQL 15.12", None, {"pgcrypto_schema": None}),
+            ("PostgreSQL 15.0 (Duckgres/DuckDB)", ("crypto",), {}),
+            ("PostgreSQL 15.12", psycopg.errors.InsufficientPrivilege("catalog access denied"), {}),
+        ],
+    )
+    def test_discovers_pgcrypto_without_losing_other_metadata(self, version, extension, expected):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [("analytics", version), extension]
+        cursor.fetchall.side_effect = [[("count",)], []]
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with patch(f"{module}.pg_connection") as connect, patch(f"{module}.capture_exception"):
+            connect.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert metadata == {
+            "database": "analytics",
+            "version": version,
+            "engine": "duckdb" if "DuckDB" in version else "postgres",
+            "function_source": "duckdb_functions" if "DuckDB" in version else "pg_proc",
+            "available_functions": ["count"],
+            "available_table_functions": [],
+            **expected,
+        }
 
 
 class TestNormalizeFunctionNames:
@@ -8521,6 +8823,14 @@ class TestHasDuplicatePrimaryKeys:
                 psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
                 psycopg.errors.InsufficientPrivilege,
             ),
+            # A row-level security policy (or other PL/pgSQL function) blocked the read with a
+            # custom RAISE (SQLSTATE P0001). Already non-retryable via get_non_retryable_errors,
+            # so the probe must propagate it rather than capture it.
+            (
+                "raise_exception",
+                psycopg.errors.RaiseException("Access denied: No user ID provided"),
+                psycopg.errors.RaiseException,
+            ),
         ]
     )
     def test_reraises_without_capturing(self, _name, side_effect, expected_exception):
@@ -8677,6 +8987,50 @@ class TestGetTable:
 
         assert exc_info.value is drop_error
         cursor.connection.rollback.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_failed_numeric_probe_clears_aborted_transaction(self):
+        # `with cursor.connection.transaction():` rolls back the BEGIN it opened when the probe
+        # query raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+        # probe's client-side deadline canceled it mid-flight) instead of raising — silently
+        # leaving the session `InFailedSqlTransaction`. Without a defensive rollback here, every
+        # later statement on this connection (the read-replica check, primary key lookup, the
+        # actual read) fails as a downstream symptom of this best-effort probe.
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        probe_error = psycopg.errors.InFailedSqlTransaction(
+            "current transaction is aborted, commands ignored until end of transaction block"
+        )
+
+        def execute_side_effect(query: Any, *args: Any, **kwargs: Any) -> Any:
+            try:
+                text = query.as_string(None)
+            except Exception:
+                text = str(query)
+            if "MAX(scale(" in text:
+                raise probe_error
+            return cursor
+
+        def fetchone_side_effect() -> Any:
+            return (False,)  # is_mat_view / is_view checks: neither
+
+        cursor.execute.side_effect = execute_side_effect
+        cursor.fetchone.side_effect = fetchone_side_effect
+        cursor.fetchall.return_value = [("val", "numeric", True, None, None)]
+
+        table = _get_table(
+            cast(Any, cursor),
+            "public",
+            "test_get_table_probe_rollback",
+            logger,
+            probe_unconstrained_numeric_scale=True,
+        )
+
+        # The probe's failure is tolerated (falls back to the default scale)...
+        val_col = next(c for c in table.columns if c.name == "val")
+        assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+        # ...and the connection is defensively cleared so later statements aren't left poisoned.
+        cursor.connection.rollback.assert_called_once()
 
     @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
@@ -9880,6 +10234,23 @@ class TestRlsActiveFromConnErrorHandling:
                 "(server_login_retry)"
             )
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_activity_cancelled_error_is_not_captured(self):
+        # Temporal injects a `temporalio.exceptions.CancelledError` into whatever statement is
+        # running when the activity is cancelled (user cancels the sync, or it hits its
+        # start_to_close_timeout). That's expected, not a bug in this best-effort lookup — don't
+        # flood error tracking with it. Matched by type name, like `sync_lock._is_cancellation`,
+        # so the fake class here doesn't need to depend on temporalio.
+        class CancelledError(Exception):
+            pass
+
+        conn = self._conn_raising(CancelledError("Cancelled"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:

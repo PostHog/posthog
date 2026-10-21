@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -56,6 +57,8 @@ _MISSING_VENDOR_NUMBER = (
 
 @SourceRegistry.register
 class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStoreConnectResumeConfig]):
+    codebase_detection = detect(env=("^(APP_STORE_CONNECT|APPSTORECONNECT)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.apple.com/documentation/appstoreconnectapi"
 
@@ -77,7 +80,7 @@ Sales and subscription reports also need your vendor number (App Store Connect �
 
 The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report.
 
-Leave **app IDs** blank to sync every app the key can read. To sync only some of your apps, list their Apple IDs, separated by commas. You can find an app's Apple ID in App Store Connect under **App Information → General Information**. The filter covers the apps, versions, reviews, review responses, in-app purchases, subscription groups and analytics tables. Builds, TestFlight groups and the sales reports cover your whole account, so they are not filtered."""
+Leave **app IDs** blank to sync every app the key can read. To sync only some of your apps, list their Apple IDs, separated by commas. You can find an app's Apple ID in App Store Connect under **App Information → General Information**. The filter covers the apps, versions, reviews, review responses, in-app purchases, subscription groups, performance overviews and analytics tables. Builds, TestFlight groups and the sales reports cover your whole account, so they are not filtered."""
         restatement_note = restatement_caption()
         if restatement_note:
             caption = f"{caption}\n\n{restatement_note}"

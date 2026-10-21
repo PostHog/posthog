@@ -935,6 +935,37 @@ describe('HogTransformer', () => {
             queueAppMetricSpy.mockRestore()
         })
 
+        it('logs a deleted integration on the transformation and leaves the event unchanged', async () => {
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Uses an integration',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(`
+                    let returnEvent := event
+                    returnEvent.properties.transformed := true
+                    return returnEvent
+                `),
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                inputs: { oauth: { value: 99999999 } },
+                execution_order: 1,
+            })
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.properties).toEqual({})
+            expect(result.invocationResults).toHaveLength(1)
+            expect(result.invocationResults[0].logs).toEqual([
+                expect.objectContaining({
+                    level: 'error',
+                    message: expect.stringContaining("The integration for input 'oauth' no longer exists"),
+                }),
+            ])
+        })
+
         it('should apply a matching transformation and skip a filtered one in sequence', async () => {
             const successTemplate = {
                 free: true,

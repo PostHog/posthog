@@ -161,6 +161,25 @@ class _StagedAuditVerdict:
     blocking_failures: int
 
 
+CLICKHOUSE_ENGINE = DataModelingJobEngine.CLICKHOUSE.value
+MANAGED_WAREHOUSE_ENGINE = DataModelingJobEngine.MANAGED_WAREHOUSE.value
+
+
+def _record_managed_warehouse_node_metrics(result: ManagedWarehouseShadowResult) -> None:
+    if result.error is not None:
+        get_node_finished_metric("failed", MANAGED_WAREHOUSE_ENGINE).add(1)
+        return
+    get_node_finished_metric("completed", MANAGED_WAREHOUSE_ENGINE).add(1)
+    get_node_duration_metric(MANAGED_WAREHOUSE_ENGINE).record(result.duration_seconds)
+    get_node_rows_materialized_metric(MANAGED_WAREHOUSE_ENGINE).record(result.row_count)
+    if result.file_size_bytes > 0:
+        get_node_total_storage_mib_metric(MANAGED_WAREHOUSE_ENGINE).record(result.file_size_bytes / (1024 * 1024))
+        if result.file_size_delta_bytes >= 0:
+            get_node_storage_delta_mib_metric(MANAGED_WAREHOUSE_ENGINE).record(
+                result.file_size_delta_bytes / (1024 * 1024)
+            )
+
+
 @temporalio.workflow.defn(name="data-modeling-materialize-view")
 class MaterializeViewWorkflow(PostHogWorkflow):
     """Temporal workflow to materialize a single view.
@@ -329,7 +348,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             start_to_close_timeout=dt.timedelta(minutes=5),
                             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
                         )
-                        get_node_finished_metric("quality_blocked").add(1)
+                        get_node_finished_metric("quality_blocked", CLICKHOUSE_ENGINE).add(1)
                         await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
                         end_time = temporalio.workflow.now()
                         blocked_duration_seconds = (end_time - start_time).total_seconds()
@@ -429,13 +448,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
 
                 # node-level metrics
-                get_node_finished_metric("completed").add(1)
-                get_node_duration_metric().record(duration_seconds)
-                get_node_rows_materialized_metric().record(materialize_result.row_count)
+                get_node_finished_metric("completed", CLICKHOUSE_ENGINE).add(1)
+                get_node_duration_metric(CLICKHOUSE_ENGINE).record(duration_seconds)
+                get_node_rows_materialized_metric(CLICKHOUSE_ENGINE).record(materialize_result.row_count)
                 if storage_result.storage_delta_mib is not None and storage_result.storage_delta_mib >= 0:
-                    get_node_storage_delta_mib_metric().record(storage_result.storage_delta_mib)
+                    get_node_storage_delta_mib_metric(CLICKHOUSE_ENGINE).record(storage_result.storage_delta_mib)
                 if storage_result.total_storage_mib is not None:
-                    get_node_total_storage_mib_metric().record(storage_result.total_storage_mib)
+                    get_node_total_storage_mib_metric(CLICKHOUSE_ENGINE).record(storage_result.total_storage_mib)
 
                 return MaterializeViewWorkflowResult(
                     job_id=job_id,
@@ -487,7 +506,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         f"Failed to mark job as failed: {str(fail_err)}",
                         extra=inputs.properties_to_log,
                     )
-                get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
+                get_node_finished_metric("cancelled" if cancelled else "failed", CLICKHOUSE_ENGINE).add(1)
                 raise
 
         # Keep the parent workflow's concurrency slot until managed warehouse finishes the query.
@@ -495,7 +514,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         if managed_warehouse_shadow_handle is not None:
             try:
                 result = await managed_warehouse_shadow_handle
+                _record_managed_warehouse_node_metrics(result)
             except Exception as shadow_err:
+                get_node_finished_metric(
+                    "cancelled" if _is_cancellation(shadow_err) else "failed", MANAGED_WAREHOUSE_ENGINE
+                ).add(1)
                 await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
                 temporalio.workflow.logger.warning(
                     f"Managed warehouse shadow activity failed (managed_warehouse_only): {str(shadow_err)}",

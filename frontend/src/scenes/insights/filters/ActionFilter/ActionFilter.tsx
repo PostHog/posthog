@@ -22,14 +22,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-import { EventsNode } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory, ChartDisplayType, FilterType, InsightType, PropertyOperator } from '~/types'
 
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { MathAvailability } from './ActionFilterRow/types'
 import { LocalSeries, entityFilterLogic } from './entityFilterLogic'
-import { legacyFiltersToSeries, seriesToLegacyFilters } from './legacyFilters'
+import { legacyFilterToSeriesDefaults, legacyFiltersToSeries, seriesToLegacyFilters } from './legacyFilters'
 import { SeriesNode, WarehouseSeriesNodeKind, isGroupSeriesNode } from './seriesNode'
 
 export interface SeriesActionFilterProps {
@@ -37,8 +36,8 @@ export interface SeriesActionFilterProps {
     onChange: (series: SeriesNode[]) => void
     typeKey: string
     dataWarehouseNodeKind?: WarehouseSeriesNodeKind
-    /** Fields a new series starts with, on top of the project's default event. */
-    newSeriesDefaults?: Partial<EventsNode>
+    /** Fields a new series starts with. */
+    newSeriesDefaults?: Partial<SeriesNode>
     /** Drives combine availability, the rename modal title, the limit copy and the docs link. */
     insightType?: InsightType
     /** Whether the insight has a breakdown, which changes the series letter colours. */
@@ -387,7 +386,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             series={series}
             onChange={(nextSeries) => setFilters(seriesToLegacyFilters(nextSeries))}
             dataWarehouseNodeKind={dataWarehouseNodeKind}
-            newSeriesDefaults={addFilterDefaultOptions}
+            newSeriesDefaults={
+                addFilterDefaultOptions && legacyFilterToSeriesDefaults(addFilterDefaultOptions, dataWarehouseNodeKind)
+            }
             insightType={filters.insight}
             hasBreakdown={!!filters.breakdown}
             trendsDisplayCategory={

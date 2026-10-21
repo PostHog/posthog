@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GroqSource(SimpleSource[GroqSourceConfig]):
+    codebase_detection = detect(env=("^GROQ_",), npm=("groq-sdk",), pypi=("groq",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://console.groq.com/docs/api-reference"
@@ -39,7 +42,7 @@ class GroqSource(SimpleSource[GroqSourceConfig]):
             name=ExternalDataSourceType.GROQ,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Groq",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["llm", "ai", "inference", "batch"],
             caption="""Enter your Groq API key to pull your Groq batch jobs, files, and model catalog into the PostHog Data warehouse.
 

@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import (
     GitHubIntegration,
@@ -74,7 +75,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             url_key = LinearIntegration(reference.integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
-            org = GitHubIntegration(reference.integration).organization()
+            org = GitHubIntegration(
+                reference.integration, source="replay_external_references", priority=Priority.NORMAL
+            ).organization()
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
@@ -161,7 +164,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         elif integration.kind == Integration.IntegrationKind.GITHUB:
             title = config.get("title", "")
             config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
-            response = GitHubIntegration(integration).create_issue(config)
+            response = GitHubIntegration(
+                integration, source="replay_external_references", priority=Priority.CRITICAL
+            ).create_issue(config)
             external_context = {
                 "id": f"#{response.get('number', '')}",
                 "title": title,

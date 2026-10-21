@@ -48,19 +48,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
 ]
 
 
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="a-custom-model",
-        schema={
-            "fields": [
-                {"expression": "event", "alias": "event"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-            ],
-            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-        },
-    ),
+TEST_MODELS: list[BatchExportModel | None] = [
     BatchExportModel(name="events", schema=None),
     BatchExportModel(
         name="events",
@@ -72,15 +60,6 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     ),
     BatchExportModel(name="persons", schema=None),
     BatchExportModel(name="sessions", schema=None),
-    {
-        "fields": [
-            {"expression": "event", "alias": "event"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-        ],
-        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-    },
     None,
 ]
 
@@ -118,7 +97,7 @@ async def assert_clickhouse_records_in_postgres(
         schema_name: PostgreSQL schema name.
         table_name: PostgreSQL table name.
         team_id: The ID of the team that we are testing events for.
-        batch_export_schema: Custom schema used in the batch export.
+        batch_export_model: Model used in the batch export.
         expected_fields: The expected fields to be exported.
     """
     inserted_records = []
@@ -140,7 +119,7 @@ async def assert_clickhouse_records_in_postgres(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]

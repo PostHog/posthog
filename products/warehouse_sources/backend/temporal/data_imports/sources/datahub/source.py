@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DatahubSource(ResumableSource[DatahubSourceConfig, DatahubResumeConfig]):
+    codebase_detection = detect(
+        env=("^DATAHUB_",),
+        pypi=("acryl-datahub",),
+        maven=(
+            "io.acryl:datahub-client",
+            "io.acryl:datahub-auth-api",
+            "io.acryl:datahub-client-java8",
+            "io.acryl:datahub-custom-plugin-lib",
+            "io.acryl:datahub-protobuf",
+            "io.acryl:datahub-ranger-plugin",
+            "io.acryl:datahub-spark-lineage",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -57,7 +72,7 @@ class DatahubSource(ResumableSource[DatahubSourceConfig, DatahubResumeConfig]):
             name=ExternalDataSourceType.DATAHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DataHub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["acryl", "data catalog", "metadata", "lineage"],
             caption="""Enter your DataHub instance URL and an access token to sync your metadata catalog — datasets, dashboards, charts, pipelines, owners, domains, glossary, and tags — into the PostHog Data warehouse.
 

@@ -281,11 +281,20 @@ const rankingArtefacts = [
                     roles: ['served'],
                     feature_schema_version: 3,
                     status: 'scored',
-                    scores: { action: 0.78, pr_merged: 0.52, dismiss_wrong: 0.14, reviewer_fix: 0.04 },
-                    lifts: { action: 1.3, pr_merged: 2.6, dismiss_wrong: 0.7 },
+                    scores: {
+                        open: 0.91,
+                        action: 0.78,
+                        fixed: 0.33,
+                        pr_merged: 0.52,
+                        dismiss_wrong: 0.14,
+                        reviewer_fix: 0.04,
+                    },
+                    lifts: { open: 1.1, action: 1.3, fixed: 2.2, pr_merged: 2.6, dismiss_wrong: 0.7 },
                     metadata: {
                         heads: [
+                            { head: 'open', readable: true, refit_classification_threshold: 0.8 },
                             { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'fixed', readable: true, refit_classification_threshold: 0.15 },
                             { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
                             { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
                             { head: 'reviewer_fix', readable: false },
@@ -299,10 +308,12 @@ const rankingArtefacts = [
                     roles: ['challenger'],
                     feature_schema_version: 3,
                     status: 'scored',
-                    scores: { action: 0.74, pr_merged: 0.55, dismiss_wrong: 0.11 },
+                    scores: { open: 0.88, action: 0.74, fixed: 0.29, pr_merged: 0.55, dismiss_wrong: 0.11 },
                     metadata: {
                         heads: [
+                            { head: 'open', readable: true, refit_classification_threshold: 0.8 },
                             { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'fixed', readable: true, refit_classification_threshold: 0.15 },
                             { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
                             { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
                         ],
@@ -330,10 +341,22 @@ const openOtherModels: Story['play'] = async ({ canvas }) => {
     summary.closest('details')?.setAttribute('open', '')
 }
 
+const openAllDisclosures: Story['play'] = async ({ canvas, canvasElement }) => {
+    // The list renders after play starts, so wait for the disclosure or the snapshot catches it closed.
+    await canvas.findByText(/Other models/)
+    canvasElement.querySelectorAll('details').forEach((details) => details.setAttribute('open', ''))
+}
+
 export const RankingScore: Story = {
     parameters: { mockDate: '2026-09-29T10:00:00Z' },
     args: { artefacts: rankingArtefacts },
     play: openOtherModels,
+}
+/** Every head of every model, for debugging a score. */
+export const RankingScoreAllHeads: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openAllDisclosures,
 }
 export const RankingScoreNarrow: Story = {
     parameters: { mockDate: '2026-09-29T10:00:00Z' },
@@ -343,6 +366,58 @@ export const RankingScoreNarrow: Story = {
         (Story) => (
             // About 520px of scene, the width left next to the nav sidebar and an open side panel.
             <div className="w-[20rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const MonitoringObservations: Story = {
+    parameters: { mockDate: '2026-10-04T12:00:00Z', featureFlags: ['signals-report-monitoring'] },
+    args: {
+        artefacts: [
+            {
+                id: 'observation-two',
+                type: 'check_observation',
+                created_at: '2026-10-04T12:00:00Z',
+                content: {
+                    check_id: 'example-check',
+                    title: 'Checkout errors stay low',
+                    monitoring_started_at: '2026-10-01T12:00:00Z',
+                    measured_at: '2026-10-04T12:00:00Z',
+                    monitoring_ends_at: '2026-10-05T00:00:00Z',
+                    unit: 'errors',
+                    value_format: 'number',
+                    observed_value: 35,
+                    comparison: { operator: 'lte', value: 30 },
+                    matches: false,
+                    explanation:
+                        'Interim measurement: Checkout errors stay low (35.0) is more than upper threshold (30.0)',
+                },
+            },
+            {
+                id: 'observation-one',
+                type: 'check_observation',
+                created_at: '2026-10-02T12:00:00Z',
+                content: {
+                    check_id: 'example-check',
+                    title: 'Checkout errors stay low',
+                    monitoring_started_at: '2026-10-01T12:00:00Z',
+                    measured_at: '2026-10-02T12:00:00Z',
+                    monitoring_ends_at: '2026-10-05T00:00:00Z',
+                    unit: 'errors',
+                    value_format: 'number',
+                    observed_value: 8,
+                    comparison: { operator: 'lte', value: 10 },
+                    matches: true,
+                    explanation: 'Interim measurement: Checkout errors stay low (8.0) is at most 10.0, as expected',
+                },
+            },
+        ],
+    },
+    decorators: [
+        (Story) => (
+            <div className="max-w-[32rem]">
                 <Story />
             </div>
         ),

@@ -44,6 +44,13 @@ class ReviewRequestQueue:
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
         self.pending[key] = request
 
+    def requested_heads(self) -> dict[str, list[str | None]]:
+        """The heads the active request and the waiting requests ask for. None is a request for the live head."""
+        return {
+            "active": [self.active.requested_head_sha] if self.active is not None else [],
+            "pending": [request.requested_head_sha for request in self.pending.values()],
+        }
+
     def take(self) -> ReviewPRWorkflowInputs:
         # Explicit requests take precedence over another automatic follow-up.
         key = next(key for key in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH, TRIGGER_AUTOMATIC) if key in self.pending)
@@ -84,6 +91,11 @@ class ReviewPRQueueWorkflow:
     @workflow.signal
     def request_review(self, request: ReviewPRWorkflowInputs) -> None:
         self._requests.add(request)
+
+    # Read by the status provider for stamphog, because a waiting request exists only in this state.
+    @workflow.query
+    def requested_heads(self) -> dict[str, list[str | None]]:
+        return self._requests.requested_heads()
 
     @workflow.run
     async def run(self, inputs: ReviewPRQueueInputs) -> str:
