@@ -16,7 +16,6 @@ import {
     drawTickMarks,
     resolveAxisLineColor,
     type TickMarkCoords,
-    withChartChrome,
 } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
@@ -43,7 +42,6 @@ import type {
     Series,
     TooltipContext,
 } from './types'
-import { resolveAxisLines } from './types'
 import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
@@ -72,9 +70,6 @@ export interface ChartProps<Meta = unknown> {
     /** Hover overlay — highlight rings only. Return `false` if nothing was drawn (the
      *  hover-fade timer pauses while invisible). */
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
-    /** Draw the stock grid behind `drawStatic` and the stock axis lines over it, per `config.showGrid`
-     *  and `config.showAxisLines`. For a chart type built on the core; the built-in charts draw their own. */
-    drawChrome?: boolean
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
@@ -133,7 +128,6 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    drawChrome = false,
     tooltip: renderTooltipProp,
     onPointClick,
     isPointClickable,
@@ -161,8 +155,6 @@ export function Chart<Meta = unknown>({
         tooltip: tooltipConfig,
         showCrosshair = false,
         showTickMarks = false,
-        showGrid = false,
-        showAxisLines = false,
         axisOrientation = 'vertical',
         isPercent = false,
         animateHover,
@@ -334,27 +326,17 @@ export function Chart<Meta = unknown>({
         labelToCoord,
     ])
 
-    // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
-    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const drawStaticWithChrome = useMemo(
-        () =>
-            drawChrome
-                ? withChartChrome(drawStatic, { theme, showGrid, xAxisLine, yAxisLine, orientation: axisOrientation })
-                : drawStatic,
-        [drawChrome, drawStatic, theme, showGrid, xAxisLine, yAxisLine, axisOrientation]
-    )
-
     const drawStaticWithTicks = useMemo(() => {
         if (!tickMarkCoords) {
-            return drawStaticWithChrome
+            return drawStatic
         }
         // Shared with the chart types' drawAxes calls, so ticks match their axis line.
         const tickColor = resolveAxisLineColor(theme)
         return (args: ChartDrawArgs): void => {
-            drawStaticWithChrome(args)
+            drawStatic(args)
             drawTickMarks(args.ctx, args.dimensions, tickMarkCoords, tickColor)
         }
-    }, [drawStaticWithChrome, tickMarkCoords, theme])
+    }, [drawStatic, tickMarkCoords, theme])
 
     const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,

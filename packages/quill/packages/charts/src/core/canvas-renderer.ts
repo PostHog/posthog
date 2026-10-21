@@ -671,7 +671,10 @@ export interface DrawAxesOptions {
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
-export function drawAxes(drawCtx: Pick<DrawContext, 'ctx' | 'dimensions'>, options: DrawAxesOptions = {}): void {
+export function drawAxes(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions },
+    options: DrawAxesOptions = {}
+): void {
     const { ctx, dimensions } = drawCtx
     const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
@@ -774,7 +777,7 @@ export interface DrawGridOptions {
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
 export function drawGrid(
-    drawCtx: Pick<DrawContext, 'ctx' | 'dimensions'> & { yScale: DrawContext['yScale'] | ((value: number) => number) },
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions; yScale: (value: number) => number },
     options: DrawGridOptions = {}
 ): void {
     const { ctx, yScale, dimensions } = drawCtx
@@ -879,49 +882,6 @@ export function drawGrid(
         ctx.moveTo(closingX, dimensions.plotTop)
         ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
         ctx.stroke()
-    }
-}
-
-export interface ChartChromeOptions {
-    theme: ChartTheme
-    showGrid: boolean
-    xAxisLine: boolean
-    yAxisLine: boolean
-    orientation: 'vertical' | 'horizontal'
-}
-
-export function withChartChrome(
-    drawStatic: (args: ChartDrawArgs) => void,
-    options: ChartChromeOptions
-): (args: ChartDrawArgs) => void {
-    const { theme, showGrid, xAxisLine, yAxisLine, orientation } = options
-    const hasAxisLines = xAxisLine || yAxisLine
-    return (args: ChartDrawArgs): void => {
-        const { ctx, dimensions, scales } = args
-        if (showGrid) {
-            drawGrid(
-                { ctx, dimensions, yScale: scales.y },
-                {
-                    gridColor: theme.gridColor,
-                    gridDash: theme.gridDashPattern,
-                    frame: !hasAxisLines,
-                    orientation,
-                    valueTicks: scales.yTicks(),
-                }
-            )
-        }
-        drawStatic(args)
-        if (hasAxisLines) {
-            drawAxes(
-                { ctx, dimensions },
-                {
-                    axisColor: resolveAxisLineColor(theme),
-                    xLine: xAxisLine,
-                    yLine: yAxisLine,
-                    rightAxis: Object.values(scales.yAxes ?? {}).some((axis) => axis.position === 'right'),
-                }
-            )
-        }
     }
 }
 

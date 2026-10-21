@@ -15,7 +15,6 @@ import {
     drawTickMarks,
     resolveAxisLineColor,
     traceScatterMarker,
-    withChartChrome,
     withVerticalClip,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme, ScatterMarkerShape } from './types'
@@ -966,31 +965,18 @@ describe('hog-charts canvas-renderer', () => {
                 }
             )
         })
-    })
 
-    describe('withChartChrome', () => {
-        it('draws the grid at the core ticks before the marks and the axis lines after them', () => {
+        it('draws value lines at valueTicks for a plain value-to-pixel yScale, as a custom chart passes', () => {
             const ctx = mockCanvasContext()
             const plotBottom = dimensions.plotTop + dimensions.plotHeight
             const y = (value: number): number => plotBottom - value
             const snap = (coord: number): number => Math.round(coord) + 0.5
-            let movesBeforeMarks = -1
-            const drawStatic = withChartChrome(
-                () => {
-                    movesBeforeMarks = ctx.moveTo.mock.calls.length
-                },
-                { theme: {} as ChartTheme, showGrid: true, xAxisLine: true, yAxisLine: true, orientation: 'vertical' }
-            )
 
-            drawStatic(makeDrawArgs(ctx, { scales: { x: () => undefined, y, yTicks: () => [0, 50, 100] } }))
+            drawGrid({ ctx, dimensions, yScale: y }, { frame: false, valueTicks: [0, 50, 100] })
 
-            expect(ctx.moveTo.mock.calls.slice(0, movesBeforeMarks)).toEqual([
+            expect(ctx.moveTo.mock.calls).toEqual([
                 [dimensions.plotLeft, snap(y(50))],
                 [dimensions.plotLeft, snap(y(100))],
-            ])
-            expect(ctx.moveTo.mock.calls.slice(movesBeforeMarks)).toEqual([
-                [snap(dimensions.plotLeft), dimensions.plotTop],
-                [snap(dimensions.plotLeft), snap(plotBottom)],
             ])
         })
     })

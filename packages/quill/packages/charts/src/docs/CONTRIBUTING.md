@@ -38,8 +38,13 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
     return { x, y, yTicks: () => yScale.ticks() }
   }, [])
 
-  const drawStatic = useCallback(({ ctx, dimensions, scales, series, labels }: ChartDrawArgs) => {
+  const drawStatic = useCallback(({ ctx, dimensions, scales, series, labels, theme }: ChartDrawArgs) => {
+    drawGrid(
+      { ctx, dimensions, yScale: scales.y },
+      { gridColor: theme.gridColor, gridDash: theme.gridDashPattern, frame: false, valueTicks: scales.yTicks() }
+    )
     // Draw bars using canvas-renderer primitives or custom drawing
+    drawAxes({ ctx, dimensions }, { axisColor: resolveAxisLineColor(theme) })
   }, [])
 
   const drawHover = useCallback(({ ctx, hoverIndex }: ChartDrawArgs) => {
@@ -55,7 +60,6 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
       createScales={createScales}
       drawStatic={drawStatic}
       drawHover={drawHover}
-      drawChrome
       {...props}
     >
       {/* Bar-chart-specific overlays as children */}
@@ -64,6 +68,6 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
 }
 ```
 
-- `applyChartDefaults` turns on the same grid, axis lines, tick marks and crosshair as the built-in charts. The core reads them from `config` and treats a missing switch as off.
-- `drawChrome` makes the core draw the stock grid behind `drawStatic` and the stock axis lines over it, so `drawStatic` draws only the marks. A chart type that needs a different grid draws its own with `drawGrid` and `drawAxes` and leaves `drawChrome` off.
+- `applyChartDefaults` turns on the tick marks and crosshair, as on the built-in charts. The core reads them from `config` and treats a missing switch as off.
+- `drawStatic` draws the grid lines first and the axis lines last, as the built-in charts do. `valueTicks: scales.yTicks()` puts the grid lines on the y-axis labels, and `frame: false` leaves the plot edges to `drawAxes`. Code outside the library imports `drawGrid`, `drawAxes` and `resolveAxisLineColor` from the package.
 - Leave `tooltip` unset for the stock `DefaultTooltip`, configured through `config.tooltip`. For other content, return `DefaultTooltip` with a `labelRenderer` or `valueFormatter`, or compose `TooltipSurface` and `TooltipSwatch`, so the tooltip still matches the built-in charts.
