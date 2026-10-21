@@ -15764,10 +15764,6 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
-        /**
-         * Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint.
-         */
-        tags: Array<string>;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -15816,10 +15812,6 @@ export namespace Schemas {
          * Whether someone turned suggestions on for this workflow. Read on the list only.
          */
         suggestions_enabled: boolean | null;
-        /**
-         * Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint.
-         */
-        tags: Array<string>;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -15944,10 +15936,6 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
-        /**
-         * Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint.
-         */
-        tags: Array<string>;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -19339,7 +19327,6 @@ export namespace Schemas {
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
         last_run: HogFlowLastRun | null;
-        tags: Array<string>;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
