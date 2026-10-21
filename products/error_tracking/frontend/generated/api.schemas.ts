@@ -1187,7 +1187,7 @@ export interface ErrorTrackingTopFrameApi {
     in_app?: boolean
 }
 
-export interface ErrorTrackingReleaseSummaryApi {
+export interface ErrorTrackingLatestReleaseApi {
     /** Release version. */
     version?: string
     /** Release project/library. */
@@ -1338,9 +1338,9 @@ export interface ErrorTrackingIssueDetailApi {
     /** Top in_app application frame. */
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
-    latest_release?: ErrorTrackingReleaseSummaryApi
+    latest_release?: ErrorTrackingLatestReleaseApi
     /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
-    first_release?: ErrorTrackingReleaseSummaryApi
+    first_release?: ErrorTrackingLatestReleaseApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
     /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */

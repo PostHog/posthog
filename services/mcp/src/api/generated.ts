@@ -41112,7 +41112,7 @@ export namespace Schemas {
       in_app?: boolean;
     }
 
-    export interface ErrorTrackingReleaseSummary {
+    export interface ErrorTrackingLatestRelease {
       /** Release version. */
       version?: string;
       /** Release project/library. */
@@ -41214,9 +41214,9 @@ export namespace Schemas {
       /** Top in_app application frame. */
       top_in_app_frame?: ErrorTrackingTopFrame;
       /** Latest release metadata. */
-      latest_release?: ErrorTrackingReleaseSummary;
+      latest_release?: ErrorTrackingLatestRelease;
       /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
-      first_release?: ErrorTrackingReleaseSummary;
+      first_release?: ErrorTrackingLatestRelease;
       /** Compact impact counts. */
       impact?: ErrorTrackingImpact;
       /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */

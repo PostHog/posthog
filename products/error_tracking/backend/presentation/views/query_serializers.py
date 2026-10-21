@@ -341,7 +341,7 @@ class ErrorTrackingTopFrameSerializer(serializers.Serializer):
     in_app = serializers.BooleanField(required=False, help_text="Whether the frame is an application frame.")
 
 
-class ErrorTrackingReleaseSummarySerializer(serializers.Serializer):
+class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     version = serializers.CharField(required=False, help_text="Release version.")
     project = serializers.CharField(required=False, help_text="Release project/library.")
     timestamp = serializers.CharField(required=False, help_text="Release timestamp.")
@@ -417,8 +417,8 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
-    latest_release = ErrorTrackingReleaseSummarySerializer(required=False, help_text="Latest release metadata.")
-    first_release = ErrorTrackingReleaseSummarySerializer(
+    latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
+    first_release = ErrorTrackingLatestReleaseSerializer(
         required=False,
         help_text=(
             "Release metadata from the issue's first event, found near first_seen and not limited by dateRange. "
