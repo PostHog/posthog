@@ -74,8 +74,7 @@ pub fn token(host: Option<String>, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Waits for the browser callback. An error on one connection skips that connection only,
-/// so an idle, aborted or malformed connection cannot end the wait.
+/// An error on one connection skips that connection only, so a stray connection cannot end the wait.
 fn wait_for_code(
     listener: &TcpListener,
     state: &str,
@@ -306,7 +305,6 @@ mod tests {
         assert!(error.to_string().contains("No approval"), "{error}");
     }
 
-    /// A stream that returns a fixed request and fails every write, like a closed browser tab.
     struct ClosedTab(std::io::Cursor<&'static [u8]>);
 
     impl Read for ClosedTab {
