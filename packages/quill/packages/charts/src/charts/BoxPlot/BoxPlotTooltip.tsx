@@ -10,8 +10,7 @@ interface TooltipRow {
     value: number
 }
 
-/** Rows shown per box, from the highest value to the lowest. Whisker rows only appear when the
- *  whisker is clipped, so they differ from the true max and min. */
+/** Whisker rows only appear when a whisker is clipped, so it differs from the true bound. */
 function tooltipRows(datum: BoxPlotDatum): TooltipRow[] {
     const { whiskerMin, whiskerMax } = datum
     const rows: (TooltipRow | null)[] = [

@@ -7,10 +7,8 @@ type BoxPlotSummary = { min: number; p25: number; median: number; mean: number; 
 export type BoxPlotDatum = BoxPlotSummary & {
     /** Optional identifier for this x position (e.g. ISO date). The chart treats it as opaque. */
     day?: string
-    /** Where the lower whisker is drawn, and where the y-axis starts. Defaults to `min`. Set it when
-     *  the whisker is clipped (for example to 1.5 × IQR), so `min` can stay the true minimum. */
+    /** Clipped whisker ends, for example at 1.5 × IQR. They default to `min` and `max`. */
     whiskerMin?: number
-    /** Where the upper whisker is drawn, and where the y-axis ends. Defaults to `max`. */
     whiskerMax?: number
 }
 
