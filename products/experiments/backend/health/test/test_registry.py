@@ -67,7 +67,9 @@ EVENT_KEYS = (Key.METRIC_EVENT_NOT_INGESTED, Key.EXPOSURE_CRITERIA_CANNOT_MATCH)
 def _events(name: str, received: dict[str, bool]) -> dict[str, Any]:
     return {
         "metric_events": (MetricEvents(name="Metric", role="primary", events=(name,)),),
-        "exposure_events": ExposureEvents(custom_event=name, required_flag_key=None, flag_key_filters=()),
+        "exposure_events": ExposureEvents(
+            custom_event=name, required_flag_key=None, variant_property="$feature/flag", flag_key_filters=()
+        ),
         "events_received": received,
     }
 

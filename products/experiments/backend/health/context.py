@@ -266,6 +266,9 @@ class ExposureEvents:
     # The flag key that the exposure query requires in `$feature_flag`, because the flag call events are not specific
     # to one flag. None when the criteria count a custom event or an action, and when the experiment has no flag.
     required_flag_key: str | None
+    # The event property that holds the variant: `$feature_flag_response` on the flag call events, `$feature/<flag key>`
+    # on a custom event or the events of an action.
+    variant_property: str
     flag_key_filters: tuple[FlagKeyFilter, ...]
 
 
@@ -282,6 +285,10 @@ class HealthContext:
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
     flag_called: bool | None
+    # Whether PostHog has recorded a call of the flag since launch. A flag that served an earlier experiment can carry
+    # only calls from before launch, so `flag_called` doesn't answer this. None before launch, when the experiment has
+    # no flag or the flag is deleted, or when PostHog can't record the calls of this organization's flags.
+    flag_called_since_launch: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -429,16 +436,32 @@ def _flag_called(experiment: Experiment) -> bool | None:
         return None
     if experiment.feature_flag.last_called_at is not None:
         return True
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _flag_called_since_launch(experiment: Experiment, flag_called: bool | None) -> bool | None:
+    start_date = experiment.start_date
+    # The sync matches calls to a flag by its key, and deleting a flag changes its key, so its calls stop moving
+    # `last_called_at`.
+    if start_date is None or flag_called is None or experiment.feature_flag.deleted:
+        return None
+    if flag_called is False:
+        return False
+    last_called_at = experiment.feature_flag.last_called_at
+    if last_called_at is not None and last_called_at >= start_date:
+        return True
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
     # for the teams in its allowlist, which this side can't read. Their flags keep no `last_called_at` however often
     # they are called.
-    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
+    return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
         get_organization_flag_evaluations_mode(experiment.team.organization_id)
         == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    ):
-        return None
-    return False
+    )
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:
@@ -464,13 +487,16 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     except pydantic.ValidationError:
         return None
     flag_key = experiment.feature_flag.key if experiment.feature_flag_id else None
-    event, _ = get_exposure_event_and_property(flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT)
+    event, variant_property = get_exposure_event_and_property(
+        flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+    )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     config = criteria.exposure_config if criteria else None
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
+        variant_property=variant_property,
         flag_key_filters=tuple(
             # The exposure query reads a filter without an operator as `exact`, as `property_to_expr` does.
             FlagKeyFilter(operator=prop.operator or PropertyOperator.EXACT, values=_filter_values(prop.value))
@@ -566,6 +592,7 @@ def load_health_context(
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
+        flag_called_since_launch=_flag_called_since_launch(experiment, flag_called),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),

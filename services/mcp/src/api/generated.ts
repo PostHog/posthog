@@ -45178,6 +45178,7 @@ export namespace Schemas {
 
 
     export const ExperimentExposureHealthFindingActionKind = {
+      OpenFeatureFlag: 'open_feature_flag',
       EditExposureCriteria: 'edit_exposure_criteria',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
