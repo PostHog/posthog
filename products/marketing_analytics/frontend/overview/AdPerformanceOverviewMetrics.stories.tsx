@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { AdPerformanceOverviewMetrics } from './AdPerformanceOverviewMetrics'
 
@@ -71,4 +74,47 @@ export const Loading: Story = {
 
 export const WithoutGoals: Story = {
     args: { viewKey: 'overview-metrics-no-goals-story', items: items.slice(0, 9) },
+}
+
+export const ConfigureMetrics: Story = {
+    args: { viewKey: 'overview-metrics-configure-story' },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(within(canvasElement).getByRole('button', { name: 'Configure metrics' }))
+        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible())
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: '.LemonModal.ReactModal__Content--after-open',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+}
+
+export const ConfigureMetricsNarrow: Story = {
+    ...ConfigureMetrics,
+    args: { viewKey: 'overview-metrics-configure-narrow-story' },
+    parameters: {
+        testOptions: {
+            viewport: { width: 520, height: 1024 },
+            waitForSelector: '.LemonModal.ReactModal__Content--after-open',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+}
+
+export const ConfigureMetricsWithChanges: Story = {
+    ...ConfigureMetrics,
+    args: { viewKey: 'overview-metrics-configure-changes-story' },
+    play: async (context) => {
+        await ConfigureMetrics.play!(context)
+        const dialog = within(context.canvasElement.ownerDocument.body).getByRole('dialog')
+        await userEvent.click(within(dialog).getByRole('button', { name: 'Move Clicks up' }))
+        await userEvent.click(within(dialog).getByText('Impressions', { exact: true }))
+        await userEvent.click(
+            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByRole('button', {
+                name: 'Hide all',
+            })
+        )
+        await expect(within(dialog).getByRole('button', { name: 'Apply' })).toBeEnabled()
+    },
 }
