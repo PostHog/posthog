@@ -1,3 +1,4 @@
+import time
 from collections.abc import Collection, Sequence
 from datetime import date, timedelta
 from functools import partial
@@ -10,9 +11,10 @@ from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
 from products.dashboards.backend.facade.api import dashboard_insights
 from products.product_analytics.backend.facade.api import get_insight_series
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesPending
 
 from ...facade import contracts
+from ...facade.contracts import DailyValueNotReady
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
 from ...feature_flags import FRECENCY_RANKING, RECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
@@ -36,6 +38,8 @@ FRECENCY_TILES = 4
 DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
+PINNED_WAIT_SECONDS = 20
+PINNED_POLL_SECONDS = 2
 
 
 @frozen
@@ -50,8 +54,7 @@ def find(context: Context) -> Found:
     shown = {metric.key for metric in pinned}
     ranking = pulse_ranking(context.user, context.team)
     if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
-        frecent = [metric for metric in _frecent_metrics(context, ranking) if metric.key not in shown]
-        return Found(pulse=(*pinned, *frecent))
+        return Found(pulse=(*pinned, *_frecent_metrics(context, ranking, shown, FRECENCY_TILES - len(pinned))))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
         if f"insight:{item.ref}" in shown:
@@ -66,14 +69,25 @@ def find(context: Context) -> Found:
 
 def _pinned_metrics(context: Context) -> list[contracts.HighlightMetric]:
     metrics: list[contracts.HighlightMetric] = []
+    deadline = time.monotonic() + PINNED_WAIT_SECONDS
     for pin in get_pins(team_id=context.team.id, user_id=context.user.id):
         short_id = pin.key.removeprefix("insight:")
         if short_id == pin.key:
             continue
-        metric = context.guard(f"pinned {short_id}", partial(_metric, context, short_id), None)
+        metric = context.guard(f"pinned {short_id}", partial(_pinned_metric, context, short_id, deadline), None)
         if metric is not None:
             metrics.append(metric)
     return metrics
+
+
+def _pinned_metric(context: Context, short_id: str, deadline: float) -> contracts.HighlightMetric | None:
+    while True:
+        try:
+            return _metric(context, short_id, raise_if_pending=True)
+        except InsightSeriesPending:
+            if time.monotonic() + PINNED_POLL_SECONDS > deadline:
+                raise DailyValueNotReady(f"pinned insight {short_id}")
+            time.sleep(PINNED_POLL_SECONDS)
 
 
 def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:
@@ -115,14 +129,18 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _frecent_metrics(context: Context, ranking: str) -> list[contracts.HighlightMetric]:
+def _frecent_metrics(
+    context: Context, ranking: str, excluded: Collection[str], budget: int
+) -> list[contracts.HighlightMetric]:
     metrics: list[contracts.HighlightMetric] = []
+    if budget <= 0:
+        return metrics
     for item in _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]:
-        shown = frozenset(metric.key for metric in metrics)
+        shown = frozenset([*excluded, *(metric.key for metric in metrics)])
         metric = context.guard(f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown), None)
         if metric is not None:
             metrics.append(metric)
-        if len(metrics) == FRECENCY_TILES:
+        if len(metrics) == budget:
             break
     return metrics
 
@@ -188,8 +206,15 @@ def _metric(
     dashboard: InsightDashboardContext | None = None,
     url: str | None = None,
     dashboard_name: str | None = None,
+    raise_if_pending: bool = False,
 ) -> contracts.HighlightMetric | None:
-    insight = get_insight_series(team=context.team, user=context.user, short_id=short_id, dashboard=dashboard)
+    insight = get_insight_series(
+        team=context.team,
+        user=context.user,
+        short_id=short_id,
+        dashboard=dashboard,
+        raise_if_pending=raise_if_pending,
+    )
     if insight is None:
         return None
     series = usable_series(insight, context.today)

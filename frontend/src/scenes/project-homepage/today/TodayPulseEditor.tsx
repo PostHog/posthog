@@ -11,6 +11,7 @@ import {
     PopoverContent,
     PopoverTrigger,
     Text,
+    cn,
 } from '@posthog/quill'
 
 import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
@@ -81,7 +82,7 @@ export function TodayPulseEditor(): JSX.Element {
                 render={
                     <Button
                         size="sm"
-                        className="TodayPulse__edit"
+                        className={cn('TodayPulse__edit', pulseTiles.length === 0 && 'TodayPulse__edit--shown')}
                         aria-label="Edit numbers"
                         data-attr="today-pulse-edit"
                     >

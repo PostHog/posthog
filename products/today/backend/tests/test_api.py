@@ -444,3 +444,11 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ),
             (["k2", "a", "b", "c"], True, True, [("k2", "pinned"), ("k1", None)]),
         )
+
+    def test_saving_too_many_pins_is_rejected(self) -> None:
+        pins = [{"key": f"k{index}", "name": f"k{index}"} for index in range(21)]
+
+        with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+            response = self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

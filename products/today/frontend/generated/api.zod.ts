@@ -57,6 +57,6 @@ export const TodayPulsePinsUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe(
-            'Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 are kept.'
+            'Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries.'
         ),
 })

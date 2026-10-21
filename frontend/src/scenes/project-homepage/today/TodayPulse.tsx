@@ -132,7 +132,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef)
     const { baseCurrency } = useValues(teamLogic)
-    const { pulsePins } = useValues(todayHighlightsLogic)
+    const { pulsePins, pulsePinsLoaded } = useValues(todayHighlightsLogic)
     const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =
         useActions(todayHighlightsLogic)
     return (
@@ -191,7 +191,11 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                                     formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     pinned={pinned}
-                                    pinDisabledReason={pulsePinLimitReason(pulsePins.length, pinned)}
+                                    pinDisabledReason={
+                                        pulsePinsLoaded
+                                            ? pulsePinLimitReason(pulsePins.length, pinned)
+                                            : 'Loading your pins…'
+                                    }
                                     onTogglePin={() =>
                                         togglePulsePin({ key: metric.key, name: metric.name }, 'hover_card')
                                     }

@@ -69,6 +69,7 @@ export interface todayHighlightsLogicValues {
     pulseInsightResultsLoading: boolean
     pulseOrderHeld: string[] | null
     pulsePins: PulsePinApi[]
+    pulsePinsLoaded: boolean
     pulsePinsLoading: boolean
     pulseTiles: TodayPulseTile[]
     unconfirmedPinKeys: string[]
@@ -322,6 +323,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: {
             setPinnedPulseKeys: (_, { metrics }) => metrics,
         },
+        pulsePinsLoaded: [false, { loadPulsePinsSuccess: () => true }],
         unconfirmedPinKeys: [
             [] as string[],
             {
@@ -428,11 +430,19 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         setPinnedPulseKeys: async ({ metrics }, breakpoint) => {
             const version = (cache.pinsVersion = (cache.pinsVersion ?? 0) + 1)
             await breakpoint(PULSE_PINS_SAVE_DEBOUNCE_MS)
+            const previous: Promise<unknown> = cache.pinsSave ?? Promise.resolve()
+            const save = (cache.pinsSave = previous
+                .catch(() => undefined)
+                .then(() => todayPulsePinsUpdate(String(values.currentProjectId), { pins: metrics })))
             try {
-                await todayPulsePinsUpdate(String(values.currentProjectId), { pins: metrics })
+                await save
             } catch {
                 toast.error({ title: "Couldn't save your numbers. Try again." })
-                actions.loadPulsePins()
+                if (version === cache.pinsVersion) {
+                    cache.savedPinsVersion = version
+                    actions.loadPulsePins()
+                    actions.loadHighlights()
+                }
                 return
             }
             breakpoint()
@@ -440,6 +450,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             actions.loadHighlights()
         },
         togglePulsePin: ({ pin, source }) => {
+            if (!values.pulsePinsLoaded) {
+                return
+            }
             const pinned = values.pulsePins.some((existing) => existing.key === pin.key)
             const pinnedCountBefore = values.pulsePins.length
             if (pulsePinLimitReason(pinnedCountBefore, pinned)) {

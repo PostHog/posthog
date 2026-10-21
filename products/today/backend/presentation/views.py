@@ -11,7 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -58,6 +58,19 @@ class JevSustainedThrottle(UserRateThrottle):
 JEV_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, JevBurstThrottle, JevSustainedThrottle]
 
 
+class PulsePinsBurstThrottle(UserRateThrottle):
+    scope = "today_pulse_pins_burst"
+    rate = "30/minute"
+
+
+class PulsePinsSustainedThrottle(UserRateThrottle):
+    scope = "today_pulse_pins_sustained"
+    rate = "300/day"
+
+
+PULSE_PIN_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, PulsePinsBurstThrottle, PulsePinsSustainedThrottle]
+
+
 @contextmanager
 def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
     try:
@@ -74,6 +87,11 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
     scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
     scope_object_write_actions = ["set_pulse_pins"]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "set_pulse_pins":
+            return [throttle() for throttle in PULSE_PIN_THROTTLES]
+        return super().get_throttles()
 
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)

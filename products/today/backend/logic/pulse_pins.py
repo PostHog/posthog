@@ -19,15 +19,16 @@ def get_pins(*, team_id: int, user_id: int) -> list[contracts.PulsePin]:
 
 
 def set_pins(*, team_id: int, user_id: int, pins: list[contracts.PulsePin]) -> list[contracts.PulsePin]:
-    kept: list[contracts.PulsePin] = []
+    kept: dict[str, contracts.PulsePin] = {}
     for pin in pins:
-        if all(existing.key != pin.key for existing in kept):
-            kept.append(pin)
-    kept = kept[:MAX_PULSE_PINS]
+        kept.setdefault(pin.key, pin)
+        if len(kept) == MAX_PULSE_PINS:
+            break
+    kept_pins = list(kept.values())
     TodayPulsePins.objects.for_team(team_id).update_or_create(
-        team_id=team_id, user_id=user_id, defaults={"pins": _PINS.dump_python(kept, mode="json")}
+        team_id=team_id, user_id=user_id, defaults={"pins": _PINS.dump_python(kept_pins, mode="json")}
     )
-    return kept
+    return kept_pins
 
 
 def delete_for_teams(team_ids: list[int]) -> None:

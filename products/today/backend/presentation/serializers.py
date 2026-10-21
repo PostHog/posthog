@@ -301,14 +301,22 @@ class PulsePinSerializer(DataclassSerializer):
         dataclass = PulsePin
 
 
+MAX_PINS_IN_REQUEST = 20
+
+
 class PulsePinsSerializer(DataclassSerializer):
     pins = PulsePinSerializer(
         many=True,
-        help_text="Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 are kept.",
+        help_text=f"Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most {MAX_PINS_IN_REQUEST} entries.",
     )
 
     class Meta:
         dataclass = PulsePins
+
+    def validate_pins(self, pins: list[PulsePin]) -> list[PulsePin]:
+        if len(pins) > MAX_PINS_IN_REQUEST:
+            raise serializers.ValidationError(f"Send at most {MAX_PINS_IN_REQUEST} pins.")
+        return pins
 
 
 class HighlightMetricSerializer(DataclassSerializer):

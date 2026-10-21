@@ -211,6 +211,7 @@ html[data-today-transition]::view-transition-new(root) {
     opacity: 0;
     transition: opacity 150ms var(--today-ease);
 
+    &.TodayPulse__edit--shown,
     .TodayHome:has(.TodayHome__intro:hover, .TodayPulse:hover) &,
     &:focus-visible,
     &[data-popup-open] {

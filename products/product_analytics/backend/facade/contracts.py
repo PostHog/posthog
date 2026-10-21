@@ -135,6 +135,10 @@ class TeamEmailAccess:
     person_emails: bool
 
 
+class InsightSeriesPending(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class InsightSeries:
     short_id: str

@@ -14,7 +14,13 @@ from parameterized import parameterized
 from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
+from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
+    InsightSeries,
+    InsightSeriesPending,
+)
+from products.today.backend.facade.contracts import PulsePin
+from products.today.backend.logic import pulse_pins
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
@@ -400,3 +406,49 @@ class TestRoutineInsights(BaseTest):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual([m.key for m in pulse], expected)
+
+    @parameterized.expand(
+        [
+            ("ready after one retry", 1, 20, ["insight:slow", "insight:ready"], []),
+            ("still running at the deadline", 99, 0, ["insight:ready"], ["pinned slow"]),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_a_pinned_insight_waits_for_its_query_and_suggestions_skip_pinned_insights(
+        self, _name: str, pending_calls: int, wait_seconds: int, expected: list[str], failures: list[str]
+    ) -> None:
+        pulse_pins.set_pins(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            pins=[PulsePin(key="insight:slow", name="Slow"), PulsePin(key="insight:ready", name="Ready")],
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="insight",
+            ref="ready",
+            view_days=[TODAY - timedelta(days=1)],
+            viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+        )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+        calls: list[str] = []
+
+        def series(**kwargs: Any) -> InsightSeries:
+            calls.append(kwargs["short_id"])
+            if kwargs["short_id"] == "slow" and calls.count("slow") <= pending_calls:
+                raise InsightSeriesPending()
+            return insight({"opened": points}, short_id=kwargs["short_id"], name=kwargs["short_id"])
+
+        context = Context(self.team, self.user, TODAY)
+        with (
+            patch.object(routine, "pulse_ranking", return_value="frecency"),
+            patch.object(routine, "PINNED_WAIT_SECONDS", wait_seconds),
+            patch.object(routine.time, "sleep"),
+            patch.object(routine, "get_insight_series", side_effect=series),
+        ):
+            pulse = routine.find(context).pulse
+
+        self.assertEqual(
+            ([m.key for m in pulse], context.failures, calls.count("ready")),
+            (expected, failures, 1),
+        )

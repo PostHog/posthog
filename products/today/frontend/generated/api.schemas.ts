@@ -283,7 +283,7 @@ export interface PulsePinApi {
 }
 
 export interface PulsePinsApi {
-    /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 are kept. */
+    /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
     pins: PulsePinApi[]
 }
 

@@ -49,7 +49,7 @@ function TodayMetaLine(): JSX.Element {
 export function TodayHomePage(): JSX.Element {
     const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { highlights, highlightsPending, pulseTiles } = useValues(todayHighlightsLogic)
+    const { highlights, highlightsPending, pulseTiles, pulsePinsLoaded } = useValues(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
 
     useLayoutEffect(() => {
@@ -87,7 +87,7 @@ export function TodayHomePage(): JSX.Element {
                 </div>
                 <div className="TodayHome__metaRow">
                     <TodayMetaLine />
-                    {!highlightsPending && highlights && pulseTiles.length > 0 ? <TodayPulseEditor /> : null}
+                    {!highlightsPending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
             </section>
             <div className="TodayHome__body">
