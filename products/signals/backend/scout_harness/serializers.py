@@ -4661,6 +4661,9 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
         help_text=("Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out."),
     )
     tool_presets = ScoutToolPresetSerializer(many=True, help_text="Tool selections expanded and validated on save.")
+    run_context_tools = serializers.SerializerMethodField(
+        help_text="Tools every scout run holds. Show these as always available, excluding them from saved selections."
+    )
     presets = ScoutScopePresetSerializer(
         many=True,
         help_text="The scope presets a scout run can be dispatched with, and the scopes each one resolves to.",
@@ -4672,6 +4675,9 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
             "can never be added to a scout's token."
         ),
     )
+
+    def get_run_context_tools(self, _obj: object) -> list[str]:
+        return sorted(SCOUT_RUN_CONTEXT_TOOLS)
 
 
 # --- Members (reviewer routing) --------------------------------------------
