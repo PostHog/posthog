@@ -346,8 +346,9 @@ def test_decision_requests_preserve_error_categories(
     "path,address,error_type",
     [
         ("decisions", None, ProviderHostUnresolvedError),
-        ("systemone", None, DecisionEndpointBlockedError),
+        ("systemone", None, ProviderHostUnresolvedError),
         ("decisions", "127.0.0.1", DecisionEndpointBlockedError),
+        ("systemone", "127.0.0.1", DecisionEndpointBlockedError),
     ],
 )
 def test_endpoint_resolution_errors(

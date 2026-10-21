@@ -49,18 +49,20 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
 ])
 // Instance-level pages living under a product's own prefix, so a first-segment check misses them.
 // Mirrors `exactPathsWithoutProjectId` in the same file, including its nested-path rule — that is
-// what keeps the cohorts staff tools at /feature_flags/staff/cohorts out of the project prefix.
-const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature_flags/staff', '/experiments/staff']
+// what keeps the cohorts staff tools at /feature-flags/staff/cohorts out of the project prefix.
+const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature-flags/staff', '/experiments/staff']
 const isProjectScoped = (template) =>
     !EXACT_PATHS_WITHOUT_PROJECT_ID.some((exact) => template === exact || template.startsWith(`${exact}/`)) &&
     !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')
 
 // `urls` helpers that build prefixes/origins rather than linkable destinations.
 const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProject', 'newTab'])
-// Builders whose required arguments all live in the query string, which the probe drops. Most
-// base-only entries are still fine (`/surveys` without its `tab` is a real page), but these resolve
-// to a scene that renders its missing-parameter error, so an entry would be a confident dead link.
-const EXCLUDED_BUILDERS = new Set(['tracingOperation'])
+// Builders whose destination lives in the query string, which the probe drops. Most base-only
+// entries are still fine (`/surveys` without its `tab` is a real page), but these resolve to a page
+// that does not show what the builder names, so an entry would be a confident wrong link:
+// `tracingOperation` renders its missing-parameter error, and `dashboardTemplates` opens the
+// dashboard list without its templates modal.
+const EXCLUDED_BUILDERS = new Set(['tracingOperation', 'dashboardTemplates'])
 // Flag-gated surfaces for PostHog staff only: a link an agent hands a customer would land on a scene that refuses them.
 const INTERNAL_BUILDERS = new Set(['decisionPlayground', 'library', 'todayReport'])
 

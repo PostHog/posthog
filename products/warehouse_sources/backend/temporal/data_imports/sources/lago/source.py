@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
+    codebase_detection = detect(
+        env=("^LAGO_",),
+        npm=("lago-javascript-client",),
+        pypi=("lago-python-client",),
+        go=("github.com/getlago/lago-go-client", "github.com/getlago/lago-cli"),
+        rubygems=("lago-ruby-client", "lago_ruby"),
+    )
+
     api_docs_url = "https://docs.getlago.com/api-reference"
 
     @property
@@ -97,7 +106,7 @@ class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
             name=ExternalDataSourceType.LAGO,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Lago",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Lago API key to pull your billing data into the PostHog Data warehouse.
 
 You can create an API key in the Lago dashboard under **Developers > API keys**.

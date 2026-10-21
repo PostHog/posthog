@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -494,6 +495,10 @@ class FakePersonHogClient:
 
     def create_group(self, request: group_pb2.CreateGroupRequest) -> group_pb2.CreateGroupResponse:
         self.calls.append(_Call("create_group", request))
+        key = (request.team_id, request.group_type_index, request.group_key)
+        existing = self._groups.get(key)
+        if existing is not None:
+            return group_pb2.CreateGroupResponse(group=existing)
         next_id = max((g.id for g in self._groups.values()), default=0) + 1
         group = group_pb2.Group(
             id=next_id,
@@ -504,7 +509,7 @@ class FakePersonHogClient:
             created_at=request.created_at,
             version=0,
         )
-        self._groups[(request.team_id, request.group_type_index, request.group_key)] = group
+        self._groups[key] = group
         response = group_pb2.CreateGroupResponse(group=group)
         return response
 
@@ -822,9 +827,10 @@ class FakePersonHogClient:
         self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
     ) -> person_pb2.SplitPersonResponse:
         """Stateful mirror of the real RPC: validates ownership, creates new
-        persons with deterministic UUIDv5s (preserving created_at for
-        pre-existing ones), moves the distinct_ids, and bumps versions by 101.
-        Results are returned in request order, like the real service.
+        persons with deterministic UUIDv5s (a random UUID when a live person
+        holds it; a tombstone there is revived with its created_at), moves the
+        distinct_ids, and bumps versions by 101. Results are returned in
+        request order, like the real service.
         """
         self.calls.append(_Call("split_person", request))
 
@@ -847,8 +853,12 @@ class FakePersonHogClient:
             new_uuid = str(uuidFromDistinctId(request.team_id, did))
 
             existing = self._persons_by_uuid.get((request.team_id, new_uuid))
+            if existing is not None and not existing.is_deleted:
+                new_uuid = str(uuid4())
+                existing = None
             if existing is not None:
-                existing.version = new_person_version
+                existing.is_deleted = False
+                existing.version = max(existing.version + 1, new_person_version)
                 new_person = existing
             else:
                 self._next_split_person_id += 1
@@ -871,7 +881,7 @@ class FakePersonHogClient:
                 person_pb2.SplitResult(
                     distinct_id=did,
                     new_person_uuid=new_uuid,
-                    new_person_version=new_person_version,
+                    new_person_version=new_person.version,
                     pdi_version=pdi_version,
                     new_person_created_at_ms=new_person.created_at,
                 )
@@ -960,6 +970,72 @@ class FakePersonHogClient:
             if person.is_deleted:
                 person.version = max(person.version, floor.min_version)
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
+        return response
+
+    # ── Consistency scan reads ───────────────────────────────────────
+
+    def get_distinct_id_rows(
+        self, request: person_pb2.GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> person_pb2.GetDistinctIdRowsResponse:
+        """Mapping rows, live or tombstoned, for mappings the fake tracks per person."""
+        self.calls.append(_Call("get_distinct_id_rows", request))
+        if len(request.distinct_ids) > 1000:
+            raise ValueError("Maximum 1000 distinct ids per request")
+        wanted = set(request.distinct_ids)
+        response = person_pb2.GetDistinctIdRowsResponse()
+        rows = []
+        for (team_id, person_id), mappings in self._distinct_ids.items():
+            if team_id != request.team_id:
+                continue
+            person = self._persons_by_id.get((team_id, person_id))
+            for mapping in mappings:
+                if mapping.distinct_id not in wanted:
+                    continue
+                row = person_pb2.DistinctIdRow(
+                    distinct_id=mapping.distinct_id,
+                    person_id=person_id,
+                    version=mapping.version or 0,
+                    is_deleted=(team_id, mapping.distinct_id) in self._tombstoned_distinct_ids,
+                )
+                if person is not None:
+                    row.person_uuid = person.uuid
+                    row.person_is_deleted = person.is_deleted
+                rows.append(row)
+        response.rows.extend(sorted(rows, key=lambda r: r.distinct_id))
+        return response
+
+    def list_persons_for_team(
+        self, request: person_pb2.ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonsForTeamResponse:
+        self.calls.append(_Call("list_persons_for_team", request))
+        limit = request.limit or 1000
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        persons = sorted(
+            (
+                p
+                for (team_id, person_id), p in self._persons_by_id.items()
+                if team_id == request.team_id
+                and person_id > request.after_person_id
+                and (not request.HasField("before_person_id") or person_id < request.before_person_id)
+            ),
+            key=lambda p: p.id,
+        )[:limit]
+        response = person_pb2.ListPersonsForTeamResponse()
+        for person in persons:
+            response.persons.add(
+                id=person.id,
+                uuid=person.uuid,
+                version=person.version,
+                is_deleted=person.is_deleted,
+                has_live_distinct_ids=any(
+                    (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+                    for d in self._distinct_ids.get((request.team_id, person.id), [])
+                ),
+                created_at_ms=person.created_at,
+            )
+        if len(persons) == limit:
+            response.next_after_person_id = persons[-1].id
         return response
 
     # ── Assertion helpers ────────────────────────────────────────────

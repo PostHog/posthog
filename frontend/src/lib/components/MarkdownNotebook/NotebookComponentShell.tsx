@@ -48,7 +48,7 @@ import {
     NotebookComponentToolbarExtrasContext,
     withoutNotebookMenuIcons,
 } from './componentToolbarExtras'
-import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
+import { getNotebookObjectProp, getNotebookStringProp, isDiscussionCommentNode } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { installNotebookJupyterEditorKeys } from './jupyterEditorKeys'
 import { resolveNotebookJupyterKey, useNotebookJupyterCommands, useNotebookJupyterStoreValue } from './jupyterMode'
@@ -95,6 +95,7 @@ export type NotebookComponentShellProps = {
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     onBtw?: () => void
     askAIDisabledReason?: string
+    copyNode?: (node: NotebookComponentBlockNode) => void
     deleteNode: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
@@ -118,6 +119,7 @@ export function NotebookComponentShell({
     updateNode,
     onBtw,
     askAIDisabledReason,
+    copyNode,
     deleteNode,
     deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
@@ -192,6 +194,7 @@ export function NotebookComponentShell({
                   targetBlank: true,
               }
             : null,
+        copyNode ? { label: 'Copy', onClick: () => copyNode(node) } : null,
         mode === 'edit' && isTitleEditable ? { label: 'Edit title', onClick: () => setIsEditingTitle(true) } : null,
         ...(mode === 'edit'
             ? (toolbarExtras?.actions.map((action) => ({
@@ -360,7 +363,8 @@ export function NotebookComponentShell({
         return true
     }
 
-    const jupyter = useNotebookJupyterCommands()
+    const jupyterCommands = useNotebookJupyterCommands()
+    const jupyter = isDiscussionCommentNode(node) ? null : jupyterCommands
     const isJupyterCell = !!jupyter && jupyter.config.cellTagNames.includes(node.tagName)
     const jupyterStore = isJupyterCell ? jupyter.store : null
     const isJupyterActive = useNotebookJupyterStoreValue((state) => !!jupyter && state.activeCellId === node.id)
@@ -566,7 +570,7 @@ export function NotebookComponentShell({
             }
         }
 
-        if (event.key === 'Backspace') {
+        if (event.key === 'Backspace' || (event.key === 'Delete' && isDiscussionCommentNode(node))) {
             deleteNode()
             return
         }

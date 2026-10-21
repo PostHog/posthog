@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from ee.hogai.chat_agent.funnels.toolkit import generate_funnel_schema
 
 
-class TestFunnelToolkit(BaseTest):
+class TestFunnelToolkit(SimpleTestCase):
     def test_generate_funnel_schema_sorts_top_level_properties(self):
         schema = generate_funnel_schema()
         properties = schema["parameters"]["properties"]["query"]["properties"]

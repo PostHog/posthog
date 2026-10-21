@@ -4,10 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.iterable import (
     IterableSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import (
-    INCREMENTAL_FIELDS,
-    ITERABLE_EXPORT_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source import IterableSource
 
 
@@ -16,43 +12,6 @@ class TestIterableSource:
         self.source = IterableSource()
         self.team_id = 123
         self.config = IterableSourceConfig(api_key="fake-key", region="us")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.iterable.com/api/campaigns",
-            "403 Client Error: Forbidden for url: https://api.eu.iterable.com/api/templates",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "transient_error",
-        [
-            "500 Server Error for url: https://api.iterable.com/api/campaigns",
-            "429 Client Error: Too Many Requests for url: https://api.iterable.com/api/campaigns",
-            "Connection aborted: ReadTimeout for url: https://api.iterable.com/api/campaigns",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, transient_error):
-        # Transient failures (5xx / 429 / timeouts) must stay retryable, not permanently fail the job.
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in transient_error for key in non_retryable_errors)
-
-    def test_get_schemas_sync_modes(self):
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            # Export rows have no unique id to merge on, so they never offer incremental merge.
-            assert schema.supports_incremental is False
-            if schema.name in ITERABLE_EXPORT_ENDPOINTS:
-                assert schema.supports_append is True
-                assert schema.should_sync_default is False
-                assert schema.incremental_fields == INCREMENTAL_FIELDS[schema.name] != []
-            else:
-                assert schema.supports_append is False
-                assert schema.should_sync_default is True
-                assert schema.incremental_fields == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

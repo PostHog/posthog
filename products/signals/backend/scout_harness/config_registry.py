@@ -31,6 +31,7 @@ from posthog.models.activity_logging.model_activity import ActivityTriggerContex
 from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
@@ -207,11 +208,16 @@ def register_missing_configs(
     team_id: int,
     seed_config_layers: list[dict] | None = None,
     withheld_skill_names: frozenset[str] | set[str] | None = None,
+    *,
+    enable_new_configs: bool = True,
 ) -> set[str]:
     """Auto-create a config for each scout skill lacking a row, honouring an optional seed posture.
 
     Idempotent — `get_or_create` keyed on the `(team, skill_name)` unique constraint, so
     concurrent callers (coordinator tick racing an API call) converge on one row.
+
+    Onboarding passes `enable_new_configs=False` so browsing the catalog cannot start scouts.
+    That also skips operational lifecycle reconciliation; existing choices remain unchanged.
 
     Returns the union of the live `signals-scout-*` skills scanned here and every live skill that
     already holds a config, so the caller can dispatch a bare-named scout and still skip a config
@@ -311,9 +317,12 @@ def register_missing_configs(
         in_allowlist = (not gated) or (enabled_skills is not None and name in enabled_skills)
         # The cap bounds what a team spends watching its own product, so an operational scout
         # seeds enabled past it. It still counts toward the cap, so its slot stays visible.
-        seed_enabled = in_allowlist and (operational or not at_cap)
+        seed_enabled = enable_new_configs and in_allowlist and (operational or not at_cap)
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
+        if not enable_new_configs:
+            # Reconciliation must distinguish onboarding opt-out from a resumable seed pause.
+            defaults["status_changed_at"] = timezone.now()
         if operational:
             # The sweep reads the column, not the role, and writing memory hourly while filing a
             # report rarely is exactly the `no_output` shape it warns on.
@@ -345,12 +354,15 @@ def register_missing_configs(
 
         # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
         # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
-        _, created = configs.get_or_create(team_id=team_id, skill_name=name, defaults=defaults)
+        with transaction.atomic():
+            scout, created = configs.get_or_create(team_id=team_id, skill_name=name, defaults=defaults)
+            if created and operational and not enable_new_configs:
+                InboxOnboardingScouts.record_pause(scout)
         if not created:
             continue
         if seed_enabled:
             enabled += 1
-        elif in_allowlist and at_cap:
+        elif enable_new_configs and in_allowlist and at_cap:
             logger.info(
                 "signals_scout: enabled-scout cap reached, auto-registered config disabled",
                 team_id=team_id,
@@ -361,9 +373,10 @@ def register_missing_configs(
     reconcile_canonical_display_names(team_id, canonical_names & skill_names)
     reconcile_canonical_structured_output_schemas(team_id, canonical_names & skill_names)
 
-    reconcile_operational_configs(
-        team_id, operational_names & skill_names, withheld_skill_names, max_enabled_scouts=max_enabled_scouts
-    )
+    if enable_new_configs:
+        reconcile_operational_configs(
+            team_id, operational_names & skill_names, withheld_skill_names, max_enabled_scouts=max_enabled_scouts
+        )
 
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick,

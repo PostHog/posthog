@@ -29,6 +29,7 @@ const create = jest.mocked(llmAnalyticsScoreDefinitionsCreate)
 const createVersion = jest.mocked(llmAnalyticsScoreDefinitionsNewVersionCreate)
 const update = jest.mocked(llmAnalyticsScoreDefinitionsPartialUpdate)
 const definition: ScoreDefinitionApi = {
+    tags: [],
     id: 'scorer-example',
     name: 'Answer quality',
     description: '',

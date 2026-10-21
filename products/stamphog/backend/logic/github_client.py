@@ -289,6 +289,7 @@ def list_user_installations(user_access_token: str) -> list[dict[str, str]]:
             endpoint="/user/installations",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -347,6 +348,7 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -415,6 +417,7 @@ class StamphogGitHubClient:
             headers={"Authorization": f"Bearer {_build_app_jwt()}"},
             endpoint="/app/installations/{installation_id}/access_tokens",
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code != 201:
             raise StamphogGitHubError(
@@ -1354,7 +1357,7 @@ class StamphogGitHubClient:
         """Add a label to a PR (``POST .../issues/{number}/labels``).
 
         A 404 (repo not found) or 422 (label does not exist on the repo) is swallowed, so a vendored
-        stamphog in another repo never raises over a label — e.g. ``reviewhog`` — that isn't set up
+        stamphog in another repo never raises over a label — e.g. ``posthog-review`` — that isn't set up
         there. Any other non-success raises ``StamphogGitHubError``; see ``post_verdict`` for how the
         ReviewHog handoff caller treats that as best-effort.
         """
@@ -1378,6 +1381,30 @@ class StamphogGitHubClient:
                 f"Failed to add label to {repo}#{number}: {response.text[:200]}",
                 status_code=response.status_code,
             )
+
+    def create_label(self, repo: str, name: str, *, color: str, description: str) -> bool:
+        """Create a repository label (``POST /repos/{repo}/labels``). Returns whether GitHub created it.
+
+        Best-effort and never raises over the response: a 422 means the label already exists, and a
+        403 or 404 means the installation may not write labels on this repository. Both leave the
+        repository as it is.
+        """
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name, "color": color, "description": description},
+            priority=Priority.BATCH,
+        )
+        if response.status_code == 201:
+            return True
+        logger.info(
+            "stamphog github: label not created",
+            repo=repo,
+            label=name,
+            status_code=response.status_code,
+        )
+        return False
 
     def dismiss_pr_review(self, repo: str, pr_number: int, review_id: int, message: str) -> None:
         """Dismiss a previously submitted review (``PUT .../reviews/{review_id}/dismissals``).

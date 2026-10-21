@@ -33,8 +33,35 @@ _CORE_METRICS = [
 # creative, or country breakdowns, so they stay on the app-level reports.
 _USER_METRICS = ["daus", "waus", "maus"]
 
+_RETENTION_COHORTS = ["d1", "d7", "d30"]
+_RETENTION_METRICS = [
+    "installs",
+    *(
+        f"{metric}_{cohort}"
+        for cohort in _RETENTION_COHORTS
+        for metric in ("cohort_size", "retained_users", "retention_rate")
+    ),
+]
 
-@dataclass
+_SKAD_METRICS = [
+    "skad_installs",
+    "skad_reinstalls",
+    "skad_total_installs",
+    "valid_conversions",
+    "skad_conversion_value_null",
+]
+
+# Adjust keeps revising recent days (late attributions, re-attributions), so an incremental run
+# re-reads a trailing window; merge dedupes on the dimension key.
+DEFAULT_LOOKBACK_DAYS = 3
+# A day's cohort metrics keep changing until its longest cohort period (d30) has elapsed.
+_RETENTION_LOOKBACK_DAYS = 31
+# SKAdNetwork postbacks arrive with privacy delays of up to about five weeks (SKAN 4's last
+# postback window).
+_SKAD_LOOKBACK_DAYS = 35
+
+
+@dataclass(frozen=True)
 class AdjustReportConfig:
     name: str
     # `dimensions` / `metrics` are sent verbatim as the Report Service API's comma-separated
@@ -47,6 +74,10 @@ class AdjustReportConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["day", "app_token"])
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_DAY_INCREMENTAL_FIELDS))
     description: str | None = None
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS
+    # Event metrics are named after each account's own event slugs, so they're discovered from the
+    # events catalog at sync time and unpivoted into one row per event instead of one column each.
+    event_metrics: bool = False
 
 
 # One entry per report shape we expose. Adjust's Report Service API is a single endpoint whose
@@ -90,14 +121,42 @@ ADJUST_REPORTS: dict[str, AdjustReportConfig] = {
         primary_keys=["day", "app_token", "os_name"],
         description="Daily performance per app broken down by operating system.",
     ),
+    "retention_report": AdjustReportConfig(
+        name="retention_report",
+        dimensions=["day", "app", "app_token", "partner_name"],
+        metrics=_RETENTION_METRICS,
+        primary_keys=["day", "app_token", "partner_name"],
+        lookback_days=_RETENTION_LOOKBACK_DAYS,
+        description="Day 1, 7, and 30 retention per install cohort, broken down by attribution partner.",
+    ),
+    "skad_report": AdjustReportConfig(
+        name="skad_report",
+        dimensions=["day", "app", "app_token", "partner_name", "campaign_network", "campaign_id_network"],
+        metrics=_SKAD_METRICS,
+        primary_keys=["day", "app_token", "partner_name", "campaign_id_network"],
+        lookback_days=_SKAD_LOOKBACK_DAYS,
+        description="Daily SKAdNetwork installs, reinstalls, and conversion values per network campaign (iOS).",
+    ),
+    "event_report": AdjustReportConfig(
+        name="event_report",
+        dimensions=["day", "app", "app_token", "partner_name"],
+        metrics=[],
+        primary_keys=["day", "app_token", "partner_name", "event_slug"],
+        event_metrics=True,
+        description="Daily in-app event counts per app and attribution partner, one row per event.",
+    ),
 }
 
-ENDPOINTS = tuple(ADJUST_REPORTS.keys())
+# The events catalog maps readable event names and tokens to the slugs used in report metrics.
+EVENTS_CATALOG = "events"
+
+ENDPOINTS = (*ADJUST_REPORTS.keys(), EVENTS_CATALOG)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ADJUST_REPORTS.items() if config.incremental_fields
 }
 
 DESCRIPTIONS: dict[str, str] = {
-    name: config.description for name, config in ADJUST_REPORTS.items() if config.description
+    **{name: config.description for name, config in ADJUST_REPORTS.items() if config.description},
+    EVENTS_CATALOG: "Catalog of in-app events with their report slugs, names, event tokens, and apps.",
 }

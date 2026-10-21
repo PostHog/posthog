@@ -78,7 +78,7 @@ export function AnalyticsMetricCard({
                 ) : (
                     <MetricCard {...metricProps} title={label} className="h-full [&>div:first-child]:flex-1" />
                 )}
-                {onClick && (
+                {onClick && selected === undefined && (
                     <IconChevronRight className="absolute bottom-3 right-3 size-3 text-secondary" aria-hidden />
                 )}
             </Content>

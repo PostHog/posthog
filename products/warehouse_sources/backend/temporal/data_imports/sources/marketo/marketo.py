@@ -416,6 +416,8 @@ def _bulk_rows(
         # Checkpoint on the window boundary only once the whole window has been yielded, so a
         # resumed attempt re-exports the window it died in rather than skipping its tail.
         resumable_source_manager.save_state(MarketoResumeConfig(window_start=format_datetime(window_end)))
+        # The window is yielded in full. The safe point keeps this cursor if the next export fails.
+        resumable_source_manager.safe_point()
 
 
 def _rest_token_rows(

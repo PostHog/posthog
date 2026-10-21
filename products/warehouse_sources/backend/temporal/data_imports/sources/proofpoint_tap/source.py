@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProofpointTapSource(ResumableSource[ProofpointTapSourceConfig, TapResumeState], CursorSource[TapCursor]):
+    codebase_detection = detect(env=("^(PROOFPOINT_TAP|PROOFPOINTTAP)_",))
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -116,7 +119,7 @@ class ProofpointTapSource(ResumableSource[ProofpointTapSourceConfig, TapResumeSt
             "A TAP subscription is required. The API retains seven days of events. Sync at least once each day.",
             docsUrl=API_DOCS_URL,
             iconPath="/static/services/proofpoint_tap.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

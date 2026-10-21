@@ -5,25 +5,21 @@ import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
-    awaitRun,
-    buildResultProp,
-    dispatchRun,
-    shapeRunForModel,
+    NOT_RUN_HINT,
+    runCellAndWriteBack,
     wrapRunResultAsInformational,
+    type NotRunResult,
     type ShapedRunResult,
 } from './cellRuns'
 import {
     buildCellTag,
-    collectRunRefs,
     COMPONENT_TAG_REGEX,
     DATAFRAME_NAME_REGEX,
     findCellTag,
     parseCellTags,
-    replaceCellTag,
     uniqueDataframeName,
-    upsertProp,
-    type CellTagBlock,
 } from './cellTags'
+import { applyVisualization, CellVisualizationSchema, VISUALIZATION_PARAM_DESCRIPTION } from './cellVisualization'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
@@ -37,7 +33,7 @@ const AddCellInputSchema = z
         cell_type: z
             .enum(['sql', 'python', 'markdown', 'saved_insight', 'component'])
             .describe(
-                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities)."
+                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately unless run is false; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities)."
             ),
         code: z.string().optional().describe('The SQL or Python source. Required for sql/python cells.'),
         markdown: z.string().optional().describe('Prose to insert. Required for markdown cells.'),
@@ -56,7 +52,7 @@ const AddCellInputSchema = z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here: use cell_type sql, and set visualization to chart its result.'
             ),
         dataframe_name: z
             .string()
@@ -78,6 +74,13 @@ const AddCellInputSchema = z
             .describe(
                 'Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.'
             ),
+        visualization: CellVisualizationSchema.optional().describe(VISUALIZATION_PARAM_DESCRIPTION),
+        run: z
+            .boolean()
+            .optional()
+            .describe(
+                'SQL and Python cells only. Defaults to true: the cell runs as soon as it is added. Pass false to add the cell without a run, for example to lay out dependent cells before running them in order, or to leave a heavy query for the user to run. Run it later with notebooks-run-cell, or run the whole notebook with notebooks-run.'
+            ),
     })
     .strict()
 
@@ -86,7 +89,8 @@ export const NotebooksAddCellSchema = z.preprocess(notebookIdAliases('notebook_i
 export interface AddCellResult {
     node_id?: string
     dataframe_name?: string
-    run?: ShapedRunResult
+    run?: ShapedRunResult | NotRunResult
+    visualization_warnings?: string[]
 }
 
 /**
@@ -296,45 +300,6 @@ async function resolveInsertAnchor(
     return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end, version: state.version }
 }
 
-async function runAndWriteBack(
-    context: Context,
-    notebookId: string,
-    nodeId: string,
-    nodeType: 'hogql' | 'python',
-    code: string,
-    outputName: string,
-    cells: CellTagBlock[],
-    variables: Schemas.NotebookVariable[] | undefined
-): Promise<ShapedRunResult> {
-    const projectId = await context.stateManager.getProjectId()
-    const notebookPath = notebookPathFor(projectId, notebookId)
-    const refs = collectRunRefs(cells, nodeId)
-    const runId = await dispatchRun(context, notebookPath, {
-        node_id: nodeId,
-        node_type: nodeType,
-        code,
-        output_name: outputName,
-        refs,
-        variables,
-    })
-    const outcome = await awaitRun(context, notebookPath, runId)
-    // Mirror the editor's write-back so humans opening the notebook see the result: runId
-    // always, the envelope once terminal. Anchored on nodeId, so concurrent edits to other
-    // parts of the document survive the retry inside applyMarkdownEdit.
-    await applyMarkdownEdit(context, notebookId, (markdown) => {
-        const block = findCellTag(markdown, nodeId)
-        if (!block) {
-            return markdown
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-        }
-        return replaceCellTag(markdown, block, source)
-    })
-    return shapeRunForModel(outcome)
-}
-
 /**
  * A `<Query>` whose source is HogQL is the legacy SQL cell. It renders a result table or chart but
  * does not run through the sandbox, so it names no dataframe other cells can reference and keeps no
@@ -364,6 +329,11 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'markdown' && !params.markdown?.trim()) {
         throw new Error('A markdown cell requires non-empty markdown.')
     }
+    if (params.visualization && params.cell_type !== 'sql') {
+        throw new Error(
+            `visualization applies to sql cells only, not ${params.cell_type} cells. A python cell plots with matplotlib.`
+        )
+    }
     if (params.cell_type === 'saved_insight' && !params.insight_short_id?.trim()) {
         throw new Error('A saved_insight cell requires insight_short_id.')
     }
@@ -380,7 +350,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         }
         if (hasHogQLQuerySource(params.props)) {
             throw new Error(
-                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result."
+                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result when you set visualization."
             )
         }
         const widgetViewError = getNotebookWidgetViewError(params.tag_name, params.props?.view)
@@ -445,7 +415,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             parseCellTags(initial.markdown),
             (initial.notebook.variables ?? []).map((variable) => variable.name)
         )
-    const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
+    const plainTag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
+    const tag = params.visualization ? applyVisualization(plainTag, params.visualization) : plainTag
 
     // The save response carries the notebook as it stood when the save committed, so it holds a
     // variable edit that landed after the read above. The run binds those values to stay in step
@@ -453,17 +424,22 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
         insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
-    const run = await runAndWriteBack(
+    if (params.run === false) {
+        return { node_id: nodeId, dataframe_name: dataframeName, run: { status: 'not_run', hint: NOT_RUN_HINT } }
+    }
+    const { run, warnings } = await runCellAndWriteBack(
         context,
         params.notebook_id,
-        nodeId,
-        params.cell_type === 'sql' ? 'hogql' : 'python',
-        params.code!,
-        dataframeName,
+        { nodeId, tagName, code: params.code!, returnVariable: dataframeName },
         parseCellTags(markdown),
         notebook.variables
     )
-    return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
+    return wrapRunResultAsInformational({
+        node_id: nodeId,
+        dataframe_name: dataframeName,
+        run,
+        ...(warnings.length ? { visualization_warnings: warnings } : {}),
+    })
 }
 
 const tool = (): ToolBase<typeof NotebooksAddCellSchema, AddCellResult> => ({

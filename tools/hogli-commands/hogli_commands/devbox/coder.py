@@ -11,6 +11,7 @@ import re
 import csv
 import sys
 import json
+import time
 import shlex
 import base64
 import shutil
@@ -28,6 +29,7 @@ from typing import Any, NoReturn
 import click
 import requests
 from hogli import telemetry
+from hogli.cli import send_completion_before_exec
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -48,6 +50,9 @@ NO_PRESET = "none"
 # from a prebuild warm pool (a Coder premium feature). Pass `--preset <name>` to
 # select a template preset explicitly where one is defined.
 DEFAULT_PRESET = NO_PRESET
+# Coder applies the active template version only when a workspace starts, never
+# to a running one, so template fixes reach a box without rebuilding it mid-run.
+AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -67,8 +72,8 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # Create-time region selector. The template defines `workspace_region` with a
 # us-east-1 default; eu-central-1 became a valid option when the EU
 # infrastructure went live. The value is immutable after creation, so it is
-# forwarded on `coder create` only -- never on `coder update` or the pre-start
-# parameter sync. Coder carries an immutable parameter's value forward on its
+# forwarded on `coder create` only, never on `coder update`. Coder carries an
+# immutable parameter's value forward on its
 # own during an update and *rejects* any explicit `--parameter
 # workspace_region=` with "parameter is immutable and cannot be updated". The
 # option-change re-prompt that no flag can bypass only applies to *mutable*
@@ -224,9 +229,17 @@ def _resolve_coder(args: list[str]) -> list[str]:
     return args
 
 
-def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
+
+
+def _execvp(file: str, args: list[str]) -> NoReturn:
+    """Replace the current process, sending hogli's command telemetry first."""
+    send_completion_before_exec()
+    os.execvp(file, args)
 
 
 def _run_or_exit(args: list[str]) -> None:
@@ -234,7 +247,7 @@ def _run_or_exit(args: list[str]) -> None:
     resolved = _resolve_coder(args)
     coder_path = resolved[0] if resolved else shutil.which("coder")
     if coder_path:
-        os.execvp(coder_path, resolved)
+        _execvp(coder_path, resolved)
 
     sys.exit(_run(args).returncode)
 
@@ -311,8 +324,7 @@ def _run_with_param_retry(
     Coder validates ``--parameter`` keys client-side before any provisioning
     starts, so retrying after a `parameter "X" is not present in the
     template` error is cheap and safe. All other failures bubble up
-    unchanged. Used by every write path that forwards parameters (`coder
-    create`, `coder update`) so callers never have to know which keys the
+    unchanged, so `coder create` callers never have to know which keys the
     chosen template happens to accept.
     """
     remaining = dict(parameters)
@@ -1124,9 +1136,12 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
-def _list_workspaces() -> list[dict[str, Any]]:
+def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
-    result = _run(["coder", "list", "--output", "json"], capture_output=True)
+    try:
+        result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return []
     if result.returncode != 0:
         return []
 
@@ -1287,10 +1302,9 @@ def resolve_template_preset(template: str, requested: str) -> str:
 
 
 def _start_app_param(start_app: bool | None) -> dict[str, str]:
-    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is).
+    """Map the tri-state --start-app flag to a creation parameter dict.
 
-    ``None`` (flag omitted) returns ``{}`` so the value stays sticky on an
-    existing workspace and falls back to the template default on creation.
+    ``None`` (flag omitted) returns ``{}`` so creation uses the template default.
     ``True``/``False`` are written explicitly so the choice survives even if the
     template default changes.
     """
@@ -1356,6 +1370,7 @@ def create_workspace(
         "--preset",
         resolved_preset,
         "--use-parameter-defaults",
+        *AUTOMATIC_UPDATES_ARGS,
         "--yes",
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
@@ -1452,6 +1467,7 @@ def clone_workspace(
             "--preset",
             NO_PRESET,
             "--use-parameter-defaults",
+            *AUTOMATIC_UPDATES_ARGS,
             "--yes",
         ],
         {
@@ -1481,6 +1497,58 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
         raise SystemExit(result.returncode)
 
 
+# Must exceed the longest blocking startup script timeout in the posthog-linux
+# template, so that Coder reports `start_timeout` itself before this gives up.
+AGENT_READY_TIMEOUT = 960
+AGENT_READY_POLL_INTERVAL = 3
+_AGENT_START_FAILED_STATES = frozenset({"start_error", "start_timeout"})
+_AGENT_SHUTDOWN_STATES = frozenset({"shutting_down", "shutdown_error", "shutdown_timeout", "off"})
+# A build that is not starting or running lists no agents, so its agent states
+# alone never end the wait.
+_BUILD_STOPPED_STATUSES = frozenset({"stopping", "stopped", "canceling", "canceled", "deleting", "deleted"})
+
+
+def _agents(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        agent
+        for resource in workspace.get("latest_build", {}).get("resources", [])
+        for agent in resource.get("agents") or []
+    ]
+
+
+def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> str:
+    """Block until the workspace's startup scripts finish, so "started" means usable.
+
+    Returns the state that ended the wait: ``ready``, a Coder lifecycle state
+    (``start_error``, ``start_timeout``), ``build_failed``, ``stopped`` when the
+    box shut down, ``agent_timeout`` when the agent never connected,
+    ``unavailable`` when `coder list` did not return the box, or ``wait_timeout``.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        workspace = get_workspace(name, _list_workspaces(timeout=deadline - time.monotonic()))
+        if workspace is None:
+            return "wait_timeout" if time.monotonic() >= deadline else "unavailable"
+        build_status = get_workspace_status(workspace)
+        if build_status == "failed":
+            return "build_failed"
+        if build_status in _BUILD_STOPPED_STATUSES:
+            return "stopped"
+        agents = _agents(workspace)
+        states = {str(agent.get("lifecycle_state", "")) for agent in agents}
+        if states == {"ready"}:
+            return "ready"
+        if failed := sorted(states & _AGENT_START_FAILED_STATES):
+            return failed[0]
+        if states & _AGENT_SHUTDOWN_STATES:
+            return "stopped"
+        if any(agent.get("status") == "timeout" for agent in agents):
+            return "agent_timeout"
+        if time.monotonic() >= deadline:
+            return "wait_timeout"
+        time.sleep(AGENT_READY_POLL_INTERVAL)
+
+
 def stop_workspace(name: str, *, verbose: bool = False) -> None:
     """Stop a running workspace."""
     result = _run_build(["coder", "stop", name, "--yes"], verbose=verbose)
@@ -1489,49 +1557,39 @@ def stop_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def restart_workspace(name: str, *, verbose: bool = False) -> None:
-    """Restart a running workspace."""
-    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    """Restart a running workspace.
 
-
-def update_workspace(
-    name: str,
-    parameters: dict[str, str] | None = None,
-    *,
-    verbose: bool = False,
-) -> None:
-    """Update a workspace to the latest template version.
-
-    ``--use-parameter-defaults`` lets coder fall back to the template's own
-    defaults for any parameter not explicitly supplied here, so we never
-    need a hogli-side defaults dict. Parameters carried over from a
-    previous template (e.g. a saved ``dotfiles_uri`` that the new template
-    does not declare) are dropped by the retry shim instead of aborting
-    the update.
+    With automatic updates on, a restart of an outdated workspace is a template
+    update, and Coder prompts for any new parameter. ``_run_build`` captures the
+    output, so the prompt would hang unseen; ``--use-parameter-defaults`` takes
+    the template default instead.
     """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
+    result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+def update_workspace(name: str, *, verbose: bool = False) -> None:
+    """Update a workspace to the latest template version and start it.
+
+    ``--use-parameter-defaults`` fills any parameter the new template version
+    adds with its default instead of prompting behind the spinner.
+    """
+    result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+    # `coder update` only streams the build logs, so it exits 0 when the build fails.
+    workspace = get_workspace(name)
+    if workspace is not None and get_workspace_status(workspace) == "failed":
+        if not verbose:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(result.stdout, nl=False)
+        raise SystemExit(1)
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
     """Delete a workspace."""
     result = _run_build(["coder", "delete", name, "--yes"], verbose=verbose)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
-
-
-def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters.
-
-    Goes through the same retry shim as ``create_workspace`` so a stale
-    local config key (for example, a saved ``dotfiles_uri`` after the user
-    switches templates) does not abort the pre-start sync.
-    """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -1600,7 +1658,7 @@ def ssh_replace(name: str) -> None:
     The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
     the Coder tunnel via its ``ProxyCommand``.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
 def exec_replace(name: str, command: list[str]) -> None:
@@ -1620,7 +1678,7 @@ def exec_replace(name: str, command: list[str]) -> None:
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
 
 
 def coder_ssh_alias_configured(name: str) -> bool:
@@ -1676,7 +1734,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
+    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:

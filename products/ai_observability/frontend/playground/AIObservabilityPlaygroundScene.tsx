@@ -27,9 +27,12 @@ import {
     Link,
     LemonDivider,
 } from '@posthog/lemon-ui'
+import { Button, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -135,7 +138,55 @@ function PlaygroundHeaderActions(): JSX.Element {
     const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const firstPromptId = promptConfigs[0]?.id
+
+    if (todayRailNav) {
+        return (
+            <>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Reset playground to default state"
+                    onClick={resetPlayground}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    tooltip="Reset playground to default state"
+                    data-attr="llma-playground-reset"
+                >
+                    <IconRevert />
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={() => addPromptConfig(firstPromptId)}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    data-attr="llma-playground-add-prompt"
+                >
+                    <IconPlus />
+                    Add prompt
+                </Button>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmPlayground}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <Button
+                        variant={playgroundSubmitting ? 'destructive-outline' : 'primary'}
+                        onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                        disabledReason={
+                            playgroundSubmitting
+                                ? undefined
+                                : !hasRunnablePrompts
+                                  ? 'Add messages to at least one prompt'
+                                  : undefined
+                        }
+                        data-attr="llma-playground-run-button"
+                    >
+                        {playgroundSubmitting ? <QuillSpinner /> : <IconPlay />}
+                        <span>{playgroundSubmitting ? 'Stop' : 'Run'}</span>
+                    </Button>
+                </AccessControlAction>
+            </>
+        )
+    }
 
     return (
         <>
@@ -483,7 +534,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
-        providerModelGroups,
+        playgroundByokProviderModelGroups,
         playgroundProviderModelGroups,
         byokModelsLoading,
         playgroundModelsLoading,
@@ -497,7 +548,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? providerModelGroups : playgroundProviderModelGroups
+    const groups = hasByokKeys ? playgroundByokProviderModelGroups : playgroundProviderModelGroups
     const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
     const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
     const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading
@@ -682,7 +733,13 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
         <div className="space-y-3">
             <SystemMessageDisplay promptId={promptId} />
             {prompt.messages.map((message, index) => (
-                <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
+                <MessageDisplay
+                    key={`${promptId}-${index}`}
+                    promptId={promptId}
+                    index={index}
+                    message={message}
+                    messageCount={prompt.messages.length}
+                />
             ))}
         </div>
     )
@@ -1029,14 +1086,17 @@ function MessageDisplay({
     promptId,
     message,
     index,
+    messageCount,
 }: {
     promptId: string
     message: Message
     index: number
+    messageCount: number
 }): JSX.Element {
     const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
     const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
-    const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { updateMessage, deleteMessage, moveMessage, setEditModal, toggleCollapsed } =
+        useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
     const messageKey = `message:${promptId}:${index}`
@@ -1076,6 +1136,24 @@ function MessageDisplay({
         <>
             <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-4 right-4 flex items-center gap-1">
+                    <LemonButton
+                        size="small"
+                        icon={<IconArrowUp />}
+                        tooltip="Move message up"
+                        noPadding
+                        disabledReason={index === 0 ? 'Already the first message' : undefined}
+                        onClick={() => moveMessage(index, 'up', promptId)}
+                        data-attr="llma-playground-move-message-up"
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconArrowDown />}
+                        tooltip="Move message down"
+                        noPadding
+                        disabledReason={index === messageCount - 1 ? 'Already the last message' : undefined}
+                        onClick={() => moveMessage(index, 'down', promptId)}
+                        data-attr="llma-playground-move-message-down"
+                    />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}

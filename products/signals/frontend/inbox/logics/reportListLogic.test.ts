@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
@@ -46,7 +48,6 @@ describe('reportListLogic', () => {
     describe('shouldDefaultToEntireProject', () => {
         const base = {
             sectionKey: 'needs-decision' as InboxReportSectionKey,
-            primarySectionKey: 'needs-decision' as InboxReportSectionKey,
             scope: INBOX_SCOPE_FOR_YOU as InboxScope,
             hasUserChosenScope: false,
             hasResolvedUser: true,
@@ -55,13 +56,6 @@ describe('reportListLogic', () => {
 
         it('switches to Entire project when a fresh user has zero assigned reports', () => {
             expect(shouldDefaultToEntireProject(base)).toBe(true)
-        })
-
-        // With the redesign flag off the Pull requests list is the primary section instead.
-        it('keys the switch on whichever section the layout treats as primary', () => {
-            const legacy = { ...base, primarySectionKey: 'monitoring' as InboxReportSectionKey }
-            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'monitoring' })).toBe(true)
-            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'needs-decision' })).toBe(false)
         })
 
         it.each<[string, Partial<typeof base>]>([
@@ -244,9 +238,16 @@ describe('reportListLogic', () => {
                 after: [],
                 dropped: false,
             },
-        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean }[])(
+            {
+                name: 'marks the row as yours once you are added',
+                scope: INBOX_SCOPE_ENTIRE_PROJECT,
+                after: [MOCK_USER_UUID],
+                dropped: false,
+                suggestedToMe: true,
+            },
+        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean; suggestedToMe?: boolean }[])(
             '$name',
-            async ({ scope, after, dropped }) => {
+            async ({ scope, after, dropped, suggestedToMe = false }) => {
                 const bulkLogic = inboxBulkActionsLogic()
                 bulkLogic.mount()
                 logic.actions.setScope(scope)
@@ -261,7 +262,36 @@ describe('reportListLogic', () => {
                 const loadedCount = FIRST_PAGE.length + SECOND_PAGE.length
                 expect(logic.values.reports.map((r) => r.id).includes(FIRST_PAGE[3].id)).toBe(!dropped)
                 expect(logic.values.reports).toHaveLength(dropped ? loadedCount - 1 : loadedCount)
+                expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[3].id)?.is_suggested_reviewer).toBe(
+                    dropped ? undefined : suggestedToMe
+                )
                 expect(requestedOffsets).toEqual([])
+                bulkLogic.unmount()
+            }
+        )
+
+        it.each([
+            { scope: INBOX_SCOPE_FOR_YOU, dropped: true },
+            { scope: `teammate:${MOCK_USER_UUID}`, dropped: true },
+            { scope: 'teammate:t-1', dropped: false },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, dropped: false },
+        ] as { scope: InboxScope; dropped: boolean }[])(
+            'unassigning me under $scope drops the row: $dropped',
+            async ({ scope, dropped }) => {
+                const mine = FIRST_PAGE.map((r, i) => (i === 3 ? { ...r, is_suggested_reviewer: true } : r))
+                useMocks({
+                    get: { [REPORTS_URL]: { count: mine.length, next: null, previous: null, results: mine } },
+                })
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+
+                bulkLogic.actions.unassignedMe([mine[3].id])
+                await expectLogic(logic).toFinishAllListeners()
+
+                const row = logic.values.reports.find((r) => r.id === mine[3].id)
+                expect(row ? row.is_suggested_reviewer : 'dropped').toEqual(dropped ? 'dropped' : false)
                 bulkLogic.unmount()
             }
         )

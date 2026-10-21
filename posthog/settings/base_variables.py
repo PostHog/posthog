@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
-IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
+IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = get_from_env(
     "TEST",
@@ -49,6 +49,7 @@ Possible values:
 """
 COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
+SELF_CAPTURE_HOST: str = get_from_env("SELF_CAPTURE_HOST", "")
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
 )  # whether the app is currently running for E2E tests
@@ -64,6 +65,10 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
+
+# PostHog's internal US project is also used by callers running in the EU region.
+POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
+POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,

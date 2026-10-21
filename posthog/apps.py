@@ -49,6 +49,7 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.storage.checks  # noqa: F401, PLC0415
+        import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
@@ -100,7 +101,7 @@ class PostHogConfig(AppConfig):
             posthoganalytics.personal_api_key = None
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
-        elif settings.DEBUG:
+        elif settings.DEBUG or settings.SELF_CAPTURE:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
             # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file

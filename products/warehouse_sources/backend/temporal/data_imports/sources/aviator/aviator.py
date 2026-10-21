@@ -5,14 +5,20 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import (
     AVIATOR_ENDPOINTS,
     AviatorEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -63,7 +69,7 @@ def _get_headers(api_token: str) -> dict[str, str]:
     }
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             AviatorRetryableError,
@@ -395,6 +401,7 @@ def _get_fan_out_rows(
     completed_repo_keys = list(resume.completed_repo_keys) if resume is not None else []
     completed = set(completed_repo_keys)
 
+    repo_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for repo in repos:
         org, name = repo.get("org"), repo.get("name")
         if not org or not name:
@@ -423,7 +430,8 @@ def _get_fan_out_rows(
         # repo's batches so a crash mid-repo re-processes it (merge dedupes) rather than skipping it.
         completed_repo_keys.append(repo_key)
         completed.add(repo_key)
-        resumable_source_manager.save_state(AviatorResumeConfig(completed_repo_keys=list(completed_repo_keys)))
+        # The batcher can hold rows of this repo, and a state that marks the repo done skips them.
+        yield from repo_checkpoint.save(AviatorResumeConfig(completed_repo_keys=list(completed_repo_keys)))
 
 
 def get_rows(

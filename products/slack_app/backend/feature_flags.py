@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
+SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -126,14 +126,16 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for the in-thread project picker. With the gate closed, a mention that could go
-    to more than one project gets the text hint."""
+def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
+    """Gate for answering top-level channel messages nobody tagged the app in.
+
+    Keyed on the workspace, not the author, because the webhook checks it before it resolves
+    who wrote the message. Roll it out with an organization condition.
+    """
     return _workspace_flag_enabled(
-        SLACK_APP_PROJECT_PICKER_FLAG,
+        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
-        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
-        distinct_id=distinct_id,
+        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
     )
 
 

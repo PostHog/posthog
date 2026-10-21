@@ -62,6 +62,7 @@ import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { LineageTarget, SeeLineageMenuItem } from './SeeLineageMenuItem'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -731,6 +732,9 @@ export const QueryDatabase = ({
                                     View in data catalog
                                 </Link>
                             </DropdownMenuItem>
+                            {!isEmbeddedMode ? (
+                                <SeeLineageMenuItem target={{ lookup: 'metric', id: item.record.metric.id }} />
+                            ) : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
@@ -751,6 +755,13 @@ export const QueryDatabase = ({
                         warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
                             ? item.record.table?.id
                             : null
+                    const tableLineageTarget: LineageTarget | null = isEmbeddedMode
+                        ? null
+                        : item.record.table?.type === 'data_warehouse'
+                          ? { lookup: 'warehouse_table', id: item.record.table.id }
+                          : item.record.table?.type === 'posthog'
+                            ? { lookup: 'posthog_table', id: item.record.table.name }
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -770,6 +781,7 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {tableLineageTarget ? <SeeLineageMenuItem target={tableLineageTarget} /> : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
@@ -1025,6 +1037,9 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <SeeLineageMenuItem target={{ lookup: 'saved_query', id: item.record.view.id }} />
+                            ) : null}
                             {addJoinSourceTableName ? (
                                 <DropdownMenuItem
                                     asChild

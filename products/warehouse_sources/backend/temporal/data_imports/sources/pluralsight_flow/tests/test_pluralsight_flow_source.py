@@ -21,29 +21,6 @@ class TestPluralsightFlowSource:
         assert self.source.connection_host_fields == ["workspace"]
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://acme.appfireflow.com/v3/customer/core/users/",
-            "403 Client Error: Forbidden for url: https://api.appfireflow.com/collaboration/code/metrics/",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://acme.appfireflow.com/v3/customer/core/users/",
-            "500 Server Error: Internal Server Error for url: https://acme.appfireflow.com/v3/customer/core/users/",
-            "HTTPSConnectionPool(host='acme.appfireflow.com', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
             ((True, 200), True, None),

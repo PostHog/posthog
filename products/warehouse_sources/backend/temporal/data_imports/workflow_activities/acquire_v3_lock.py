@@ -19,6 +19,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -30,12 +31,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
 )
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import min_gap_between_runs
 from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 LOGGER = get_logger(__name__)
 
-# Hard cap on how long a terminal-workflow holder can block takeover on queue
-# activity alone — the backstop when the staleness heuristic is being fooled.
+# A live loader past this hold still keeps the lock, because taking over lets the new run's
+# batch 0 overwrite the table while the old loader is still writing to it. Past the cap the
+# skip is logged as a warning, so a schema stuck behind a long load is visible.
 TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 
 # Must outlast the healthy startup tail (SET NX → job-row commit, minutes under
@@ -66,6 +69,11 @@ class AcquireV3LockActivityInputs:
 class AcquireV3LockActivityOutputs:
     acquired: bool
     token: str
+    # True when the run stood down because the schema's runs keep failing, rather than because
+    # another run holds the lock. The workflow skips either way, so this only separates the two in
+    # the logs and the metrics. Defaults False so a payload that predates the field reads as the
+    # lock miss its history recorded.
+    deferred: bool = False
 
 
 @dataclasses.dataclass
@@ -93,6 +101,10 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         logger.error("v3_pipeline_lock_missing_workflow_run_id", schema_id=str(inputs.schema_id))
         return AcquireV3LockActivityOutputs(acquired=False, token="")
 
+    # Before the lock, so a stood-down run never takes one and never needs to release one.
+    if _defer_failing_schema(inputs, logger):
+        return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
+
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
     if not acquired:
         acquired = _take_over_lock_if_holder_finished(inputs, token, logger)
@@ -117,6 +129,47 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
 
 
+def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+    """Whether this run stands down because the schema's runs keep failing.
+
+    The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
+    reach costs one run per gap rather than one per slot. A reset run always goes ahead, because a
+    reset is the person asking for the table to be re-read from the start.
+
+    False on any error. This decides whether a sync runs at all, and the retry cap already bounds
+    what one failing run costs, so going ahead is the safe answer.
+    """
+    try:
+        schema = (
+            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
+            .only("sync_type_config")
+            .first()
+        )
+        if schema is None or schema.reset_pipeline:
+            return False
+
+        gap = min_gap_between_runs(schema.failed_runs_in_a_row)
+        last_failed_at = schema.failure_streak_last_failed_at
+        if gap is None or last_failed_at is None:
+            return False
+
+        since_last_failure = datetime.now(UTC) - last_failed_at
+        if since_last_failure >= gap:
+            return False
+
+        logger.info(
+            "data_import_run_deferred",
+            schema_id=str(inputs.schema_id),
+            failed_runs_in_a_row=schema.failed_runs_in_a_row,
+            gap_seconds=int(gap.total_seconds()),
+            since_last_failure_seconds=int(since_last_failure.total_seconds()),
+        )
+        return True
+    except Exception as e:
+        logger.warning("data_import_run_defer_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return False
+
+
 def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, token: str, logger: Any) -> bool:
     """Decide whether to take over the Redis pipeline lock from its current holder.
 
@@ -126,10 +179,10 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
        assumed (no workflow_id anywhere), a young holder fails closed instead.
     3. Holder workflow terminal + job terminal -> take over.
     4. Holder workflow terminal + job RUNNING -> consult queue DB:
-       - no batches, all-terminal, no recent loader progress, or the job has
-         exceeded the max hold -> fail its leftover batches, mark job FAILED,
-         take over.
-       - non-terminal batches with recent loader progress -> fail closed.
+       - no batches, all-terminal, or no recent loader progress -> fail its
+         leftover batches, mark job FAILED, take over.
+       - non-terminal batches with recent loader progress -> fail closed,
+         whatever the hold time.
     5. Describe error / queue DB error -> fail closed.
     """
     holder = get_v3_pipeline_lock_holder(inputs.team_id, str(inputs.schema_id))
@@ -324,18 +377,20 @@ def _take_over_stale_running_job(
             capture_exception(e)
             return False
 
-        # Backstop for a fooled staleness heuristic: a terminal-workflow holder
-        # cannot block takeover on queue activity alone past the max hold.
         hold_seconds = (datetime.now(UTC) - holder_job.created_at).total_seconds()
-        max_hold_exceeded = hold_seconds > TAKEOVER_MAX_HOLD_SECONDS
 
-        if summary.has_non_terminal and not summary.is_stale and not max_hold_exceeded:
-            # The loader is making progress on this run's batches - don't steal
-            logger.info(
+        if summary.has_non_terminal and not summary.is_stale:
+            # The loader is making progress on this run's batches - don't steal. Failing its
+            # batches does not stop a merge already in flight, so a takeover here lets two
+            # runs write the same table.
+            max_hold_exceeded = hold_seconds > TAKEOVER_MAX_HOLD_SECONDS
+            log = logger.warning if max_hold_exceeded else logger.info
+            log(
                 "v3_pipeline_lock_takeover_skipped",
                 schema_id=str(inputs.schema_id),
                 holder_token=holder,
-                reason="active_consumer",
+                reason="max_hold_exceeded_live_holder" if max_hold_exceeded else "active_consumer",
+                holder_job_id=str(holder_job.id),
                 last_status_write_age_seconds=summary.last_status_write_age_seconds,
                 oldest_unclaimed_age_seconds=summary.oldest_unclaimed_age_seconds,
                 hold_seconds=round(hold_seconds, 1),
@@ -372,6 +427,8 @@ def _take_over_stale_running_job(
             status=ExternalDataJob.Status.FAILED,
             logger=takeover_logger,
             latest_error=LOCK_TAKEOVER_LATEST_ERROR,
+            # The stuck run never reported an outcome, so it says nothing about the source.
+            counts_as_source_failure=False,
         )
     except Exception as e:
         logger.warning(
@@ -387,7 +444,7 @@ def _take_over_stale_running_job(
         "v3_pipeline_lock_taking_over",
         schema_id=str(inputs.schema_id),
         holder_token=holder,
-        reason="max_hold_exceeded" if (max_hold_exceeded and not summary.is_stale) else "stale_running_job",
+        reason="stale_running_job",
         holder_job_id=str(holder_job.id),
         has_batches=summary.has_batches,
         is_stale=summary.is_stale,

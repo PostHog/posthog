@@ -648,7 +648,7 @@ export interface FeatureFlagApi {
     tags?: unknown[]
     evaluation_contexts?: unknown[]
     /**
-     * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+     * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
      * @nullable
      */
     readonly usage_dashboard: number | null
@@ -1361,6 +1361,285 @@ export interface FlagApprovalConflictApi {
     required_approvers: unknown
 }
 
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
+
+export const PropertyGroupOperatorEnumApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
+
+export const EventPropFilterTypeEnumApi = {
+    Event: 'event',
+    Element: 'element',
+} as const
+
+export interface EventPropFilterApi {
+    type: EventPropFilterTypeEnumApi
+    key: string
+    value: unknown
+    operator?: string | null
+}
+
+export interface HogQLFilterApi {
+    type: 'hogql'
+    key: string
+    value?: unknown
+}
+
+export interface BehavioralFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'behavioral'
+    key: string | number
+    value: string
+    event_type: string
+    time_value?: number | null
+    time_interval?: string | null
+    negation?: boolean
+    operator?: string | null
+    operator_value?: number | null
+    seq_time_interval?: string | null
+    seq_time_value?: number | null
+    seq_event?: string | number | null
+    seq_event_type?: string | null
+    total_periods?: number | null
+    min_periods?: number | null
+    event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+}
+
+export interface CohortFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'cohort'
+    key: 'id'
+    value: number
+    negation?: boolean
+}
+
+export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+ */
+export interface CohortFilterGroupApi {
+    type: PropertyGroupOperatorEnumApi
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
+}
+
+export interface CohortFiltersApi {
+    properties: CohortFilterGroupApi
+    filterTestAccounts?: boolean | null
+}
+
+/**
+ * * `static` - static
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
+ */
+export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
+
+export const CohortTypeEnumApi = {
+    Static: 'static',
+    PersonProperty: 'person_property',
+    Behavioral: 'behavioral',
+    Realtime: 'realtime',
+    Analytical: 'analytical',
+} as const
+
+export interface CohortConditionTypeFlagsApi {
+    /** The filters include a person property or person_metadata condition. */
+    person_properties: boolean
+    /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+    behavioral: boolean
+    /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+    lifecycle: boolean
+    /** The filters include a nested reference to another cohort. */
+    cohorts: boolean
+}
+
+/**
+ * * `static` - Static
+ * * `person_properties` - Person properties
+ * * `daily` - Daily
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `ready` - Ready
+ * * `needs_attention` - Needs attention
+ */
+export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[keyof typeof CohortRealtimeStateEnumApi]
+
+export const CohortRealtimeStateEnumApi = {
+    Static: 'static',
+    PersonProperties: 'person_properties',
+    Daily: 'daily',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    Ready: 'ready',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `scanning` - Scanning
+ * * `checking` - Checking
+ */
+export type CohortHistoryBuildPhaseEnumApi =
+    (typeof CohortHistoryBuildPhaseEnumApi)[keyof typeof CohortHistoryBuildPhaseEnumApi]
+
+export const CohortHistoryBuildPhaseEnumApi = {
+    Waiting: 'waiting',
+    Scanning: 'scanning',
+    Checking: 'checking',
+} as const
+
+export interface CohortHistoryBuildApi {
+    /** What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.
+     *
+     * * `waiting` - Waiting
+     * * `scanning` - Scanning
+     * * `checking` - Checking */
+    phase: CohortHistoryBuildPhaseEnumApi
+    /**
+     * How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.
+     * @nullable
+     */
+    percent_complete: number | null
+    /**
+     * When this build last made progress. Null while it is still queued.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface CohortRealtimeReadinessApi {
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+     *
+     * * `static` - Static
+     * * `person_properties` - Person properties
+     * * `daily` - Daily
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `ready` - Ready
+     * * `needs_attention` - Needs attention */
+    state: CohortRealtimeStateEnumApi
+    /**
+     * When the cohort became targetable by feature flags. Null unless the state is `ready`.
+     * @nullable
+     */
+    ready_at: string | null
+    /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
+    build: CohortHistoryBuildApi | null
+}
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
+export interface CohortApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 1000 */
+    description?: string
+    groups?: unknown
+    deleted?: boolean
+    filters?: CohortFiltersApi | null
+    query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
+    readonly is_calculating: boolean
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly last_calculation: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at: string | null
+    readonly errors_calculating: number
+    /** @nullable */
+    readonly last_error_message: string | null
+    /** @nullable */
+    readonly count: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count: number | null
+    is_static?: boolean
+    /** Type of cohort based on filter complexity
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime: CohortRealtimeReadinessApi | null
+    readonly experiment_set: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
+    _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
+    _create_static_person_ids?: string[]
+}
+
+export interface CreateStaticCohortForFlagResponseApi {
+    /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+    readonly cohort: CohortApi
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1407,7 +1686,7 @@ export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
 }
 
 export interface FeatureFlagRolloutSummaryApi {
-    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation. */
     effectively_full_rollout: boolean
     /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
     has_targeting_conditions: boolean
@@ -1609,7 +1888,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -1617,7 +1896,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
     search?: string
     /** Filter by flag type.
      *
@@ -2096,7 +2375,9 @@ export type OrgFeatureFlagsKeysParams = {
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string
 }
@@ -2130,7 +2411,7 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 
 export type FeatureFlagsListParams = {
     /**
-     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      */
     active?: FeatureFlagsListActive
     /**
@@ -2174,7 +2455,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string
     /**

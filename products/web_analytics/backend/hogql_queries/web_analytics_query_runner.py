@@ -1,9 +1,10 @@
 import typing
 from abc import ABC
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from time import perf_counter
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -43,7 +44,6 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
@@ -110,6 +110,26 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    bypass_warehouse_access_control: bool = False
+
+    def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # The base fingerprint does not see a warehouse table that a test-account filter reads through a join,
+        # so a bypass run and a user run would share one cache entry. The separate key stops a user who is
+        # denied that table from reading a result that a bypass run computed.
+        if self.bypass_warehouse_access_control:
+            payload["bypass_warehouse_access_control"] = True
+        return payload
+
+    def single_flight_variant(self) -> str:
+        variant = super().single_flight_variant()
+        if self.bypass_warehouse_access_control:
+            return f"{variant}:bypass_warehouse_access_control"
+        return variant
 
     def query_strategy(self) -> str | None:
         return None
@@ -326,6 +346,7 @@ WHERE and(
                 query=count_query,
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

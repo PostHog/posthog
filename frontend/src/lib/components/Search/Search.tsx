@@ -16,7 +16,7 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { filterSearchItems } from 'lib/components/Search/utils'
@@ -430,6 +430,7 @@ function SearchRoot({
                 posthog.capture('command menu item selected', {
                     category: item.category,
                     item_type: item.itemType ?? null,
+                    matched_search_keyword: item.matchedSearchKeyword ?? null,
                     result_position: position >= 0 ? position : null,
                     opened_in_new_tab: openInNewTab,
                 })
@@ -891,6 +892,20 @@ function SearchResults({
                                                                             <span className="truncate">
                                                                                 {String(item.displayName || item.name)}
                                                                             </span>
+                                                                            {item.badges?.map((badge) => (
+                                                                                <Tooltip
+                                                                                    key={badge.label}
+                                                                                    title={badge.tooltip}
+                                                                                >
+                                                                                    <LemonTag
+                                                                                        type={badge.type}
+                                                                                        size="small"
+                                                                                        className="shrink-0"
+                                                                                    >
+                                                                                        {badge.label}
+                                                                                    </LemonTag>
+                                                                                </Tooltip>
+                                                                            ))}
                                                                             {(group.category === 'recents' ||
                                                                                 group.category === 'starred' ||
                                                                                 group.category === 'groups') &&

@@ -95,6 +95,16 @@
             "maxLength": 255,
             "minLength": 1,
             "type": "string"
+        },
+        "tag_match": {
+            "default": "any",
+            "description": "Match any selected tag (OR) or all selected tags (AND).\n\n* `any` - Any\n* `all` - All",
+            "enum": ["any", "all"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.",
+            "type": "string"
         }
     },
     "type": "object"

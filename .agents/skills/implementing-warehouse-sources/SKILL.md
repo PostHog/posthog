@@ -106,7 +106,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    identifier in the flow is the optional `featureFlag="dwh-{source_name}"`.)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -115,13 +115,13 @@ Follow this order. Each step maps to TODOs in `source.template`.
 10. **Add icon.** Place at `frontend/public/services/{source}.png` — **PNG is the repo convention** (~800 png vs ~58 svg, and `source.template` defaults to `.png`). SVG is accepted but not the norm; set `iconPath` to match whichever extension you commit. If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Logo.dev's image API returns PNG (not SVG). Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Regenerate frontend API types**: `hogli build:openapi`. This regenerates `products/warehouse_sources/frontend/generated/api.schemas.ts` from the source-config contract in `source_config.py` and makes the source appear in frontend dropdowns. Re-run whenever `source_config.py` or a source's fields change.
-13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
+13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `InlineSourceSetup.tsx` and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
-    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
+    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.BETA` is for (a soft "new, still being validated" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
     So a newly finished, tested source ships with:
     - **no `unreleasedSource`** (visible and connectable),
-    - `releaseStatus=ReleaseStatus.ALPHA` for a new source that hasn't been extensively tested (`ReleaseStatus.BETA` once rough edges are ironed out; `ReleaseStatus.GA`, or omit `releaseStatus` entirely, for general availability) — a soft label on a _visible_ source, not a gate,
+    - `releaseStatus=ReleaseStatus.BETA` for every new source — it is promoted to `ReleaseStatus.GA` (or `releaseStatus` omitted) once at least one customer sync completes and loads data — a soft label on a _visible_ source, not a gate,
     - optional `featureFlag="dwh-{source_name}"` (kebab-case) **only** if you want a controlled rollout to flagged users instead of releasing to everyone.
 
     Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `products.warehouse_sources.backend.facade.source_config` — never a bare string literal. Add `ReleaseStatus` to your existing import block from that module.
@@ -279,6 +279,14 @@ ad-hoc strings.
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Codebase detection
+
+A released source (no `unreleasedSource=True`) must set the `codebase_detection` class attribute. The PostHog wizard uses it to tell that a customer's codebase uses the vendor, to suggest the source and to spot PostHog alternatives.
+Use `detect(...)` from `products/warehouse_sources/backend/facade/codebase_detection.py`. List the vendor's official SDK package names per ecosystem, the `.env` key names the vendor documents as anchored regexes, and any CDN host its script tag loads from.
+The wizard creates the source from the terminal unless the source's fields need OAuth, a file upload or an account picker. Set the class attribute `setup_requires_ui = True` when users should still go to the app, for example because a credential is hard to find.
+Use `NOT_DETECTABLE` when no package, key or script gives the vendor away. `tests/test_codebase_detection.py` fails for a released source without the attribute, and for an unreleased source with one.
+The image build renders the declarations into the catalog the wizard downloads, so there is no generated file to update.
+
 ## Self-driving Inbox candidacy (issues / tickets / conversations)
 
 Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
@@ -428,6 +436,10 @@ while True:
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
+A saved cursor can commit only after the pipeline confirms it. The pipeline confirms when the source hands it the next item, ends, or reaches a safe point.
+A cursor saved after the last `yield` therefore does not persist when the source raises, because the source can still hold rows that the cursor skips. The next attempt continues from the cursor of the last `yield`.
+A source that ends its own attempt on a page or time budget calls `manager.safe_point()` directly before the raise, with its local buffer empty, to keep its last cursor.
+
 Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
 The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
 At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
@@ -436,6 +448,53 @@ References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint
 The `rest_source` framework reaches a safe point after each page and before each retry wait on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
 The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
 Do not call `safe_point()` or `commit()` in a `resume_hook`.
+
+### The source contract
+
+A worker that shuts down hands each running import to another worker. Every source with extraction code must make that possible:
+
+1. Bounded calls: each request has a read timeout, and one request with its retries and waits holds the worker for 5 minutes at most, also after a 429 with a large `Retry-After`.
+2. A safe point for each request: the source makes no more than 3 requests in a row with no yield and no safe point.
+3. Resume state is staged before the `yield` it covers.
+
+`sources/tests/test_source_contract.py` runs each source in the registry against a fake HTTP server that stalls, rate-limits and returns empty pages. It compares the result with `sources/tests/source_contract_baseline.txt`, which lists each source that fails a condition or that the fake server cannot drive. A new source must pass; the baseline may only get shorter.
+`posthog/test/repo_invariants/test_warehouse_source_static_contract.py` and `test_resume_state_staged_before_yield.py` check the same contract in the source text of every source: no raw `time.sleep`, no session call without `timeout=`, no wrapper around a framework `Resource` without a safe point, and no `save_state` after the `yield`.
+
+```bash
+pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py posthog/test/repo_invariants/test_warehouse_source_static_contract.py posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
+
+When a fix makes an entry wrong, regenerate the baseline and commit it:
+
+```bash
+SOURCE_CONTRACT_WRITE_BASELINE=1 pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py -p no:xdist
+PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
+PYTHONPATH=. python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
+
+#### Row order and `sort_mode`
+
+`SourceResponse.sort_mode` says whether the rows of an incremental or append read are ordered:
+
+- `"asc"`: the rows arrive in ascending order of the incremental field, from the first row of the run to the last.
+- `"desc"`: the rows arrive in descending order. Use it only when the API cannot return ascending order.
+- `None` (the default): not ordered, or not known.
+
+It has no meaning for a full refresh. A full refresh can read in any order, and nothing requires it to sort.
+
+The watermark does not depend on the value: it is the largest incremental value the run read, and the loader saves it when the run completes.
+
+`"asc"` is a promise the pipeline relies on. After a worker shutdown, the next attempt of an `"asc"` run reads only the rows after the last value the earlier attempt queued. A row below that value that arrives later is never read, and the watermark then moves past it. A false `"asc"` loses rows silently. With `None` the interrupted run starts again from the stored watermark, which is always correct.
+
+Before you set `"asc"`, prove all of these:
+
+1. The order comes from the query or the API contract: an `ORDER BY <incremental field> ASC`, or an explicit ascending sort parameter on the incremental field. A default order that the vendor does not document is not proof.
+2. The run is one ordered series. Pages by another key (a primary-key keyset, an `_id` cursor), one request series per parent, account or partition, unsorted time windows, and an ordered query whose stored result is read back with no order do not qualify.
+3. The value is set per run, where the response is built. Say `"asc"` only on the read path that has the order, not on a keyset, partition, fallback or full refresh path of the same source.
+4. No fallback or retry in the generator drops the order, or starts the read again after rows were yielded.
+5. A test fails when the incremental query or request loses its sort, and a test asserts `sort_mode` for each read path.
+
+When in doubt, leave `None`. The only cost is that an interrupted run starts again from the stored watermark.
 
 ### Webhook source pattern
 
@@ -575,7 +634,7 @@ skill — don't hand-roll version handling.
 - **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another, or use a different timestamp column on certain resources.
 - **Pass `?sorting=` explicitly on a stable monotonic field when paginating.** For incremental sources, the request sort must match `SourceResponse.sort_mode` (`"asc"` typically; `"desc"` only when forced by the API — see `stripe/stripe.py`, `github/settings.py`) so the pipeline's cursor watermark advances correctly. For full-refresh sources, an explicit sort prevents page-boundary skips/duplicates if the API's implicit default is unstable or shifts as rows are inserted during the sync.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
-- **`sort_mode` must match the order rows actually arrive in — verify it, don't assume it.** The pipeline trusts `sort_mode="asc"` to checkpoint the incremental watermark after every batch and to allow safe mid-sync worker shutdowns; declaring `asc` while the API returns newest-first corrupts the watermark and breaks resume semantics. Check the API's _default_ sort (it applies when you can't pass `sort`), and remember cursor pagination often rejects or ignores sort params entirely.
+- **`sort_mode` must match the order rows actually arrive in. Verify it, do not assume it.** `sort_mode="asc"` is a promise: after a mid-sync worker shutdown the pipeline continues an `asc` run after the last value it queued, so a row that arrives out of order is lost. Leave the default `None` when the order is not proven: per-parent or per-window paging, an API _default_ sort (it applies when you can't pass `sort`), or cursor pagination that rejects or ignores sort params. See "Row order and `sort_mode`".
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
 - **Incremental pagination must terminate at the watermark.** Some APIs reject mixing their time-window filter with cursor pagination, so only the first page is windowed and later pages walk back through history unbounded. If the server can't keep the filter on every page, the paginator must stop client-side once an entire page predates `db_incremental_field_last_value` (see `typeform/typeform.py:TypeformResponsesPaginator`) — otherwise **every incremental sync re-fetches and re-merges each parent's full history**, which is both an API-cost bug and a per-sync memory amplifier.
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
@@ -619,9 +678,13 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 ## Retry and throttling strategy
 
 - **`make_tracked_session()` and `rest_source.RESTClient` already retry `429` + transient `5xx` at the transport layer**, honoring `Retry-After`. Do NOT wrap a second `tenacity` `@retry` around your fetch for status codes — it compounds (e.g. 3 transport attempts × 5 tenacity attempts) and is the single most-copied mistake across existing sources. If you use the framework or the tracked session, status-code retries are already handled; write none.
+- **One layer owns the retries of a request.** `RESTClient` retries its own requests (5 attempts by default) and turns the adapter retries off for them. A bespoke call on a tracked session keeps the adapter retries (3 retries, `GET`/`HEAD`/`OPTIONS` only).
+- **Retry waits are bounded.** One request takes at most `DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS` (300 s), from the start of its first try, with all retries and waits. Each try gets only the time that is left, so a read timeout on a retry can be shorter than the one you set. A source that retries a request in its own loop must share one deadline across its tries. Use `retry_with_deadline(...)` from `common/http` in place of tenacity's `retry(...)`, on a function that sends one logical request. For a `Retrying(...)` object, add `| stop_at_request_deadline()` to its `stop` and call it inside `with request_deadline():`. A hand-written loop runs inside `with request_deadline():` and checks `request_deadline_allows_wait(seconds)` before each wait. `RESTClient` fails a request with a retryable error when the server asks for a wait above `DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS` (300 s). For a vendor with a longer rate limit window, set `retry_after_max_seconds` and `retry_budget_seconds` in the client config.
+- **Do not call `time.sleep` for a backoff or a rate limit hold.** Call `interruptible_wait()` from `common/interruptible_wait.py`. It ends the wait when the worker starts to shut down and the run can resume. Pass `safe_point=` only from a position where the staged cursor covers no row that the source still holds.
 - Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
 - Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
+- A request that names no timeout gets the default `(connect, read)` timeout from `default_request_timeout()` (30 s, 300 s). Pass `request_timeout` in the client config, or `timeout=` on a session call, when an endpoint needs a different value. `None` means "use the default". Only `NO_REQUEST_TIMEOUT` sends a request with no deadline.
 
 The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
 PostHog can't overspend a budget it doesn't own, so honoring `429` / `Retry-After` at the source is enough.
@@ -704,6 +767,10 @@ If new:
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
+     This settings and `oauth_config_for_kind()` wiring is still required for the OAuth connect flow in the web app.
+     Source code that runs during a sync must read PostHog-owned credentials (client ids, client secrets, developer tokens,
+     service-account keys) with `credentials_service.get_secret(s)` from `sources/common/credentials_service.py`, not `settings.X`.
+     Resolve them inside the function that needs them, never at import time.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
      access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
      branches in `integration_from_oauth_response`.
@@ -838,12 +905,12 @@ Tooling & assets:
 
 Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
 - [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
-      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=ALPHA.
+      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=BETA.
       Keep it ONLY when the code genuinely can't sync yet (landed across multiple PRs).
 - [ ] No test asserts `unreleasedSource is True` (that anti-pattern locks the source hidden)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
-- [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
-      (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)
+- [ ] releaseStatus=ReleaseStatus.BETA for a new source
+      (ReleaseStatus.GA or omit once a customer sync has completed and loaded data)
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
@@ -868,7 +935,8 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.
-- `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
+- `sort_mode="asc"` declared on an API that returns newest-first: a run that continues after a mid-sync shutdown skips the older rows it did not read yet. Declare `"desc"`, or `None` when the order is not known.
+- `sort_mode="asc"` on a read that is not one ordered series (per parent, per window, by another key): a run that continues after a worker shutdown skips the rows below its continuation point. See "Row order and `sort_mode`".
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.

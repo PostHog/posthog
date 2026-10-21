@@ -14,7 +14,6 @@ import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
@@ -26,6 +25,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -36,7 +36,7 @@ import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
-import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
+import { canHandleTrendsChartClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
@@ -119,14 +119,20 @@ export function TrendsLineChart({
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -134,6 +140,7 @@ export function TrendsLineChart({
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -173,7 +180,7 @@ export function TrendsLineChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsChartClick({ context, hasPersonsModal, querySource })
     // The persons modal is intentionally unavailable for multi-series formulas (there's no
     // single series of actors behind a computed ratio). On dashboard/card tiles a click
     // instead opens the underlying insight, since there's nowhere else for the click to go.
@@ -290,7 +297,7 @@ export function TrendsLineChart({
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
         [
             indexedResults,
@@ -300,6 +307,7 @@ export function TrendsLineChart({
             isStickiness,
             getTrendsColor,
             getLabel,
+            buildMeta,
         ]
     )
 

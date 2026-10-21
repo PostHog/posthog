@@ -82,6 +82,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
     UNKNOWN = "unknown"
 
 
@@ -101,6 +102,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -163,6 +165,20 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def close_open_population_attempts(
+    cohort_id: int, *, finished_at: datetime, started_before: datetime | None = None
+) -> int:
+    """Records the cohort's open calculation history rows as interrupted and returns how many it closed."""
+    attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, finished_at__isnull=True)
+    if started_before is not None:
+        attempts = attempts.filter(started_at__lte=started_before)
+    return attempts.update(
+        finished_at=finished_at,
+        error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
+        error_code=CohortErrorCode.INTERRUPTED,
+    )
 
 
 def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
@@ -620,6 +636,11 @@ def _trim_trailing_settings(sql: str) -> str:
     return sql[: sql.rfind("SETTINGS")]
 
 
+# Every INSERT creates a new part. Callers that add a few people per call, such as a workflow step that runs once
+# per person, would create one part per person, so ClickHouse buffers small inserts into shared parts instead.
+STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
+
+
 def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
@@ -638,7 +659,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
+    # following membership read sees the row.
+    insert_settings = (
+        {"async_insert": 1, "wait_for_async_insert": 1} if len(persons) <= STATIC_COHORT_ASYNC_INSERT_MAX_ROWS else None
+    )
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=insert_settings)
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):

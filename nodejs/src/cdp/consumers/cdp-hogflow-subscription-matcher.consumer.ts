@@ -208,6 +208,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // merged-away person's distinct_ids onto the survivor here; we consume it to re-key parked waits onto
     // the survivor's id so the survivor's person/event updates can wake them.
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
+    // realtime_only_events_json carries the $feature_flag_called events that ingestion stops writing to
+    // clickhouse_events_json for a FLAG_EVALUATIONS_ONLY organization.
+    private realtimeOnlyEventsKafkaConsumer?: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
@@ -249,6 +252,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             },
             startAtLatest
         )
+        if (config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC) {
+            this.realtimeOnlyEventsKafkaConsumer = createKafkaConsumer(
+                {
+                    groupId: 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer',
+                    topic: config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC,
+                },
+                startAtLatest
+            )
+        }
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
         // string means it would silently consume the event stream and wake nothing. Fail
@@ -1154,14 +1166,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         this.watcherTeamsRefreshTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
-        // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
+        // (with `status = 'available'` guards) is idempotent, so replay is safe. All the streams
         // funnel into the same input-agnostic wakeMatchingWorkflows via processBatch.
         await Promise.all([
-            this.kafkaConsumer.connect(async (messages) => {
-                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
-                })
-            }),
+            this.kafkaConsumer.connect(this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleEachBatch')),
             this.personKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
                     return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
@@ -1188,7 +1196,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     })
                 )
             }),
+            this.realtimeOnlyEventsKafkaConsumer?.connect(
+                this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleRealtimeOnlyEventsBatch')
+            ),
         ])
+    }
+
+    private eventsBatchHandler(
+        instrumentKey: string
+    ): (messages: Message[]) => Promise<{ backgroundTask: Promise<void> }> {
+        return async (messages) =>
+            await instrumentFn(instrumentKey, async () => ({
+                backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events'),
+            }))
     }
 
     public override async stop(): Promise<void> {
@@ -1201,6 +1221,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.disconnect(),
             this.internalEventsKafkaConsumer.disconnect(),
             this.personDistinctIdKafkaConsumer.disconnect(),
+            this.realtimeOnlyEventsKafkaConsumer?.disconnect(),
         ])
         await this.cyclotronPool.end()
         await super.stop()
@@ -1214,6 +1235,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.personKafkaConsumer.isHealthy(),
             this.internalEventsKafkaConsumer.isHealthy(),
             this.personDistinctIdKafkaConsumer.isHealthy(),
+            ...(this.realtimeOnlyEventsKafkaConsumer ? [this.realtimeOnlyEventsKafkaConsumer.isHealthy()] : []),
         ]
         return results.find((r) => r.status !== 'ok') ?? results[0]
     }

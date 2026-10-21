@@ -2,6 +2,9 @@ import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-ge
 
 const SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 
+export const SAMPLE_RATIO_MISMATCH_DESCRIPTION =
+    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
 export function hasSampleRatioMismatch(exposures: ExperimentExposureQueryResponse | null | undefined): boolean {
     return (
         exposures?.sample_ratio_mismatch != null &&

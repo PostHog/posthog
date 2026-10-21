@@ -13,13 +13,23 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
+import type { CachedOrg, CachedProject, CachedUser, PinnedActiveContext, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
 // its scopes are read again after this delay. Reconnecting the client does not help: same token.
 export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+// A project without events, or without warehouse data, is re-read sooner so that its first data
+// shows up within a minute. `ingested_event` never returns to false and warehouse sources are
+// rarely removed, so a positive answer keeps the default TTL.
+export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+// Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
+const UNKNOWN_WAREHOUSE_COUNT = -1
+
+function warehouseCountToAnswer(count: number): boolean | undefined {
+    return count === UNKNOWN_WAREHOUSE_COUNT ? undefined : count > 0
+}
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -32,9 +42,49 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
-    constructor(cache: ScopedCache<State>, api: ApiClient) {
+    private _pinned: PinnedActiveContext | undefined
+    private _pinnedOrgProject: Promise<string> | undefined
+    constructor(cache: ScopedCache<State>, api: ApiClient, pinned?: PinnedActiveContext) {
         this._cache = cache
         this._api = api
+        this._pinned = pinned
+    }
+
+    get pinnedContext(): PinnedActiveContext | undefined {
+        return this._pinned
+    }
+
+    /**
+     * Set the active org and project. On a pinned request the ids only update the
+     * request-scoped context: the session store records the switch, and the token
+     * cache must not, because other sessions on the same credential read it. A
+     * pinned request without a session still persists the keys the pin leaves open.
+     * A project pin also fixes the org, because the project owns it.
+     */
+    async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
+        const pinned = this._pinned
+        if (!pinned) {
+            await this._cache.setMany({
+                ...(updates.orgId ? { orgId: updates.orgId } : {}),
+                ...(updates.projectId ? { projectId: updates.projectId } : {}),
+            })
+            return
+        }
+        if (updates.orgId) {
+            pinned.orgId = updates.orgId
+        }
+        if (updates.projectId) {
+            pinned.projectId = updates.projectId
+        }
+        this._pinnedOrgProject = undefined
+        if (!pinned.sessionScoped) {
+            await this._cache.setMany({
+                ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
+                    ? { orgId: updates.orgId }
+                    : {}),
+                ...(updates.projectId && !pinned.pin.projectId ? { projectId: updates.projectId } : {}),
+            })
+        }
     }
 
     private async _fetchUser(): Promise<ApiUser> {
@@ -71,7 +121,17 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(ErrorCode.INVALID_API_KEY)
+            // Only a 401 or 403 rejects the token. Self-introspection returns 403 when the token
+            // no longer exists, for example after a refresh rotated it. Any other failure means
+            // the check did not run, and a rejection would make the client discard a valid token.
+            const { error } = introspectionResult
+            if (
+                error.message.includes(ErrorCode.INVALID_API_KEY) ||
+                (error instanceof PostHogApiError && error.status === 403)
+            ) {
+                throw new Error(ErrorCode.INVALID_API_KEY)
+            }
+            throw wrapError('Failed to introspect OAuth token', error)
         }
 
         if (!introspectionResult.data.active) {
@@ -204,7 +264,7 @@ export class StateManager {
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+                return { organizationId, projectId: Number(projectsResult.data[0]!.id) }
             }
             if (!projectsResult.success) {
                 // A 404 here means the API key/OAuth token points at an org the
@@ -292,6 +352,19 @@ export class StateManager {
      * fetch.
      */
     private async _resolveOrganizationId(): Promise<string | undefined> {
+        const pinned = this._pinned
+        if (pinned?.orgId) {
+            return pinned.orgId
+        }
+        // A pinned project owns the org. The shared token cache can hold another
+        // session's org, so when the project cannot name its org, report missing
+        // context instead of falling back to the cache.
+        if (pinned?.projectId) {
+            const project = await this.getCachedOrFetchProject().catch(() => undefined)
+            pinned.orgId = project?.organization ?? undefined
+            return pinned.orgId
+        }
+
         const cached = await this._cache.get('orgId')
         if (cached) {
             return cached
@@ -319,6 +392,15 @@ export class StateManager {
     }
 
     async getProjectId(): Promise<string> {
+        const pinned = this._pinned
+        if (pinned) {
+            if (pinned.projectId) {
+                return pinned.projectId
+            }
+            this._pinnedOrgProject ??= this._resolvePinnedOrgProjectId(pinned)
+            return this._pinnedOrgProject
+        }
+
         const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
@@ -330,6 +412,35 @@ export class StateManager {
         }
 
         return projectId
+    }
+
+    /**
+     * An organization pin selects an org but no project. The shared token cache and
+     * the user's default can name a project in another org, so accept a candidate
+     * only when its lookup proves that it belongs to the selected org. A failed
+     * lookup rejects the candidate. The choice is never written to the shared
+     * cache, because other sessions on the credential read it.
+     */
+    private async _resolvePinnedOrgProjectId(pinned: PinnedActiveContext): Promise<string> {
+        const orgId = pinned.orgId
+        const belongsToOrg = async (candidate: string | undefined): Promise<boolean> => {
+            if (!orgId || !candidate) {
+                return false
+            }
+            const project = await this._getCachedOrFetchProjectById(candidate).catch(() => undefined)
+            return project?.organization === orgId
+        }
+
+        const cachedCandidate = await this._cache.get('projectId')
+        if (await belongsToOrg(cachedCandidate)) {
+            return cachedCandidate!
+        }
+        const { projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({ projectId: undefined }))
+        const defaultCandidate = projectId?.toString()
+        if (defaultCandidate !== cachedCandidate && (await belongsToOrg(defaultCandidate))) {
+            return defaultCandidate!
+        }
+        throw new MissingProjectContextError({ organizationId: orgId })
     }
 
     private isCacheStale(fetchedAt: number | undefined, ttlMs: number = CACHE_TTL_MS): boolean {
@@ -347,14 +458,15 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
-        ttlMs?: number
+        ttlMs?: number | ((cached: State[D]) => number)
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (!this.isCacheStale(fetchedAt, opts.ttlMs)) {
+        const ttlMs = typeof opts.ttlMs === 'function' ? opts.ttlMs(cached) : opts.ttlMs
+        if (!this.isCacheStale(fetchedAt, ttlMs)) {
             return cached
         }
 
@@ -415,6 +527,10 @@ export class StateManager {
         if (!projectId) {
             return undefined
         }
+        return this._getCachedOrFetchProjectById(projectId)
+    }
+
+    private async _getCachedOrFetchProjectById(projectId: string): Promise<CachedProject | undefined> {
         return this.getOrFetchCached({
             name: 'project',
             cacheKey: `cachedProject:${projectId}` as const,
@@ -426,7 +542,51 @@ export class StateManager {
                 }
                 return result.data
             },
+            ttlMs: (cached) => (cached?.ingested_event === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
         })
+    }
+
+    /**
+     * `undefined` means unknown. Reads two lists because each misses a kind of table:
+     * `warehouse_tables` omits direct-access sources, and `external_data_sources` omits
+     * self-managed tables linked from a bucket. Zero is an answer only when both lists were
+     * read, so a missing scope or a failed read gives unknown, never a stale zero.
+     */
+    async getOrFetchHasWarehouseData(projectId: string): Promise<boolean | undefined> {
+        const cacheKey = `warehouseObjectCount:${projectId}` as const
+        const fetchedAtKey = `warehouseObjectCountFetchedAt:${projectId}` as const
+        const [cached, fetchedAt] = await Promise.all([this._cache.get(cacheKey), this._cache.get(fetchedAtKey)])
+        const ttlMs = cached !== undefined && cached > 0 ? CACHE_TTL_MS : NO_DATA_CACHE_TTL_MS
+        if (cached !== undefined && !this.isCacheStale(fetchedAt, ttlMs)) {
+            return warehouseCountToAnswer(cached)
+        }
+
+        const { scopes } = await this.getApiKey()
+        const lists = [
+            { scope: 'warehouse_table:read', path: 'warehouse_tables' },
+            { scope: 'external_data_source:read', path: 'external_data_sources' },
+        ]
+        const results = await Promise.allSettled(
+            lists.map(({ scope, path }) =>
+                hasScope(scopes, scope)
+                    ? this._api.request<{ count?: number; results?: unknown[] }>({
+                          method: 'GET',
+                          path: `/api/projects/${encodeURIComponent(projectId)}/${path}/`,
+                          query: { limit: 1, include_columns: 'false' },
+                      })
+                    : Promise.reject(new Error(`missing ${scope}`))
+            )
+        )
+        let total = 0
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                total += result.value.count ?? result.value.results?.length ?? 0
+            }
+        }
+        const complete = results.every((result) => result.status === 'fulfilled')
+        const count = total > 0 || complete ? total : UNKNOWN_WAREHOUSE_COUNT
+        await Promise.all([this._cache.set(cacheKey, count), this._cache.set(fetchedAtKey, Date.now())]).catch(() => {})
+        return warehouseCountToAnswer(count)
     }
 
     async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
@@ -490,9 +650,10 @@ export class StateManager {
         projectId?: string
         projectUuid?: string
         projectName?: string
+        projectHasData?: boolean
     }> {
         const [orgId, project] = await Promise.all([
-            this._cache.get('orgId'),
+            this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
 
@@ -505,6 +666,7 @@ export class StateManager {
             ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
             ...(project?.uuid ? { projectUuid: project.uuid } : {}),
             ...(project?.name ? { projectName: project.name } : {}),
+            ...(typeof project?.ingested_event === 'boolean' ? { projectHasData: project.ingested_event } : {}),
         }
     }
 

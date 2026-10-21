@@ -42,60 +42,114 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 
 @pytest.mark.parametrize(
-    "static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider",
+    "ch_user, static_password, password_file_set, overrides_arg, expected_bootstrap, expected_overrides, expect_provider",
     [
-        pytest.param("static-fallback", True, None, True, True, id="dual_armed_default_bootstraps_on_token"),
-        pytest.param("", True, None, True, True, id="token_first_default_bootstraps_on_token"),
-        pytest.param("static-only", False, None, False, False, id="static_default_uses_password"),
         pytest.param(
+            ClickHouseUser.DEFAULT,
+            "static-fallback",
+            True,
+            None,
+            {"user": "default", "password": "live-token"},
+            {"user": "default"},
+            True,
+            id="dual_armed_default_bootstraps_on_token",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
+            "",
+            True,
+            None,
+            {"user": "default", "password": "live-token"},
+            {"user": "default"},
+            True,
+            id="token_first_default_bootstraps_on_token",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
+            "static-only",
+            False,
+            None,
+            {"user": "default", "password": "static-only"},
+            {},
+            False,
+            id="static_default_uses_password",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
             "static-fallback",
             True,
             {"user": "backups", "password": "bkp-static"},
-            True,
+            {"user": "default", "password": "live-token"},
+            {"user": "backups", "password": "bkp-static"},
             False,
             id="override_user_keeps_its_own_credential",
+        ),
+        pytest.param(
+            ClickHouseUser.MIGRATIONS,
+            "",
+            True,
+            None,
+            {"user": "migrations", "password": "live-token"},
+            {"user": "migrations"},
+            True,
+            id="dedicated_user_connects_on_its_token",
+        ),
+        pytest.param(
+            ClickHouseUser.MIGRATIONS,
+            "migrations-static",
+            False,
+            None,
+            {"user": "migrations", "password": "migrations-static"},
+            {"user": "migrations", "password": "migrations-static"},
+            False,
+            id="static_dedicated_user_connects_on_its_password",
         ),
     ],
 )
 def test_get_cluster_bootstraps_a_file_backed_user_on_its_live_token(
-    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider
+    monkeypatch,
+    tmp_path,
+    ch_user,
+    static_password,
+    password_file_set,
+    overrides_arg,
+    expected_bootstrap,
+    expected_overrides,
+    expect_provider,
 ) -> None:
-    token = "live-token"
     token_file = tmp_path / "token"
-    token_file.write_text(token)
+    token_file.write_text("live-token")
     creds = ClickHouseCredentials(
-        user="default",
+        user=ch_user.value,
         password=static_password,
         password_file=str(token_file) if password_file_set else None,
     )
-    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: creds})
+    users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="default-static")}
+    users[ch_user] = creds
+    monkeypatch.setattr(connection, "__user_dict", users)
 
     with (
         patch("posthog.clickhouse.cluster.default_client") as mock_default_client,
         patch("posthog.clickhouse.cluster.ClickhouseCluster") as mock_cluster,
     ):
-        get_cluster(connection_overrides=overrides_arg)
+        get_cluster(connection_overrides=overrides_arg, ch_user=ch_user)
 
-    bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    bootstrap = {key: value for key, value in mock_default_client.call_args.kwargs.items() if key != "host"}
     bootstrap_provider = mock_cluster.call_args.kwargs["bootstrap_credential_provider"]
-    overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+    overrides = dict(mock_cluster.call_args.kwargs["connection_overrides"])
+    provider = overrides.pop("credential_provider", None)
     token_file.write_text("rotated-token")
 
-    if expect_token_bootstrap:
-        assert bootstrap_password == token
+    assert bootstrap == expected_bootstrap
+    assert overrides == expected_overrides
+    if password_file_set:
         assert bootstrap_provider() == "rotated-token"
     else:
-        assert bootstrap_password is None
         assert bootstrap_provider is None
-
     if expect_provider:
-        assert overrides["credential_provider"]() == "rotated-token"
+        assert provider is not None and provider() == "rotated-token"
     else:
-        assert "credential_provider" not in overrides
-
-    if overrides_arg is not None:
-        assert overrides["user"] == overrides_arg["user"]
-        assert overrides["password"] == overrides_arg["password"]
+        assert provider is None
 
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
