@@ -2814,6 +2814,9 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         kwargs.setdefault("allow_unknown_events", True)
+        EventDefinition.objects.get_or_create(
+            team=self.team, project=self.project, name="$pageview", defaults={"last_seen_at": timezone.now()}
+        )
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
     def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:
@@ -3933,7 +3936,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, False, [], [], [])],
+                [("launch_endpoint", 0, False, [], [], [], False)],
             ),
             (
                 "launch_endpoint_with_a_qa_override",
@@ -3949,6 +3952,7 @@ class TestExperimentService(APIBaseTest):
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
                         ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
+                        False,
                     )
                 ],
             ),
@@ -3958,7 +3962,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, True, [], [], [])],
+                [("launch_endpoint", 266400, True, [], [], [], False)],
             ),
             (
                 "create_with_start_date",
@@ -3969,7 +3973,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, False, ["no_metric"], [], ["no_metric::warning:"])],
+                [("create_request", 0, False, ["no_metric"], [], ["no_metric::warning:"], False)],
             ),
             (
                 "create_draft",
@@ -3985,7 +3989,28 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [])],
+                [("update_start_date", 0, False, [], [], [], False)],
+            ),
+            (
+                "update_backdates_start_date_on_draft",
+                lambda self: self._create_launchable_experiment(name="Path B", feature_flag_key="path-backdate-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
+                ),
+                [("update_start_date", 0, False, [], [], [], True)],
+            ),
+            (
+                "update_imports_concluded_draft",
+                lambda self: self._create_launchable_experiment(name="Path I", feature_flag_key="path-import-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment,
+                    {
+                        "start_date": timezone.now() - timedelta(days=90),
+                        "end_date": timezone.now() - timedelta(days=30),
+                    },
+                    event_source=EventSource.API,
+                ),
+                [],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -4017,6 +4042,7 @@ class TestExperimentService(APIBaseTest):
                 event["health_finding_codes"],
                 event["health_finding_subcodes"],
                 event["health_findings"],
+                event["is_backdated"],
             )
             for event in launched
         ] == expected
