@@ -88,6 +88,6 @@ The workflow allows four channels and two concurrent registry workers. A local r
 | Action total                   | 720 seconds        |
 | Publish step and selective job | 13 and 18 minutes  |
 
-Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. Bounded fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
+Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. The helper's own timeout then signals only the client; its descendants remain bounded by the caller's group kill or the step timeout. Bounded fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
 
 This guidance grants no publication, infrastructure apply, cluster operation or rollout authority.

@@ -1,5 +1,5 @@
 import {execFileSync} from 'child_process'
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync} from 'fs'
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, existsSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {createHash} from 'crypto'
@@ -172,6 +172,7 @@ describe('shared-image publication', () => {
     let elapsedMs = 0
     if (mode === 'slow read') {
       options.budgets.registryMs = 1
+      options.budgets.readbackSeconds = 5
       options.helper = path.resolve(__dirname, '../../../scripts/ordered-image-release.sh')
       put('shims/aws', '#!/usr/bin/env bash\nfor ((i=0; i<5000; i++)); do :; done\nprintf "%s\\n" "$EXPECTED_DIGEST"\n')
       put('shims/timeout', '#!/usr/bin/env bash\n[[ "$1" = --foreground && "$2" = --kill-after=5s && "$3" = "${READBACK_TIMEOUT_SECONDS}s" ]] || exit 64\nshift 3\nexec "$@"\n')
@@ -301,7 +302,7 @@ describe('shared-image publication', () => {
     } finally { diagnostic.mockRestore() }
   })
 
-  test.each(['ordinary', 'seed', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision'])('bootstrap: %s', async mode => {
+  test.each(['ordinary', 'seed', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision', 'present seed from another revision', 'present seed with historical destination changed'])('bootstrap: %s', async mode => {
     const entries = tags.get('workers/worker')!
     entries.clear()
     if (mode === 'seed') tags.get('workers/other')!.clear()
@@ -309,6 +310,12 @@ describe('shared-image publication', () => {
       git('checkout', '--orphan', 'old')
       git('rm', '-rf', '.'); put('old.txt', 'old'); base = commit()
       put(POLICY_PATH, policy(['worker/**'], mode === 'missing historical policy' ? {bootstrapPolicyDigest: policyDigest(['worker/**'])} : mode === 'wrong fingerprint' ? {bootstrapPolicyDigest: 'f'.repeat(64)} : {})); commit()
+    }
+    if (mode === 'present seed with historical destination changed') {
+      const previous = loadPolicy(policy())
+      previous.images['posthog-cloud'].channels.worker.repository = 'workers/previous'
+      put(POLICY_PATH, yaml.dump(previous)); base = commit()
+      put(POLICY_PATH, policy())
     }
     put('unrelated.txt', 'later build'); commit(); build()
     if (mode !== 'ordinary') options.bootstrap = {channel: 'posthog-cloud/worker', revision: base, digest: image(base)}
@@ -321,7 +328,8 @@ describe('shared-image publication', () => {
     if (mode === 'unavailable seed') entries.set(options.alias, options.digest)
     if (mode === 'missing seed') entries.set(options.alias, options.digest)
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
-    if (mode === 'seed digest from another revision') options.bootstrap!.digest = image(options.revision)
+    if (mode === 'seed digest from another revision' || mode === 'present seed from another revision') options.bootstrap!.digest = image(options.revision)
+    if (mode.startsWith('present seed')) entries.set(alias(base), options.bootstrap!.digest)
     if (mode === 'newer seed') {
       put('future.txt', 'future seed'); const future = commit()
       options.bootstrap = {channel: 'posthog-cloud/worker', revision: future, digest: image(future)}
@@ -334,6 +342,10 @@ describe('shared-image publication', () => {
     if (mode === 'ordinary') expect(result.reason).toContain('empty ordered frontier requires explicit bootstrap')
     if (mode === 'newer seed') expect(result.reason).toContain('seed is newer than the executing revision')
     if (mode === 'wrong fingerprint') expect(result.reason).toContain('must match the reviewed current policy')
+    if (mode.startsWith('present seed')) {
+      expect(result.reason).toContain(mode === 'present seed from another revision' ? 'Image revision differs' : 'historical destination changed')
+      expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'))).toBe(false)
+    }
     if (mode === 'seed digest from another revision') {
       expect(result.reason).toContain('Image revision differs')
       expect(entries.size).toBe(0)
@@ -374,7 +386,12 @@ describe('shared-image publication', () => {
     options.bootstrap = request
     const result = (await publishChannels(options)).find(row => row.channel === request.channel)!
     expect(result).toMatchObject({decision: 'present', outcome: 'present-at-expected-digest', tag: alias(seedRevision), digest: seedDigest})
-    expect(JSON.parse(readFileSync(receipt, 'utf8'))).toMatchObject({seedRevision, digest: seedDigest, outcome: 'present-at-expected-digest'})
+    expect(JSON.parse(readFileSync(receipt, 'utf8'))).toEqual({
+      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${options.registry}/${options.repository}`,
+      destination: {registry: options.registry, repository: 'workers/worker'}, policyRevision: options.revision,
+      policyDigest: policyDigest(['worker/**', 'dependency/**']), seedRevision, ordinal: Number(alias(seedRevision).slice(1, 13)),
+      tag: alias(seedRevision), digest: seedDigest, outcome: 'present-at-expected-digest'
+    })
     expect(external.mock.calls.filter(([executable, args]) => executable === 'helper' && args[1] === 'publish')).toHaveLength(0)
   })
 
