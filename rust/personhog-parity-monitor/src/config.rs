@@ -102,7 +102,6 @@ impl Config {
         ]
     }
 
-    /// Whether persons are compared: both topics set, or neither.
     pub fn compares_persons(&self) -> Result<bool, String> {
         let set = |topic: &Option<String>| topic.as_deref().is_some_and(|t| !t.is_empty());
         match (

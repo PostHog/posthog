@@ -89,8 +89,6 @@ pub struct PersonSnapshot {
 }
 
 impl PersonSnapshot {
-    /// `ignored` keys are left out: their values legitimately depend on the
-    /// order each backend applied a merge's writes in.
     pub fn new(row: &PersonRow, ignored: &HashSet<String>) -> Self {
         Self {
             version: row.version,
@@ -106,7 +104,6 @@ impl PersonSnapshot {
         }
     }
 
-    /// Top level keys whose values differ or that one side lacks.
     pub fn differing_keys<'a>(&'a self, other: &'a PersonSnapshot) -> Vec<&'a str> {
         let mut keys: Vec<&str> = self
             .properties
@@ -223,7 +220,6 @@ pub fn compare_person(
     }
 }
 
-/// The newest row per person on one feed.
 #[derive(Debug, Default)]
 pub struct PersonFeed {
     latest: HashMap<PersonKey, PersonSnapshot>,

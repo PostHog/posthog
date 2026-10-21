@@ -77,7 +77,6 @@ pub struct JoinConfig {
     /// unjudged, because a counterpart may predate the readers. Zero
     /// turns the warmup off.
     pub warmup: Duration,
-    /// Top level property keys the person comparison leaves out.
     pub person_ignored_properties: HashSet<String>,
 }
 
@@ -120,7 +119,6 @@ pub struct SweepReport {
     pub watermark_ms: Option<i64>,
     /// Each feed's own watermark, indexed by [`side_index`].
     pub feed_watermarks_ms: [Option<i64>; 2],
-    /// Each feed's person watermark, which persons settle against alone.
     pub person_watermarks_ms: [Option<i64>; 2],
 }
 
@@ -423,8 +421,6 @@ impl Join {
                 }
             }
         }
-        // Persons settle against their own feeds, so a lagging relay holds
-        // back only the person verdicts.
         if let [Some(node), Some(personhog)] = report.person_watermarks_ms {
             let watermark = node.min(personhog);
             let warmup_until = self.warmup_until(watermark);
