@@ -94,7 +94,7 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_END_PLACEHOLDER,
 )
 _DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
-_DATE_FUNCTION_LITERAL = re.compile(r"\bto(?:Date|DateTime)\w*\(\s*'([^']*)'")
+_DATE_FUNCTION_LITERAL = re.compile(r"\bto(?:Date|DateTime)\w*\s*\(\s*'([^']*)'")
 _BRACKETED_NAME = re.compile(r"[{<][^{}<>]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.

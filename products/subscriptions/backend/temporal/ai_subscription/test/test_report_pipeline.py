@@ -500,6 +500,11 @@ _UNKNOWN_PLACEHOLDER_FIX = (
             id="angle_brackets_in_date",
         ),
         pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime\n    ('{D-1} 00:00:00', 'UTC')",
+            "`{D-1}`",
+            id="whitespace_before_parenthesis",
+        ),
+        pytest.param(
             "SELECT count() FROM events WHERE day = toDate('{{utc_report_yesterday}}') AND {{date_range}}",
             "`{{utc_report_yesterday}}`",
             id="unknown_next_to_known",
