@@ -138,7 +138,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/knock",
             iconPath="/static/services/knock.png",
             keywords=["notifications"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

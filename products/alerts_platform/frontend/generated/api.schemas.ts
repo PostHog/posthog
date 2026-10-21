@@ -245,12 +245,12 @@ export interface PaginatedPlatformAlertConfigurationListApi {
 }
 
 /**
- * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ * Product whose data the alert evaluates. It cannot change after the create.
  */
-export type LogsPlatformAlertConfigurationEditApiSourceKind =
-    (typeof LogsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationEditApiSourceKind]
+export type LogsPlatformAlertConfigurationCreateApiSourceKind =
+    (typeof LogsPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationCreateApiSourceKind]
 
-export const LogsPlatformAlertConfigurationEditApiSourceKind = {
+export const LogsPlatformAlertConfigurationCreateApiSourceKind = {
     Logs: 'logs',
 } as const
 
@@ -678,6 +678,57 @@ export interface LogsPlatformAlertSourceConfigApi {
 }
 
 /**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface LogsPlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: LogsPlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+    source_config: LogsPlatformAlertSourceConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+}
+
+export type PlatformAlertConfigurationCreateApi = LogsPlatformAlertConfigurationCreateApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type LogsPlatformAlertConfigurationEditApiSourceKind =
+    (typeof LogsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationEditApiSourceKind]
+
+export const LogsPlatformAlertConfigurationEditApiSourceKind = {
+    Logs: 'logs',
+} as const
+
+/**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
  */
 export interface LogsPlatformAlertConfigurationEditApi {
@@ -769,7 +820,24 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
 
 export type PatchedPlatformAlertConfigurationEditApi = PatchedLogsPlatformAlertConfigurationEditApi
 
+export interface PlatformAlertGroupSnoozeApi {
+    /**
+     * Key of the group to snooze, as the grouping_key of one of the alert's instances.
+     * @maxLength 255
+     */
+    grouping_key: string
+    /**
+     * Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+     * @nullable
+     */
+    snooze_until: string | null
+}
+
 export type PlatformAlertsListParams = {
+    /**
+     * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
+     */
+    legacy_configuration_id?: string
     /**
      * Number of results to return per page.
      */

@@ -356,6 +356,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -395,12 +398,14 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
@@ -575,6 +580,10 @@ class PlatformAlertOutcome:
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+    # The id the source's own stack times this configuration's checks by. The platform then checks
+    # at the minute that stack does, because a metric read at another minute can breach where the
+    # source's own check does not. None times the checks by the configuration's own id.
+    schedule_key: str | None = None
     # The grouping the check ran under. An edit can change it while the check is in flight, and the
     # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
     # dropped. None when the outcome carries no groups to drop.
@@ -870,6 +879,10 @@ class PlatformAlertNotEditable(Exception):
     """A configuration the platform does not own, so its source's own API writes it."""
 
 
+class UnknownPlatformAlertGroup(LookupError):
+    """A grouping key the configuration has no instance for."""
+
+
 class SourceEditMirror(Protocol):
     """Writes an edit made through the platform API onto the source's own row.
 
@@ -886,17 +899,48 @@ class SourceEditMirror(Protocol):
     ) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
 
 
+class PlatformAlertCreateRefused(Exception):
+    """A create the source refuses as a whole, such as one past its per-team limit."""
+
+
+class SourceCreate(Protocol):
+    """Creates an alert through the platform API on a source that keeps its own row for it.
+
+    Runs in the create's transaction. It writes the source's row and the platform's copy, both owned
+    by the platform, the way the source hands over an alert it created itself, and returns the id of
+    the source's row. The copy carries that id as `legacy_configuration_id`. It raises
+    `PlatformAlertCreateRefused` when the source refuses the create.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID: ...
+
+
+class SourceDelete(Protocol):
+    """Deletes an alert the platform owns through the platform API, on a source that keeps its own row.
+
+    It removes the source's row and the platform's copy, and closes the alert's open incidents
+    before either goes, while the destinations the resolves go to still exist. So it runs outside
+    any transaction. It raises `PlatformAlertNotEditable` when the source's row belongs to another
+    team than the copy, because the platform API checked access to the copy's team only.
+    """
+
+    def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
-    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction.
+    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
+    `create` or `delete`, the API cannot create or delete alerts of the kind.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
+    create: SourceCreate | None = None
+    delete: SourceDelete | None = None
     # Where the source's incident destinations listen for a close, and the alert's page in the
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
@@ -1202,6 +1246,44 @@ class LegacyEventEmitter(Protocol):
     ) -> None: ...
 
 
+# The internal event a workflow subscribes to for an alert's transitions. One name for every source.
+ALERT_TRANSITION_EVENT: Final = "$alert_transition"
+
+
+@frozen
+class TransitionEvent:
+    """One `$alert_transition` event."""
+
+    properties: dict[str, Any]
+    timestamp: datetime
+    # Stable across attempts, so a receiver can drop an event a retry emits again.
+    uuid: str
+
+
+class TransitionEventProducer(Protocol):
+    """Puts `$alert_transition` events on the internal events topic.
+
+    Returns only once the broker has every event, and raises otherwise, so delivery can retry.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None: ...
+
+
+class SourceFacts(Protocol):
+    """A source's facts about one transition, under the property names its own alert events used.
+
+    A HogFunction ported to a workflow renders these names, so they must match the legacy events.
+    """
+
+    def __call__(
+        self,
+        *,
+        request: AlertDeliveryRequest,
+        announcement: EvaluationAnnouncement,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
+
+
 # Comparison against a source's own stack.
 #
 # What a comparison reads, and what a source must supply for one.
@@ -1366,3 +1448,19 @@ class SourceCorrespondence(Protocol):
     intentional_divergences: tuple[IntentionalDivergence, ...]
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...
+
+
+@frozen
+class DestinationSend:
+    """One message sent to one destination, on either delivery path, with how it went.
+
+    `destination_id` is the HogFunction the send was for, which names its event kind.
+    `error` is set only for a failed native send. A HogFunction failure has none, because its log
+    lines can quote credential-bearing inputs.
+    """
+
+    destination_id: str
+    sent_at: datetime
+    path: DeliveryPath
+    succeeded: bool
+    error: str | None

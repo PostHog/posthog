@@ -28,7 +28,7 @@ class IssueTrendDirection(LabeledStrEnum):
     STABLE = "stable"
 
 
-# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 

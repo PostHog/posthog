@@ -2429,6 +2429,7 @@ export interface CredentialApi {
  * * `Square` - Square
  * * `Zoom` - Zoom
  * * `Trello` - Trello
+ * * `TrafficStars` - TrafficStars
  * * `Monday` - Monday
  * * `ClickUp` - ClickUp
  * * `Confluence` - Confluence
@@ -3751,6 +3752,9 @@ export interface CredentialApi {
  * * `Leantime` - Leantime
  * * `Testomatio` - Testomatio
  * * `GoogleAdMob` - GoogleAdMob
+ * * `Klar` - Klar
+ * * `ConectoCRM` - ConectoCRM
+ * * `CloudflareR2` - CloudflareR2
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3832,6 +3836,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Square: 'Square',
     Zoom: 'Zoom',
     Trello: 'Trello',
+    TrafficStars: 'TrafficStars',
     Monday: 'Monday',
     ClickUp: 'ClickUp',
     Confluence: 'Confluence',
@@ -5154,6 +5159,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Leantime: 'Leantime',
     Testomatio: 'Testomatio',
     GoogleAdMob: 'GoogleAdMob',
+    Klar: 'Klar',
+    ConectoCRM: 'ConectoCRM',
+    CloudflareR2: 'CloudflareR2',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

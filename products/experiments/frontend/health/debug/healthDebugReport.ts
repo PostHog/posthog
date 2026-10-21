@@ -298,6 +298,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
         exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
         exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
+        exposureCheck(
+            'multiple_variants_share',
+            ['exposures'],
+            'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
+        ),
     ]
 }
 
@@ -310,6 +315,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
+        serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
         ...exposureChecks(input),
     ]
