@@ -1936,6 +1936,15 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
 
 
 # One list page, with room for a next page's ids that have not loaded yet.
@@ -2512,7 +2521,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
-        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+        } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
         if (
@@ -2572,6 +2584,11 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             "observed_value": None,
             "baseline_value": None,
             "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+            **(
+                {"comparison": None, "matches": None, "error": None}
+                if obj.type == SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
+                else {}
+            ),
         }
 
 

@@ -52,7 +52,7 @@ class CampfireSource(ResumableSource[CampfireSourceConfig, CampfireResumeConfig]
             name=ExternalDataSourceType.CAMPFIRE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Campfire",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["erp", "meetcampfire"],
             caption="""Enter your Campfire API key to pull your accounting data into the PostHog Data warehouse.
 

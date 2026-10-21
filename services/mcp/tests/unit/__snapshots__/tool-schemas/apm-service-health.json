@@ -1,0 +1,113 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "baselineDateRange": {
+            "description": "An explicit baseline window. Overrides query.compare.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Relative (-30m, -6h, -7d) or ISO 8601."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Same format. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
+        "query": {
+            "description": "The service health query. Every field is optional.",
+            "properties": {
+                "compare": {
+                    "default": "previous_period",
+                    "description": "The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n* `none` - None\n* `previous_period` - Previous Period\n* `previous_day` - Previous Day\n* `previous_week` - Previous Week",
+                    "enum": ["none", "previous_period", "previous_day", "previous_week"],
+                    "type": "string"
+                },
+                "dateRange": {
+                    "description": "The window to score. Defaults to the last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Relative (-30m, -6h, -7d) or ISO 8601."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Same format. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "environment": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env."
+                },
+                "limit": {
+                    "default": 25,
+                    "description": "Max service rows, 1-200.",
+                    "maximum": 200,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "orderBy": {
+                    "default": "status",
+                    "description": "status (default) puts silent, regressed and degraded first. The others sort high to low.\n\n* `status` - Status\n* `error_rate` - Error Rate\n* `p95` - P95\n* `throughput` - Throughput\n* `error_count` - Error Count",
+                    "enum": ["status", "error_rate", "p95", "throughput", "error_count"],
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "description": "Only these services.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                "spanScope": {
+                    "default": "entry",
+                    "description": "entry (default) counts root, server and consumer spans, one per request. all counts every span.\n\n* `entry` - Entry\n* `all` - All",
+                    "enum": ["entry", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}
