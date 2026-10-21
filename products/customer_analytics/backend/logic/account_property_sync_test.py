@@ -273,7 +273,15 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert self._run_states(view.plan_source)["tracked"] == _COMPLETED_ONE_ROW
         assert self._snapshot(fake, view.binding, view.plan_source) == {"acct-1": _value_hash("enterprise")}
 
-    def test_cancelled_source_sync_resumes_after_its_last_checkpoint(self) -> None:
+    @parameterized.expand(
+        [
+            ("same_mapping", "plan", {"acct-1": "enterprise", "acct-2": "starter"}),
+            ("mapping_changed", "tier", {"acct-1": "gold", "acct-2": "silver"}),
+        ]
+    )
+    def test_cancelled_source_sync_resumes_after_its_last_checkpoint(
+        self, _case: str, resumed_column: str, expected_values: dict[str, str]
+    ) -> None:
         fake = _FakeS3()
         view = self._create_view_with_two_sources(fake)
         self._stage_rows(
@@ -298,6 +306,8 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
                 self._run_source(
                     fake, view.binding, str(view.plan_source.id), save_checkpoint=cancel_after_first_checkpoint
                 )
+            view.plan_source.source_column = resumed_column
+            view.plan_source.save(update_fields=["source_column"])
             heartbeat_details = [checkpoints[0].to_heartbeat_details(), {"host": "worker-1", "ts": 1.0}]
             counts = self._run_source(
                 fake,
@@ -312,9 +322,9 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
             status="completed", phase="completed", rows_read=2, produced=2
         )
         assert self._snapshot(fake, view.binding, view.plan_source) == {
-            "acct-1": _value_hash("enterprise"),
-            "acct-2": _value_hash("starter"),
+            external_id: _value_hash(value) for external_id, value in expected_values.items()
         }
+        assert [key for key in fake.store if "-checkpoint-" in key] == []
 
     @parameterized.expand(
         [
@@ -680,7 +690,16 @@ def test_source_values_preserve_explicit_nulls_but_skip_missing_columns(rows, ex
     assert _source_values(rows, "external_id", "plan") == expected
 
 
-_CHECKPOINT_DETAILS = {"next_batch": 3, "rows_read": 3, "changed": 1, "matched": 1, "written": 1, "failed": False}
+_CHECKPOINT_DETAILS = {
+    "next_batch": 3,
+    "rows_read": 3,
+    "changed": 1,
+    "matched": 1,
+    "written": 1,
+    "failed": False,
+    "key_column": "external_id",
+    "source_column": "plan",
+}
 
 
 @pytest.mark.parametrize(

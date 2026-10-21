@@ -128,6 +128,8 @@ class SourceSyncCheckpoint:
     matched: int
     written: int
     failed: bool
+    key_column: str
+    source_column: str
 
     def __post_init__(self) -> None:
         for name in ("next_batch", "rows_read", "changed", "matched", "written"):
@@ -136,6 +138,8 @@ class SourceSyncCheckpoint:
                 raise ValueError(f"{name} must be a non-negative integer")
         if not isinstance(self.failed, bool):
             raise ValueError("failed must be a boolean")
+        if not isinstance(self.key_column, str) or not isinstance(self.source_column, str):
+            raise ValueError("key_column and source_column must be strings")
 
     @classmethod
     def from_state(cls, state: SourceSyncState, next_batch: int) -> "SourceSyncCheckpoint":
@@ -146,7 +150,12 @@ class SourceSyncCheckpoint:
             matched=state.matched,
             written=state.written,
             failed=state.error is not None,
+            key_column=state.source.key_column,
+            source_column=state.source.source_column or "",
         )
+
+    def matches_mapping(self, source: CustomPropertySource) -> bool:
+        return (self.key_column, self.source_column) == (source.key_column, source.source_column)
 
     @classmethod
     def from_heartbeat_details(cls, details: Sequence[object]) -> "SourceSyncCheckpoint | None":
@@ -158,7 +167,7 @@ class SourceSyncCheckpoint:
         except (KeyError, ValueError):
             return None
 
-    def to_heartbeat_details(self) -> dict[str, int | bool]:
+    def to_heartbeat_details(self) -> dict[str, int | bool | str]:
         return asdict(self)
 
     def restore(self, state: SourceSyncState, counts: dict[str, int]) -> None:
@@ -313,6 +322,22 @@ async def _read_snapshot_hashes(
     async with aget_s3_client() as s3_client:
         merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
         return merge.hashes if merge.complete else {}
+
+
+async def _write_snapshot_delta(
+    team_id: int,
+    binding: WarehouseBinding,
+    source_id: str,
+    segment: AccountPropertySyncSegment,
+    name: str,
+    hashes: dict[str, str],
+) -> None:
+    if not hashes:
+        return
+    prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
+    snapshot = await asyncio.to_thread(_encode_snapshot, hashes)
+    async with aget_s3_client() as s3_client:
+        await s3_client._pipe_file(_s3_uri(f"{prefix}/{name}.parquet"), snapshot)
 
 
 async def _write_snapshot_hashes(
@@ -805,19 +830,30 @@ async def run_account_property_source_sync(
             counts["source_count"] = 1
             states = [state]
             start_batch = 0
-            if resume_from is not None:
+            if resume_from is not None and not resume_from.matches_mapping(source):
+                log.info("Account-property source mapping changed since the checkpoint, restarting the sync")
+            elif resume_from is not None:
                 resume_from.restore(state, counts)
                 start_batch = resume_from.next_batch
                 log.info("Resuming account-property source sync from a checkpoint", next_batch=start_batch)
             await _load_prior_hashes(team_id=team_id, binding=binding, segment=segment, states=states, log=log)
             loop = asyncio.get_running_loop()
             last_checkpoint_at = loop.time()
+            checkpointed_hashes: dict[str, str] = {}
 
             async def checkpoint(next_batch: int) -> None:
                 nonlocal last_checkpoint_at
                 if save_checkpoint is None or loop.time() - last_checkpoint_at < _CHECKPOINT_INTERVAL_SECONDS:
                     return
-                await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, state.applied_hashes)
+                new_hashes = {
+                    external_id: value_hash
+                    for external_id, value_hash in state.applied_hashes.items()
+                    if checkpointed_hashes.get(external_id) != value_hash
+                }
+                await _write_snapshot_delta(
+                    team_id, binding, str(source.id), segment, f"{job_id}-checkpoint-{next_batch}", new_hashes
+                )
+                checkpointed_hashes.update(new_hashes)
                 save_checkpoint(SourceSyncCheckpoint.from_state(state, next_batch))
                 last_checkpoint_at = loop.time()
 
