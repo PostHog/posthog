@@ -475,6 +475,22 @@ const TEAM_PROPERTIES_MAPPING: Record<
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
+    feature_flag_policy_config: (change) => {
+        const before = isObject(change.before) ? change.before : {}
+        const after = isObject(change.after) ? change.after : {}
+        const lists = [
+            ['blocked_hosts', 'blocked domains for feature flag requests'],
+            ['blocked_ips', 'blocked IP addresses for feature flag requests'],
+        ] as const
+        const descriptions = lists
+            .filter(([field]) => JSON.stringify(before[field] ?? []) !== JSON.stringify(after[field] ?? []))
+            .map(([field, label]) => (
+                <>
+                    changed the <em>{label}</em> to <code>[{((after[field] ?? []) as string[]).join(', ')}]</code>
+                </>
+            ))
+        return descriptions.length ? { description: descriptions } : null
+    },
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -797,7 +813,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
     managed_viewsets: () => null,
     flag_evaluations_mode: () => null,
     workflows_config: () => null,
-    feature_flag_policy_config: () => null,
 }
 
 function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
