@@ -183,8 +183,8 @@ export interface traceDialogLogicActions {
     selectPreviousSpan: () => {
         value: true
     } // traceViewLogic
-    selectSpan: (spanId: string) => {
-        spanId: string
+    selectSpan: (spanId: string | null) => {
+        spanId: string | null
     } // traceViewLogic
     setInspectorTab: (tab: SpanInspectorTab) => {
         tab: SpanInspectorTab

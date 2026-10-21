@@ -250,6 +250,9 @@ describe('tracingViewerLogic', () => {
 
         logic.actions.selectSpan('cc03')
         expect(view.values.selectedSpanId).toBe('CC03')
+
+        logic.actions.selectSpan(null)
+        expect(view.values.selectedSpanId).toBeNull()
     })
 
     it('steps through spans with J only while the drawer is open', () => {
@@ -270,6 +273,35 @@ describe('tracingViewerLogic', () => {
         view.actions.selectSpan('AA01')
         press()
         expect(view.values.selectedSpanId).toBe('AA01')
+    })
+
+    it('steps only the most recently opened view when two have span keys', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        const overlay = traceViewLogic({ id: 'overlay' })
+        overlay.mount()
+        const press = (): void => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+        }
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        view.actions.setSpans([
+            makeSpan({ uuid: 'AA01', span_id: 'AA01', trace_id: 'trace-x' }),
+            makeSpan({ uuid: 'BB02', span_id: 'BB02', trace_id: 'trace-x' }),
+        ])
+        overlay.actions.showTrace('CC01', null)
+        overlay.actions.setSpans([
+            makeSpan({ uuid: 'CC01', span_id: 'CC01', trace_id: 'trace-y' }),
+            makeSpan({ uuid: 'DD02', span_id: 'DD02', trace_id: 'trace-y' }),
+        ])
+        overlay.actions.enableSpanKeys('[data-attr="overlay"]')
+
+        press()
+        expect(overlay.values.selectedSpanId).toBe('DD02')
+        expect(view.values.selectedSpanId).toBe('AA01')
+
+        overlay.actions.disableSpanKeys()
+        press()
+        expect(view.values.selectedSpanId).toBe('BB02')
+        overlay.unmount()
     })
 
     describe('closeTrace', () => {

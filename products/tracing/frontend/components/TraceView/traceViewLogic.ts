@@ -24,6 +24,10 @@ import {
     type TraceDialogRow,
 } from '../TraceDialog/traceDialogRows'
 
+// Views with span keys enabled, in the order they enabled them. Each listens on window, so
+// only the last one acts on a key.
+const spanKeyOwners: symbol[] = []
+
 export interface TraceViewLogicProps {
     id: string
 }
@@ -95,8 +99,8 @@ export interface traceViewLogicActions {
     selectPreviousSpan: () => {
         value: true
     }
-    selectSpan: (spanId: string) => {
-        spanId: string
+    selectSpan: (spanId: string | null) => {
+        spanId: string | null
     }
     setInspectorTab: (tab: SpanInspectorTab) => {
         tab: SpanInspectorTab
@@ -173,7 +177,7 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
     actions({
         showTrace: (pinnedSpanId: string | null, tab: SpanInspectorTab | null) => ({ pinnedSpanId, tab }),
         setSpans: (spans: Span[]) => ({ spans }),
-        selectSpan: (spanId: string) => ({ spanId }),
+        selectSpan: (spanId: string | null) => ({ spanId }),
         selectNextSpan: true,
         selectPreviousSpan: true,
         collapseSelectedSpan: true,
@@ -361,6 +365,8 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
             // Capture phase, and stopped there, so the page under the view does not also act on
             // the key: with log details open, the logs list binds J and K to its own cursor.
             cache.disposables.add(() => {
+                const owner = Symbol('spanKeys')
+                spanKeyOwners.push(owner)
                 const onKeyDown = (event: KeyboardEvent): void => {
                     const target = event.target as HTMLElement | null
                     // A field behind the view can still hold focus, such as one that autofocused
@@ -369,6 +375,11 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
                         !!target?.closest(containerSelector) &&
                         (['input', 'textarea', 'select'].includes(target.tagName.toLowerCase()) ||
                             target.isContentEditable)
+                    // Only the most recently opened view steps, so a drawer opened over another
+                    // does not move the selection underneath it too.
+                    if (spanKeyOwners[spanKeyOwners.length - 1] !== owner) {
+                        return
+                    }
                     if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
                         return
                     }
@@ -385,7 +396,13 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
                     }
                 }
                 window.addEventListener('keydown', onKeyDown, { capture: true })
-                return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+                return () => {
+                    window.removeEventListener('keydown', onKeyDown, { capture: true })
+                    const index = spanKeyOwners.indexOf(owner)
+                    if (index >= 0) {
+                        spanKeyOwners.splice(index, 1)
+                    }
+                }
             }, 'spanKeys')
         },
         disableSpanKeys: () => {

@@ -81,8 +81,8 @@ export interface tracingViewerLogicActions {
     enableSpanKeys: (containerSelector: string) => {
         containerSelector: string
     } // traceViewLogic
-    selectViewSpan: (spanId: string) => {
-        spanId: string
+    selectViewSpan: (spanId: string | null) => {
+        spanId: string | null
     } // traceViewLogic
     setInspectorTab: (tab: SpanInspectorTab) => {
         tab: SpanInspectorTab
@@ -499,7 +499,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         },
         // The URL and the span tree each select spans, so each side passes on only a real change.
         selectSpan: ({ spanId }) => {
-            if (spanId && spanId !== traceViewLogic({ id: traceViewId(props.id) }).values.selectedSpanId) {
+            if (spanId !== traceViewLogic({ id: traceViewId(props.id) }).values.selectedSpanId) {
                 actions.selectViewSpan(spanId)
             }
         },

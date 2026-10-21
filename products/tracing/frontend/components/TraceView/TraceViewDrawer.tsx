@@ -57,6 +57,7 @@ export function TraceViewDrawer({
             onClose={onClose}
             width={isFullscreen ? '100vw' : '90vw'}
             resizable={!isFullscreen}
+            resizerLogicKey="trace-view-drawer"
             forceAbovePopovers={forceAbovePopovers}
             data-attr={dataAttr}
             title={<span translate="no">{summary.rootSpan?.name ?? 'Trace'}</span>}
