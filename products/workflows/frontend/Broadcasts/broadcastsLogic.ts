@@ -346,6 +346,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         broadcasts: [
             { results: [], count: 0 } as PaginatedHogFlowMinimalListApi,
             {
+                // A failed save passes null, which leaves the row showing its stored tags.
                 broadcastTagsSaved: (state, { id, tags }) =>
                     tags === null
                         ? state
@@ -534,7 +535,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 })
                 const updated = response.updated[0]
                 if (!updated) {
-                    throw new Error(response.skipped[0]?.reason ?? 'No edit access')
+                    throw new Error(response.skipped[0]?.reason ?? "You don't have access to edit this broadcast.")
                 }
                 actions.broadcastTagsSaved(id, updated.tags)
                 // A new tag has to reach the project's tag list before the filter can offer it.

@@ -79,7 +79,7 @@ export function BroadcastsTable(): JSX.Element {
         {
             title: 'Tags',
             key: 'tags',
-            width: 160,
+            width: 220,
             render: function Render(_, item) {
                 const shown = {
                     tags: [...(item.tags ?? [])],
