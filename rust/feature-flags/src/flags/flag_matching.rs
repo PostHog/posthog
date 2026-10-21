@@ -2103,7 +2103,7 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        // The detailed v2 record keeps the v1 reason vocabulary; v3 carries the v2 code.
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=3` reports the evaluator's own code.
         let reason = match evaluation {
             Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
                 FeatureFlagMatchReason::ConditionMatch
