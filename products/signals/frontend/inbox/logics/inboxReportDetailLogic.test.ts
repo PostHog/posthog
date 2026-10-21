@@ -972,6 +972,96 @@ describe('inboxReportDetailLogic', () => {
             expect(artefactRequests).toBe(beforeKickoff + 1)
         })
 
+        it.each([SignalReportStatus.RESOLVED, SignalReportStatus.SUPPRESSED])(
+            'refreshes Monitoring timing on lifecycle changes before stopping polling for %s',
+            async (status) => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.unmount()
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'Date',
+                        'performance',
+                        'queueMicrotask',
+                        'setTimeout',
+                        'clearTimeout',
+                        'setImmediate',
+                        'clearImmediate',
+                        'nextTick',
+                    ],
+                })
+                let requests = 0
+                let reportStatus = REPORT.status
+                const check = {
+                    id: 'monitoring-check',
+                    status: 'active',
+                    updated_at: '2026-09-29T00:00:00Z',
+                    monitoring_timing: {
+                        state: 'scheduled',
+                        started_at: '2026-09-29T00:00:00Z',
+                        ends_at: '2026-09-30T00:00:00Z',
+                        next_measurement_at: '2026-09-29T18:00:00Z',
+                    },
+                } as SignalReportCheckApi
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                            requests += 1
+                            return {
+                                results: [
+                                    {
+                                        ...check,
+                                        monitoring_timing:
+                                            reportStatus === SignalReportStatus.RESOLVED
+                                                ? undefined
+                                                : {
+                                                      ...check.monitoring_timing,
+                                                      state:
+                                                          reportStatus === SignalReportStatus.SUPPRESSED
+                                                              ? 'archived'
+                                                              : requests > 1
+                                                                ? 'window_ended'
+                                                                : 'scheduled',
+                                                      next_measurement_at:
+                                                          requests > 1
+                                                              ? null
+                                                              : check.monitoring_timing?.next_measurement_at,
+                                                  },
+                                    },
+                                ],
+                            }
+                        },
+                    },
+                })
+                try {
+                    logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(requests).toBe(1)
+                    jest.advanceTimersByTime(60000)
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(requests).toBe(2)
+                    expect(logic.values.reportChecks?.[0].monitoring_timing?.state).toBe('window_ended')
+                    inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT } })
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(requests).toBe(2)
+                    reportStatus = status
+                    inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, status } })
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(requests).toBe(3)
+                    expect(logic.values.reportChecks?.[0].monitoring_timing?.state).toBe(
+                        status === SignalReportStatus.SUPPRESSED ? 'archived' : undefined
+                    )
+                    inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, status } })
+                    jest.advanceTimersByTime(60000)
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(requests).toBe(3)
+                } finally {
+                    logic.unmount()
+                    jest.useRealTimers()
+                }
+            }
+        )
+
         it.each([REPORT.id, 'another-report'])(
             'reloads checks and only the selected report %s when a task settles',
             async (selectedReportId) => {

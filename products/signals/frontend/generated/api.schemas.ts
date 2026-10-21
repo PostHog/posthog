@@ -3741,6 +3741,62 @@ export interface AgentCheckConfigApi {
 export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi
 
 /**
+ * * `scheduled` - Scheduled
+ * * `due` - Due
+ * * `window_ended` - Window ended
+ * * `no_interim_measurements` - No interim measurements
+ * * `waiting` - Waiting for scheduling
+ * * `paused` - Paused during Monitoring
+ * * `archived` - Archived
+ * * `unavailable` - Timing unavailable
+ * * `expiry_reached` - Expiry reached
+ */
+export type MonitoringCheckTimingStateEnumApi =
+    (typeof MonitoringCheckTimingStateEnumApi)[keyof typeof MonitoringCheckTimingStateEnumApi]
+
+export const MonitoringCheckTimingStateEnumApi = {
+    Scheduled: 'scheduled',
+    Due: 'due',
+    WindowEnded: 'window_ended',
+    NoInterimMeasurements: 'no_interim_measurements',
+    Waiting: 'waiting',
+    Paused: 'paused',
+    Archived: 'archived',
+    Unavailable: 'unavailable',
+    ExpiryReached: 'expiry_reached',
+} as const
+
+export interface MonitoringCheckTimingApi {
+    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+     *
+     * * `scheduled` - Scheduled
+     * * `due` - Due
+     * * `window_ended` - Window ended
+     * * `no_interim_measurements` - No interim measurements
+     * * `waiting` - Waiting for scheduling
+     * * `paused` - Paused during Monitoring
+     * * `archived` - Archived
+     * * `unavailable` - Timing unavailable
+     * * `expiry_reached` - Expiry reached */
+    state: MonitoringCheckTimingStateEnumApi
+    /**
+     * Original Monitoring start for this check's report.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * End of this check's soak window, independent of its target reference period and safety expiry.
+     * @nullable
+     */
+    ends_at: string | null
+    /**
+     * Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.
+     * @nullable
+     */
+    next_measurement_at: string | null
+}
+
+/**
  * * `passed` - Passed
  * * `failed` - Failed
  * * `errored` - Errored
@@ -3796,21 +3852,23 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** Server-derived timing for open checks on Monitoring reports, including archived Monitoring periods. Omitted when Monitoring is disabled or the check is outside that lane. */
+    readonly monitoring_timing?: MonitoringCheckTimingApi | null
     /** @nullable */
     readonly approved_at: string | null
-    /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
+    /** Stored coordinator schedule, provisional while pending. During Monitoring this can be the observation-window end rather than another measurement; use `monitoring_timing` for interim timing. */
     readonly next_run_at: string
     /**
-     * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
+     * This check's observation window during Monitoring, in minutes. Otherwise the minimum wait after resolution; metric checks also wait for a full post-resolution query window. Null on legacy checks.
      * @nullable
      */
     readonly soak_minutes: number | null
     /**
-     * Gap between runs for a recurring check; null for a one-shot.
+     * Gap between interim Monitoring measurements or recurring verdicts. Null uses the Monitoring executor's default cadence, otherwise denotes a one-shot check.
      * @nullable
      */
     readonly run_interval_minutes: number | null
-    /** Evaluations still owed before the check retires as passed. */
+    /** Terminal evaluations still owed before the check retires as passed. Interim Monitoring observations do not consume this count. */
     readonly runs_remaining: number
     /** Horizon after which the check retires without running again. */
     readonly expires_at: string
