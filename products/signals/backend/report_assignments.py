@@ -344,7 +344,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
             SignalReportArtefact.append_dismissal(
                 team_id=report.team_id,
                 report_id=str(report.id),
-                content=Dismissal(),
+                content=Dismissal(state="suppressed"),
                 attribution=ArtefactAttribution.system(),
             )
 
