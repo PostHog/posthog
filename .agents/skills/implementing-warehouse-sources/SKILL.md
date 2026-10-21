@@ -767,6 +767,10 @@ If new:
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
+     This settings and `oauth_config_for_kind()` wiring is still required for the OAuth connect flow in the web app.
+     Source code that runs during a sync must read PostHog-owned credentials (client ids, client secrets, developer tokens,
+     service-account keys) with `credentials_service.get_secret(s)` from `sources/common/credentials_service.py`, not `settings.X`.
+     Resolve them inside the function that needs them, never at import time.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
      access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
      branches in `integration_from_oauth_response`.

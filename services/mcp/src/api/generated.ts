@@ -31404,6 +31404,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -32811,6 +32812,7 @@ export namespace Schemas {
       ReplyIo: 'ReplyIo',
       RetailExpress: 'RetailExpress',
       Retently: 'Retently',
+      Retreaver: 'Retreaver',
       RevolutMerchant: 'RevolutMerchant',
       RocketChat: 'RocketChat',
       Rocketlane: 'Rocketlane',
@@ -34232,6 +34234,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -36954,6 +36957,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -43814,6 +43818,29 @@ export namespace Schemas {
       AiTrace: '$ai_trace',
     } as const;
 
+    export interface EventWorkflowsBuildRequest {
+      /**
+         * The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.
+         * @minItems 1
+         * @maxItems 5
+         * @items.maxLength 400
+         */
+      events: string[];
+      /** Start a new build when the last one for these events failed. Leave it false when asking for a running build's status. */
+      retry?: boolean;
+    }
+
+    export interface EventWorkflowsBuildResponse {
+      /** ready when at least one draft was saved, building while the background build runs (call again with the same events to check), failed when no event produced a valid workflow. A failed result stays until a call sends retry.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `failed` - Failed */
+      status: DataSuggestionBuildStatusEnum;
+      /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
+      workflow_ids: string[];
+    }
+
     export interface EventsRetention {
       /**
          * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
@@ -49211,6 +49238,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -50652,6 +50680,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -105947,6 +105976,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -107419,6 +107449,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -108858,6 +108889,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
