@@ -1537,10 +1537,34 @@ describe('Hogflow Executor', () => {
 
             it.each([
                 ['an entered trigger while the person is in the cohort', 'entered', true, false, false, null, true],
-                ['an entered trigger after the person left the cohort', 'entered', false, true, false, 'left cohort 42', true],
-                ['a left trigger after the person rejoined the cohort', 'left', true, true, false, 'rejoined cohort 42', true],
+                [
+                    'an entered trigger after the person left the cohort',
+                    'entered',
+                    false,
+                    true,
+                    false,
+                    'left cohort 42',
+                    true,
+                ],
+                [
+                    'a left trigger after the person rejoined the cohort',
+                    'left',
+                    true,
+                    true,
+                    false,
+                    'rejoined cohort 42',
+                    true,
+                ],
                 // The membership writer lags the trigger consumer, so a mismatch before any match is a pending write.
-                ['an entered trigger the table has not caught up with', 'entered', false, false, false, null, undefined],
+                [
+                    'an entered trigger the table has not caught up with',
+                    'entered',
+                    false,
+                    false,
+                    false,
+                    null,
+                    undefined,
+                ],
                 ['a left trigger the table has no row for yet', 'left', null, false, false, null, undefined],
                 ['a membership lookup that fails', 'entered', null, true, true, null, true],
             ])(
