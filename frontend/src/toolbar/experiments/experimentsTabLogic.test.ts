@@ -144,6 +144,27 @@ describe('experimentsTabLogic', () => {
                 .toDispatchActions(['selectExperiment'])
         })
 
+        it('does not restore a previous experiment snapshot after the page changed', async () => {
+            const heading = document.createElement('h1')
+            heading.textContent = 'Pricing page'
+            document.body.appendChild(heading)
+            try {
+                await expectLogic(theExperimentsLogic).toDispatchActions(['getExperimentsSuccess'])
+                theExperimentsTabLogic.actions.selectExperiment(2)
+                expect(theExperimentsTabLogic.values.experimentForm.original_html_state).toEqual({
+                    h1: { html: 'Pricing page' },
+                })
+                theExperimentsTabLogic.actions.selectExperiment(null)
+                heading.textContent = 'Blog page'
+
+                theExperimentsTabLogic.actions.selectExperiment(1)
+
+                expect(heading.textContent).toEqual('Blog page')
+            } finally {
+                heading.remove()
+            }
+        })
+
         it('can create a new experiment', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.selectExperiment('new')

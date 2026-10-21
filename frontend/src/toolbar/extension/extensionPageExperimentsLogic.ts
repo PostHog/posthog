@@ -1,19 +1,28 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { PostHog } from 'posthog-js'
-import { querySelectorDeep } from 'query-selector-shadow-dom'
 
 import type { ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { experimentsTabLogic, restoreOriginalHtmlState } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import type { WebExperiment, WebExperimentForm } from '~/toolbar/types'
 
 import type { ExperimentFormDraft, ExperimentSaveResult, PageToolbarExperimentsState } from './pageToolbarBridge'
 
+/** Finds the element like posthog-js applies web experiments, without entering shadow roots. */
+function querySelectorInDocument(selector: string): HTMLElement | null {
+    try {
+        return document.querySelector<HTMLElement>(selector)
+    } catch {
+        return null
+    }
+}
+
 export type PageExperimentsCommand =
     | { type: 'select-experiment'; id: number | 'new' | null }
     | { type: 'set-experiment-form'; form: ExperimentFormDraft }
-    | { type: 'select-experiment-variant'; variant: string }
+    /** A null variant closes the open variant and shows the page as it was. */
+    | { type: 'select-experiment-variant'; variant: string | null }
     | { type: 'add-experiment-variant' }
     | { type: 'remove-experiment-variant'; variant: string }
     | { type: 'add-experiment-transform'; variant: string }
@@ -285,6 +294,12 @@ export const extensionPageExperimentsLogic = kea<extensionPageExperimentsLogicTy
                     tab.applyVariant(values.selectedVariant)
                     return
                 case 'select-experiment-variant':
+                    if (command.variant === null) {
+                        tab.selectVariant('')
+                        // The form keeps the original HTML, so leaving the experiment can still restore it.
+                        restoreOriginalHtmlState(values.experimentForm.original_html_state)
+                        return
+                    }
                     tab.selectVariant(command.variant)
                     tab.applyVariant(command.variant)
                     return
@@ -310,14 +325,9 @@ export const extensionPageExperimentsLogic = kea<extensionPageExperimentsLogicTy
                     tab.inspectForElementWithIndex(command.variant, values.selectedElementType, command.index)
                     return
                 case 'set-experiment-transform-selector': {
-                    const element = querySelectorDeep(command.selector)
+                    const element = querySelectorInDocument(command.selector)
                     if (element) {
-                        tab.inspectElementSelected(
-                            element as HTMLElement,
-                            command.variant,
-                            command.index,
-                            command.selector
-                        )
+                        tab.inspectElementSelected(element, command.variant, command.index, command.selector)
                     }
                     return
                 }

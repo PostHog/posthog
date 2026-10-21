@@ -227,7 +227,10 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         selectorCounter: [
             (s) => [s.pageToolbarState],
             (pageToolbarState: PageToolbarState | null): Pick<SelectorMatchCounter, 'count'> => ({
-                count: (selector) => pageToolbarState?.selectorCounts[selector],
+                count: (selector, scope = 'deep') => {
+                    const counts = pageToolbarState?.selectorCounts[selector]
+                    return counts ? counts[scope] : counts
+                },
             }),
         ],
     }),

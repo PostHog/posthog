@@ -6,6 +6,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 
 import { ExtensionPort, extensionFileUrl, onPageToolbarConnect } from './extensionBrowser'
+import { extensionPageExperimentsLogic } from './extensionPageExperimentsLogic'
 import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
 import { extensionPageMoreLogic } from './extensionPageMoreLogic'
 import { extensionPageToolbarLogic, getPageToolbarState } from './extensionPageToolbarLogic'
@@ -152,6 +153,8 @@ export class PageToolbarHost {
     }
 
     private stop(): void {
+        // A restart and a host change both stop the tools, and the page must not keep a variant preview.
+        extensionPageExperimentsLogic.findMounted()?.actions.closeExperiments()
         this.clearIdleTimeout()
         if (this.postTimeout !== null) {
             clearTimeout(this.postTimeout)

@@ -27,7 +27,8 @@ export function SelectorEditor({ selector, variant, transformIndex }: SelectorEd
             counter.request(editSelectorValue)
         }
     }, [editSelectorOpen, editSelectorValue, counter])
-    const isValidSelector = !!editSelectorValue && !!counter.count(editSelectorValue)
+    // posthog-js applies web experiments with document.querySelectorAll, which skips shadow roots.
+    const isValidSelector = !!editSelectorValue && !!counter.count(editSelectorValue, 'document')
 
     return (
         <>

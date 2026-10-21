@@ -92,11 +92,7 @@ export function ExtensionExperimentEditor(): JSX.Element | null {
                 <LemonCollapse
                     size="small"
                     activeKey={selectedVariant || null}
-                    onChange={(variant) => {
-                        if (variant) {
-                            sendExperimentsCommand({ type: 'select-experiment-variant', variant })
-                        }
-                    }}
+                    onChange={(variant) => sendExperimentsCommand({ type: 'select-experiment-variant', variant })}
                     panels={Object.keys(experimentForm.variants)
                         .sort(byControlFirst)
                         .map((variant) => ({

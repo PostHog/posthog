@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { querySelectorDeep } from 'query-selector-shadow-dom'
 import { useMemo } from 'react'
 
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { setSanitizedHTML, setSanitizedStyle } from '~/toolbar/experiments/sanitize'
-import { WebExperimentEditor, WebExperimentEditorContext } from '~/toolbar/experiments/webExperimentEditorContext'
+import {
+    WebExperimentEditor,
+    WebExperimentEditorContext,
+    canRenameVariant,
+} from '~/toolbar/experiments/webExperimentEditorContext'
 
 /** Binds the web experiment editor components to the floating toolbar's experiment form. */
 export function ExperimentsTabEditorProvider({ children }: { children: React.ReactNode }): JSX.Element {
@@ -37,8 +40,8 @@ export function ExperimentsTabEditorProvider({ children }: { children: React.Rea
             inspectingElement,
             removeVariantAvailable: !!removeVariantAvailable,
             renameVariant: (variant, newKey) => {
-                if (!newKey || variants[newKey] || !variants[variant]) {
-                    return
+                if (!canRenameVariant(variants, variant, newKey)) {
+                    return false
                 }
                 setExperimentFormValue(
                     'variants',
@@ -46,6 +49,7 @@ export function ExperimentsTabEditorProvider({ children }: { children: React.Rea
                         Object.entries(variants).map(([key, value]) => [key === variant ? newKey : key, value])
                     )
                 )
+                return true
             },
             removeVariant,
             addTransformation: addNewTransformation,
@@ -78,7 +82,7 @@ export function ExperimentsTabEditorProvider({ children }: { children: React.Rea
                 }
             },
             setTransformationSelector: (variant, index, selector) => {
-                const element = querySelectorDeep(selector)
+                const element = document.querySelector(selector)
                 if (element) {
                     inspectElementSelected(element as HTMLElement, variant, index, selector)
                 }

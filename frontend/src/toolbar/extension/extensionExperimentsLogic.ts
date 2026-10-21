@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
+import { canRenameVariant } from '~/toolbar/experiments/webExperimentEditorContext'
+
 import type { PageExperimentsCommand } from './extensionPageExperimentsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { capturePageToolUsed } from './extensionTelemetry'
@@ -165,7 +167,12 @@ export const extensionExperimentsLogic = kea<extensionExperimentsLogicType>([
         // The page takes a moment to report that it started saving, so the button waits from the click.
         saveRequested: [
             false,
-            { submitExperimentForm: () => true, setSaveRequested: (_, { saveRequested }) => saveRequested },
+            {
+                submitExperimentForm: () => true,
+                // kea-forms fails the submit without calling submit when validation fails.
+                submitExperimentFormFailure: () => false,
+                setSaveRequested: (_, { saveRequested }) => saveRequested,
+            },
         ],
     }),
     selectors({
@@ -222,7 +229,7 @@ export const extensionExperimentsLogic = kea<extensionExperimentsLogicType>([
         },
         renameVariant: ({ variant, newKey }) => {
             const { variants } = values.experimentForm
-            if (!variants[variant] || !newKey || newKey === variant || variants[newKey]) {
+            if (!canRenameVariant(variants, variant, newKey)) {
                 return
             }
             actions.setExperimentFormValues({

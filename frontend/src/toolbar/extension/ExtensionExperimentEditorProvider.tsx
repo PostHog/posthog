@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { WebExperimentEditor, WebExperimentEditorContext } from '~/toolbar/experiments/webExperimentEditorContext'
+import {
+    WebExperimentEditor,
+    WebExperimentEditorContext,
+    canRenameVariant,
+} from '~/toolbar/experiments/webExperimentEditorContext'
 
 import { extensionExperimentsLogic } from './extensionExperimentsLogic'
 
@@ -21,7 +25,13 @@ export function ExtensionExperimentEditorProvider({ children }: { children: Reac
             selectedElementType: experimentsState.selectedElementType,
             inspectingElement: experimentsState.inspectingElement,
             removeVariantAvailable: experimentsState.removeVariantAvailable,
-            renameVariant,
+            renameVariant: (variant, newKey) => {
+                if (!canRenameVariant(experimentForm.variants, variant, newKey)) {
+                    return false
+                }
+                renameVariant(variant, newKey)
+                return true
+            },
             removeVariant: (variant) => sendExperimentsCommand({ type: 'remove-experiment-variant', variant }),
             addTransformation: (variant) => sendExperimentsCommand({ type: 'add-experiment-transform', variant }),
             removeTransformation: (variant, index) =>
