@@ -36,6 +36,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -414,14 +415,16 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(
-            experiment_query_ast,
-            self.team,
-            user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-        )
-        self.hogql = experiment_query_debug[0]
-        self.clickhouse_sql = experiment_query_debug[1]
+        # The debug SQL would expose the evaluation rules that the markers keep out of the browser.
+        if not mentions_evaluation_pass_markers(self.metric.model_dump_json()):
+            experiment_query_debug = get_experiment_query_debug(
+                experiment_query_ast,
+                self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            )
+            self.hogql = experiment_query_debug[0]
+            self.clickhouse_sql = experiment_query_debug[1]
 
         modifiers = create_default_modifiers_for_team(self.team)
         if posthoganalytics.feature_enabled(

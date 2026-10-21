@@ -109,3 +109,9 @@ class EvaluationPassFilters(Contract):
 
     graded: str  # The run counts toward a pass rate.
     passed: str  # The run passed. Implies `graded`.
+
+
+# HogQL filter keys that stand in for `EvaluationPassFilters` in a stored filter, so that the stored filter holds no
+# evaluation rules and always grades with the current ones. `resolve_evaluation_pass_markers` replaces them at query time.
+EVALUATION_GRADED_MARKER = "aiEvaluationGraded()"
+EVALUATION_PASSED_MARKER = "aiEvaluationPassed()"

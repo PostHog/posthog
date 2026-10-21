@@ -1080,6 +1080,27 @@ describe('getEventCountQuery', () => {
         expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
     })
 
+    it('drops evaluation pass markers, which only the experiment results query can resolve', () => {
+        const promptFilter = {
+            key: '$ai_prompt_name',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'p',
+        } as const
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RATIO,
+            numerator: {
+                kind: NodeKind.EventsNode,
+                event: '$ai_evaluation',
+                properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
+            },
+            denominator: { kind: NodeKind.EventsNode, event: '$ai_evaluation' },
+        }
+
+        expect(getEventCountQuery(metric, true)?.series[0].properties).toEqual([promptFilter])
+    })
+
     it('returns null when series is empty', () => {
         const metric: ExperimentMetric = {
             uuid: 'test-metric',
