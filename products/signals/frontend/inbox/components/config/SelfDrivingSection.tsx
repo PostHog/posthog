@@ -11,7 +11,6 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -23,31 +22,13 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import {
-    DEFAULT_PULL_REQUEST_LABEL,
-    GITHUB_LABEL_NAME_MAX_LENGTH,
-    PRIORITY_THRESHOLD_OPTIONS,
-    SignalReportPriority,
-} from '../../types'
+import { DEFAULT_PULL_REQUEST_LABEL, GITHUB_LABEL_NAME_MAX_LENGTH, SignalReportPriority } from '../../types'
+import { AUTONOMY_PRIORITY_OPTIONS } from '../../utils/autonomyPriorityOptions'
 import { AutonomySettingGroup } from './AutonomySettingGroup'
 import { AutonomySettingRow } from './AutonomySettingRow'
 
-/** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
-const THRESHOLD_SEGMENT_LABELS: Record<SignalReportPriority, string> = {
-    P0: 'P0',
-    P1: 'P1+',
-    P2: 'P2+',
-    P3: 'P3+',
-    P4: 'All',
-}
-/** Segments derived from the shared priority list, so the value set and order stay single-sourced. */
-const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
-    value,
-    label: THRESHOLD_SEGMENT_LABELS[value],
-}))
-
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
-const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
+const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...AUTONOMY_PRIORITY_OPTIONS]
 
 const PR_STATE_SEGMENTS = [
     { value: 'draft', label: 'Draft' },
@@ -721,7 +702,7 @@ function ProjectThresholdRow(): JSX.Element {
                     size="small"
                     fullWidth
                     value={defaultAutostartPriority}
-                    options={THRESHOLD_SEGMENTS}
+                    options={AUTONOMY_PRIORITY_OPTIONS}
                     disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
                     onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
                 />
@@ -802,8 +783,6 @@ function PullRequestGenerationRow(): JSX.Element {
  * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
-    // The Settings tab wraps this in its own card; the legacy setup rail does not.
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
@@ -811,13 +790,7 @@ export function SelfDrivingSection(): JSX.Element {
     }
 
     return (
-        <div
-            className={
-                redesign
-                    ? 'flex flex-col divide-y divide-primary'
-                    : 'flex flex-col divide-y divide-primary rounded border border-primary bg-surface-primary px-3 py-3'
-            }
-        >
+        <div className="flex flex-col divide-y divide-primary">
             <AutonomySettingGroup title="Pull requests" description="Applies to everyone in this project.">
                 <PullRequestGenerationRow />
                 <BaseBranchesRow />

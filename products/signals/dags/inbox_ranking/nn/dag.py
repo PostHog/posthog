@@ -1,16 +1,20 @@
-"""Daily training for the `nn` model family: one multi-head network over the report vector and the
-team's project vectors, exported to ONNX.
+"""Daily training for the `nn` model families: one multi-head network over the report vector and the
+team's project vectors, exported to ONNX. `nn_v3` reads the vector only, and `nn_with_prio_v2` also
+reads the report's priority levels.
 
-Three assets on the dataset dag's daily partition, registered by the `signals_ml` code location,
-which runs on the image that carries torch:
+One examples asset, and a candidate and a champion asset per family, on the dataset dag's daily
+partition, registered by the `signals_ml` code location, which runs on the image that carries torch:
 
-    inbox_ranking_nn_examples/v1/dt=D/              rows, labels and holdout flags (`nn/examples.py`)
-    inbox_ranking_models/v1/nn/dt=D/model.onnx      the refit that serves, + model.holdout.onnx and metadata.json
-    (no object)                                     the champion asset grades the candidate and records the decision
+    inbox_ranking_nn_examples/v1/dt=D/                      rows, labels, holdout flags and priority (`nn/examples.py`)
+    inbox_ranking_models/v1/<model_name>/dt=D/model.onnx    the refit that serves, + model.holdout.onnx and metadata.json
+    (no object)                                             the champion asset grades the candidate and records the decision
 
-The main location's training job never fits `nn`, and this job never writes another family's
-objects or any pointer. A person serves an `nn` version with `inbox_ranking_promote_job`. The main
-job's serving manifest and online grader then publish and grade it as an `onnx` entry with no
+The families' candidates run one after the other: each holds an embeddings snapshot and the project
+vectors, and two at once can exceed the run's memory limit.
+
+The main location's training job never fits these families, and this job never writes another
+family's objects or any pointer. A person serves a version with `inbox_ranking_promote_job`. The
+main job's serving manifest and online grader then publish and grade it as an `onnx` entry with no
 change here. A candidate that lands after that day's manifest is paired by the next day's manifest.
 
 All three assets read the dt=D dataset partitions from the dataset bucket, as the main training job
@@ -19,7 +23,7 @@ it stay as they are.
 """
 
 import datetime
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -47,6 +51,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import EMBEDDING_COLUMNS, LABEL_COLUMNS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import (
     NN_HEADS,
     build_examples,
@@ -83,11 +88,14 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     holdout_calibration_events,
 )
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
-from products.signals.dags.inbox_ranking.training.unseen import NN_FAMILY
+from products.signals.dags.inbox_ranking.training.unseen import NN_FAMILY, NN_WITH_PRIO_FAMILY, ModelFamily
 
 NN_EXAMPLES_TABLE = "inbox_ranking_nn_examples"
+# The `nn_v3` assets keep the names they had as the only family, so their Dagster history continues.
 NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
+NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
+NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -175,37 +183,44 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=NN_CANDIDATE_ASSET, deps=[NN_EXAMPLES_TABLE], **NN_ASSET_KWARGS)
-def inbox_ranking_nn_model_candidate(context: dagster.AssetExecutionContext) -> None:
-    if skip_unconfigured(context):
-        return
-    context.add_output_metadata(train_candidate(context, s3_client(), dataset_bucket(), context.partition_key))
+def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str]:
+    """The state columns `family`'s set reads that the examples rows lack. An examples object written
+    before a column existed lacks it, and building the set from it would raise."""
+    return [column for column in family.feature_set.state_columns if column not in table.rows]
 
 
 def train_candidate(
-    context: dagster.AssetExecutionContext, client, bucket: str, partition_key: str
+    context: dagster.AssetExecutionContext, client, bucket: str, partition_key: str, family: ModelFamily
 ) -> dict[str, dagster.MetadataValue]:
-    """Fit the day's network, write its graphs and `metadata.json` under `nn/dt=D/`, and return the
-    asset metadata. A partition without examples or snapshots keeps the objects it already holds,
-    because the served pointer can name them."""
+    """Fit the day's network for `family`, write its graphs and `metadata.json` under
+    `<model_name>/dt=D/`, and return the asset metadata. A partition without examples or snapshots
+    keeps the objects it already holds, because the served pointer can name them."""
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
     if arrow is None:
-        context.log.warning(f"no nn examples for dt={partition_key}; nn keeps this partition as it stands")
+        context.log.warning(f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands")
+        return {"skipped": dagster.MetadataValue.bool(True)}
+    examples = examples_from_arrow(arrow)
+    missing = _missing_state_columns(family, examples.table)
+    if missing:
+        # Zeros in place of the missing column would train a model that never saw the input.
+        context.log.warning(
+            f"the nn examples for dt={partition_key} have no {', '.join(missing)} column; {family.name} keeps this "
+            f"partition as it stands. Re-run the {NN_EXAMPLES_TABLE} asset for dt={partition_key}"
+        )
         return {"skipped": dagster.MetadataValue.bool(True)}
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
         return {"skipped": dagster.MetadataValue.bool(True)}
-    examples = examples_from_arrow(arrow)
-    inputs = network_inputs(examples.table, day.extras, day.labels, day.embeddings)
+    inputs = network_inputs(examples.table, day.extras, day.labels, day.embeddings, family.feature_set)
     del day
     check_recipe(
         client,
         bucket,
         prefix,
-        NN_FAMILY.name,
+        family.name,
         partition_key,
-        network_recipe(NETWORK_CONFIG, network_vector_kinds(inputs)),
+        network_recipe(family, NETWORK_CONFIG, network_vector_kinds(inputs)),
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
@@ -214,32 +229,35 @@ def train_candidate(
 
     trained = train_network(examples.table, inputs, NN_HEADS, NETWORK_CONFIG)
     for head in trained.heads:
-        context.log.info(f"nn {head.metrics.head}: {head.metrics.as_dict()}")
+        context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
     for name in trained.skipped:
-        context.log.warning(f"nn {name}: nothing to fit, skipped")
+        context.log.warning(f"{family.name} {name}: nothing to fit, skipped")
 
     files = {ONNX_MODEL_FILE: trained.model_onnx, HOLDOUT_MODEL_FILE: trained.holdout_model_onnx}
     written: set[str] = set()
     for filename, body in files.items():
         if body is None:
             continue
-        key = model_object_key(prefix, NN_FAMILY.name, partition_key, filename)
+        key = model_object_key(prefix, family.name, partition_key, filename)
         client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/octet-stream")
         written.add(key)
     metadata = candidate_metadata(
         partition_key,
         trained,
+        family=family,
         config=NETWORK_CONFIG,
         windows=examples.windows,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run_id,
     )
-    metadata_key = model_object_key(prefix, NN_FAMILY.name, partition_key, METADATA_FILE)
+    metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
-    stale = _delete_other_objects(client, bucket, model_object_key(prefix, NN_FAMILY.name, partition_key, ""), written)
+    stale = _delete_other_objects(client, bucket, model_object_key(prefix, family.name, partition_key, ""), written)
     if stale:
-        context.log.warning(f"removed {len(stale)} stale nn objects from a previous run of dt={partition_key}")
+        context.log.warning(
+            f"removed {len(stale)} stale {family.name} objects from a previous run of dt={partition_key}"
+        )
     capture_training_events(
         context,
         partition_key,
@@ -248,7 +266,7 @@ def train_candidate(
             *holdout_calibration_events(
                 partition_key=partition_key,
                 run_id=context.run_id,
-                model_name=NN_FAMILY.name,
+                model_name=family.name,
                 rows=[
                     row for head in trained.heads for row in bucket_rows(head.calibration, {"head": head.metrics.head})
                 ],
@@ -277,64 +295,113 @@ def train_candidate(
     }
 
 
-@dagster.asset(name=NN_CHAMPION_ASSET, deps=[NN_CANDIDATE_ASSET], **NN_ASSET_KWARGS)
-def inbox_ranking_nn_model_champion(context: dagster.AssetExecutionContext) -> None:
-    if skip_unconfigured(context):
-        return
-    metadata = decide_champion(context, s3_client(), dataset_bucket(), context.partition_key)
-    context.add_output_metadata(metadata or {"skipped": dagster.MetadataValue.bool(True)})
-
-
 def decide_champion(
-    context: dagster.AssetExecutionContext, client, bucket: str, partition_key: str
+    context: dagster.AssetExecutionContext, client, bucket: str, partition_key: str, family: ModelFamily
 ) -> dict[str, dagster.MetadataValue] | None:
-    """The `nn` promotion decision, through the rule every family shares. Nothing is written: the
-    decision is recorded for the person who runs `inbox_ranking_promote_job`."""
+    """The `family` promotion decision, through the rule every family shares. Nothing is written:
+    the decision is recorded for the person who runs `inbox_ranking_promote_job`."""
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
 
     def grade_champion(champion: Mapping[str, Any]) -> dict[str, HoldoutGrade]:
         version = champion.get("model_version")
         if champion.get("model_kind") != ONNX_MODEL_KIND:
             context.log.warning(
-                f"served nn model {version} is not an {ONNX_MODEL_KIND} model; compared on its stored AUC"
+                f"served {family.name} model {version} is not an {ONNX_MODEL_KIND} model; compared on its stored AUC"
             )
             return {}
         holdout_model = _read_bytes_if_exists(
-            client, bucket, model_object_key(prefix, NN_FAMILY.name, str(version), HOLDOUT_MODEL_FILE)
+            client, bucket, model_object_key(prefix, family.name, str(version), HOLDOUT_MODEL_FILE)
         )
         arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
         if holdout_model is None or arrow is None:
             context.log.warning(
-                f"no served nn {HOLDOUT_MODEL_FILE} or no examples for dt={partition_key}; "
-                "the served nn model is compared on its stored AUC"
+                f"no served {family.name} {HOLDOUT_MODEL_FILE} or no examples for dt={partition_key}; "
+                f"the served {family.name} model is compared on its stored AUC"
+            )
+            return {}
+        table = examples_from_arrow(arrow).table
+        missing = _missing_state_columns(family, table)
+        if missing:
+            context.log.warning(
+                f"the nn examples for dt={partition_key} have no {', '.join(missing)} column; "
+                f"the served {family.name} model is compared on its stored AUC"
             )
             return {}
         day = _day_inputs(context, client, bucket, prefix, partition_key)
         if day is None:
             return {}
-        table = examples_from_arrow(arrow).table
         holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
         return champion_grades(
-            champion, holdout_model, holdout, network_inputs(holdout, day.extras, day.labels, day.embeddings)
+            champion,
+            holdout_model,
+            holdout,
+            network_inputs(holdout, day.extras, day.labels, day.embeddings, family.feature_set),
         )
 
-    return decide_family_champion(
-        context, client, bucket, prefix, partition_key, NN_FAMILY, grade_champion=grade_champion
-    )
+    return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
+
+
+@frozen
+class FamilyAssets:
+    candidate: dagster.AssetsDefinition
+    champion: dagster.AssetsDefinition
+
+
+def family_assets(
+    family: ModelFamily, *, candidate_name: str, champion_name: str, after: Sequence[str] = ()
+) -> FamilyAssets:
+    """The candidate and champion assets of one `nn` family. `after` holds the assets the candidate
+    waits for, for memory and not for data."""
+
+    @dagster.asset(name=candidate_name, deps=[NN_EXAMPLES_TABLE, *after], **NN_ASSET_KWARGS)
+    def candidate(context: dagster.AssetExecutionContext) -> None:
+        if skip_unconfigured(context):
+            return
+        context.add_output_metadata(
+            train_candidate(context, s3_client(), dataset_bucket(), context.partition_key, family)
+        )
+
+    @dagster.asset(name=champion_name, deps=[candidate_name], **NN_ASSET_KWARGS)
+    def champion(context: dagster.AssetExecutionContext) -> None:
+        if skip_unconfigured(context):
+            return
+        metadata = decide_champion(context, s3_client(), dataset_bucket(), context.partition_key, family)
+        context.add_output_metadata(metadata or {"skipped": dagster.MetadataValue.bool(True)})
+
+    return FamilyAssets(candidate=candidate, champion=champion)
+
+
+_NN_ASSETS = family_assets(NN_FAMILY, candidate_name=NN_CANDIDATE_ASSET, champion_name=NN_CHAMPION_ASSET)
+inbox_ranking_nn_model_candidate = _NN_ASSETS.candidate
+inbox_ranking_nn_model_champion = _NN_ASSETS.champion
+_NN_WITH_PRIO_ASSETS = family_assets(
+    NN_WITH_PRIO_FAMILY,
+    candidate_name=NN_WITH_PRIO_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_CHAMPION_ASSET,
+    after=[NN_CHAMPION_ASSET],
+)
+inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
+inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
     name="inbox_ranking_nn_training_job",
-    selection=[NN_EXAMPLES_TABLE, NN_CANDIDATE_ASSET, NN_CHAMPION_ASSET],
+    selection=[
+        NN_EXAMPLES_TABLE,
+        NN_CANDIDATE_ASSET,
+        NN_CHAMPION_ASSET,
+        NN_WITH_PRIO_CANDIDATE_ASSET,
+        NN_WITH_PRIO_CHAMPION_ASSET,
+    ],
     tags={
         **owner_tags,
-        # Five network fits per run (the train-only fit, NULL_PERMUTATIONS permuted-label fits and the
-        # refit that ships), on CPU.
+        # Five network fits per family (the train-only fit, NULL_PERMUTATIONS permuted-label fits and
+        # the refit that ships), on CPU, one family after the other.
         "dagster/max_runtime": str(3 * 60 * 60),
         # The examples asset holds the lookback window's snapshots in pandas, as the main training job
-        # does. The candidate holds one embeddings snapshot twice (as Arrow for the project vectors
+        # does. A candidate holds one embeddings snapshot twice (as Arrow for the project vectors
         # and as the report side input), the report matrix, and one set of project vectors per
-        # (team, day).
+        # (team, day). The candidates run in sequence, so the limit covers one of them.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {

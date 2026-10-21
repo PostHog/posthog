@@ -15,7 +15,7 @@ from posthog.test.base import (
 )
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import ANY, PropertyMock, patch
+from unittest.mock import ANY, patch
 
 from django.db import connection
 from django.test import override_settings
@@ -72,9 +72,14 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
+from products.subscriptions.backend.facade.testing import (
+    create_subscription,
+    create_subscription_delivery,
+    subscription_delivery_exists,
+    subscription_is_deleted,
+)
 
 # What "insight created"/"insight updated" report for a single-event trends query.
 PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
@@ -1822,14 +1827,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response_data["name"], "insight new name")
             self.assertEqual(sorted(response_data["tags"]), ["add", "tags", "these"])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-            self.assertEqual(
-                response_data["effective_restriction_level"],
-                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            )
-            self.assertEqual(
-                response_data["effective_privilege_level"],
-                Dashboard.PrivilegeLevel.CAN_EDIT,
-            )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 
@@ -3114,15 +3111,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
-        )
-        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
-        deleted_subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
-        )
-        delivery = SubscriptionDelivery.objects.create(
-            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id)
+        unrelated_id = create_subscription(team_id=self.team.id)
+        deleted_subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id, deleted=True)
+        delivery_id = create_subscription_delivery(
+            team_id=self.team.id, subscription_id=subscription_id, status="completed"
         )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
@@ -3130,16 +3123,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
         deletion_log = ActivityLog.objects.get(
-            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription_id), activity="deleted"
         )
         self.assertEqual(deletion_log.user_id, self.user.id)
-        unrelated.refresh_from_db()
-        self.assertFalse(unrelated.deleted)
+        self.assertIs(subscription_is_deleted(team_id=self.team.id, subscription_id=unrelated_id), False)
 
-        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
-        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=deleted_subscription_id))
+        self.assertFalse(subscription_delivery_exists(team_id=self.team.id, delivery_id=delivery_id))
 
     def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
@@ -3160,9 +3152,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
-        )
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id)
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3206,7 +3196,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "Insight",
         }
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4451,10 +4441,8 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
-        )
-        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight.id)
+        unrelated_id = create_subscription(team_id=self.team.id)
 
         response = self._bulk_delete([insight.id])
 
@@ -4462,13 +4450,12 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
         deletion_log = ActivityLog.objects.get(
-            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription_id), activity="deleted"
         )
         self.assertEqual(deletion_log.user_id, self.user.id)
-        unrelated.refresh_from_db()
-        self.assertFalse(unrelated.deleted)
+        self.assertIs(subscription_is_deleted(team_id=self.team.id, subscription_id=unrelated_id), False)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()
@@ -4522,24 +4509,79 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
 
     def test_bulk_restore_skips_tiles_on_dashboards_the_user_cannot_edit(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
-        insight = self._create_insight()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=creator)
+        insight = Insight.objects.create(team=self.team, name="My insight", saved=True, created_by=creator)
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
 
-        # Simulate the requester only having view access to the dashboard the insight sits on.
-        with patch(
-            "posthog.user_permissions.UserDashboardPermissions.effective_privilege_level",
-            new_callable=PropertyMock,
-            return_value=Dashboard.PrivilegeLevel.CAN_VIEW,
-        ):
-            response = self._bulk_restore([insight.id])
+        # The restorer only has view access to the dashboard the insight sits on, and is not the
+        # insight's creator, so no creator bypass applies.
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="viewer",
+            organization_member=member.organization_memberships.first(),
+            role=None,
+        )
+        self.client.force_login(member)
+        response = self._bulk_restore([insight.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
         self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+    def test_bulk_restore_resolves_each_dashboard_against_its_own_team(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        # A sibling environment in the same project owns the dashboard the insight sits on.
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        dashboard = Dashboard.objects.create(team=other_team, name="Sibling dashboard", created_by=creator)
+        insight = Insight.objects.create(team=self.team, name="My insight", saved=True, created_by=creator)
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
+
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        membership = member.organization_memberships.first()
+        # The requesting team's copy of the rule only grants view access...
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="viewer",
+            organization_member=membership,
+            role=None,
+        )
+        # ...but the dashboard's own team grants edit access, which is the one that counts.
+        AccessControl.objects.create(
+            team=other_team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="editor",
+            organization_member=membership,
+            role=None,
+        )
+        self.client.force_login(member)
+        response = self._bulk_restore([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
+        self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
 
 
 class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

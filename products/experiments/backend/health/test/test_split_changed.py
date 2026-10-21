@@ -305,10 +305,18 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "no_history_access",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                "This check can't see whether the flag's variant split, key or bucketing changed after launch, because "
-                "you can't view the linked feature flag's history. Viewing the history needs viewer access to the "
-                "flag and, with an API key, the activity_log:read scope.",
+                "This check can't see whether the flag's variant split, key, bucketing or release conditions changed "
+                "after launch, because you can't view the linked feature flag's history. Viewing the history needs "
+                "viewer access to the flag and, with an API key, the activity_log:read scope.",
                 (),
+                "The flag history was not checked",
+            ),
+            (
+                "too_many_saves",
+                _context(EVEN, not_checked=FlagHistoryNotCheckedReason.TOO_MANY_SAVES),
+                "This check can't see whether the flag's variant split, key, bucketing or release conditions changed "
+                "after launch, because the flag was saved more than 100 times since launch. Review the flag history.",
+                (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
                 "The flag history was not checked",
             ),
         ]

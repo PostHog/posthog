@@ -8,6 +8,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -109,6 +110,16 @@ class TestPlatformCutover(APIBaseTest):
         (result,) = cut_over_team(self.team.id, now=NOW)
 
         assert result.skipped == reason
+        alert.refresh_from_db()
+        assert alert.owner == "source"
+
+    def test_an_alert_in_an_environment_stays_with_logs(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        alert = self._alert(team=environment)
+
+        (result,) = cut_over_team(environment.id, now=NOW)
+
+        assert result.skipped == CutoverSkip.ENVIRONMENT
         alert.refresh_from_db()
         assert alert.owner == "source"
 

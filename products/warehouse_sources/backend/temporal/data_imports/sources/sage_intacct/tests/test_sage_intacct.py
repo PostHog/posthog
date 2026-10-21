@@ -5,9 +5,6 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -159,13 +156,13 @@ def test_credential_probe_success() -> None:
 @pytest.mark.parametrize("status", [400, 503])
 def test_token_failure_distinguishes_permanent_from_transient(status: int) -> None:
     with scripted_network([ScriptedResponse(status=status, json={"error": "invalid_client"})]):
-        if status == 503:
-            with pytest.raises(OAuth2AuthRequestError):
-                SageIntacctSource().validate_credentials(config(), 1)
-        else:
-            valid, message = SageIntacctSource().validate_credentials(config(), 1)
-            assert valid is False
-            assert message == "Check your Sage Intacct client credentials and web services username."
+        valid, message = SageIntacctSource().validate_credentials(config(), 1)
+        assert valid is False
+        assert message == (
+            "Couldn't reach Sage Intacct to check your credentials. Try again in a few minutes."
+            if status == 503
+            else "Check your Sage Intacct client credentials and web services username."
+        )
 
 
 @pytest.mark.parametrize(

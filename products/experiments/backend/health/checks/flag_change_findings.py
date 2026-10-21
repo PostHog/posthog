@@ -26,10 +26,28 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotCheckedReason,
     HealthContext,
 )
+from products.experiments.backend.health.skips import (
+    NEEDS_VARIANTS,
+    CheckSkip,
+    flag_setup_skip,
+    not_applicable,
+    not_checked,
+)
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
 # `finding_variant` on the health finding events.
 NOT_CHECKED = "not_checked"
+
+EvidenceValue = str | int | float | bool | None
+
+# The reasons for which the flag history is not read, so no change is known.
+_HISTORY_NOT_READ = frozenset(
+    {
+        FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS,
+        FlagHistoryNotCheckedReason.TOO_MANY_SAVES,
+        FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS,
+    }
+)
 
 
 class _Change(Protocol):
@@ -62,14 +80,35 @@ def history_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     return history
 
 
+def flag_history_skip(ctx: HealthContext) -> CheckSkip | None:
+    """The states that `history_to_check` skips, in the order the reader is most likely to act on."""
+    skip = flag_setup_skip(ctx, before_launch=False)
+    if skip is not None or ctx.flag is None:
+        return skip
+    if not any(variant.key for variant in ctx.flag.variants):
+        return not_applicable(NEEDS_VARIANTS)
+    # Only the health endpoint loads the history, and it does for every state that reaches here, so None there
+    # means that the load failed.
+    if ctx.flag_history is None:
+        return not_checked("Couldn't check because the flag history failed to load")
+    return None
+
+
+def flag_change_skip(ctx: HealthContext) -> CheckSkip | None:
+    skip = flag_history_skip(ctx)
+    history = ctx.flag_history
+    # Without the history no change is known. `flag_history_not_readable` reports why.
+    if skip is None and isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
+        return not_checked(f"Couldn't check because {not_checked_because(history.reason)}")
+    return skip
+
+
 def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    """One finding for every kind of change when the reader can't view the flag's history."""
+    """One finding for every kind of change when the flag's history is not read."""
     history = history_to_check(ctx)
-    if (
-        not isinstance(history, FlagHistoryNotChecked)
-        or history.reason != FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
-    ):
+    if not isinstance(history, FlagHistoryNotChecked) or history.reason not in _HISTORY_NOT_READ:
         return None
+    no_access = history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
     return ExperimentHealthFinding(
         # pinned: insights and the page read this code and subcode for this finding.
         code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
@@ -77,21 +116,25 @@ def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | N
         severity=ExperimentHealthFindingSeverity.INFO,
         title="The flag history was not checked",
         detail=(
-            "This check can't see whether the flag's variant split, key or bucketing changed after launch, "
-            f"because {not_checked_because(history.reason)}. Viewing the history needs viewer access to the "
-            "flag and, with an API key, the activity_log:read scope."
+            "This check can't see whether the flag's variant split, key, bucketing or release conditions "
+            f"changed after launch, because {not_checked_because(history.reason)}. "
+            + (
+                "Viewing the history needs viewer access to the flag and, with an API key, the activity_log:read scope."
+                if no_access
+                else "Review the flag history."
+            )
         ),
         evidence={"reason": history.reason.value},
         # The flag history is the page this caller can't open.
-        actions=(),
+        actions=() if no_access else (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref="E3",
     )
 
 
 def changes_not_checked[C: FlagChange](history: FlagHistoryNotChecked, kind: type[C]) -> tuple[C, ...]:
-    """The changes of one kind that a check reports as not checked. Empty for a history the reader can't view, which
+    """The changes of one kind that a check reports as not checked. Empty for a history that was not read, which
     `flag_history_not_readable` reports."""
-    if history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
+    if history.reason in _HISTORY_NOT_READ:
         return ()
     return history.of_kind(kind)
 
@@ -105,7 +148,7 @@ def change_finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     sentences: Sequence[str],
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
@@ -129,7 +172,7 @@ def not_checked_finding(
     code: ExperimentHealthFindingCode,
     title: str,
     what_changed: Sequence[str],
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
 ) -> ExperimentHealthFinding:
     change = the_change(effect.change_count, "the")
@@ -159,9 +202,9 @@ def change_evidence(
     history: FlagHistory | FlagHistoryNotChecked,
     effect: ChangeEffect,
     *,
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     exposed_before_change: bool | None,
-) -> dict[str, str | int | bool | None]:
+) -> dict[str, EvidenceValue]:
     return {
         "change_count": effect.change_count,
         "first_changed_at": effect.first.changed_at.astimezone(UTC).isoformat(),

@@ -147,6 +147,7 @@ export interface ComparisonItem {
     response: string
     reasoning?: string
     toolCalls?: AggregatedToolCall[]
+    expectsJson?: boolean
     provider?: string
     providerKeyId?: string | null
     error?: boolean
@@ -346,6 +347,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
                 has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
+                has_response_format: runnablePrompts.some(({ prompt }) => !!prompt.responseFormat),
                 total_message_count: runnablePrompts.reduce(
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
@@ -410,6 +412,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             response: responseText,
                             reasoning: responseReasoning,
                             toolCalls,
+                            expectsJson: !!prompt.responseFormat,
                             provider: selectedModelProvider,
                             providerKeyId,
                             error: responseHasError,
@@ -499,6 +502,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             thinking: prompt.thinking,
                             ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
                             ...(prompt.tools ? { tools: prompt.tools } : {}),
+                            ...(prompt.responseFormat ? { response_format: prompt.responseFormat } : {}),
                             ...(prompt.maxTokens !== null && prompt.maxTokens > 0
                                 ? { max_tokens: prompt.maxTokens }
                                 : {}),
@@ -616,6 +620,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         completion_tokens: responseUsage.completion_tokens,
                         success: !responseHasError,
                         has_tools: !!prompt.tools?.length,
+                        has_response_format: !!prompt.responseFormat,
                         aborted: abortController.signal.aborted,
                     })
                 })

@@ -1,18 +1,11 @@
-import {
-    IconApps,
-    IconChat,
-    IconGear,
-    IconGridMasonry,
-    IconHome,
-    IconSidebarClose,
-    IconSidebarOpen,
-} from '@posthog/icons'
+import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
+import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
+import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
-import { TodayNewViewButton } from './TodayNewViewButton'
 import type { TodayRailPane } from './todayShellLogic'
 
 export interface TodayPane {
@@ -34,12 +27,13 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         home: () => urls.taskNewSession(),
         action: TodayNewChatButton,
     },
-    views: { label: 'Views', title: 'Views', icon: <IconGridMasonry />, action: TodayNewViewButton },
+    // No home: like Products, a pick only opens the sidebar and the open page stays.
+    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'views', 'products']
+export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {

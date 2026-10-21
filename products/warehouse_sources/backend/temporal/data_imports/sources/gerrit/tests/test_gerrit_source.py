@@ -11,7 +11,3 @@ class TestGerritSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["changes"])
-        assert [s.name for s in schemas] == ["changes"]

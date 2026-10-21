@@ -54,7 +54,11 @@ RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
 # burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
 # and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
 # SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
-NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
+# The window type comes from request_recalculation, not from a query: the experiment start date sets it.
+RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
+NON_RETRYABLE_ERROR_TYPES = frozenset(
+    {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
+)
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
 # attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but
@@ -89,7 +93,7 @@ METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
 METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
@@ -97,6 +101,9 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
     # None falls back to default dispatch order.
     fairness_key: str | None = None
+    # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
+    # None keeps the activity on the workflow's own queue.
+    activity_task_queue: str | None = None
 
 
 def _role_from_either_field(role: str, metric_type: str) -> str:
