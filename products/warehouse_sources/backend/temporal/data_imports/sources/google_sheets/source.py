@@ -1,7 +1,5 @@
 from typing import Optional, cast
 
-from django.conf import settings
-
 import gspread
 import structlog
 from google.auth import exceptions as google_auth_exceptions
@@ -15,6 +13,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -187,16 +186,18 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         except gspread.SpreadsheetNotFound:
             # The Sheets API answers an unshared sheet with a 404, the same as a deleted one, so
             # sharing is at least as likely as a wrong URL. Mirror the sync-time message.
+            service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
             return (
                 False,
                 "PostHog couldn't find a sheet at that URL. Check the URL, and share the sheet with our service "
-                f"account ({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer.",
+                f"account ({service_account_email}) as a Viewer.",
             )
         except PermissionError:
+            service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
             return (
                 False,
                 "PostHog does not have access to this spreadsheet. Share it with our service account "
-                f"({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer, then try again. "
+                f"({service_account_email}) as a Viewer, then try again. "
                 "See https://posthog.com/docs/cdp/sources/google-sheets for more.",
             )
         except gspread.exceptions.APIError as e:
@@ -237,6 +238,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     @property
     def get_source_config(self) -> SourceConfig:
+        service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
         return SourceConfig(
             name=ExternalDataSourceType.GOOGLESHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
@@ -255,7 +257,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
-                        caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
+                        caption=f'Share the sheet with our service account by entering **{service_account_email}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
                         secret=False,
                     )
                 ],
