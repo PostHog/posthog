@@ -45,6 +45,7 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts.backend.platform_alert_backfill import follow_insight_alert as follow_alert
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +54,14 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
+    """Copies an insight alert that was just created or turned back on to the platform, if its team
+    runs insight alerts there."""
+    alert = AlertConfiguration.objects.select_related("threshold").filter(team_id=team_id, id=alert_id).first()
+    if alert is not None:
+        follow_alert(alert)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -222,6 +231,7 @@ __all__ = [
     "LLMDetectorMisconfiguredError",
     "LLMDetectorUnavailableError",
     "admit_llm_alert_write",
+    "follow_insight_alert",
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]

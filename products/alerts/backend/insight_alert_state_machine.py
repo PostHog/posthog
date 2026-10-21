@@ -121,5 +121,10 @@ def apply_invalid_configuration(alert: AlertConfiguration) -> list[str]:
     ]
 
 
+def apply_handback(alert: AlertConfiguration, state: InsightAlertState) -> list[str]:
+    """Takes the state the platform hands back when it returns ownership of the alert."""
+    return apply_outcome(alert, ControlPlaneOutcome(new_state=platform_state_of(state), consecutive_failures=0))
+
+
 def should_notify(outcome: AlertCheckOutcome) -> bool:
     return outcome.notification != NotificationAction.NONE
