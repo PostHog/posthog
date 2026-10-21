@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GustoEndpointConfig:
     name: str
     # Path under the API host. `{company_uuid}` / `{employee_uuid}` are filled in per parent row.
