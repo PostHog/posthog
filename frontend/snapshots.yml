@@ -2605,9 +2605,9 @@ snapshots:
     components-sharing--dashboard-sharing--light:
         hash: v1.k794b7964.2266e798b1301b8286b4201ead43bde1277102e40a3034c22789d2febadbde7e.yeiOyqofT5eGkoUr6f4O7CBHQe8eqLIbzKI6L9QDV_A
     components-sharing--dashboard-sharing-licensed--dark:
-        hash: v1.k794b7964.71fd9822b623d19986d9ab0d8df9e3e8029ad149430302e7de697ec82070ba0a.QiBdnpLNH6DfeO13Ey8eTE3AbGalbD_PuRYEtbg-w3s
+        hash: v1.k794b7964.4e6f30fc641b418a26613da75b8f564e688057d42e30bea21d8c2009bb869c6e.Bxx-MouI7bj4MKQ_bJvMwgWeUZ6uCKNzi_CatPpWb5Q
     components-sharing--dashboard-sharing-licensed--light:
-        hash: v1.k794b7964.0c82241ff70b4db8ea10e2b0956161fc243647ee4663ae0174bd7dbbd4c4356d.NS0GnhbIqoTcNTNGqEji0_Qj4H_cWaPkoUS0jmdQ184
+        hash: v1.k794b7964.ea957888499b5d61c4a399a1440f8374a332aa0ac5407763ac2be4714b57fa71.3i-BMwJc2TE4Sur8nJ98Xcu1hw4fvM1pze1dJzE94xc
     components-sharing--insight-sharing--dark:
         hash: v1.k794b7964.f70196365c8d0e6f25c44a7d88972903cc48c8ba0c8937271379db7e94c75115.o-GkawWjO1KefxBwndIZmsQBk-3AB-T_WgTZAwt6G_U
     components-sharing--insight-sharing--light:
@@ -2615,7 +2615,11 @@ snapshots:
     components-sharing--insight-sharing-licensed--dark:
         hash: v1.k794b7964.53f6a69d6d21e488c755db82bcb993d6c638752b83d2f772164d0868de0a6386.imGLPRxZUEV0h7zyHS8AuofnDxn5QuPnE4RvsvK8d_I
     components-sharing--insight-sharing-licensed--light:
-        hash: v1.k794b7964.cd8cb4e1d564f65f5bd96c205406c67a4eb569186adedf6a8763ef89c5ed2013.zcz40vC4K1cA9XH1wnRvmkCLHB4z-RLxtghWuvnXRLw
+        hash: v1.k794b7964.d7d31d882f3729a7164a08c9056d3c18c5d1c03d98caaba0dec3f3c2337576a3.AXmVzhJ9gr12K2M6eOsBQkdiYX-EDlVw36z2yfq1tv4
+    components-sharing--notebook-sharing-with-access-controls--dark:
+        hash: v1.k794b7964.f4824ebe30e72b8cccb7fd5f9813ceecd9518ccc7f337e470ba301e8ef5bab55.HlvKsO9MkHlliGiQNh1hST0nRVJjOcfon3Fjf0i8dnE
+    components-sharing--notebook-sharing-with-access-controls--light:
+        hash: v1.k794b7964.3aa651e9650e5bded798238274398e26bf87800c29bbbe597d729d85e98dfe8c.Zzz6FQQ2Yo_Se0T9E9_S4yuadDoVTA9oGGSfRAy2Pds
     components-sharing--recording-sharing-licensed--dark:
         hash: v1.k794b7964.9a607e1c8b67aa4caf736f532eae8f04172a08b1519a5b233caed383cd61ac2e.oJJ1rz584k526jS3YRjmGoRSSlONVnNRC_gh0BpAWDw
     components-sharing--recording-sharing-licensed--light:
