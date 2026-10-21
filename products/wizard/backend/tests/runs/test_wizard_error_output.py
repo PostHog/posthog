@@ -38,6 +38,8 @@ from products.wizard.backend.logic.workers.wizard_error_output import WizardErro
                 ),
                 ("401 with Authorization: Bearer fake.jwt.value-1234", "401 with Authorization: Bearer [REDACTED]"),
                 ('config {"apiKey": "fake-key-value"} rejected', 'config {"apiKey": "[REDACTED]"} rejected'),
+                ("refresh failed: access_token=fake-access-value", "refresh failed: access_token=[REDACTED]"),
+                ("x" * 490 + " pha_FakeOAuthToken1234", "x" * 490 + " [REDACTED"),
                 (
                     "OpenAI API error (400): 400 invalid request body",
                     "OpenAI API error (400): 400 invalid request body",

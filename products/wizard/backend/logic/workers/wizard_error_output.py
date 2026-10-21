@@ -17,7 +17,7 @@ _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?<=://)[^/\s@]+@"), f"{_REDACTED}@"),
     (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"), rf"\1 {_REDACTED}"),
     (
-        re.compile(r"""(?i)\b([a-z_-]*(?:api[_-]?key|token|secret|password)["']?\s*[:=]\s*["']?)[^\s"',;&]+"""),
+        re.compile(r"""(?i)((?:api[_-]?key|token|secret|password)["']?\s*[:=]\s*["']?)[^\s"',;&]+"""),
         rf"\1{_REDACTED}",
     ),
 )
@@ -54,12 +54,13 @@ def stderr_to_wizard_error(stderr: str) -> WizardErrorLine | None:
             return None
 
         message = payload.get("message")
-        return WizardErrorLine(
-            code=code,
-            # Redact before truncating, so a cut cannot leave a partial credential that no pattern matches.
-            message=_redact_credentials(message)[:WIZARD_ERROR_MESSAGE_LENGTH]
-            if isinstance(message, str) and message
-            else None,
-        )
+        if not isinstance(message, str) or not message:
+            return WizardErrorLine(code=code, message=None)
+
+        # A stderr line can hold 64KB, so redaction runs on a bounded window to keep its cost fixed. The
+        # window is twice the kept length, so a credential that crosses the final cut is still redacted
+        # whole before the cut drops its tail.
+        window = message[: 2 * WIZARD_ERROR_MESSAGE_LENGTH]
+        return WizardErrorLine(code=code, message=_redact_credentials(window)[:WIZARD_ERROR_MESSAGE_LENGTH])
 
     return None
