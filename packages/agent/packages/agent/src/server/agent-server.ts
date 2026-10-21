@@ -524,6 +524,7 @@ export class AgentServer {
   private httpReadyBootMs?: number;
   private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
+  private repoReadyTimeoutMs = 40 * 60_000;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
@@ -4421,9 +4422,8 @@ export class AgentServer {
       return;
     }
 
-    const REPO_READY_TIMEOUT_MS = 5 * 60_000;
     const result = await waitForFile(readyFile, {
-      timeoutMs: REPO_READY_TIMEOUT_MS,
+      timeoutMs: this.repoReadyTimeoutMs,
       onError: (error) => {
         this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
@@ -4434,11 +4434,9 @@ export class AgentServer {
     });
     this.barrierReleasedAtMs = Date.now();
     if (result.timedOut) {
-      this.logger.warn("Repo-ready barrier timed out; proceeding", {
-        readyFile,
-        waitedMs: result.waitedMs,
-      });
-      return;
+      throw new Error(
+        `Repository was not ready after ${result.waitedMs}ms: ${readyFile}`,
+      );
     }
     this.logger.debug("Repo-ready barrier released", {
       readyFile,
