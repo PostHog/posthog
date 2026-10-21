@@ -375,7 +375,7 @@ describe('materializationJobsLogic', () => {
             })
         )
 
-        expect(screen.getByRole('heading', { name: 'Refresh mode' })).toBeTruthy()
+        expect(screen.getByText('Refresh mode')).toBeTruthy()
         expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeTruthy()
 
         releaseCheck()
