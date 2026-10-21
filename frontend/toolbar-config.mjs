@@ -265,6 +265,24 @@ const TOOLBAR_EXTENSION_ICONS = {
     192: 'icons/android-chrome-192x192.png',
 }
 
+export function cleanToolbarExtensionBuild(dirname) {
+    fs.rmSync(path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR), { recursive: true, force: true })
+}
+
+/** panel.html isn't an esbuild input, so watch mode rebuilds on its edits only through this. */
+function watchExtensionPagesPlugin(dirname) {
+    return {
+        name: 'watch-toolbar-extension-pages',
+        setup(build) {
+            build.onLoad({ filter: /extension[\\/]panel\.tsx$/ }, (args) => ({
+                contents: fs.readFileSync(args.path, 'utf8'),
+                loader: 'tsx',
+                watchFiles: [path.resolve(dirname, 'src/toolbar/extension/panel.html')],
+            }))
+        },
+    }
+}
+
 export function getToolbarExtensionBuildConfig(dirname) {
     return {
         name: 'Toolbar extension',
@@ -283,7 +301,7 @@ export function getToolbarExtensionBuildConfig(dirname) {
             ...commonConfig.define,
             __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
         },
-        extraPlugins: [createToolbarModulePlugin(dirname)],
+        extraPlugins: [createToolbarModulePlugin(dirname), watchExtensionPagesPlugin(dirname)],
     }
 }
 
@@ -374,7 +392,8 @@ export function finalizeToolbarExtensionBuild(dirname) {
 function readDirectoryFiles(directory) {
     const files = {}
     for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
-        if (entry.isFile()) {
+        // Source maps stay in the unpacked folders for local debugging, but would triple the size of the zips.
+        if (entry.isFile() && !entry.name.endsWith('.map')) {
             const filePath = path.join(entry.parentPath, entry.name)
             files[path.relative(directory, filePath).split(path.sep).join('/')] = fs.readFileSync(filePath)
         }

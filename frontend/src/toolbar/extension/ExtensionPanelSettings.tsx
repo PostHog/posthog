@@ -14,7 +14,7 @@ const CLOUD_HOSTS = ['https://us.posthog.com', 'https://eu.posthog.com']
 const CUSTOM_HOST = 'custom'
 
 export function ExtensionPanelSettings(): JSX.Element {
-    const { uiHost, user } = useValues(extensionPanelLogic)
+    const { uiHost, user, projectSwitchFailed } = useValues(extensionPanelLogic)
     const { setUiHost, switchProject } = useActions(extensionPanelLogic)
     const isCloudHost = CLOUD_HOSTS.includes(uiHost)
     const [editingCustomHost, setEditingCustomHost] = useState(false)
@@ -34,6 +34,9 @@ export function ExtensionPanelSettings(): JSX.Element {
                         options={user.organization.teams.map((team) => ({ value: team.id, label: team.name }))}
                         data-attr="toolbar-extension-project"
                     />
+                    {projectSwitchFailed ? (
+                        <div className="text-danger text-xs">Couldn't switch the project. Try again.</div>
+                    ) : null}
                 </>
             ) : null}
             <LemonLabel>PostHog host</LemonLabel>
