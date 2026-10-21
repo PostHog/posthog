@@ -1,4 +1,5 @@
 use std::num::{NonZeroU32, NonZeroUsize};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -14,6 +15,27 @@ use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CompletionGranularity {
+    #[default]
+    Poll,
+    Group,
+}
+
+impl FromStr for CompletionGranularity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "poll" => Ok(Self::Poll),
+            "group" => Ok(Self::Group),
+            other => Err(format!(
+                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -224,6 +246,15 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
+    /// `poll` or `group`; see [`CompletionGranularity`].
+    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
+    pub consumer_completion_granularity: CompletionGranularity,
+
+    /// Minimum spacing between offset commits at `group` granularity
+    /// (milliseconds). Not read at `poll` granularity.
+    #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
+    pub consumer_commit_interval_ms: u64,
+
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
     /// `/debug/events` SSE) on the health server, recording structured events
@@ -242,12 +273,8 @@ pub struct Config {
     pub debug_api_secret: String,
 
     // ---- Ordering sentinels ----
-    /// Kill switch for the ordering sentinels (per-partition commit
-    /// contiguity/monotonicity checks and per-key send-order checks). They are
-    /// pure observers with per-batch lock/state overhead bounded by in-flight
-    /// work; disable only if that overhead is ever implicated. The commit-result
-    /// and rebalance metrics from the consumer context stay on regardless. The
-    /// worker-side feed-order sentinel has its own flag
+    /// Kill switch for the per-key send-order sentinel. The worker-side
+    /// feed-order sentinel has its own flag
     /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
@@ -669,5 +696,18 @@ mod tests {
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
+    }
+
+    #[test]
+    fn completion_granularity_parses_known_values() {
+        assert_eq!(
+            CompletionGranularity::from_str(" POLL "),
+            Ok(CompletionGranularity::Poll)
+        );
+        assert_eq!(
+            CompletionGranularity::from_str("group"),
+            Ok(CompletionGranularity::Group)
+        );
+        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

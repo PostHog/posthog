@@ -99,6 +99,7 @@ Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
+Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
 ## Heatmap
 
@@ -167,6 +168,7 @@ A left-aligned tile: headline number, change pill, sparkline.
 - `formatLabel` formats the point label in the default subtitle, for example an ISO time as a short date. The sparkline keeps the raw `labels`, so they stay unique.
 - `hoverChangeFromPreviousPoint` keeps the resting `change` pill at rest but, while hovering, swaps it for the hovered point's change versus the previous point (hidden at the first point).
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
+- `change.value` is a percent, so `8` reads as +8%. Its sign sets the pill's direction, and `goodDirection` decides whether that direction is good. `change.label` replaces the formatted text, for example `+1.1 pts` for a change in percentage points.
 
 The composable form is `Metric` in `@posthog/quill-components` (it needs `Card` and `Badge` from primitives, which charts cannot depend on).
 It is built on `Sparkline` plus the headless helpers this package exports: `resolveDelta` and `computeFallbackChangePercent` (delta math), `useAnimatedNumber` (count-up headline), `useHoverIntent` (hover dwell), and the `MetricChange` and `ResolvedDelta` types.

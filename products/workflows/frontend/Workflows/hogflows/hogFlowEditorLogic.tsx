@@ -284,7 +284,6 @@ export interface hogFlowEditorLogicValues {
     selectedNodeCanBeCopiedOrMoved: boolean
     selectedNodeCanBeDeleted: boolean
     selectedNodeId: string | null
-    showsHeaderInWorkflowBar: boolean
     treePathsCollapsedByDefault: boolean
 }
 
@@ -2246,7 +2245,6 @@ export interface hogFlowEditorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isTileCanvas: (featureFlags: FeatureFlagsSet) => boolean
         isTreeView: (featureFlags: FeatureFlagsSet, editorLayout: HogFlowEditorLayout, isTileCanvas: boolean) => boolean
-        showsHeaderInWorkflowBar: (isTileCanvas: boolean) => boolean
         nodesById: (nodes: HogFlowActionNode[]) => Record<string, HogFlowActionNode>
         selectedNode: (
             nodes: HogFlowActionNode[],
@@ -2483,8 +2481,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             (featureFlags: FeatureFlagsSet, editorLayout: HogFlowEditorLayout, isTileCanvas: boolean): boolean =>
                 !isTileCanvas && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW] && editorLayout === 'simple',
         ],
-        /** The tile canvas carries the workflow header in its own bar, saved or not. */
-        showsHeaderInWorkflowBar: [(s) => [s.isTileCanvas], (isTileCanvas: boolean): boolean => isTileCanvas],
         nodesById: [
             (s) => [s.nodes],
             (nodes: HogFlowActionNode[]): Record<string, HogFlowActionNode> => {
