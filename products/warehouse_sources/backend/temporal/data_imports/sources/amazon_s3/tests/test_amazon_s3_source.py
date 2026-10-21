@@ -328,7 +328,7 @@ def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path:
     assert (first.replace_scope is not None, first_rows) == (True, 1)
     assert (unchanged.replace_scope, unchanged_rows) == (None, 0)
     assert (rewritten.replace_scope is not None and rewritten.replace_scope.replaced, rewritten_rows) == (
-        {"orders/a.csv", "orders/b.csv"},
+        frozenset({"orders/a.csv", "orders/b.csv"}),
         3,
     )
 
