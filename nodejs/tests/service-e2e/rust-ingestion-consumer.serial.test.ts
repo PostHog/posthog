@@ -1,4 +1,3 @@
-import net from 'net'
 import {
     ConsumerGlobalConfig,
     KafkaConsumer,
@@ -20,7 +19,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
+import { ServiceProcess, getFreePort, getFreeWorkerPort, isPortFree } from '~/tests/helpers/service-process'
 
 import { Clickhouse } from '../helpers/clickhouse'
 import {
@@ -415,7 +414,7 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
     // worker binds it. Unpinned starts retry with a fresh pair; pinned restarts wait
     // for the previous holder to let go (see restartNodeIngestionApiWorker).
     for (let attempt = 1; ; attempt++) {
-        const workerPort = port ?? (await getFreeWorkerPort())
+        const workerPort = port ?? (await getFreeWorkerPort(GRPC_PORT_OFFSET))
         try {
             return await spawnNodeIngestionApiWorker(name, workerPort)
         } catch (error) {
@@ -453,25 +452,6 @@ async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Pr
     // belongs to whatever foreign socket caused the collision.
     workerPortsInUse.push(workerPort, workerPort + GRPC_PORT_OFFSET)
     return { service, url }
-}
-
-// A worker needs two adjacent free ports: HTTP, and HTTP + GRPC_PORT_OFFSET for the stream.
-async function getFreeWorkerPort(): Promise<number> {
-    for (let attempt = 0; attempt < 20; attempt++) {
-        const port = await getFreePort()
-        if (await isPortFree(port + GRPC_PORT_OFFSET)) {
-            return port
-        }
-    }
-    throw new Error('could not find adjacent free ports for a worker')
-}
-
-function isPortFree(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-        const server = net.createServer()
-        server.once('error', () => resolve(false))
-        server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
-    })
 }
 
 // Poll until every port can be bound. A stopped worker's node process releases its

@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_CHECKPOINT_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     META_TOKEN_REFRESH_ERROR_MESSAGE,
@@ -1675,7 +1676,7 @@ class TestNonRetryableErrors:
             f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
             # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
-            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            f"{META_CHECKPOINT_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
             'instructions given.","type":"OAuthException","code":190,"error_subcode":459}})',
             # code 190 / subcode 460 — session invalidated after a password change.
@@ -1696,6 +1697,46 @@ class TestNonRetryableErrors:
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
+
+    @pytest.mark.parametrize(
+        "body,expected_pattern",
+        [
+            (
+                {
+                    "error": {
+                        "message": "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+                        "type": "OAuthException",
+                        "code": 190,
+                        "error_subcode": 459,
+                    }
+                },
+                META_CHECKPOINT_ERROR_MESSAGE,
+            ),
+            (
+                {
+                    "error": {
+                        "message": "(#200) Ad account owner has NOT grant ads_management or ads_read permission",
+                        "type": "OAuthException",
+                        "code": 200,
+                    }
+                },
+                "Ad account owner has NOT",
+            ),
+            (
+                {"error": {"message": "Error validating access token", "code": 190, "error_subcode": 460}},
+                META_AUTH_ERROR_MESSAGE,
+            ),
+        ],
+    )
+    def test_auth_error_resolves_to_its_specific_message(self, body: dict, expected_pattern: str) -> None:
+        response = _mock_response(400, body)
+        response.text = json.dumps(body)
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+
+        errors = MetaAdsSource().get_non_retryable_errors()
+        first_match = next(pattern for pattern in errors if error_message_matches(str(exc_info.value), [pattern]))
+        assert errors[first_match] == errors[expected_pattern]
 
     def test_missing_perms_has_reconnect_guidance(self) -> None:
         # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
@@ -2300,6 +2341,18 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("time_range") is not None
         assert result.requests[0].param("breakdowns") == schema.extra_params["breakdowns"]
         assert result.requests[0].param("level") == schema.extra_params["level"]
+
+        fields_param = result.requests[0].param("fields")
+        assert fields_param is not None
+        requested_fields = set(fields_param.split(","))
+        video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        if (
+            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            or endpoint == MetaAdsResource.AdStatsByLinkUrl
+        ):
+            assert video_fields.isdisjoint(requested_fields)
+        else:
+            assert video_fields <= requested_fields
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)

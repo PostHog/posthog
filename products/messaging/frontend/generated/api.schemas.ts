@@ -558,6 +558,8 @@ export interface SendTransactionalEmailApi {
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
 }
 
 export type MessagingCategoriesListParams = {
