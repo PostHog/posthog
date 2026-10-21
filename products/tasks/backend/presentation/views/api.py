@@ -3557,13 +3557,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "concatenated first (oldest ancestor → ... → this run) so resume "
             "consumers see a single continuous history. A resumed Pi run "
             "includes the earlier runs of its task session the same way, each "
-            "preceded by a pi_run_started entry that names its run."
+            "preceded by a pi_run_started entry that names its run. For a live "
+            "presence-gated run, the request marks the stream as watched before "
+            "it reads the log, so events after the snapshot reach the live stream."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
+        with timer("mark_watched"):
+            tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
         with timer("s3_read"):
             log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:
