@@ -47,6 +47,7 @@ from posthog.schema_enums import (
     AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
     AssistantLifecycleStatus as AssistantLifecycleStatus,
     AssistantMessageType as AssistantMessageType,
+    AssistantMetricsNodeKind as AssistantMetricsNodeKind,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
     AssistantRetentionDisplayType as AssistantRetentionDisplayType,
@@ -81,7 +82,6 @@ from posthog.schema_enums import (
     ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
-    CorrelationType as CorrelationType,
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
     Curve as Curve,
@@ -125,6 +125,8 @@ from posthog.schema_enums import (
     ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthCheckKey as ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthCheckStatus as ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
@@ -141,7 +143,6 @@ from posthog.schema_enums import (
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
-    FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
     FunnelMathType as FunnelMathType,
     FunnelPathType as FunnelPathType,
@@ -214,6 +215,7 @@ from posthog.schema_enums import (
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
     MetricsAxisScale as MetricsAxisScale,
+    MetricsDashboardVariableSource as MetricsDashboardVariableSource,
     MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
@@ -328,6 +330,7 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
+    ValueLabelPosition as ValueLabelPosition,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -518,15 +521,10 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         default=None,
         description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
     )
-    displayType: DisplayType | None = Field(
-        default=None,
-        description=(
-            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
-        ),
-    )
+    displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
     label: str | None = Field(
         default=None,
-        description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
+        description="Series label in legends and tooltips; replaces the column name.",
     )
     trendLine: bool | None = Field(
         default=None,
@@ -547,19 +545,14 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
     style: Style | None = Field(
         default=None,
         description=(
-            "Number formatting style.\n- `none` — no formatting.\n- `number` —"
-            " thousands separators (e.g. `1,234`).\n- `short` — abbreviated large"
-            " numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100"
-            " and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a /"
-            " b`). Never pair it with a `%` suffix, which renders `47.3%%`."
+            "`none`: unformatted; `number`: thousands separators; `short`:"
+            " abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`."
+            " Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it."
         ),
     )
     suffix: str | None = Field(
         default=None,
-        description=(
-            "Text appended to each value (e.g. ` ms`). Leave unset when `style` is"
-            " `percent`, which already appends the `%` sign."
-        ),
+        description="Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
     )
 
 
@@ -804,20 +797,6 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
-class AssistantInsightVizNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["InsightVizNode"] = "InsightVizNode"
-    source: dict[str, Any] = Field(
-        ...,
-        description=(
-            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
-            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
-        ),
-    )
-
-
 class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -839,6 +818,13 @@ class AssistantPathCleaningFilter(BaseModel):
             " to match any user profile URL."
         ),
     )
+
+
+class AssistantPieChartOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hideAggregation: bool | None = Field(default=None, description="Hide the total on a pie chart.")
 
 
 class AssistantRecordingPropertyFilter2(BaseModel):
@@ -962,6 +948,13 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class AssistantVizSpecificOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ActionsPie: AssistantPieChartOptions | None = None
 
 
 class BICategoryGroup(BaseModel):
@@ -1511,15 +1504,6 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
-
-
-class EventDefinition(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    elements: list
-    event: str
-    properties: dict[str, Any]
 
 
 class Person(BaseModel):
@@ -2714,6 +2698,17 @@ class MetricsAlertConfig(BaseModel):
     type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
 
 
+class MetricsDashboardVariableSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = None
+    values: list[str] = Field(
+        ...,
+        description=("The selected values. Empty when `all` is true: All stands for every option of the variable."),
+    )
+
+
 class MetricsQueryFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3031,7 +3026,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3160,6 +3155,7 @@ class ResultCustomizationByValue(BaseModel):
     )
     assignmentBy: Literal["value"] = "value"
     color: DataColorToken | None = None
+    customColor: str | None = None
     hidden: bool | None = None
 
 
@@ -3852,8 +3848,17 @@ class AssistantArrayPropertyFilter(BaseModel):
     )
 
 
+class AssistantBIVisualizationNode(BaseModel):
+    config: dict[str, Any] = Field(
+        ...,
+        description=("Complete worksheet configuration, including shelves and filters. Validated by the insight API."),
+    )
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: AssistantBareHogQLQuery
+
+
 class AssistantBareInsightQuery(BaseModel):
-    kind: InsightNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -4411,6 +4416,21 @@ class AssistantGroupPropertyFilter5(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantInsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    source: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
+            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
+        ),
+    )
+    vizSpecificOptions: AssistantVizSpecificOptions | None = Field(default=None, description="Chart rendering options.")
 
 
 class AssistantLifecycleFilter(BaseModel):
@@ -5636,17 +5656,6 @@ class EventMetadataPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class EventOddsRatioSerialized(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    correlation_type: CorrelationType
-    event: EventDefinition
-    failure_count: int
-    odds_ratio: float
-    success_count: int
-
-
 class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5802,6 +5811,30 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
+    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    reason: str | None = Field(
+        ...,
+        description=(
+            "Why the check did not look, for the statuses not_applicable and"
+            " not_checked, for example 'Runs after launch'. Null for passed and"
+            " finding."
+        ),
+    )
+    status: ExperimentExposureHealthCheckStatus = Field(
+        ...,
+        description=(
+            "passed: no problem found. finding: a finding in `health_findings`."
+            " not_applicable: the check doesn't cover the experiment's state."
+            " not_checked: an input was missing or the check failed."
+        ),
+    )
+
+
 class ExperimentExposureHealthFinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5849,6 +5882,12 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -6068,14 +6107,6 @@ class FormResumePayload(BaseModel):
     )
     action: Literal["form"] = "form"
     form_answers: dict[str, str | list[str]]
-
-
-class FunnelCorrelationResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    events: list[EventOddsRatioSerialized]
-    skewed: bool
 
 
 class FunnelExclusionSteps(BaseModel):
@@ -6997,6 +7028,44 @@ class MetricPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class MetricsDashboardVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allValue: str | None = Field(
+        default=None,
+        description="The text that All puts in a PromQL query. `.*` when it is empty.",
+    )
+    current: MetricsDashboardVariableSelection | None = None
+    customValues: list[str] | None = Field(default=None, description="The options when `source` is `custom`.")
+    includeAll: bool | None = None
+    label: str | None = Field(
+        default=None,
+        description=("Shown in the dashboard filter bar. The name is shown when it is empty."),
+    )
+    multi: bool | None = None
+    name: str = Field(
+        ...,
+        description="Letters, digits and underscores. Tiles refer to it as `$name`.",
+    )
+    query: str | None = Field(
+        default=None,
+        description=(
+            "The options query when `source` is `promql` or `sql`. It can refer to"
+            " other variables. PromQL supports `label_values(label)`,"
+            " `label_values(selector, label)`, `label_names()`, `metrics(regex)` and"
+            " `query_result(expr)`. SQL returns the options in its first column."
+        ),
+    )
+    regex: str | None = Field(
+        default=None,
+        description=(
+            "RE2 pattern that options must match. When it has a capture group, the option is the first group."
+        ),
+    )
+    source: MetricsDashboardVariableSource
+
+
 class MetricsDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7063,6 +7132,26 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsVariableValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = Field(
+        default=None,
+        description=(
+            "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
+            " builder filters drop the filter, and SQL gets every option of the"
+            " variable."
+        ),
+    )
+    allValue: str | None = None
+    definition: MetricsDashboardVariable | None = Field(
+        default=None,
+        description=("The definition of a variable set to All, so that a SQL query can load its options."),
+    )
+    values: list[str]
 
 
 class MultiQuestionFormField(BaseModel):
@@ -7449,6 +7538,12 @@ class QueryResponseAlternative19(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -7475,7 +7570,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11415,56 +11510,6 @@ class MemberAliase(BaseModel):
     field: BIField
 
 
-class BIConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chartType: ChartDisplayType
-    colorBy: str | None = None
-    columns: list[BIField]
-    compareFilter: CompareFilter | None = None
-    comparisonPeriod: ComparisonPeriod | None = Field(
-        default=None,
-        description=("Explore only the comparison window, using dateRange as its reference window."),
-    )
-    dateField: BIField | None = Field(
-        default=None,
-        description="Column that receives the worksheet and dashboard date range.",
-    )
-    dateRange: DateRange | None = None
-    filters: list[BIFilter]
-    hierarchies: list[BIHierarchy] | None = Field(
-        default=None,
-        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
-    )
-    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
-    limit: BIQueryLimit
-    localFields: list[BIField] | None = Field(
-        default=None, description="Reusable expressions owned by this worksheet only."
-    )
-    memberAliases: list[MemberAliase] | None = None
-    missingDates: MissingDates | None = Field(
-        default=None,
-        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
-    )
-    panes: BIPaneSettings | None = Field(
-        default=None,
-        description=("Split the returned groups into charts using these ordered dimension IDs."),
-    )
-    resultFilterGroup: BIConditionGroup | None = None
-    resultFilters: list[BIResultFilter] | None = None
-    rowFilterGroup: BIConditionGroup | None = None
-    rows: list[BIField]
-    sort: BISort | None = Field(
-        default=None,
-        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
-    )
-    source: BIDataSource | None = None
-    topN: BITopN | None = None
-    totals: BITotals | None = None
-    values: list[BIValue]
-
-
 class BehavioralPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12597,6 +12642,12 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -12624,73 +12675,6 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class CachedFunnelCorrelationResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    columns: list | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: FunnelCorrelationResult
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = None
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
-        ),
     )
 
 
@@ -16887,6 +16871,7 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
         default=None,
@@ -16922,8 +16907,14 @@ class ChartSettings(BaseModel):
     showXAxisTicks: bool | None = None
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    valueLabelBackground: bool | None = None
+    valueLabelFontSize: float | None = None
+    valueLabelPosition: ValueLabelPosition | None = None
+    valueLabelRotation: float | None = None
     xAxis: ChartAxis | None = None
+    xAxisDateFormat: str | None = None
     xAxisLabel: str | None = None
+    xAxisTickRotation: float | None = None
     yAxis: list[ChartAxis] | None = None
     yAxisAtZero: bool | None = Field(
         default=None,
@@ -18769,58 +18760,6 @@ class ExperimentBreakdownResult(BaseModel):
     )
 
 
-class FunnelCorrelationResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: FunnelCorrelationResult
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = None
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
-        ),
-    )
-
-
 class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19001,6 +18940,7 @@ class InsightActorsQueryBase(BaseModel):
 class InsightQuery(
     RootModel[
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
@@ -19010,6 +18950,7 @@ class InsightQuery(
 ):
     root: (
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
@@ -23721,59 +23662,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: FunnelCorrelationResult
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = None
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
-        ),
-    )
-
-
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23825,7 +23714,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23877,7 +23766,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23925,7 +23814,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23972,7 +23861,7 @@ class QueryResponseAlternative70(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24019,7 +23908,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24072,7 +23961,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24123,7 +24012,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24174,7 +24063,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24225,7 +24114,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24276,7 +24165,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24326,7 +24215,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24376,7 +24265,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24423,7 +24312,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24474,7 +24363,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24521,7 +24410,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24568,7 +24457,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24625,7 +24514,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24680,7 +24569,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24727,7 +24616,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24779,7 +24668,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24826,7 +24715,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24873,7 +24762,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24920,7 +24809,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24967,7 +24856,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25018,7 +24907,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25065,7 +24954,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25112,7 +25001,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25159,7 +25048,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25206,7 +25095,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25256,7 +25145,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25303,7 +25192,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25365,7 +25254,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25412,7 +25301,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25459,7 +25348,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25506,7 +25395,7 @@ class QueryResponseAlternative105(BaseModel):
     )
 
 
-class QueryResponseAlternative106(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25553,7 +25442,7 @@ class QueryResponseAlternative106(BaseModel):
     )
 
 
-class QueryResponseAlternative107(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25600,7 +25489,7 @@ class QueryResponseAlternative107(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25647,7 +25536,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative109(BaseModel):
+class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25694,7 +25583,7 @@ class QueryResponseAlternative109(BaseModel):
     )
 
 
-class QueryResponseAlternative110(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25742,7 +25631,7 @@ class QueryResponseAlternative110(BaseModel):
     )
 
 
-class QueryResponseAlternative111(BaseModel):
+class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27658,6 +27547,10 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
     )
+    metricVariables: list[MetricsDashboardVariable] | None = Field(
+        default=None,
+        description=("Variables that metrics tiles refer to as `$name`. Other tiles ignore them."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -28428,6 +28321,10 @@ class HogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -29126,6 +29023,14 @@ class MarketingAnalyticsConfig(BaseModel):
     sources_map: dict[str, SourceMap] | None = None
 
 
+class MarketingAnalyticsCostFallback(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[DataWarehouseNode] = Field(..., max_length=200, min_length=1)
+    sourceIds: list[str] = Field(..., max_length=200, min_length=1)
+
+
 class MarketingAnalyticsRetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29366,6 +29271,10 @@ class MetricsHistogramQuery(BaseModel):
         default=None,
         description=('UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only.'),
     )
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -29414,6 +29323,10 @@ class MetricsQuery(BaseModel):
         ),
     )
     tags: QueryLogTags | None = None
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -29548,6 +29461,10 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -29652,6 +29569,10 @@ class QueryResponseAlternative40(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -30418,6 +30339,10 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -30512,6 +30437,10 @@ class Response3(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -31021,6 +30950,66 @@ class TraceSpansTreeQuery(BaseModel):
     )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    catalogMetric: str | None = Field(
+        default=None,
+        description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    chartType: ChartDisplayType
+    colorBy: str | None = None
+    columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
+    filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
+    limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    memberAliases: list[MemberAliase] | None = None
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
+    )
+    querySnapshot: HogQLQuery | None = Field(
+        default=None,
+        description=(
+            "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
+        ),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
+    values: list[BIValue]
 
 
 class BIVisualizationNode(BaseModel):
@@ -31900,7 +31889,7 @@ class PathsV2ActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -32035,6 +32024,10 @@ class TrendsQuery(BaseModel):
         description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    marketingAnalyticsCostFallback: MarketingAnalyticsCostFallback | None = Field(
+        default=None,
+        description=("Live series for a Marketing cost trend when materialization coverage is incomplete."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[AnyPropertyFilterDiscriminated] | PropertyGroupFilter | None = Field(
         default=[], description="Property filters for all series"
@@ -32329,7 +32322,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative78
         | QueryResponseAlternative79
         | QueryResponseAlternative80
-        | QueryResponseAlternative81
+        | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
@@ -32357,7 +32350,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative108
         | QueryResponseAlternative109
         | QueryResponseAlternative110
-        | QueryResponseAlternative111
     ]
 ):
     root: (
@@ -32440,7 +32432,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative78
         | QueryResponseAlternative79
         | QueryResponseAlternative80
-        | QueryResponseAlternative81
+        | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
@@ -32468,7 +32460,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative108
         | QueryResponseAlternative109
         | QueryResponseAlternative110
-        | QueryResponseAlternative111
     )
 
 
@@ -32806,22 +32797,6 @@ class ExperimentActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelCorrelationQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnelCorrelationEventExcludePropertyNames: list[str] | None = None
-    funnelCorrelationEventNames: list[str] | None = None
-    funnelCorrelationExcludeEventNames: list[str] | None = None
-    funnelCorrelationExcludeNames: list[str] | None = None
-    funnelCorrelationNames: list[str] | None = None
-    funnelCorrelationType: FunnelCorrelationResultsType
-    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
-    response: FunnelCorrelationResponse | None = None
-    source: FunnelsActorsQuery
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32937,22 +32912,6 @@ class DocumentArtifactContent(BaseModel):
     blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
-class FunnelCorrelationActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnelCorrelationPersonConverted: bool | None = None
-    funnelCorrelationPersonEntity: EventsNode | ActionsNode | DataWarehouseNode | None = None
-    funnelCorrelationPropertyValues: list[AnyPropertyFilterDiscriminated] | None = None
-    includeRecordings: bool | None = None
-    kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: ActorsQueryResponse | None = None
-    source: FunnelCorrelationQuery
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32991,14 +32950,7 @@ class InsightActorsQueryOptions(BaseModel):
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: InsightActorsQueryOptionsResponse | None = None
-    source: (
-        InsightActorsQuery
-        | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
-        | StickinessActorsQuery
-        | ExperimentActorsQuery
-        | PathsV2ActorsQuery
-    )
+    source: InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -33112,7 +33064,6 @@ class ActorsQuery(BaseModel):
     source: (
         InsightActorsQuery
         | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
@@ -33679,7 +33630,6 @@ class MaxInsightContext(BaseModel):
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -33743,7 +33693,6 @@ class MaxUIContext(BaseModel):
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
     notebooks: list[MaxNotebookContext] | None = None
-    voice_mode: bool | None = None
 
 
 class QueryRequest(BaseModel):
@@ -33823,7 +33772,6 @@ class QueryRequest(BaseModel):
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -33959,7 +33907,6 @@ class QuerySchemaRoot(
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -34065,7 +34012,6 @@ class QuerySchemaRoot(
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -34176,7 +34122,6 @@ class QueryUpgradeRequest(BaseModel):
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -34287,7 +34232,6 @@ class QueryUpgradeResponse(BaseModel):
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery
@@ -34443,7 +34387,6 @@ class VisualizationArtifactContent(BaseModel):
         | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
-        | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | RecordingsQuery
         | LogsQuery

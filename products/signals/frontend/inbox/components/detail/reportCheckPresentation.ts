@@ -49,6 +49,20 @@ export function inconclusiveReasonLabel(reason: string | null | undefined): stri
     )
 }
 
+export function monitoringPeriodLabel(minutes: number): string {
+    if (minutes === 0) {
+        return '0 minutes'
+    }
+    return [
+        [Math.floor(minutes / 1440), 'day'],
+        [Math.floor((minutes % 1440) / 60), 'hour'],
+        [minutes % 60, 'minute'],
+    ]
+        .filter(([value]) => Number(value) > 0)
+        .map(([value, unit]) => `${value} ${unit}${value === 1 ? '' : 's'}`)
+        .join(' ')
+}
+
 /** A soak window in the words the copy needs: "7 days", "1 day 12 hours", "2 hours", "45 minutes". */
 function soakLabel(minutes: number): string {
     const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`

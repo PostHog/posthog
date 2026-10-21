@@ -32,6 +32,8 @@ import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/quer
 import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
+import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { dataCatalogMetricsRetrieve } from 'products/data_catalog/frontend/generated/api'
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
@@ -44,8 +46,10 @@ import {
 import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
+import type { DataCatalogMetricApi } from '../../data_catalog/frontend/generated/api.schemas'
 import type { DataWarehouseSavedQueryApi } from '../../data_warehouse/frontend/generated/api.schemas'
 import type { ExternalDataSourceConnectionOptionApi } from '../../warehouse_sources/frontend/generated/api.schemas'
+import { catalogMetricWorksheet } from './biCatalog'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved, captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import {
@@ -76,6 +80,12 @@ export interface BIWorksheetHistory {
     future: BIWorksheetSnapshot[]
 }
 
+function normalizeWorksheetForComparison(query: unknown): unknown {
+    return query && typeof query === 'object' && isBIVisualizationNode(query)
+        ? JSON.parse(JSON.stringify({ ...query, source: { ...query.source, filters: query.source.filters ?? {} } }))
+        : query
+}
+
 function emptyWorksheet(): BIVisualizationNode {
     return {
         kind: NodeKind.BIVisualizationNode,
@@ -94,8 +104,12 @@ export interface biSceneLogicValues {
     connectionOptionsLoading: boolean // connectionSelectorLogic
     connectionId: string | null // databaseTableListLogic
     currentTeamId: number | null // teamLogic
+    agentUpdateConflict: boolean
+    agentUpdateState: 'conflict' | 'error' | 'loading' | null
     canRedo: boolean
     canUndo: boolean
+    catalogMetric: Awaited<ReturnType<typeof dataCatalogMetricsRetrieve>> | null
+    catalogMetricLoading: boolean
     chartSettingsDefaults: ChartSettings | null
     copyDisabledReason: string | undefined
     dataNodeKey: string
@@ -140,8 +154,8 @@ export interface biSceneLogicActions {
     clearInsight: () => {
         value: true
     }
-    discardChanges: () => {
-        value: true
+    discardChanges: (syncUrl?: boolean) => {
+        syncUrl: boolean
     }
     exportView: () => any
     exportViewFailure: (
@@ -176,6 +190,21 @@ export interface biSceneLogicActions {
     navigateHierarchy: (worksheet: BIVisualizationNode) => {
         worksheet: BIVisualizationNode
     }
+    openCatalogMetric: (name: string) => string
+    openCatalogMetricFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    openCatalogMetricSuccess: (
+        catalogMetric: DataCatalogMetricApi,
+        payload?: string
+    ) => {
+        catalogMetric: DataCatalogMetricApi
+        payload?: string
+    }
     openWorksheet: () => {
         value: true
     }
@@ -186,11 +215,17 @@ export interface biSceneLogicActions {
         reset: boolean
         snapshot: BIWorksheetSnapshot
     }
+    reconcileInsightFromAgent: () => {
+        value: true
+    }
     recordWorksheet: (reset?: any) => {
         reset: any
     }
     redo: () => {
         value: true
+    }
+    refreshInsightFromAgent: (targetId: unknown) => {
+        targetId: unknown
     }
     restoreHistory: () => {
         value: true
@@ -225,6 +260,9 @@ export interface biSceneLogicActions {
     selectConnection: (connectionId: string | null) => {
         connectionId: string | null
     }
+    setAgentUpdateState: (state: 'conflict' | 'error' | 'loading' | null) => {
+        state: 'conflict' | 'error' | 'loading' | null
+    }
     setChartSettings: (chartSettings: ChartSettings) => {
         chartSettings: ChartSettings
     }
@@ -236,6 +274,9 @@ export interface biSceneLogicActions {
     }
     setExportViewOpen: (open: boolean) => {
         open: boolean
+    }
+    setInsightFromAgent: (insight: InsightApi) => {
+        insight: InsightApi
     }
     setLastRunQuery: (query: BIVisualizationNode | null) => {
         query: BIVisualizationNode | null
@@ -295,7 +336,8 @@ export interface biSceneLogicMeta {
         saveDisabledReason: (
             generatedQuery: BIQueryBuildResult | null,
             insight: InsightApi | null,
-            name: string
+            name: string,
+            agentUpdateState: 'conflict' | 'error' | 'loading' | null
         ) => string | undefined
     }
 }
@@ -337,10 +379,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
         setScatterAxis: (axis: 'x' | 'y', column: string) => ({ axis, column }),
         setName: (name: string) => ({ name }),
+        refreshInsightFromAgent: (targetId: unknown) => ({ targetId }),
+        reconcileInsightFromAgent: true,
+        setInsightFromAgent: (insight: InsightApi) => ({ insight }),
+        setAgentUpdateState: (state: 'loading' | 'conflict' | 'error' | null) => ({ state }),
         runQuery: true,
         cancelQuery: true,
         setLastRunQuery: (query: BIVisualizationNode | null) => ({ query }),
-        discardChanges: true,
+        discardChanges: (syncUrl: boolean = true) => ({ syncUrl }),
         shareWorksheet: true,
         syncWorksheetUrl: true,
         openWorksheet: true,
@@ -351,7 +397,25 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setSqlPreviewOpen: (open: boolean) => ({ open }),
         setSqlPreviewVersion: (version: 'current' | 'last_run') => ({ version }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
+        catalogMetric: [
+            null as Awaited<ReturnType<typeof dataCatalogMetricsRetrieve>> | null,
+            {
+                openCatalogMetric: async (name: string, breakpoint) => {
+                    if (validateMetricName(name)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name)
+                    breakpoint()
+                    if (!catalogMetricWorksheet(metric)) {
+                        throw new Error(
+                            'Explore in BI currently supports SQL metrics. Open this definition in the catalog.'
+                        )
+                    }
+                    return metric
+                },
+            },
+        ],
         insight: [
             null as InsightApi | null,
             {
@@ -387,6 +451,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         values.insight && !asCopy
                             ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
                             : await insightsCreate(String(values.currentTeamId), payload)
+                    if (asCopy) {
+                        cache.agentRefreshAfterSave = false
+                        actions.setAgentUpdateState(null)
+                    }
                     captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
                     captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
                     if (asCopy) {
@@ -472,12 +540,38 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 }),
             },
         ],
-        insight: { clearInsight: () => null },
+        insight: { clearInsight: () => null, setInsightFromAgent: (_, { insight }) => insight },
+        agentUpdateConflict: [
+            false,
+            {
+                setAgentUpdateState: (conflict, { state }) => state === 'conflict' || (state !== null && conflict),
+                loadInsightSuccess: () => false,
+                clearInsight: () => false,
+                discardChanges: () => false,
+            },
+        ],
+        agentUpdateState: [
+            null as 'loading' | 'conflict' | 'error' | null,
+            {
+                setAgentUpdateState: (_, { state }) => state,
+                loadInsightSuccess: () => null,
+                clearInsight: () => null,
+                discardChanges: (state) => (state === 'conflict' ? null : state),
+            },
+        ],
         name: ['Untitled worksheet', { setName: (_, { name }) => name }],
         lastRunQuery: [null as BIVisualizationNode | null, { setLastRunQuery: (_, { query }) => query }],
         loadError: [
             null as string | null,
-            { loadInsight: () => null, loadInsightFailure: (_, { error }) => error, loadInsightSuccess: () => null },
+            {
+                openWorksheet: () => null,
+                loadInsight: () => null,
+                loadInsightFailure: (_, { error }) => error,
+                loadInsightSuccess: () => null,
+                openCatalogMetric: () => null,
+                openCatalogMetricFailure: (_, { error }) => error,
+                openCatalogMetricSuccess: () => null,
+            },
         ],
         exportViewName: ['', { setExportViewName: (_, { name }) => name }],
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
@@ -563,16 +657,26 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         hasUnsavedChanges: [
             (s) => [s.worksheet, s.name, s.insight],
             (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null): boolean =>
-                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query ?? emptyWorksheet()) ||
-                name.trim() !== (insight?.name || 'Untitled worksheet'),
+                !equal(
+                    normalizeWorksheetForComparison(worksheet),
+                    normalizeWorksheetForComparison(insight?.query ?? emptyWorksheet())
+                ) || name.trim() !== (insight?.name || 'Untitled worksheet'),
         ],
         saveDisabledReason: [
-            (s) => [s.generatedQuery, s.insight, s.name],
+            (s) => [s.generatedQuery, s.insight, s.name, s.agentUpdateState],
             (
                 generatedQuery: BIQueryBuildResult | null,
                 insight: InsightApi | null,
-                name: string
+                name: string,
+                agentUpdateState: 'loading' | 'conflict' | 'error' | null
             ): string | undefined => {
+                if (agentUpdateState) {
+                    return agentUpdateState === 'loading'
+                        ? 'Refreshing assistant changes'
+                        : agentUpdateState === 'error'
+                          ? 'Retry refreshing assistant changes before saving'
+                          : 'Discard changes or save a copy to resolve the assistant update'
+                }
                 if (!generatedQuery) {
                     return 'Select a table and resolve any invalid fields before saving'
                 }
@@ -593,10 +697,94 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        refreshInsightFromAgent: ({ targetId }) => {
+            if (targetId && typeof targetId === 'object' && !Array.isArray(targetId)) {
+                const input = targetId as Record<string, unknown>
+                targetId = [input.id, input.insightId, input.insight_id, input.short_id, input.shortId].find(
+                    (value) => value !== undefined
+                )
+            }
+            const baseline = values.insight
+            if (!baseline || (String(targetId) !== String(baseline.id) && targetId !== baseline.short_id)) {
+                return
+            }
+            actions.reconcileInsightFromAgent()
+        },
+        reconcileInsightFromAgent: async (_, breakpoint) => {
+            const baseline = values.insight
+            if (!baseline) {
+                return
+            }
+            const hadConflict = values.agentUpdateConflict
+            actions.setAgentUpdateState('loading')
+            if (values.insightLoading) {
+                cache.agentRefreshAfterSave = true
+                return
+            }
+            try {
+                const response = await insightsList(String(values.currentTeamId), {
+                    short_id: baseline.short_id,
+                    basic: true,
+                })
+                breakpoint()
+                if (values.insight !== baseline) {
+                    if (values.insight?.id === baseline.id) {
+                        actions.reconcileInsightFromAgent()
+                    }
+                    return
+                }
+                const updated = response.results[0]
+                if (!updated || updated.id !== baseline.id || !isBIVisualizationNode(updated.query)) {
+                    throw new Error('The updated worksheet is unavailable')
+                }
+                const localQuery = normalizeWorksheetForComparison(values.worksheet)
+                const baselineQuery = normalizeWorksheetForComparison(baseline.query)
+                const updatedQuery = normalizeWorksheetForComparison(updated.query)
+                const queryEdited = !equal(localQuery, baselineQuery)
+                const nameEdited = values.name !== (baseline.name || 'Untitled worksheet')
+                const conflict =
+                    (hadConflict && (queryEdited || nameEdited)) ||
+                    (queryEdited && !equal(updatedQuery, baselineQuery) && !equal(localQuery, updatedQuery)) ||
+                    (nameEdited && updated.name !== baseline.name && values.name !== updated.name)
+
+                actions.setInsightFromAgent(updated)
+                if (!queryEdited) {
+                    actions.restoreWorksheet(updated.query)
+                }
+                if (!nameEdited) {
+                    actions.setName(updated.name || 'Untitled worksheet')
+                }
+                actions.setAgentUpdateState(conflict ? 'conflict' : null)
+                actions.syncWorksheetUrl()
+                actions.recordWorksheet(true)
+            } catch {
+                breakpoint()
+                if (values.insight === baseline) {
+                    actions.setAgentUpdateState('error')
+                }
+            }
+        },
         setSqlPreviewOpen: ({ open }) => {
             if (open) {
                 actions.setSqlPreviewVersion(values.generatedQuery ? 'current' : 'last_run')
             }
+        },
+        openCatalogMetricSuccess: ({ catalogMetric: metric, payload: name }) => {
+            if (
+                router.values.location.pathname !== addProjectIdIfMissing(urls.businessIntelligenceNew()) ||
+                router.values.searchParams.metric !== name ||
+                router.values.hashParams.q
+            ) {
+                return
+            }
+            const worksheet = catalogMetricWorksheet(metric)!
+            actions.clearInsight()
+            actions.restoreWorksheet(worksheet)
+            actions.setLastRunQuery(null)
+            actions.setName(metric.display_name || metric.name)
+            actions.recordWorksheet(true)
+            actions.syncWorksheetUrl()
+            captureBIWorksheetAction('catalog_metric_opened', worksheet.config)
         },
         recordWorksheet: ({ reset }) => {
             if (!cache.restoringHistory) {
@@ -634,7 +822,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
             actions.runAfterChange()
         },
-        setName: () => actions.recordWorksheet(),
+        setName: () => {
+            actions.recordWorksheet()
+            if (values.agentUpdateConflict) {
+                actions.syncWorksheetUrl()
+            }
+        },
         [dataNodeLogic({ key: `InsightViz.new-bi-${props.tabId}`, query: emptyWorksheet().source }).actionTypes
             .loadDataSuccess]: ({ response }) => {
             if (
@@ -717,12 +910,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (insight && isBIVisualizationNode(insight.query)) {
                 actions.setName(insight.name || 'Untitled worksheet')
                 let worksheet: BIVisualizationNode = insight.query
-                const { q, filters } = router.values.hashParams
+                const { q, filters, bi_conflict } = router.values.hashParams
+                let restoredDraft = false
                 if (q) {
                     try {
                         const draft = typeof q === 'string' ? JSON.parse(q) : q
                         if (isBIVisualizationNode(draft) && parseBIEditorState(BIEditorView.BI, draft.config)) {
                             worksheet = draft
+                            restoredDraft = true
                         }
                     } catch {
                         lemonToast.error('Could not restore worksheet edits from the link.')
@@ -732,11 +927,23 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     worksheet = { ...worksheet, source: { ...worksheet.source, filters: filters as HogQLFilters } }
                 }
                 actions.restoreWorksheet(worksheet)
+                if (restoredDraft && bi_conflict?.insightId === insight.id && typeof bi_conflict.name === 'string') {
+                    actions.setName(bi_conflict.name)
+                    actions.setAgentUpdateState('conflict')
+                }
                 actions.recordWorksheet(true)
                 void insightsViewedCreate(String(values.currentTeamId), { insight_ids: [insight.id] }).catch(() => {})
             }
         },
         saveInsightSuccess: ({ insight }) => {
+            if (cache.agentRefreshAfterSave) {
+                cache.agentRefreshAfterSave = false
+                actions.reconcileInsightFromAgent()
+                return
+            }
+            if (values.agentUpdateState) {
+                return
+            }
             if (insight) {
                 actions.setName(insight.name || 'Untitled worksheet')
                 localStorage.removeItem(`bi-worksheet-${values.currentTeamId}-${props.tabId}`)
@@ -746,6 +953,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     urls.businessIntelligenceWorksheet(insight.short_id),
                     dashboard ? { dashboard } : {}
                 )
+            }
+        },
+        saveInsightFailure: () => {
+            if (cache.agentRefreshAfterSave) {
+                cache.agentRefreshAfterSave = false
+                actions.reconcileInsightFromAgent()
             }
         },
         runAfterChange: async (_, breakpoint) => {
@@ -793,12 +1006,16 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 return
             }
             captureBIEditorQueryRun({ editorView: BIEditorView.BI, config: values.config })
+            const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
             const unchanged =
                 !!values.lastRunQuery &&
                 equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
+            const waitingForFirstRun =
+                dataLogic?.props.autoLoad === false &&
+                equal(dataLogic.props.query, getBIVisualizationSource(values.worksheet))
             actions.setLastRunQuery(values.worksheet)
-            if (unchanged) {
-                dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.loadData('force_async')
+            if (unchanged || waitingForFirstRun) {
+                dataLogic?.actions.loadData('force_async')
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
@@ -869,7 +1086,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.syncWorksheetUrl()
             actions.recordWorksheet()
         },
-        discardChanges: () => {
+        discardChanges: ({ syncUrl }) => {
             if (isBIVisualizationNode(values.insight?.query)) {
                 actions.restoreWorksheet(values.insight.query)
                 actions.setName(values.insight.name || 'Untitled worksheet')
@@ -877,7 +1094,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 actions.restoreWorksheet(emptyWorksheet())
                 actions.setName('Untitled worksheet')
             }
-            actions.syncWorksheetUrl()
+            if (syncUrl) {
+                actions.syncWorksheetUrl()
+            } else {
+                cache.lastHash = undefined
+                localStorage.removeItem(`bi-worksheet-${values.currentTeamId}-${props.tabId}`)
+            }
             actions.recordWorksheet(true)
         },
         syncWorksheetUrl: () => {
@@ -893,7 +1115,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         ? urls.businessIntelligenceWorksheet(values.insight.short_id)
                         : urls.businessIntelligenceNew(),
                     router.values.searchParams,
-                    { q: cache.lastHash }
+                    {
+                        q: cache.lastHash,
+                        ...(values.agentUpdateConflict && values.insight
+                            ? { bi_conflict: { insightId: values.insight.id, name: values.name } }
+                            : {}),
+                    }
                 )
             } finally {
                 cache.syncingWorksheetUrl = false
@@ -905,6 +1132,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         openWorksheet: () => {
             const { searchParams, hashParams } = router.values
+            if (typeof searchParams.metric === 'string' && !hashParams.q) {
+                actions.openCatalogMetric(searchParams.metric)
+                return
+            }
             const pathId = router.values.location.pathname.match(/\/bi\/([^/]+)$/)?.[1]
             const insightShortId =
                 searchParams.open_insight || (pathId && pathId !== 'new' ? decodeURIComponent(pathId) : undefined)
@@ -961,10 +1192,15 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             values.hasUnsavedChanges &&
             (!newLocation || addProjectIdIfMissing(newLocation.pathname) !== router.values.location.pathname),
         message: 'Leave worksheet? Changes you made will be discarded.',
-        onConfirm: () => actions.discardChanges(),
+        // On browser Back, replacing the URL would overwrite the destination's history entry.
+        onConfirm: () => actions.discardChanges(false),
     })),
     urlToAction(({ actions }) => ({
-        '/bi': () => actions.openWorksheet(),
+        '/bi': (_, searchParams, hashParams) => {
+            if (searchParams.open_insight || searchParams.open_view || 'q' in hashParams || hashParams.bi) {
+                actions.openWorksheet()
+            }
+        },
         '/bi/new': () => actions.openWorksheet(),
         '/bi/:insightShortId': () => actions.openWorksheet(),
     })),

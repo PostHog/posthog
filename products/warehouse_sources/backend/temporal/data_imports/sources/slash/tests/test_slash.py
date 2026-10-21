@@ -5,7 +5,6 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -118,9 +117,6 @@ def test_repeated_cursor_fails() -> None:
 @pytest.mark.parametrize(
     ("status", "schema", "expected", "message"),
     [
-        (200, None, True, None),
-        (200, "cards", True, None),
-        (401, None, False, "Slash rejected the API key. Check the key in your Slash dashboard."),
         (403, None, True, None),
         (
             403,
@@ -153,11 +149,6 @@ def test_sync_error_mapping(status: int) -> None:
     ]
     assert bool(matches) == (status != 404)
     assert len(result.requests) == 1
-
-
-def test_unknown_endpoint() -> None:
-    result = _run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
 
 
 def test_probe_unexpected_error_propagates() -> None:

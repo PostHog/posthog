@@ -3,6 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -27,8 +28,11 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
+    type InterviewRecruitmentDiagnostics,
+    type InterviewRecruitmentUnavailableReason,
     resolveInterviewRecruitmentConfig,
     MCP_INTERVIEW_RECRUITMENT_FLAG,
 } from './interview-recruitment'
@@ -48,11 +52,18 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
+    intentPrompt?: string
+    interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
+    interviewRecruitmentDiagnostics?: InterviewRecruitmentDiagnostics
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
+    projectHasData?: boolean | undefined
+    /** Set on the per-call state when the no-data notice blocked or warned this call. */
+    noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -72,6 +83,7 @@ export interface ResolvedState {
      * the full roster into the instructions payload.
      */
     gatewayToolsEnabled: boolean
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
 }
@@ -170,6 +182,8 @@ export class RequestStateResolver {
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
+                MCP_INTENT_PROMPT_FLAG,
+                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
             ]),
         ]
 
@@ -210,19 +224,35 @@ export class RequestStateResolver {
                 // Local opt-in still requires explicit, valid invitation content.
             }
         }
-        const interviewRecruitmentConfig =
-            source === EVENT_SOURCE.MCP &&
-            !_apiKey?.scopes?.includes('internal_run:read') &&
-            !props.taskId &&
-            !props.taskOriginProduct
-                ? resolveInterviewRecruitmentConfig(mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG], recruitmentPayload)
-                : undefined
+        const recruitmentFlagValue = mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        let interviewRecruitmentUnavailableReason: InterviewRecruitmentUnavailableReason | undefined
+        if (source !== EVENT_SOURCE.MCP) {
+            interviewRecruitmentUnavailableReason = 'surface_excluded'
+        } else if (_apiKey?.scopes?.includes('internal_run:read')) {
+            interviewRecruitmentUnavailableReason = 'internal_run'
+        } else if (props.taskId || props.taskOriginProduct) {
+            interviewRecruitmentUnavailableReason = 'task_bound'
+        } else if (recruitmentFlagValue === undefined) {
+            interviewRecruitmentUnavailableReason = 'flag_unavailable'
+        } else if (recruitmentFlagValue === false) {
+            interviewRecruitmentUnavailableReason = 'flag_disabled'
+        }
+        const interviewRecruitmentConfig = interviewRecruitmentUnavailableReason
+            ? undefined
+            : resolveInterviewRecruitmentConfig(recruitmentFlagValue, recruitmentPayload)
+        if (!interviewRecruitmentUnavailableReason && !interviewRecruitmentConfig) {
+            interviewRecruitmentUnavailableReason = 'invalid_configuration'
+        }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
+        const intentPrompt =
+            source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
+                ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
+                : undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
@@ -287,11 +317,15 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
+            intentPrompt,
+            interviewRecruitmentUnavailableReason,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
+            projectHasData: flagAnalyticsContext?.projectHasData,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -299,6 +333,7 @@ export class RequestStateResolver {
             allTools,
             scopeGatedTools,
             flagGatedTools,
+            gatewayToolFilter: { tools, features, excludeTools },
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -429,10 +464,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment still needs an explicit override so development tasks do not ask for interviews.
+        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
-                flags: Object.fromEntries(flagKeys.map((key) => [key, key !== MCP_INTERVIEW_RECRUITMENT_FLAG])),
+                flags: Object.fromEntries(
+                    flagKeys.map((key) => [
+                        key,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                    ])
+                ),
                 payloads: {},
             }
         }

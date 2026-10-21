@@ -7,6 +7,7 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, noDataAnalyticsProperties } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -22,6 +23,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
@@ -218,6 +220,9 @@ export async function trackToolCall(
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(state.interviewRecruitmentDiagnostics && !state.isImpersonated && !state.suppressAnalytics
+                    ? interviewRecruitmentProperties(state.interviewRecruitmentDiagnostics)
+                    : {}),
                 ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
                     ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
                     : {}),
@@ -226,6 +231,11 @@ export async function trackToolCall(
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
+                ...noDataAnalyticsProperties(
+                    state.projectHasData,
+                    state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
+                    state.noDataAction
+                ),
                 ...extraProperties,
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,

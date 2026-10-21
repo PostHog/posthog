@@ -25,6 +25,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.models.hog_flow.hog_flow import static_cohort_ids
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
@@ -38,6 +39,7 @@ from products.workflows.backend.services.email_sending_controls import (
     unsuspend_email_sending,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -62,6 +64,7 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
+    "list_owned_workflow_health",
     "max_email_sending_tier",
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
@@ -138,6 +141,14 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         return HogFlow.objects.values_list("created_by_id", flat=True).get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
+
+
+def get_workflow_static_cohort_ids(*, team_id: int, workflow_id: UUID) -> set[int]:
+    try:
+        actions = HogFlow.objects.values_list("actions", flat=True).get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    return static_cohort_ids(actions)
 
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
@@ -251,6 +262,16 @@ def get_active_workflows_using_realtime_cohort(
         CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
+
+
+def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
+    """Cheap pre-check: False means no active workflow in the team can rely on any cohort."""
+    # Deferred for the same reason as get_active_workflows_using_realtime_cohort.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        team_has_active_hog_flows_mentioning_cohorts,
+    )
+
+    return team_has_active_hog_flows_mentioning_cohorts(team_id)
 
 
 def recompute_email_sending_tier(team_id: int) -> TierDecision | None:

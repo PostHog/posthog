@@ -36,7 +36,7 @@ class ProjectContext:
 
 @frozen
 class NetworkInputs:
-    # (rows, D) float32.
+    # (rows, D + report features) float32: the report vector, then any columns the feature set adds.
     reports: np.ndarray
     context: ProjectContext | None = None
 
