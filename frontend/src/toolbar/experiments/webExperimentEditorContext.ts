@@ -18,7 +18,8 @@ export interface WebExperimentEditor {
     /** The transformation waiting for an element pick on the page. */
     inspectingElement: number | null
     removeVariantAvailable: boolean
-    renameVariant: (variant: string, newKey: string) => void
+    /** Returns false when the rename is rejected, for example because another variant has the key. */
+    renameVariant: (variant: string, newKey: string) => boolean
     removeVariant: (variant: string) => void
     addTransformation: (variant: string) => void
     removeTransformation: (variant: string, index: number) => void
@@ -27,6 +28,14 @@ export interface WebExperimentEditor {
     inspectForTransformation: (variant: string, index: number | null) => void
     setTransformationField: (variant: string, index: number, field: 'html' | 'css', value: string) => void
     setTransformationSelector: (variant: string, index: number, selector: string) => void
+}
+
+export function canRenameVariant(
+    variants: Record<string, WebExperimentVariant>,
+    variant: string,
+    newKey: string
+): boolean {
+    return !!variants[variant] && !!newKey && newKey !== variant && !variants[newKey]
 }
 
 export const WebExperimentEditorContext = createContext<WebExperimentEditor | null>(null)

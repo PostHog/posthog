@@ -5,6 +5,7 @@ import type {
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
 
+import type { SelectorMatchCounts } from '~/toolbar/actions/SelectorCountContext'
 import type { EventCategory } from '~/toolbar/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
 import type { ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
@@ -285,7 +286,7 @@ export interface PageToolbarState {
     mode: PageToolbarMode
     inspect: PageToolbarInspectState
     /** Matches on the page for the selectors the panel asked about. `null` marks an invalid selector. */
-    selectorCounts: Record<string, number | null>
+    selectorCounts: Record<string, SelectorMatchCounts | null>
     heatmap: PageToolbarHeatmapState
     actions: PageToolbarActionsState
     flags: PageToolbarFlagsState

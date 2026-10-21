@@ -33,8 +33,8 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                         }}
                         onBlur={(e) => {
                             e.stopPropagation()
-                            if (localTentativeValue !== variant) {
-                                renameVariant(variant, localTentativeValue)
+                            if (localTentativeValue !== variant && !renameVariant(variant, localTentativeValue)) {
+                                setLocalTentativeValue(variant)
                             }
                         }}
                         placeholder='Example: "test-1"'

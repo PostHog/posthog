@@ -228,7 +228,9 @@ export type experimentsTabLogicType = MakeLogicType<
 >
 
 /** Puts back the HTML and styles saved before a preview. Sanitizes once per selector and reuses it across matches. */
-function restoreOriginalHtmlState(originalHtmlState: WebExperimentForm['original_html_state'] | undefined): void {
+export function restoreOriginalHtmlState(
+    originalHtmlState: WebExperimentForm['original_html_state'] | undefined
+): void {
     Object.entries(originalHtmlState || {}).forEach(([selector, originalState]) => {
         const sanitizedHtml = sanitizeExperimentHTML(originalState.html)
         const sanitizedCss = sanitizeExperimentStyle(originalState.css)
@@ -461,7 +463,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             restoreOriginalHtmlState(values.experimentForm?.original_html_state)
             const { selectedExperiment } = values
             if (!selectedExperiment) {
-                actions.setExperimentFormValues({ name: '', variants: {} })
+                actions.setExperimentFormValues({ name: '', variants: {}, original_html_state: {} })
             } else {
                 // Build original_html_state from existing selectors
                 const original_html_state: Record<string, { html: string; css?: string }> = {}
