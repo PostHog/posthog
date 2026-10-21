@@ -17,7 +17,13 @@ from products.workflows.backend.facade.contracts import (
     WorkflowWriteResult,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    RECHECKED_TRIGGER_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
+    HogFlow,
+    exit_condition_that_runs,
+)
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
@@ -147,7 +153,9 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
         _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
-def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
+def _derive_from_locked_graph(
+    locked: HogFlow, validated_data: dict, requested_exit_condition: Optional[str] = None
+) -> dict:
     # HogFlowSerializer.validate derives trigger, billable_action_types and exit_condition from the
     # actions it read before the row lock. A write without actions keeps the locked row's actions, and a
     # concurrent graph write can change those actions before the lock. Derive these fields again from the
@@ -162,10 +170,22 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
     if "exit_condition" in derived:
         # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
         # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
-        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        locked_type = (derived.get("trigger") or {}).get("type")
+        read_type = (validated_data.get("trigger") or {}).get("type")
+        if locked_type in ROW_SCOPED_TRIGGER_TYPES:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
-        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        elif requested_exit_condition is not None:
+            # validate may have rewritten the value the request set for the read trigger. Apply the rule to
+            # the requested value against the locked trigger instead, so the request is not lost.
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, requested_exit_condition)
+        elif read_type in ROW_SCOPED_TRIGGER_TYPES or (
+            locked_type in RECHECKED_TRIGGER_TYPES and read_type not in RECHECKED_TRIGGER_TYPES
+        ):
+            # The read trigger may have rewritten the value, and the locked trigger can run any exit
+            # condition, so keep the locked row's value instead.
             del derived["exit_condition"]
+        else:
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, derived["exit_condition"])
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
@@ -321,6 +341,7 @@ def update_workflow(
     includes_staged_draft: bool,
     validated_status: str,
     keeps_live_sensitivity: bool = True,
+    requested_exit_condition: Optional[str] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -387,7 +408,7 @@ def update_workflow(
                     raise WorkflowStale()
                 _save_live(instance, remaining)
         else:
-            validated_data = _derive_from_locked_graph(before_update, validated_data)
+            validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
