@@ -36,7 +36,8 @@ jobs:
               env:
                   TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  # Incoming-webhook trigger of the investigation workflow. Unset still posts the
-                  # Slack alert and skips the agent.
-                  INVESTIGATION_WEBHOOK_URL: ${{ vars.MERGE_QUEUE_INVESTIGATION_WEBHOOK_URL }}
+                  # Incoming-webhook trigger of the investigation workflow. The URL is the only thing
+                  # guarding the endpoint, so it must be a secret: an Actions variable prints in
+                  # this public repo's step log. Unset still posts the Slack alert and skips the agent.
+                  INVESTIGATION_WEBHOOK_URL: ${{ secrets.MERGE_QUEUE_INVESTIGATION_WEBHOOK_URL }}
               run: node .github/scripts/merge-queue-watch.mjs

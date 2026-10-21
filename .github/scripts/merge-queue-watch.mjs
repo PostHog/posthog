@@ -107,7 +107,7 @@ function parseMetrics(text) {
     }
 }
 
-function slackMessage(verdict, metrics) {
+function slackMessage(verdict, metrics, investigation) {
     const owner = process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
     const prs = verdict.top
         .map(([pr, n]) => `<https://github.com/PostHog/posthog/pull/${pr}|#${pr}> (${n} failed runs)`)
@@ -124,11 +124,14 @@ function slackMessage(verdict, metrics) {
                         verdict.reasons.map((r) => `• ${r}`).join('\n') +
                         `\nMost repeated PRs: ${prs}\n` +
                         `Failed ${verdict.failedRuns} of ${verdict.totalRuns} runs in the last ${WINDOW_MINUTES} minutes. ` +
-                        `Restarts (1h): ${metrics.restarts.join(' ') || 'none'}`,
+                        `Restarts (1h): ${metrics.restarts.join(' ') || 'unavailable or none'}`,
                 },
             },
         ],
-        metadata: { event_type: ALERT_EVENT_TYPE, event_payload: { top_pr: String(verdict.top[0]?.[0] ?? '') } },
+        metadata: {
+            event_type: ALERT_EVENT_TYPE,
+            event_payload: { top_pr: String(verdict.top[0]?.[0] ?? ''), investigation },
+        },
     }
 }
 
@@ -145,26 +148,38 @@ async function slack(method, body) {
     return json
 }
 
-// Slack is the only state: a recent bot message for the same top PR means this tick stays quiet.
-async function recentlyAlerted(topPr, now) {
+// Slack is the only state. The newest alert for the same top PR inside the cooldown window keeps this
+// tick quiet. History is paged because a busy channel can push the alert past the first page.
+async function findRecentAlert(topPr, now) {
     const oldest = String((now.getTime() - COOLDOWN_MINUTES * 60 * 1000) / 1000)
-    // Slack read methods take query parameters, not a JSON body.
-    const url = new URL('https://slack.com/api/conversations.history')
-    url.search = new URLSearchParams({
-        channel: process.env.SLACK_CHANNEL,
-        oldest,
-        limit: '50',
-        include_all_metadata: 'true',
-    }).toString()
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` } })
-    const history = await res.json()
-    if (!history.ok) {
-        throw new Error(`Slack conversations.history: ${history.error}`)
-    }
-    const { messages = [] } = history
-    return messages.some(
-        (m) => m.metadata?.event_type === ALERT_EVENT_TYPE && m.metadata.event_payload?.top_pr === String(topPr)
-    )
+    let cursor = ''
+    do {
+        // Slack read methods take query parameters, not a JSON body.
+        const params = new URLSearchParams({
+            channel: process.env.SLACK_CHANNEL,
+            oldest,
+            limit: '100',
+            include_all_metadata: 'true',
+        })
+        if (cursor) {
+            params.set('cursor', cursor)
+        }
+        const res = await fetch(`https://slack.com/api/conversations.history?${params}`, {
+            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+        })
+        const history = await res.json()
+        if (!history.ok) {
+            throw new Error(`Slack conversations.history: ${history.error}`)
+        }
+        const found = (history.messages ?? []).find(
+            (m) => m.metadata?.event_type === ALERT_EVENT_TYPE && m.metadata.event_payload?.top_pr === String(topPr)
+        )
+        if (found) {
+            return found
+        }
+        cursor = history.has_more ? (history.response_metadata?.next_cursor ?? '') : ''
+    } while (cursor)
+    return undefined
 }
 
 // The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
@@ -191,6 +206,47 @@ async function startInvestigation(url, payload) {
     throw new Error(`Could not start the investigation after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
 }
 
+function investigationPayload(verdict, ts) {
+    return {
+        event: ALERT_OPENED_EVENT,
+        distinct_id: 'merge-queue-watch',
+        properties: {
+            channel: process.env.SLACK_CHANNEL,
+            ts,
+            window_minutes: WINDOW_MINUTES,
+            reasons: verdict.reasons,
+            top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
+            failed_runs: verdict.failedRuns,
+            total_runs: verdict.totalRuns,
+            failed_last_30m: verdict.failedLast30m,
+        },
+    }
+}
+
+// Records on the alert message that the webhook accepted the start, so a later tick does not repeat it.
+async function markInvestigationStarted(ts, message) {
+    await slack('chat.update', {
+        channel: process.env.SLACK_CHANNEL,
+        ts,
+        text: message.text,
+        blocks: message.blocks,
+        metadata: {
+            event_type: ALERT_EVENT_TYPE,
+            event_payload: { ...message.metadata.event_payload, investigation: 'started' },
+        },
+    })
+}
+
+// The alert is only supplementary context, so a metrics outage must not stop the alert.
+async function fetchRestartMetrics() {
+    try {
+        return parseMetrics(await trunk('/getMergeQueueMetrics'))
+    } catch (err) {
+        console.warn(`metrics unavailable: ${err.message}`)
+        return { restarts: [], depth: [] }
+    }
+}
+
 async function main() {
     const argv = process.argv.slice(2)
     const dry = argv.includes('--dry')
@@ -204,33 +260,28 @@ async function main() {
     if (!verdict.fire) {
         return
     }
-    const metrics = parseMetrics(await trunk('/getMergeQueueMetrics'))
-    const message = slackMessage(verdict, metrics)
+    const webhook = process.env.INVESTIGATION_WEBHOOK_URL
+    const metrics = await fetchRestartMetrics()
+    const message = slackMessage(verdict, metrics, webhook ? 'pending' : 'off')
     if (dry || !process.env.SLACK_BOT_TOKEN || !process.env.SLACK_CHANNEL) {
         console.log('would post:\n' + message.blocks[0].text.text)
         return
     }
-    if (await recentlyAlerted(verdict.top[0][0], now)) {
+    const recent = await findRecentAlert(verdict.top[0][0], now)
+    if (recent) {
+        // The alert posted but its webhook failed on an earlier tick. Retry on the same thread.
+        if (webhook && recent.metadata.event_payload.investigation === 'pending') {
+            await startInvestigation(webhook, investigationPayload(verdict, recent.ts))
+            await markInvestigationStarted(recent.ts, { text: recent.text, blocks: recent.blocks, metadata: recent.metadata })
+            return
+        }
         console.log('cooldown: same top PR already alerted')
         return
     }
     const posted = await slack('chat.postMessage', { channel: process.env.SLACK_CHANNEL, unfurl_links: false, ...message })
-    const webhook = process.env.INVESTIGATION_WEBHOOK_URL
     if (webhook) {
-        await startInvestigation(webhook, {
-            event: ALERT_OPENED_EVENT,
-            distinct_id: 'merge-queue-watch',
-            properties: {
-                channel: process.env.SLACK_CHANNEL,
-                ts: posted.ts,
-                window_minutes: WINDOW_MINUTES,
-                reasons: verdict.reasons,
-                top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
-                failed_runs: verdict.failedRuns,
-                total_runs: verdict.totalRuns,
-                failed_last_30m: verdict.failedLast30m,
-            },
-        })
+        await startInvestigation(webhook, investigationPayload(verdict, posted.ts))
+        await markInvestigationStarted(posted.ts, message)
     }
 }
 
