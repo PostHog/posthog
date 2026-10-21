@@ -60,11 +60,11 @@ function onError(_context: Context, params: UpdateParams, error: unknown): never
     }
     throw new PostHogValidationError({
         ...error,
-        detail: `${error.detail}\n\n${untypedPropertyStep(`filters.${path}`, key)}`,
+        detail: `${error.detail}\n\n${propertyTypeRecoveryStep(`filters.${path}`, key)}`,
     })
 }
 
-function untypedPropertyStep(path: string, key: string): string {
+function propertyTypeRecoveryStep(path: string, key: string): string {
     const quotedKey = JSON.stringify(key)
     return (
         `The property at ${path} (key ${quotedKey}) has a missing or invalid \`type\`. Read the flag. ` +

@@ -202,6 +202,7 @@ describe('update-feature-flag preserving groups', () => {
             expect(rejection).toBeInstanceOf(PostHogValidationError)
             expect(rejection).toMatchObject({ attr: 'filters', code, method: 'PATCH' })
             const { message } = rejection as PostHogValidationError
+            expect(message).toContain(detail)
             expect(message).toContain('filters.groups[1].properties[0]')
             expect(message).toContain('"plan"')
             expect(message).toContain("Don't guess `person`")
