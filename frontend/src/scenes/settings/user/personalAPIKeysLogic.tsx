@@ -41,16 +41,18 @@ export type EditingKeyFormValues = Pick<
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
     expiration?: KeyExpirationOption
-    custom_expires_at?: string | null
 }
 
 /** `keep` leaves an edited key's expiry as it is. The day counts start when the form is saved. */
-export type KeyExpirationOption = 'keep' | 'never' | '7' | '30' | '60' | '90' | 'custom'
+export type KeyExpirationOption = 'keep' | 'never' | '7' | '30' | '90' | '365'
+
+export function isExpired(expiresAt: string | null | undefined, now: dayjs.Dayjs = dayjs()): boolean {
+    return !!expiresAt && !dayjs(expiresAt).isAfter(now)
+}
 
 /** The `expires_at` to send for the chosen option, or undefined to leave it unchanged. */
 export function expiresAtForOption(
     expiration: KeyExpirationOption | undefined,
-    customExpiresAt: string | null | undefined,
     now: dayjs.Dayjs = dayjs()
 ): string | null | undefined {
     switch (expiration) {
@@ -59,8 +61,6 @@ export function expiresAtForOption(
             return undefined
         case 'never':
             return null
-        case 'custom':
-            return customExpiresAt ? dayjs(customExpiresAt).endOf('day').toISOString() : undefined
         default:
             return now.add(Number(expiration), 'day').toISOString()
     }
@@ -207,7 +207,11 @@ export interface personalAPIKeysLogicActions {
     resetScopes: () => {
         value: true
     }
-    rollKey: (id: PersonalAPIKeyType['id']) => {
+    rollKey: (
+        id: PersonalAPIKeyType['id'],
+        expiresAt?: string | null
+    ) => {
+        expiresAt: string | null | undefined
         id: string
     }
     rollKeyFailure: (
@@ -220,11 +224,13 @@ export interface personalAPIKeysLogicActions {
     rollKeySuccess: (
         keys: PersonalAPIKeyType[],
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     ) => {
         keys: PersonalAPIKeyType[]
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     }
@@ -356,7 +362,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         }),
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
-        rollKey: (id: PersonalAPIKeyType['id']) => ({ id }),
+        // `expiresAt` undefined keeps the key's current expiry; null removes it.
+        rollKey: (id: PersonalAPIKeyType['id'], expiresAt?: string | null) => ({ id, expiresAt }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         setScopeGroupAccess: (keys: string[], level: ScopeAccessLevel) => ({ keys, level }),
         resetScopes: true,
@@ -397,13 +404,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     await api.personalApiKeys.delete(id)
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
-                rollKey: async ({ id }) => {
+                rollKey: async ({ id, expiresAt }) => {
                     const origKey = values.keys.find((filteredKey) => filteredKey.id == id)
                     if (!origKey) {
                         return values.keys
                     }
 
-                    const rolledKey = await api.personalApiKeys.roll(id)
+                    const rolledKey = await api.personalApiKeys.roll(
+                        id,
+                        expiresAt !== undefined ? { expires_at: expiresAt } : {}
+                    )
                     actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
 
                     // avoid persisting the raw value in state
@@ -433,17 +443,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scoped_teams: [],
                 access_type: undefined,
                 expiration: 'never',
-                custom_expires_at: null,
             } as EditingKeyFormValues,
-            errors: ({
-                label,
-                access_type,
-                scopes,
-                scoped_organizations,
-                scoped_teams,
-                expiration,
-                custom_expires_at,
-            }) => ({
+            errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
                 label: !label ? 'Your personal API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
                 access_type: !access_type ? ('Select access mode' as any) : undefined,
@@ -455,7 +456,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     access_type === 'teams' && !scoped_teams?.length
                         ? ('Select at least one project' as any)
                         : undefined,
-                custom_expires_at: expiration === 'custom' && !custom_expires_at ? 'Pick an expiry date' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 if (!values.editingKeyId) {
@@ -475,8 +475,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         const [object] = scope.split(':')
                         return !!object && allowed.has(object)
                     }) ?? []
-                const { expiration, custom_expires_at, ...rest } = payload
-                const expiresAt = expiresAtForOption(expiration, custom_expires_at)
+                const { expiration, ...rest } = payload
+                const expiresAt = expiresAtForOption(expiration)
                 const sanitizedPayload = {
                     ...rest,
                     scopes: sanitizedScopes,
@@ -801,7 +801,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                             ? 'all'
                             : undefined,
                     expiration: key?.expires_at ? 'keep' : 'never',
-                    custom_expires_at: null,
                 }
 
                 actions.resetEditingKey(formValues)

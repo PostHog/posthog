@@ -356,12 +356,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             if mode_used:
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
+        source_display = cls._SOURCE_DISPLAY.get(source, source)
         if not personal_api_key_object:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
-
         if personal_api_key_object.is_expired:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} has expired.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked

@@ -171,12 +171,11 @@ describe('personalAPIKeysLogic', () => {
     })
 
     it.each([
-        ['keep', null, undefined],
-        ['never', null, null],
-        ['30', null, dayjs('2026-01-31T10:00:00Z').toISOString()],
-        ['custom', '2026-03-05T00:00:00Z', dayjs('2026-03-05T00:00:00Z').endOf('day').toISOString()],
-        ['custom', null, undefined],
-    ] as const)('expiration %s with custom date %s sends expires_at %s', (expiration, customDate, expected) => {
-        expect(expiresAtForOption(expiration, customDate, dayjs('2026-01-01T10:00:00Z'))).toEqual(expected)
+        ['keep', undefined],
+        ['never', null],
+        ['30', dayjs('2026-01-31T10:00:00Z').toISOString()],
+        ['365', dayjs('2027-01-01T10:00:00Z').toISOString()],
+    ] as const)('expiration %s sends expires_at %s', (expiration, expected) => {
+        expect(expiresAtForOption(expiration, dayjs('2026-01-01T10:00:00Z'))).toEqual(expected)
     })
 })

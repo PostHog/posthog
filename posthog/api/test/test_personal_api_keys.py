@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -404,22 +404,31 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["last_rolled_at"] is not None
         assert data["mask_value"] != original_key.mask_value
 
-    @parameterized.expand([("with_expiry", timedelta(days=30)), ("without_expiry", None)])
-    def test_roll_restarts_expiry_period(self, _, period):
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
-            key = PersonalAPIKey.objects.create(
-                label="Test roll expiry",
-                user=self.user,
-                secure_value=hash_key_value(generate_random_token_personal()),
-                scopes=["insight:read"],
-                expires_at=timezone.now() + period if period else None,
-            )
+    @parameterized.expand(
+        [
+            ("sets_chosen_expiry", {"expires_at": "2026-04-21T00:00:00Z"}, 200, datetime(2026, 4, 21, tzinfo=UTC)),
+            ("omitted_keeps_expiry", {}, 200, datetime(2026, 1, 31, tzinfo=UTC)),
+            ("null_removes_expiry", {"expires_at": None}, 200, None),
+            ("past_is_rejected", {"expires_at": "2026-01-01T00:00:00Z"}, 400, datetime(2026, 1, 31, tzinfo=UTC)),
+        ]
+    )
+    def test_roll_sets_expiry_from_request(self, _, body, expected_status, expected_expires_at):
+        original_secure_value = hash_key_value(generate_random_token_personal())
+        key = PersonalAPIKey.objects.create(
+            label="Test roll expiry",
+            user=self.user,
+            secure_value=original_secure_value,
+            scopes=["insight:read"],
+            expires_at=datetime(2026, 1, 31, tzinfo=UTC),
+        )
 
         with time_machine.travel("2026-01-21T00:00:00Z", tick=False):
-            response = self.client.post(f"/api/personal_api_keys/{key.id}/roll", {})
-            assert response.status_code == 200
-            key.refresh_from_db()
-            assert key.expires_at == (timezone.now() + period if period else None)
+            response = self.client.post(f"/api/personal_api_keys/{key.id}/roll", body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert key.expires_at == expected_expires_at
+        assert (key.secure_value == original_secure_value) == (expected_status == 400)
 
 
 class TestPersonalAPIKeysAPIValidation(APIBaseTest):
