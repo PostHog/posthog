@@ -445,10 +445,11 @@ impl LeaderBackend {
                 let table = self.routing_table.read().await;
                 if !table.contains_key(&partition) {
                     self.stash.begin_stash(partition);
-                } else if changelog.floor_held()
-                    && (floor..changelog.partitions()).all(|p| table.contains_key(&p))
-                {
-                    changelog.release_floor();
+                } else if changelog.floor_held() {
+                    let partitions = changelog.partitions();
+                    if (floor..partitions).all(|p| table.contains_key(&p)) {
+                        changelog.release_floor(floor, partitions);
+                    }
                 }
             }
             // The stash module emits its own enqueued/rejected counters

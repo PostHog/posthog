@@ -279,14 +279,20 @@ impl LiveChangelog {
         self.floor_held.load(Ordering::Acquire)
     }
 
-    /// Drops a held floor, once the caller routes every partition above it.
-    /// A floor that a draining generation still sets stays.
-    pub fn release_floor(&self) {
+    /// Drops a held floor once the caller routes every partition in
+    /// `floor..partitions`, if that is still the held range: an adoption
+    /// between the caller's check and this call may have carried the floor
+    /// over a larger count. A floor that a draining generation sets stays.
+    pub fn release_floor(&self, floor: u32, partitions: u32) {
         let _current = self
             .current
             .write()
             .expect("changelog config lock poisoned");
-        if self.floor_held.swap(false, Ordering::AcqRel) {
+        if self.floor_held.load(Ordering::Acquire)
+            && self.draining_floor.load(Ordering::Acquire) == floor
+            && self.partitions.load(Ordering::Acquire) == partitions
+        {
+            self.floor_held.store(false, Ordering::Release);
             self.draining_floor.store(u32::MAX, Ordering::Release);
             metrics::gauge!("personhog_changelog_floor_held").set(0.0);
         }
@@ -395,13 +401,23 @@ mod tests {
             assert!(live.adopt(&after), "{name}");
             assert_eq!(live.draining_floor(), held, "{name}");
             assert_eq!(live.floor_held(), held.is_some(), "{name}");
-            live.release_floor();
+            live.release_floor(held.unwrap_or(u32::MAX), live.partitions());
             assert_eq!(live.draining_floor(), None, "{name}");
         }
 
         let draining = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)]));
-        draining.release_floor();
+        draining.release_floor(4, 8);
         assert_eq!(draining.draining_floor(), Some(4));
+
+        // A second grow adopted between the check and the release carries the
+        // floor over a larger count; the release of the checked range is stale.
+        let regrown = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)]));
+        assert!(regrown.adopt(&at_epoch(2, 8, vec![])));
+        assert!(regrown.adopt(&at_epoch(3, 16, vec![])));
+        regrown.release_floor(4, 8);
+        assert_eq!(regrown.draining_floor(), Some(4));
+        regrown.release_floor(4, 16);
+        assert_eq!(regrown.draining_floor(), None);
     }
 
     fn old_partitions(
