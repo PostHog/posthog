@@ -31,8 +31,8 @@ export function HomeDashboardStarterModal({
     const creationDisabledReason = creatingWithAI ? 'Creating your dashboard…' : undefined
     const choices = [
         {
-            title: 'Copy PostHog Home',
-            description: 'Start with the PostHog Home charts, then edit, add, or remove them.',
+            title: 'Copy default product analytics dashboard',
+            description: 'Start with the charts you see on Home, then edit, add, or remove them.',
             icon: <IconCopy />,
             onClick: onCopyPostHogHome,
             dataAttr: 'home-dashboard-copy-posthog-home',

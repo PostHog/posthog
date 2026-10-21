@@ -571,7 +571,7 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
     return {
         id: 'product-analytics-home',
         template_name: 'My product analytics Home',
-        dashboard_description: 'A copy of PostHog Home. You can edit, add, or remove tiles.',
+        dashboard_description: 'A copy of the default product analytics dashboard. You can edit, add, or remove tiles.',
         dashboard_filters: {},
         tiles,
         variables: [],
