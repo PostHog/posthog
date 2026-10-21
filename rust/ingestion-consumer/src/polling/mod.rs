@@ -244,7 +244,7 @@ mod tests {
     const BATCH_TIMEOUT: Duration = Duration::from_millis(500);
 
     struct Harness {
-        strategy: PollingStrategy,
+        poller: PollingStrategy,
         settlement: Arc<dyn Settlement>,
         ledger: Arc<TopicOffsetLedger>,
         now: Instant,
@@ -264,7 +264,7 @@ mod tests {
                 batch_timeout: BATCH_TIMEOUT,
             };
             Self {
-                strategy: PollingStrategy::new(
+                poller: PollingStrategy::new(
                     selected,
                     limits,
                     Arc::clone(&settlement),
@@ -291,7 +291,7 @@ mod tests {
 
         fn receive(&mut self, partition: i32, offsets: &[i64]) {
             for &offset in offsets {
-                self.strategy
+                self.poller
                     .received(&message(partition, offset, 10), self.now);
             }
         }
@@ -301,7 +301,7 @@ mod tests {
         }
 
         fn step(&mut self) -> Option<Step> {
-            self.strategy.next_step(self.now)
+            self.poller.next_step(self.now)
         }
 
         fn submit(&mut self) -> HashMap<TopicPartition, (i64, i64)> {
@@ -331,7 +331,7 @@ mod tests {
                     )
                 })
                 .collect();
-            self.strategy.submitted(InFlightPoll {
+            self.poller.submitted(InFlightPoll {
                 poll_id: "poll".to_string(),
                 assignment_epoch: 1,
                 partitions,
@@ -345,7 +345,7 @@ mod tests {
         }
 
         fn complete(&mut self, partition: i32, offsets: &[i64]) {
-            self.strategy
+            self.poller
                 .completed(&GroupCompletion {
                     partition: Partition(partition),
                     assignment_epoch: 1,
@@ -370,17 +370,17 @@ mod tests {
     #[test]
     fn the_capped_strategy_stops_reading_at_its_cap_until_the_oldest_poll_is_covered() {
         let mut harness = Harness::capped(1);
-        assert!(harness.strategy.reading());
+        assert!(harness.poller.reading());
 
         harness.receive(0, &[0, 1]);
         assert!(harness.step().is_none(), "the poll is still collecting");
         harness.after_the_batch_timeout();
         harness.submit();
-        assert!(!harness.strategy.reading());
+        assert!(!harness.poller.reading());
 
         harness.complete(0, &[0, 1]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
-        assert!(harness.strategy.reading());
+        assert!(harness.poller.reading());
     }
 
     #[test]
@@ -391,15 +391,15 @@ mod tests {
         assert!(harness.step().is_none());
         harness.receive(0, &[1]);
         assert_eq!(harness.submit(), HashMap::from([(p(0), (0, 1))]));
-        assert!(!harness.strategy.reading());
+        assert!(!harness.poller.reading());
 
         harness.complete(0, &[0, 1]);
         assert!(
-            !harness.strategy.reading(),
+            !harness.poller.reading(),
             "a completion frees no room before its commit"
         );
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
-        assert!(harness.strategy.reading());
+        assert!(harness.poller.reading());
     }
 
     #[test]
@@ -408,7 +408,7 @@ mod tests {
         harness.receive(0, &[10, 11]);
         harness.receive(1, &[20]);
 
-        harness.strategy.revoked(&[p(0)]);
+        harness.poller.revoked(&[p(0)]);
         harness.receive(0, &[10]);
         harness.after_the_batch_timeout();
 
@@ -427,9 +427,9 @@ mod tests {
         harness.submit();
         harness.receive(0, &[1]);
 
-        harness.strategy.shutdown();
-        assert!(!harness.strategy.reading());
-        assert_eq!(harness.strategy.deadline(), None);
+        harness.poller.shutdown();
+        assert!(!harness.poller.reading());
+        assert_eq!(harness.poller.deadline(), None);
         assert!(harness.step().is_none(), "offset 0 is still in flight");
 
         harness.complete(0, &[0]);

@@ -313,7 +313,7 @@ impl IngestionConsumer {
             workers: self.worker_urls.clone(),
         });
 
-        let mut strategy = PollingStrategy::new(
+        let mut poller = PollingStrategy::new(
             self.polling,
             PollLimits {
                 batch_size: self.batch_size,
@@ -324,7 +324,7 @@ impl IngestionConsumer {
             self.group_id.clone(),
             self.debug_recorder.clone(),
         );
-        self.run(&mut strategy, completions, errors).await;
+        self.run(&mut poller, completions, errors).await;
         if let Err(err) = self.commit_all() {
             warn!(error = %err, "Could not submit pending frontiers on exit");
         }
@@ -333,7 +333,7 @@ impl IngestionConsumer {
 
     async fn run(
         &self,
-        strategy: &mut PollingStrategy,
+        poller: &mut PollingStrategy,
         mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
         mut errors: mpsc::UnboundedReceiver<String>,
     ) {
@@ -343,8 +343,8 @@ impl IngestionConsumer {
         tokio::pin!(poll_deadline);
         let mut accepting_new_batches = true;
         loop {
-            while let Some(step) = strategy.next_step(tokio::time::Instant::now()) {
-                if let Err(failure) = self.carry_out(step, strategy) {
+            while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
+                if let Err(failure) = self.carry_out(step, poller) {
                     match failure {
                         Stopped::Drained => {}
                         Stopped::Commit(err) => self.fail_commit(err),
@@ -354,13 +354,13 @@ impl IngestionConsumer {
                 }
             }
 
-            let deadline = strategy.deadline();
+            let deadline = poller.deadline();
             if let Some(deadline) = deadline {
                 if poll_deadline.deadline() != deadline {
                     poll_deadline.as_mut().reset(deadline);
                 }
             }
-            let reading = strategy.reading();
+            let reading = poller.reading();
             let woke = tokio::select! {
                 _ = self.handle.shutdown_recv(), if accepting_new_batches => Woke::Shutdown,
                 completion = completions.recv() => Woke::Completion(completion),
@@ -370,19 +370,19 @@ impl IngestionConsumer {
                 received = self.consumer.recv(), if reading => Woke::Received(received),
             };
             // The rebalance callbacks run inside `recv`, also inside one the
-            // select dropped, so the strategy sees each revoke before it acts
+            // select dropped, so the poller sees each revoke before it acts
             // on anything that woke the loop.
-            self.hand_over_revokes(strategy);
+            self.hand_over_revokes(poller);
 
             let failure = match woke {
                 Woke::Shutdown => {
                     info!("Shutdown signal received, draining in-flight batches");
                     accepting_new_batches = false;
                     self.batcher.begin_shutdown();
-                    strategy.shutdown();
+                    poller.shutdown();
                     None
                 }
-                Woke::Completion(Some(completion)) => strategy.completed(&completion).err(),
+                Woke::Completion(Some(completion)) => poller.completed(&completion).err(),
                 Woke::Completion(None) => {
                     Some(anyhow::anyhow!("batcher completion channel closed"))
                 }
@@ -390,12 +390,12 @@ impl IngestionConsumer {
                 Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
                 Woke::Tick => {
                     self.handle.report_healthy();
-                    strategy.ticked();
+                    poller.ticked();
                     None
                 }
                 Woke::Deadline => None,
                 Woke::Received(Ok(message)) => {
-                    strategy.received(&message, tokio::time::Instant::now());
+                    poller.received(&message, tokio::time::Instant::now());
                     None
                 }
                 Woke::Received(Err(err)) => self.recv_failed(err).err(),
@@ -407,11 +407,11 @@ impl IngestionConsumer {
         }
     }
 
-    fn carry_out(&self, step: Step, strategy: &mut PollingStrategy) -> Result<(), Stopped> {
+    fn carry_out(&self, step: Step, poller: &mut PollingStrategy) -> Result<(), Stopped> {
         match step {
             Step::Submit(collected) => {
                 let poll = self.submit_poll(collected).map_err(Stopped::Batch)?;
-                strategy.submitted(poll);
+                poller.submitted(poll);
                 self.handle.report_healthy();
                 Ok(())
             }
@@ -421,10 +421,10 @@ impl IngestionConsumer {
         }
     }
 
-    fn hand_over_revokes(&self, strategy: &mut PollingStrategy) {
+    fn hand_over_revokes(&self, poller: &mut PollingStrategy) {
         let revoked = std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
         if !revoked.is_empty() {
-            strategy.revoked(&revoked);
+            poller.revoked(&revoked);
         }
     }
 
