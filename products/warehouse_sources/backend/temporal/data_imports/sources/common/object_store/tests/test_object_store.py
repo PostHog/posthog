@@ -990,6 +990,47 @@ class TestS3Listing:
             with pytest.raises(ObjectStorageError, match=TOO_MANY_FILES_ERROR):
                 _s3_store(client).list_objects("", 10)
 
+    @parameterized.expand(
+        [
+            ("bucket_root", "", "exports/orders-", "exports/orders-", 10),
+            ("store_root", "root", "exports/orders-", "root/exports/orders-", 10),
+            ("empty_key_prefix", "root", "", "root/", 10),
+            ("empty_bucket_prefix", "", "", "", 10),
+            ("matching_file_limit", "root", "exports/orders-", "root/exports/orders-", 1),
+        ]
+    )
+    def test_list_key_prefix(
+        self, _name: str, prefix: str, key_prefix: str, expected_prefix: str, max_objects: int
+    ) -> None:
+        client = boto3.client(
+            "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
+        )
+        root_key = f"{prefix}/" if prefix else ""
+        store = S3ObjectStore(
+            fs=LocalFileSystem(),
+            root=f"customer-data/{prefix}" if prefix else "customer-data",
+            delta_uri_prefix="s3://",
+            delta_storage_options={},
+            client=client,
+            bucket="customer-data",
+            prefix=prefix,
+        )
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "list_objects_v2",
+                _listing(
+                    f"{expected_prefix}folder/",
+                    f"{root_key}exports/orders-1.csv",
+                    f"{root_key}exports/orders-2.csv",
+                ),
+                {"Bucket": "customer-data", "MaxKeys": 1000, "Prefix": expected_prefix},
+            )
+
+            listed = store.list_key_prefix(key_prefix, max_objects)
+
+            stubber.assert_no_pending_responses()
+        assert [stored.path for stored in listed] == ["exports/orders-1.csv", "exports/orders-2.csv"][:max_objects]
+
     def test_rejected_credentials_become_an_access_error(self) -> None:
         client = boto3.client(
             "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
