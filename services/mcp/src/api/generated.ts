@@ -5279,6 +5279,7 @@ export namespace Schemas {
     }
 
     export interface BoxPlotDatum {
+      count?: number | null;
       day: string;
       label: string;
       max: number;

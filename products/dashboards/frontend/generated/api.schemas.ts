@@ -2277,6 +2277,7 @@ export interface PropertyGroupFilterApi {
 }
 
 export interface BoxPlotDatumApi {
+    count?: number | null
     day: string
     label: string
     max: number
