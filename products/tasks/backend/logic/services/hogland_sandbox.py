@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
-from django.utils import timezone
 
 import httpx
 from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError
@@ -46,18 +45,13 @@ from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SE
 from products.tasks.backend.logic.services.agentsh import AGENTSH_DAEMON_PORT
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
 )
 from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
 from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUEST_CPU_CORES
-from products.tasks.backend.logic.services.sandbox_housekeeping import (
-    HOUSEKEEPING_TIMEOUT_SECONDS,
-    SandboxHousekeeping,
-    build_housekeeping_script,
-    parse_housekeeping_output,
-)
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
@@ -487,7 +481,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def read_cpu_usage_usec(self) -> int | None:
         # Must go through exec: hogpanion's file endpoint sets Content-Length from
         # stat(), and sysfs files stat as size 0, so read_file returns an empty body.
-        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
+        result = self.execute(f"cat {CPU_STAT_PATH}", timeout_seconds=10)
         if result.exit_code != 0:
             return None
         return parse_cpu_stat_usage_usec(result.stdout)
@@ -503,11 +497,6 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def start_cpu_billing_sampler(self) -> bool:
         result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
         return result.exit_code == 0
-
-    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
-        request_cores = self._cpu_billing_request_cores()
-        result = self.execute(build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS)
-        return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         try:

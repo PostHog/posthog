@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from products.tasks.backend.logic.services.cpu_billing import CPU_BILLING_SAMPLER_PATH
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.logic.services.sandbox_housekeeping import SandboxHousekeeping, parse_housekeeping_output
@@ -40,22 +41,26 @@ def test_parse_housekeeping_output(stdout: str, expected: tuple) -> None:
 
 
 @pytest.mark.parametrize(
-    ("execute_behavior", "expected_version"),
+    ("stdout", "expected_version"),
     [
-        ({"return_value": ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)}, "1.2.3"),
-        ({"return_value": ExecutionResult(stdout="", stderr="not found", exit_code=1)}, None),
-        ({"side_effect": RuntimeError("manifest read failed")}, None),
+        ('agent_manifest:{"version": "1.2.3"}\n', "1.2.3"),
+        ("", None),
     ],
 )
-def test_docker_housekeeping_reads_only_the_agent_version(execute_behavior: dict, expected_version: str | None) -> None:
+def test_docker_housekeeping_reads_only_the_agent_version(stdout: str, expected_version: str | None) -> None:
     sandbox = DockerSandbox.__new__(DockerSandbox)
     sandbox.id = "docker-sandbox"
 
-    with patch.object(sandbox, "execute", **execute_behavior):
-        assert sandbox.run_post_create_housekeeping() == SandboxHousekeeping(
-            agent_version=expected_version,
-            cpu_billing_sampler_started=False,
-            cpu_usage_usec=None,
-            billed_cpu_usage_usec=None,
-            cpu_usage_measured_at=None,
-        )
+    with patch.object(
+        sandbox, "execute", return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+    ) as execute:
+        housekeeping = sandbox.run_post_create_housekeeping()
+
+    assert CPU_BILLING_SAMPLER_PATH not in execute.call_args.args[0]
+    assert housekeeping == SandboxHousekeeping(
+        agent_version=expected_version,
+        cpu_billing_sampler_started=False,
+        cpu_usage_usec=None,
+        billed_cpu_usage_usec=None,
+        cpu_usage_measured_at=None,
+    )

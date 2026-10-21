@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
-from django.utils import timezone
 
 import modal
 import requests
@@ -67,6 +66,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
+    CPUACCT_USAGE_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -92,12 +93,6 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
-from products.tasks.backend.logic.services.sandbox_housekeeping import (
-    HOUSEKEEPING_TIMEOUT_SECONDS,
-    SandboxHousekeeping,
-    build_housekeeping_script,
-    parse_housekeeping_output,
-)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -1961,13 +1956,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def read_cpu_usage_usec(self) -> int | None:
         try:
-            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+            cpu_stat = self._sandbox.filesystem.read_text(CPU_STAT_PATH)
         except Exception:
             cpu_stat = None
         if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
             return usage
         try:
-            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            cpuacct_usage = self._sandbox.filesystem.read_text(CPUACCT_USAGE_PATH)
             if cpuacct_usage.strip():
                 return int(cpuacct_usage) // 1000
         except Exception:
@@ -1980,11 +1975,6 @@ class ModalSandbox(AgentServerLaunchMixin):
     def start_cpu_billing_sampler(self) -> bool:
         result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
         return result.exit_code == 0
-
-    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
-        request_cores = self._cpu_billing_request_cores()
-        result = self.execute(build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS)
-        return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)
