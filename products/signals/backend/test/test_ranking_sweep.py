@@ -418,8 +418,12 @@ class TestParseOverrides(SimpleTestCase):
                 "inbox_ranking_override_invalid",
             ),
             (
-                "unknown_gate",
-                {"expires_at": EXPIRES, "promotion": {"skip_gates": {"report_embeddings": ["auc"]}}},
+                "retired_promotion_block",
+                {
+                    "expires_at": EXPIRES,
+                    "served": "report_embeddings@2026-10-03",
+                    "promotion": {"force": ["report_embeddings"]},
+                },
                 NO_OVERRIDES,
                 "inbox_ranking_override_invalid",
             ),
@@ -441,19 +445,11 @@ class TestParseOverrides(SimpleTestCase):
                     "expires_at": EXPIRES,
                     "served": "report_embeddings@2026-10-03",
                     "pin": ["report_embeddings@2026-09-26"],
-                    "promotion": {
-                        "freeze": ["tabular_xgb"],
-                        "force": ["report_embeddings"],
-                        "skip_gates": {"report_embeddings": ["min_days", "ece"]},
-                    },
                 },
                 RankingOverrides(
                     expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
                     served="report_embeddings@2026-10-03",
                     pin=("report_embeddings@2026-09-26",),
-                    freeze=frozenset({"tabular_xgb"}),
-                    force=frozenset({"report_embeddings"}),
-                    skip_gates={"report_embeddings": frozenset({"min_days", "ece"})},
                 ),
                 None,
             ),
@@ -463,18 +459,3 @@ class TestParseOverrides(SimpleTestCase):
         with patch("products.signals.backend.ranking.overrides.logger") as logger:
             assert parse_overrides(payload, now=NOW) == expected
         assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
-
-    def test_freeze_wins_over_force_and_skip_gates(self) -> None:
-        overrides = parse_overrides(
-            {
-                "expires_at": EXPIRES,
-                "promotion": {
-                    "freeze": ["report_embeddings"],
-                    "force": ["report_embeddings"],
-                    "skip_gates": {"report_embeddings": ["ece"]},
-                },
-            },
-            now=NOW,
-        )
-        promotion = overrides.promotion_for("report_embeddings")
-        assert (promotion.freeze, promotion.force, promotion.skip_gates) == (True, False, frozenset())

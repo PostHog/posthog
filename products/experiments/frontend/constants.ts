@@ -12,7 +12,6 @@ export const CONFIDENCE_LEVEL_OPTIONS = [
 ]
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
-export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 
 // CUPED lookback window (days)
 export const DEFAULT_LOOKBACK_DAYS = 14

@@ -1226,6 +1226,29 @@ return result`,
                     },
                 },
                 {
+                    name: 'categorical LLM judge',
+                    templateKey: 'task_outcome',
+                    expectedEvaluation: {
+                        evaluation_type: 'llm_judge',
+                        output_type: 'categorical',
+                        output_config: expect.objectContaining({
+                            selection_mode: 'single',
+                            passing_rule: { categories: ['resolved'] },
+                        }),
+                        target: 'trace',
+                        target_config: expect.objectContaining({ strategy: 'fixed_window' }),
+                    },
+                },
+                {
+                    name: 'numeric Hog',
+                    templateKey: 'latency',
+                    expectedEvaluation: {
+                        evaluation_type: 'hog',
+                        output_type: 'numeric',
+                        output_config: expect.objectContaining({ passing_rule: { operator: 'lte', threshold: 10 } }),
+                    },
+                },
+                {
                     name: 'sentiment',
                     templateKey: 'sentiment',
                     expectedEvaluation: {
@@ -1751,9 +1774,14 @@ return result`,
             }
         )
 
-        it.each(['llm', 'decision'] as const)(
-            'keeps compatible models and custom deployments when selecting %s',
-            async (method) => {
+        it.each([
+            ['llm', 'openrouter', 'OpenRouter', 'key-3'],
+            ['decision', 'openrouter', 'OpenRouter', 'key-3'],
+            ['llm', 'openai', 'OpenAI', 'key-1'],
+            ['decision', 'openai', 'OpenAI', 'key-1'],
+        ] as const)(
+            'keeps compatible models and custom deployments when selecting %s for %s',
+            async (method, provider, displayName, keyId) => {
                 useMocks({
                     get: {
                         '/api/environments/:teamId/llm_analytics/provider_keys/': {
@@ -1769,26 +1797,26 @@ return result`,
                         },
                         '/api/llm_proxy/models/': ({ request }) => [
                             200,
-                            new URL(request.url).searchParams.get('provider_key_id') === 'key-3'
+                            new URL(request.url).searchParams.get('provider_key_id') === keyId
                                 ? [
                                       {
                                           id: 'example/dual-model',
                                           name: 'example/dual-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: true,
                                           supports_chat: true,
                                       },
                                       {
                                           id: 'example/chat-model',
                                           name: 'example/chat-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: false,
                                           supports_chat: true,
                                       },
                                       {
                                           id: 'example/decision-model',
                                           name: 'example/decision-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: true,
                                           supports_chat: false,
                                       },
@@ -1800,7 +1828,7 @@ return result`,
                 await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
                 await expectLogic(modelPickerLogic).toFinishAllListeners()
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                logic.actions.selectModelFromPicker('example/dual-model', 'key-3')
+                logic.actions.selectModelFromPicker('example/dual-model', keyId)
                 logic.actions.setJudgeMethod(method === 'llm' ? 'decision' : 'llm')
                 logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
                 expect(logic.values.hasUnsavedChanges).toBe(false)
@@ -1808,9 +1836,9 @@ return result`,
                 expect(logic.values.judgeMethod).toBe(method)
                 expect(logic.values.hasUnsavedChanges).toBe(true)
                 expect(logic.values.evaluation?.model_configuration).toEqual({
-                    provider: 'openrouter',
+                    provider,
                     model: 'example/dual-model',
-                    provider_key_id: 'key-3',
+                    provider_key_id: keyId,
                 })
                 expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
@@ -2096,6 +2124,105 @@ return result`,
                 evaluationsLogic.unmount()
             }
         })
+    })
+
+    describe('saveEvaluation updates', () => {
+        it.each([
+            { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
+            { change: 'disable', expected: { enabled: false }, rejected: false },
+            { change: 'enable', expected: { enabled: true }, rejected: true },
+            {
+                change: 'output_config',
+                expected: { output_config: { allows_na: true } },
+                rejected: true,
+            },
+            {
+                change: 'model_configuration',
+                expected: {
+                    model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'key-1' },
+                },
+                rejected: true,
+            },
+            {
+                change: 'sentiment',
+                expected: {
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                },
+                rejected: false,
+            },
+        ] as const)(
+            'sends only $change changes when the decision flag is off',
+            async ({ change, expected, rejected }) => {
+                const evaluation: EvaluationConfig = {
+                    ...mockEvaluation,
+                    enabled: change !== 'enable',
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
+                    output_type: 'boolean',
+                    output_config: { allows_na: false },
+                    model_configuration: { provider: 'openai', model: 'gpt-6-luna', provider_key_id: 'key-1' },
+                }
+                let savedPayload: unknown
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                useMocks({
+                    get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                    patch: {
+                        '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                            savedPayload = await request.json()
+                            return rejected
+                                ? [
+                                      400,
+                                      {
+                                          model_configuration: [
+                                              'Decision evaluations are not available for this project.',
+                                          ],
+                                      },
+                                  ]
+                                : { ...evaluation, ...expected }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setModelConfiguration({ ...evaluation.model_configuration! })
+                    logic.actions.setAllowsNA(true)
+                    logic.actions.setAllowsNA(false)
+                    switch (change) {
+                        case 'name':
+                            logic.actions.setEvaluationName(expected.name)
+                            break
+                        case 'disable':
+                        case 'enable':
+                            logic.actions.setEvaluationEnabled(expected.enabled)
+                            break
+                        case 'output_config':
+                            logic.actions.setAllowsNA(true)
+                            break
+                        case 'model_configuration':
+                            logic.actions.setModelConfiguration(expected.model_configuration)
+                            break
+                        case 'sentiment':
+                            logic.actions.setEvaluationType('sentiment')
+                            break
+                    }
+                    logic.actions.saveEvaluation()
+
+                    await expectLogic(logic)
+                        .toDispatchActions([rejected ? 'saveEvaluationFailure' : 'saveEvaluationSuccess'])
+                        .toMatchValues({ evaluationFormSubmitting: false })
+                    expect(savedPayload).toEqual(expected)
+                } finally {
+                    pushSpy.mockRestore()
+                }
+            }
+        )
     })
 
     describe('saveEvaluation report persistence', () => {

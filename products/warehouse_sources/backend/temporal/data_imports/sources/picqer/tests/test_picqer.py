@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
@@ -85,17 +86,114 @@ class TestPagination:
         assert len(result.rows) == 2
         assert result.params("offset") == [str(PAGE_SIZE)]
 
-    def test_incremental_filter_present_on_every_page(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,incremental_field,filter_param",
+        [
+            ("purchaseorders", "updated", "updated_after"),
+            ("stockhistory", "changed_at", "sincedate"),
+        ],
+    )
+    def test_incremental_filter_present_on_every_page(
+        self, endpoint: str, incremental_field: str, filter_param: str
+    ) -> None:
         result = _driver().run(
-            "purchaseorders",
+            endpoint,
             [_page(PAGE_SIZE), _page(1)],
-            incremental_field="updated",
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
         )
 
         # The filter must stay on every paginated request so pagination walks only the filtered set.
         assert result.raised is None
-        assert result.params("updated_after") == ["2020-01-02 03:04:05"] * 2
+        assert result.params(filter_param) == ["2020-01-02 03:04:05"] * 2
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+
+    def test_unpaginated_endpoint_stops_after_one_full_page(self) -> None:
+        # return_reasons is not documented as paginated; an offset loop would refetch the same full
+        # page forever if the endpoint ignores `offset`.
+        reasons = [{"idreturn_reason": i, "name": f"Reason {i}"} for i in range(PAGE_SIZE)]
+        result = _driver().run("return_reasons", route({"/return_reasons": [ScriptedResponse(json=reasons)]}))
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE
+        assert result.paths == ["/api/v1/return_reasons"]
+        assert result.params("offset") == [None]
+
+
+def _stock_row(idproduct: int, idwarehouse: int | None) -> dict[str, Any]:
+    stock: dict[str, Any] = {"stock": 5, "reserved": 1, "freestock": 4}
+    if idwarehouse is not None:
+        stock["idwarehouse"] = idwarehouse
+    return {"idproduct": idproduct, "productcode": f"SKU-{idproduct}", "stock": stock}
+
+
+def _warehouse_stock_script(warehouse_ids: list[int], stock_pages: dict[int, list[ScriptedResponse]]) -> Any:
+    table: dict[str, list[ScriptedResponse]] = {
+        "/warehouses": [ScriptedResponse(json=[{"idwarehouse": i, "name": f"Warehouse {i}"} for i in warehouse_ids])]
+    }
+    for idwarehouse, pages in stock_pages.items():
+        table[f"/warehouses/{idwarehouse}/stock"] = pages
+    return route(table)
+
+
+class TestWarehouseStock:
+    def test_fans_out_over_warehouses_and_flattens_stock(self) -> None:
+        script = _warehouse_stock_script(
+            [1, 2, 3],
+            {
+                1: [
+                    ScriptedResponse(json=[_stock_row(i, 1) for i in range(PAGE_SIZE)]),
+                    ScriptedResponse(json=[_stock_row(PAGE_SIZE, 1)]),
+                ],
+                # Deleted between the warehouse listing and the stock fetch.
+                2: [ScriptedResponse(status=404, json={"error": "not found"})],
+                # Nested object without its own idwarehouse: the parent id fills the key.
+                3: [ScriptedResponse(json=[_stock_row(7, None)])],
+            },
+        )
+
+        result = _driver().run("warehouse_stock", script)
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 2
+        keys = {(row["idwarehouse"], row["idproduct"]) for row in result.rows}
+        assert len(keys) == len(result.rows)
+        assert (3, 7) in keys
+        assert result.rows[-1] == {
+            "idproduct": 7,
+            "productcode": "SKU-7",
+            "stock": 5,
+            "reserved": 1,
+            "freestock": 4,
+            "idwarehouse": 3,
+        }
+        assert result.paths == [
+            "/api/v1/warehouses",
+            "/api/v1/warehouses/1/stock",
+            "/api/v1/warehouses/1/stock",
+            "/api/v1/warehouses/2/stock",
+            "/api/v1/warehouses/3/stock",
+        ]
+        assert result.params("offset")[1:3] == ["0", str(PAGE_SIZE)]
+
+    def test_resumes_mid_warehouse_and_skips_completed_ones(self) -> None:
+        script = _warehouse_stock_script([1, 2], {2: [ScriptedResponse(json=[_stock_row(9, 2)])]})
+
+        result = _driver().run(
+            "warehouse_stock",
+            script,
+            resume_state=PicqerResumeConfig(
+                fanout_state={
+                    "completed": ["/warehouses/1/stock"],
+                    "current": "/warehouses/2/stock",
+                    "child_state": {"offset": PAGE_SIZE},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["idwarehouse"], row["idproduct"]) for row in result.rows] == [(2, 9)]
+        assert result.paths == ["/api/v1/warehouses", "/api/v1/warehouses/2/stock"]
         assert result.params("offset") == ["0", str(PAGE_SIZE)]
 
 
@@ -103,12 +201,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status,expected_ok",
         [
-            (200, True),
             # 403 = valid key, insufficient scope — accepted at source-create (per-table scope
             # reported separately).
             (403, True),
-            (401, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:

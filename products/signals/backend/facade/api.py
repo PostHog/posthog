@@ -36,15 +36,10 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
-    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
-    BriefingReport as BriefingReport,
     BriefingReportDetails as BriefingReportDetails,
     BriefingReportRelation as BriefingReportRelation,
-    OpenReportCounts as OpenReportCounts,
-    open_report_counts as open_report_counts,
     report_details as report_details,
     report_ids_naming_user as report_ids_naming_user,
-    reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
@@ -1687,6 +1682,16 @@ def scout_status_for_product(*, team_id: int, skill_name: str) -> str | None:
         .filter(skill_name=skill_name)
         .values_list("status", flat=True)
         .first()
+    )
+
+
+def scout_emits_for_product(*, team_id: int, skill_name: str) -> bool | None:
+    """Whether the scout config for the skill writes what it finds, or None when the project has no config for it.
+
+    False is a dry run: the scout runs and logs, but gets no write scopes, so it files nothing.
+    """
+    return (
+        SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).values_list("emit", flat=True).first()
     )
 
 

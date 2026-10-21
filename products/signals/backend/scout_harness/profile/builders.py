@@ -69,10 +69,15 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
-from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries
-from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, run_precheck_query
+from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries, scout_skill_origin
+from products.signals.backend.scout_harness.precheck import (
+    PRECHECK_TIMEOUT_S,
+    resolve_effective_precheck,
+    run_precheck_query,
+)
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.workflows.backend.facade.api import get_workflow_activity_summary
@@ -84,7 +89,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v17"
+INVENTORY_SOURCE_VERSION = "v18"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -318,8 +323,9 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     keeps the two causes distinguishable without a third bucket. Held-back scouts are the one
     case dropped rather than classified, so this payload can't disclose them (see below).
 
-    Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
-    flag payload for the holdback denylist, and one grouped pass over recent run rows for the
+    Queries: the config rows (schedule + emit posture + last pre-check, authoritative), the live
+    skill names, the skill rows that decide whether a skill default pre-check applies, the flag
+    payload for the holdback denylist, and one grouped pass over recent run rows for the
     last time each scout produced output. `last_run_at` comes off the config because the
     coordinator stamps it at dispatch, so it stays correct for a scout whose runs have aged out
     of the run-history window.
@@ -346,6 +352,14 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     # an unreleased scout to the very team it is withheld from.
     withheld = withheld_skills_for_team(team.id)
     live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
+    # One query for the whole fleet: a skill default pre-check applies only to a canonical skill row.
+    canonical_skills = {
+        name
+        for name, metadata in LLMSkill.objects.filter(team_id=team.id, is_latest=True, deleted=False).values_list(
+            "name", "metadata"
+        )
+        if scout_skill_origin(name, metadata) == "canonical"
+    }
     enabled: list[dict[str, Any]] = []
     disabled: list[dict[str, Any]] = []
     for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
@@ -364,6 +378,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
                 not_running_reason = "turned_off"
         elif config.skill_name not in live_skills:
             not_running_reason = "skill_unavailable"
+        precheck = resolve_effective_precheck(config, is_canonical=config.skill_name in canonical_skills)
         entry = {
             "skill_name": config.skill_name,
             "run_interval_minutes": config.run_interval_minutes,
@@ -373,6 +388,9 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
             "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
             "not_running_reason": not_running_reason,
             "pause_reason": pause_reason,
+            "precheck_source": None if precheck.source == "off" else precheck.source,
+            "last_precheck_at": config.last_precheck_at.isoformat() if config.last_precheck_at else None,
+            "last_precheck_outcome": config.last_precheck_outcome,
         }
         (disabled if not_running_reason else enabled).append(entry)
     return {

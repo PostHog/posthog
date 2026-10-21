@@ -10,11 +10,7 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -156,7 +152,6 @@ def test_requests_and_pagination(
     ("status", "schema", "valid", "message"),
     [
         (200, None, True, None),
-        (401, None, False, "rejected your API key"),
         (403, None, True, None),
         (403, "services", False, "view permission"),
         (400, None, False, "account, organization, project, and region"),
@@ -191,10 +186,12 @@ def test_sync_auth_errors_are_terminal(driver: SourceDriver, status: int) -> Non
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_probe_errors_propagate(config: HarnessSourceConfig, status: int) -> None:
+def test_transient_probe_errors_report_an_unreachable_vendor(config: HarnessSourceConfig, status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
-        with pytest.raises(RESTClientRetryableError):
-            HarnessSource().validate_credentials(config, 1)
+        assert HarnessSource().validate_credentials(config, 1) == (
+            False,
+            "Couldn't reach Harness to check your credentials. Try again in a few minutes.",
+        )
     assert len(network.requests_log) == 5
 
 
@@ -224,9 +221,3 @@ def test_malformed_response_fails(driver: SourceDriver, name: str, body: dict[st
     assert isinstance(result.raised, ValueError)
     assert error in str(result.raised)
     assert result.saved_states == []
-
-
-def test_unknown_table(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

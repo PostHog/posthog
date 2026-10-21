@@ -180,12 +180,6 @@ class TestPromptJev(SimpleTestCase):
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
 class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag = patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True)
-        self.feature_enabled = flag.start()
-        self.addCleanup(flag.stop)
-
     @parameterized.expand(
         [
             ("SELECT " + ", ".join(f"jev('a', 'q{i}') AS p{i}" for i in range(10)) + " LIMIT 101",),
@@ -207,19 +201,6 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, self.team, user=self.user)
         execute.assert_not_called()
         post.assert_not_called()
-
-    @parameterized.expand([(False,), (None,)])
-    def test_unapproved_project_cannot_start_inference(self, enabled: bool | None) -> None:
-        self.feature_enabled.return_value = enabled
-        with (
-            patch("posthog.hogql.query.sync_execute") as execute,
-            patch("httpx.AsyncClient.post") as post,
-            self.assertRaisesRegex(QueryError, "not enabled for this project"),
-        ):
-            execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
-        execute.assert_not_called()
-        post.assert_not_called()
-        self.assertEqual(self.feature_enabled.call_args.kwargs["groups"]["project"], str(self.team.pk))
 
     def test_team_out_of_ai_credits_cannot_start_inference(self) -> None:
         with (

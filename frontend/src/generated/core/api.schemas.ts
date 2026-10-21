@@ -7,6 +7,30 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface ConnectedAppApi {
+    /** The OAuth application ID */
+    id: string
+    /** The application name */
+    name: string
+    /**
+     * URL to the application's logo
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Scopes granted to this application */
+    scopes: string[]
+    /** When the user first authorized this application */
+    authorized_at: string
+    /** Whether this application has been verified by PostHog */
+    is_verified: boolean
+    /** Whether this is a first-party PostHog application */
+    is_first_party: boolean
+    /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
+    requires_access_confirmation: boolean
+    /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+    is_self_registered: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1344,6 +1368,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1743,6 +1768,18 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_team_rate_limit_per_day?: number | null
     /**
      * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
      * @nullable
@@ -2429,7 +2466,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -2680,7 +2716,6 @@ export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
  * * `use_posthog_ai` - use_posthog_ai
- * * `use_posthog_code` - use_posthog_code
  * * `use_posthog_mcp` - use_posthog_mcp
  * * `use_posthog_in_slack` - use_posthog_in_slack
  */
@@ -2751,7 +2786,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
     UsePosthogAi: 'use_posthog_ai',
-    UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
@@ -2779,6 +2813,11 @@ export interface ProjectBackwardCompatApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -3423,7 +3462,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3663,6 +3701,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -4307,7 +4350,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4527,6 +4569,11 @@ export interface ProjectApi {
      */
     name?: string
     /**
+     * ID of the uploaded image shown as this project's logo. Null when the project has no logo.
+     * @nullable
+     */
+    readonly logo_media_id: string | null
+    /**
      * @maxLength 1000
      * @nullable
      */
@@ -4634,6 +4681,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**
@@ -5181,6 +5230,11 @@ export interface ProjectSecretAPIKeyApi {
     readonly last_rolled_at: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential: string | null
 }
 
 export interface PaginatedProjectSecretAPIKeyListApi {
@@ -5207,6 +5261,11 @@ export interface PatchedProjectSecretAPIKeyApi {
     readonly last_rolled_at?: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes?: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential?: string | null
 }
 
 /**
@@ -5919,6 +5978,7 @@ export const ShortcutPositionEnumApi = {
  * * `later` - Skipped for later
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
+ * * `connector` - Signed up through an OAuth connector
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -5928,6 +5988,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Later: 'later',
     Other: 'other',
     Provisioned: 'provisioned',
+    Connector: 'connector',
 } as const
 
 /**
@@ -6044,7 +6105,7 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
 }
 
@@ -6160,7 +6221,7 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
 }
 
@@ -6224,6 +6285,13 @@ export interface UserGitHubIntegrationItemApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+    /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+    needs_reauthorization: boolean
+    /**
+     * When the stored credentials stopped working, or null while they still work.
+     * @nullable
+     */
+    needs_reauthorization_at: string | null
     /** When this integration row was created. */
     created_at: string
 }
@@ -6522,6 +6590,18 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
+ * * `legacy` - Default onboarding
+ * * `simple` - Simple onboarding
+ */
+export type OnboardingFlowVariantEnumApi =
+    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
+
+export const OnboardingFlowVariantEnumApi = {
+    Legacy: 'legacy',
+    Simple: 'simple',
+} as const
+
+/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6539,6 +6619,11 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
+    /** Which onboarding flow the user skipped from, for analytics only.
+     *
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding */
+    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**
@@ -6859,6 +6944,10 @@ export type FileSystemListParams = {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean
     /**
      * Number of results to return per page.
      */

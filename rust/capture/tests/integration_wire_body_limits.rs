@@ -110,7 +110,6 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         None, // replay_overflow_limiter
         8,
         None,
-        false,
         None,
     );
 

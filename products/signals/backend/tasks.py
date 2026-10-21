@@ -8,10 +8,11 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -32,6 +33,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
@@ -77,6 +79,37 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
+    from products.signals.backend.onboarding_activation import (
+        InboxOnboardingActivation,  # noqa: PLC0415 - keep the Temporal graph off task discovery
+    )
+
+    InboxOnboardingActivation(team_id).run(job, final_attempt=self.request.retries >= self.max_retries)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
+    from products.signals.backend.onboarding_completion import (
+        InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery
+        RepositoryCheckUnavailable,
+    )
+
+    try:
+        pending = InboxOnboardingReconciler(team_id, priority=Priority.BATCH).run()
+    except RepositoryCheckUnavailable as error:
+        reconcile_inbox_onboarding.apply_async(
+            args=[team_id],
+            kwargs={"failed_checks": failed_checks + 1},
+            countdown=max(min(60 * 2 ** min(failed_checks, 4), 900), error.retry_after),
+        )
+        return
+    if pending:
+        reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
 
 
 @shared_task(
@@ -661,7 +694,7 @@ def send_reviewer_added_slack_notifications(
     # them must not suppress the ping itself.
     source_products: list[str] | None = None
     try:
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ClickHouseUser.SIGNALS).get(report_id)
         source_products = meta.source_products if meta else None
     except Exception:
         logger.exception(
@@ -734,6 +767,32 @@ def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str)
     Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
     """
     open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.send_report_visible_push",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def send_report_visible_push(team_id: int, report_id: str) -> None:
+    """Push a newly visible report to its suggested reviewers' mobile devices.
+
+    Never retried, because a retry after a partial fan-out would push twice to the reviewers it
+    already reached. The same holds for the pull request push below.
+    """
+    notify_report_visible(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.send_pull_request_ready_push",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def send_pull_request_ready_push(team_id: int, pull_request_id: str) -> None:
+    """Push a pull request that became ready for review to its reports' claimants and reviewers."""
+    notify_pull_request_ready(team_id=team_id, pull_request_id=pull_request_id)
 
 
 @shared_task(

@@ -9,15 +9,15 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWizardCommand } from '../useWizardCommand'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
-import { WizardFrameworkBadges } from './WizardModeShell'
+import { WizardFrameworkBadges, type WizardShellHog } from './WizardModeShell'
 
 export type WizardInstallMode = 'cloud' | 'local'
 
 export interface WizardInstallOptionsProps {
     /** The local "run it yourself" arm. Callers supply their own command block. */
     localBlock: React.ReactNode
-    /** Keeps the compact onboarding card free of the wizard hedgehog. */
-    hideHog?: boolean
+    /** Passed to the cloud run block; `null` keeps the compact onboarding card free of the hedgehog. */
+    hog?: WizardShellHog
     /** Called when a cloud run is queued (e.g. advance or unblock the step). */
     onQueued?: () => void
     /** Instrumentation hook, fired when the user switches between cloud and local. */
@@ -46,7 +46,7 @@ export interface WizardInstallOptionsProps {
  */
 export function WizardInstallOptions({
     localBlock,
-    hideHog = false,
+    hog,
     onQueued,
     onModeSelected,
     offerCloudRun = true,
@@ -85,7 +85,7 @@ export function WizardInstallOptions({
             <div className="flex flex-col gap-4">
                 {badges}
                 {activeCloudRun ? (
-                    <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+                    <WizardCloudRunBlock hog={hog} onRetryLocally={runItYourself} onQueued={onQueued} />
                 ) : (
                     localBlock
                 )}
@@ -124,7 +124,7 @@ export function WizardInstallOptions({
                 ]}
             />
             {effectiveMode === 'cloud' ? (
-                <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+                <WizardCloudRunBlock hog={hog} onRetryLocally={runItYourself} onQueued={onQueued} />
             ) : (
                 localBlock
             )}

@@ -79,6 +79,7 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "dotnet_events": [],
             "elixir_events": [],
             "unity_events": [],
+            "roblox_events": [],
             "rust_events": [],
         }
     if query_name == "exceptions_captured":
