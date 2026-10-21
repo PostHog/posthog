@@ -9,7 +9,7 @@
 # proxy distribution, not the server — different artifact, don't confuse them.
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
-ARG NODE_VERSION=24.13.0
+ARG NODE_VERSION=24.22.1
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
 #
