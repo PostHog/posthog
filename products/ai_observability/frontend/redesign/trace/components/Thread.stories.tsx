@@ -32,6 +32,7 @@ export const LoadError: Story = {
             message: 'The conversation could not be loaded. Reload the page to try again.',
         },
     },
+    decorators: [withWidth(720)],
 }
 export const Empty: Story = { args: ready([{ ...FIXTURE_TURN, messages: [] }]) }
 export const SystemOnly: Story = { args: ready([{ ...FIXTURE_TURN, messages: [FIXTURE_GENERATION_MESSAGES[0]] }]) }
