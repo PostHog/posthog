@@ -98,8 +98,7 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_again(
     async def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
         keys = [pin.key for pin in inputs.pins]
         asked.append(keys)
-        first = len(keys) > 1
-        return ResolvePinsResult(keys=keys, found="[]", pending=["insight:slow"] if first else [], failed=first)
+        return ResolvePinsResult(keys=keys, found="[]", pending=["insight:slow"] if len(keys) > 1 else [])
 
     @activity.defn(name="finalize_highlights_activity")
     async def finalize(inputs: FinalizeHighlightsInputs) -> None:

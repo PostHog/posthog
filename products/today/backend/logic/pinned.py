@@ -51,7 +51,6 @@ def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
         keys=[pin.key for pin in inputs.pins],
         found=PINNED_METRICS.dump_json(metrics).decode(),
         pending=pending,
-        failed=bool(context.failures),
     )
 
 

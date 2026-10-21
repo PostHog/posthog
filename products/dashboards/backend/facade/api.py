@@ -122,7 +122,6 @@ def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: in
 
 
 def dashboard_insight_tile(*, team: "Team", user: User, dashboard_id: int, short_id: str) -> DashboardInsights | None:
-    """The dashboard with only the tile of one insight. None when the person can't view it or the tile is gone."""
     found = _dashboard_insights(team, user, dashboard_id, 1, short_id=short_id)
     return found if found is not None and found.tiles else None
 
@@ -130,7 +129,7 @@ def dashboard_insight_tile(*, team: "Team", user: User, dashboard_id: int, short
 def _dashboard_insights(
     team: "Team", user: User, dashboard_id: int, limit: int, short_id: str | None = None
 ) -> DashboardInsights | None:
-    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    dashboard = Dashboard.objects.filter(team__project_id=team.project_id, pk=dashboard_id).first()
     access = UserAccessControl(user=user, team=team)
     if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
         return None

@@ -128,8 +128,6 @@ def _sql_series(
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
-    if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
-        return None
     response = _run(team, user, query["source"], filters, variables, raise_if_pending)
     if response.get("hasMore"):
         return None
@@ -202,10 +200,12 @@ def is_chartable(query: dict[str, Any], interval: str | None = None) -> bool:
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
         return False
-    interval = interval or source.get("interval") or "day"
-    if interval not in LOOKBACK:
-        interval = "day"
-    return not (interval == "day" and (source.get("dateRange") or {}).get("daysOfWeek"))
+    return not (_interval(source, interval) == "day" and (source.get("dateRange") or {}).get("daysOfWeek"))
+
+
+def _interval(source: dict[str, Any], override: str | None) -> str:
+    interval = override or source.get("interval") or "day"
+    return interval if interval in LOOKBACK else "day"
 
 
 def insight_series(
@@ -241,9 +241,7 @@ def insight_series(
             raise_if_pending=raise_if_pending,
         )
     trends = source.get("trendsFilter") or {}
-    interval = dashboard_filters.get("interval") or source.get("interval") or "day"
-    if interval not in LOOKBACK:
-        interval = "day"
+    interval = _interval(source, dashboard_filters.get("interval"))
     date_range = source.get("dateRange") or {}
     kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}

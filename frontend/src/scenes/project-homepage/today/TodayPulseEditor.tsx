@@ -55,7 +55,14 @@ function PulsePinRow({
 }
 
 export function TodayPulseEditor(): JSX.Element {
-    const { pulsePins, pulseTiles, pulseInsightResults, pulseInsightResultsLoading } = useValues(todayHighlightsLogic)
+    const {
+        pulsePins,
+        pulseTiles,
+        pulseInsightResults,
+        pulseInsightResultsLoading,
+        pulseInsightSearchFailed,
+        pulsePinsUnavailableReason,
+    } = useValues(todayHighlightsLogic)
     const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
@@ -63,7 +70,11 @@ export function TodayPulseEditor(): JSX.Element {
 
     const isPinned = (key: string): boolean => pulsePins.some((pinned) => pinned.key === key)
     const searching = search.trim().length > 0
-    const rows = searching ? pulseInsightResults : shownOnOpen
+    const rows = !searching
+        ? shownOnOpen
+        : pulseInsightResultsLoading || pulseInsightSearchFailed
+          ? []
+          : pulseInsightResults
 
     return (
         <Popover
@@ -117,7 +128,9 @@ export function TodayPulseEditor(): JSX.Element {
                                 key={metric.key}
                                 metric={metric}
                                 pinned={pinned}
-                                disabledReason={pulsePinLimitReason(pulsePins.length, pinned)}
+                                disabledReason={
+                                    pulsePinsUnavailableReason ?? pulsePinLimitReason(pulsePins.length, pinned)
+                                }
                                 onToggle={() => togglePulsePin(metric, 'editor')}
                             />
                         )
@@ -125,7 +138,11 @@ export function TodayPulseEditor(): JSX.Element {
                 </ul>
                 {searching && rows.length === 0 ? (
                     <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
-                        {pulseInsightResultsLoading ? 'Searching…' : 'No trends or SQL insights match your search'}
+                        {pulseInsightResultsLoading
+                            ? 'Searching…'
+                            : pulseInsightSearchFailed
+                              ? "Couldn't search your insights. Try again."
+                              : 'No insights you can pin match your search'}
                     </Text>
                 ) : null}
                 {pulsePins.length >= PULSE_TILES ? (

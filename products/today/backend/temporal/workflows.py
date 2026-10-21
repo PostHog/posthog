@@ -103,4 +103,4 @@ async def _resolve_pins(inputs: ComputeHighlightsInputs, pins: list[PinnedNumber
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
     except ActivityError:
-        return ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in pins], failed=True)
+        return ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in pins])

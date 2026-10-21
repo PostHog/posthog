@@ -240,7 +240,6 @@ CHARTABLE_INSIGHTS_SCANNED = 200
 
 
 def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> list[ChartableInsight]:
-    """Saved insights the person may view that show as a series over time, the ones they viewed last first."""
     from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
         insight_series,
     )
@@ -248,10 +247,16 @@ def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> li
     insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
     if search.strip():
         insights = insights.filter(Q(name__icontains=search.strip()) | Q(derived_name__icontains=search.strip()))
+    else:
+        insights = insights.filter(pk__in=InsightViewed.objects.filter(user_id=user.id).values("insight_id"))
     access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     insights = access.filter_queryset_by_access_level(insights, resource="insight")
     found: list[ChartableInsight] = []
-    viewed = InsightViewed.objects.filter(insight=OuterRef("pk"), user_id=user.id).values("last_viewed_at")[:1]
+    viewed = (
+        InsightViewed.objects.filter(insight=OuterRef("pk"), user_id=user.id)
+        .order_by("-last_viewed_at")
+        .values("last_viewed_at")[:1]
+    )
     newest_first = (
         insights.annotate(viewed_at=Subquery(viewed))
         .only("short_id", "name", "derived_name", "query")

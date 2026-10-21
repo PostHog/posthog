@@ -53,7 +53,6 @@ class ResolvePinsResult:
     keys: list[str]
     found: str
     pending: list[str]
-    failed: bool
 
 
 @dataclasses.dataclass(frozen=True)

@@ -195,11 +195,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         else HighlightsStatus.READY
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
-    row.failed_sources = (
-        bool(failed)
-        or any(result.failed for result in inputs.pin_results)
-        or any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
-    )
+    row.failed_sources = bool(failed) or any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
     row.ready_at = timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:
