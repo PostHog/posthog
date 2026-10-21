@@ -64,7 +64,6 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             )
         ) : skin === 'quill' || todayRailNav ? (
             <QuillTaskHeaderActions
-                desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
                 prUrl={prUrl}
                 runLabel={canRun && latestRun ? runButtonText : null}
                 onRun={runTask}
