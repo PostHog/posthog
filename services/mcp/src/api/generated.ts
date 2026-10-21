@@ -37939,6 +37939,7 @@ export namespace Schemas {
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
      * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `no_action_needed` - No action needed
      * * `pr_merged` - PR was merged
      * * `other` - Something else…
      */
@@ -37953,6 +37954,7 @@ export namespace Schemas {
       WontfixIntentional: 'wontfix_intentional',
       WontfixIrrelevant: 'wontfix_irrelevant',
       FixedOutsidePosthog: 'fixed_outside_posthog',
+      NoActionNeeded: 'no_action_needed',
       PrMerged: 'pr_merged',
       Other: 'other',
     } as const;
@@ -43811,6 +43813,29 @@ export namespace Schemas {
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
     } as const;
+
+    export interface EventWorkflowsBuildRequest {
+      /**
+         * The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.
+         * @minItems 1
+         * @maxItems 5
+         * @items.maxLength 400
+         */
+      events: string[];
+      /** Start a new build when the last one for these events failed. Leave it false when asking for a running build's status. */
+      retry?: boolean;
+    }
+
+    export interface EventWorkflowsBuildResponse {
+      /** ready when at least one draft was saved, building while the background build runs (call again with the same events to check), failed when no event produced a valid workflow. A failed result stays until a call sends retry.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `failed` - Failed */
+      status: DataSuggestionBuildStatusEnum;
+      /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
+      workflow_ids: string[];
+    }
 
     export interface EventsRetention {
       /**
@@ -68444,6 +68469,8 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+      sensitive?: boolean;
       /**
          * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
@@ -84403,6 +84430,8 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+      sensitive?: boolean;
       /**
          * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
@@ -87258,77 +87287,51 @@ export namespace Schemas {
       Open: 'open',
     } as const;
 
-    export interface SurveyOpenQuestionSchema {
-      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-      id?: string;
-      type: SurveyOpenQuestionSchemaTypeEnum;
-      /** Question text shown to respondents. */
-      question: string;
-      /** Optional helper text. */
+    export interface SurveyQuestionTranslationSchema {
+      /** Translated question text. */
+      question?: string;
+      /** Translated helper text. */
       description?: string;
-      /** Format for the description field.
-       *
-       * * `text` - text
-       * * `html` - html */
-      descriptionContentType?: DescriptionContentTypeEnum;
-      /** Whether respondents may skip this question. */
-      optional?: boolean;
-      /** Custom button label. */
+      /** Translated button label. */
       buttonText?: string;
+      /** Translated lowest rating label. Rating questions only. */
+      lowerBoundLabel?: string;
+      /** Translated highest rating label. Rating questions only. */
+      upperBoundLabel?: string;
+      /** Translated choices. Must have the same length as the question choices. Choice questions only. */
+      choices?: string[];
+      /** Translated URL. Link questions only. */
+      link?: string;
     }
 
     /**
-     * * `link` - link
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
      */
-    export type SurveyLinkQuestionSchemaTypeEnum = typeof SurveyLinkQuestionSchemaTypeEnum[keyof typeof SurveyLinkQuestionSchemaTypeEnum];
+    export type SurveyQuestionValidationRuleTypeEnum = typeof SurveyQuestionValidationRuleTypeEnum[keyof typeof SurveyQuestionValidationRuleTypeEnum];
 
 
-    export const SurveyLinkQuestionSchemaTypeEnum = {
-      Link: 'link',
+    export const SurveyQuestionValidationRuleTypeEnum = {
+      MinLength: 'min_length',
+      MaxLength: 'max_length',
+      Email: 'email',
     } as const;
 
-    export interface SurveyLinkQuestionSchema {
-      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-      id?: string;
-      type: SurveyLinkQuestionSchemaTypeEnum;
-      /** Question text shown to respondents. */
-      question: string;
-      /** Optional helper text. */
-      description?: string;
-      /** Format for the description field.
+    export interface SurveyQuestionValidationRule {
+      /** Validation rule type for open-text questions.
        *
-       * * `text` - text
-       * * `html` - html */
-      descriptionContentType?: DescriptionContentTypeEnum;
-      /** Whether respondents may skip this question. */
-      optional?: boolean;
-      /** Custom button label. */
-      buttonText?: string;
-      /** HTTPS or mailto URL for link questions. */
-      link: string;
+       * * `min_length` - min_length
+       * * `max_length` - max_length
+       * * `email` - email */
+      type: SurveyQuestionValidationRuleTypeEnum;
+      /**
+         * Rule value for min_length or max_length validations.
+         * @minimum 1
+         * @nullable
+         */
+      value?: number | null;
     }
-
-    /**
-     * * `rating` - rating
-     */
-    export type SurveyRatingQuestionSchemaTypeEnum = typeof SurveyRatingQuestionSchemaTypeEnum[keyof typeof SurveyRatingQuestionSchemaTypeEnum];
-
-
-    export const SurveyRatingQuestionSchemaTypeEnum = {
-      Rating: 'rating',
-    } as const;
-
-    /**
-     * * `number` - number
-     * * `emoji` - emoji
-     */
-    export type SurveyRatingQuestionSchemaDisplayEnum = typeof SurveyRatingQuestionSchemaDisplayEnum[keyof typeof SurveyRatingQuestionSchemaDisplayEnum];
-
-
-    export const SurveyRatingQuestionSchemaDisplayEnum = {
-      Number: 'number',
-      Emoji: 'emoji',
-    } as const;
 
     /**
      * * `next_question` - next_question
@@ -87412,6 +87415,104 @@ export namespace Schemas {
 
     export type SurveyBranchingSchema = SurveyNextQuestionBranching | SurveyEndBranching | SurveySpecificQuestionBranching | SurveyResponseBasedBranching;
 
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     */
+    export type SurveyOpenQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema};
+
+    export interface SurveyOpenQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
+      type: SurveyOpenQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+       *
+       * * `text` - text
+       * * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+      translations?: SurveyOpenQuestionSchemaTranslations;
+      /**
+         * Validation rules for the response text, for example a minimum length.
+         * @nullable
+         */
+      validation?: SurveyQuestionValidationRule[] | null;
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `link` - link
+     */
+    export type SurveyLinkQuestionSchemaTypeEnum = typeof SurveyLinkQuestionSchemaTypeEnum[keyof typeof SurveyLinkQuestionSchemaTypeEnum];
+
+
+    export const SurveyLinkQuestionSchemaTypeEnum = {
+      Link: 'link',
+    } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     */
+    export type SurveyLinkQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema};
+
+    export interface SurveyLinkQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
+      type: SurveyLinkQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+       *
+       * * `text` - text
+       * * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+      translations?: SurveyLinkQuestionSchemaTranslations;
+      /** HTTPS or mailto URL for link questions. */
+      link: string;
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `rating` - rating
+     */
+    export type SurveyRatingQuestionSchemaTypeEnum = typeof SurveyRatingQuestionSchemaTypeEnum[keyof typeof SurveyRatingQuestionSchemaTypeEnum];
+
+
+    export const SurveyRatingQuestionSchemaTypeEnum = {
+      Rating: 'rating',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `emoji` - emoji
+     */
+    export type SurveyRatingQuestionSchemaDisplayEnum = typeof SurveyRatingQuestionSchemaDisplayEnum[keyof typeof SurveyRatingQuestionSchemaDisplayEnum];
+
+
+    export const SurveyRatingQuestionSchemaDisplayEnum = {
+      Number: 'number',
+      Emoji: 'emoji',
+    } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     */
+    export type SurveyRatingQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema};
+
     export interface SurveyRatingQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
       id?: string;
@@ -87429,6 +87530,8 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+      translations?: SurveyRatingQuestionSchemaTranslations;
       /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
        *
        * * `number` - number
@@ -87443,6 +87546,8 @@ export namespace Schemas {
       lowerBoundLabel?: string;
       /** Label for the highest rating (e.g., 'Excellent') */
       upperBoundLabel?: string;
+      /** Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true. */
+      isNpsQuestion?: boolean;
       branching?: SurveyBranchingSchema | null;
     }
 
@@ -87455,6 +87560,11 @@ export namespace Schemas {
     export const SurveySingleChoiceQuestionSchemaTypeEnum = {
       SingleChoice: 'single_choice',
     } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     */
+    export type SurveySingleChoiceQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema};
 
     export interface SurveySingleChoiceQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
@@ -87473,6 +87583,8 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+      translations?: SurveySingleChoiceQuestionSchemaTranslations;
       /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          * @minItems 2
@@ -87496,6 +87608,11 @@ export namespace Schemas {
       MultipleChoice: 'multiple_choice',
     } as const;
 
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     */
+    export type SurveyMultipleChoiceQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema};
+
     export interface SurveyMultipleChoiceQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
       id?: string;
@@ -87513,6 +87630,8 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+      translations?: SurveyMultipleChoiceQuestionSchemaTranslations;
       /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          * @minItems 2
@@ -103730,7 +103849,7 @@ export namespace Schemas {
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -103739,6 +103858,7 @@ export namespace Schemas {
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
       dismissal_reason?: DismissalReasonEnum;
@@ -104077,7 +104197,7 @@ export namespace Schemas {
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -104086,6 +104206,7 @@ export namespace Schemas {
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
       dismissal_reason?: DismissalReasonEnum;

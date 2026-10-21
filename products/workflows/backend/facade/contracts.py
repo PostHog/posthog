@@ -583,6 +583,8 @@ class TransactionalEmailContent:
     # None uses the project's default sender on create, and keeps the workflow's sender on update.
     from_integration_id: int | None
     message_category_id: UUID | None
+    # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
+    sensitive: bool = False
 
 
 class TransactionalEmailSenderUnavailable(Exception):
@@ -826,6 +828,15 @@ class BuiltSuggestion:
     # Set only when the build saved the draft itself.
     workflow_id: str | None = None
     missing_inputs: tuple[MissingInput, ...] = ()
+
+
+@frozen
+class EventWorkflowsBuild:
+    """Draft workflows built in the background for events a team picked, one per event at most."""
+
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready. Each id is a saved draft that never runs until enabled.
+    workflow_ids: tuple[str, ...] = ()
 
 
 @frozen
