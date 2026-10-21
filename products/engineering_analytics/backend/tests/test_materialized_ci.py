@@ -161,8 +161,6 @@ class TestMaterializedCI(BaseTest):
             "new_definition",
             "missing_stored_column",
             "wrong_viewset",
-            "newer_build_running",
-            "newer_build_failed",
         ]
     )
     def test_unusable_materializations_fall_back_together(self, condition: str) -> None:
@@ -187,19 +185,21 @@ class TestMaterializedCI(BaseTest):
             jobs.table.save(update_fields=["columns"])
         elif condition == "wrong_viewset":
             DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(managed_viewset=None)
-        elif condition in ("newer_build_running", "newer_build_failed"):
-            DataModelingJob.objects.create(
-                team=self.team,
-                saved_query=jobs,
-                status=DataModelingJob.Status.RUNNING
-                if condition == "newer_build_running"
-                else DataModelingJob.Status.FAILED,
-            )
 
         with patch("posthoganalytics.feature_enabled", return_value=True):
             reader = self._reader()
             assert "raw_github_workflow_runs" in get_table_names(parse_select(reader.run_source()))
             assert "raw_github_workflow_jobs" in get_table_names(parse_select(reader.jobs_source() or ""))
+
+    @parameterized.expand([DataModelingJob.Status.RUNNING, DataModelingJob.Status.FAILED])
+    def test_an_unfinished_newer_build_keeps_the_completed_one_serving(self, status: str) -> None:
+        views = _ready_views(self)
+        DataModelingJob.objects.create(team=self.team, saved_query=views[ci_rows.JOBS_VIEW_NAME], status=status)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            reader = self._reader()
+            assert set(get_table_names(parse_select(reader.run_source()))) == {ci_rows.RUNS_VIEW_NAME}
+            assert set(get_table_names(parse_select(reader.jobs_source() or ""))) == {ci_rows.JOBS_VIEW_NAME}
 
     def test_flag_exception_falls_back_to_live_sources(self) -> None:
         _ready_views(self)
