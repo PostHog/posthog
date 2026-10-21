@@ -42,8 +42,7 @@ class QualarooResumeConfig:
     # Progress of an endpoint that is listed once per nudge: the nudges that are done, the nudge in
     # progress, and the page cursor of that nudge. The shared fan-out helper owns the shape.
     fanout_state: Optional[dict[str, Any]] = None
-    # Upper `end_date` bound of the fan-out, fixed at sync start and kept across resumes. Without it a
-    # response submitted to an already-synced nudge could fall below the watermark set by later nudges.
+    # `end_date` fixed at sync start, so responses that arrive mid fan-out are left for the next run.
     sync_end: Optional[str] = None
 
 
