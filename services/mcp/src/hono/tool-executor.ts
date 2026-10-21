@@ -146,6 +146,7 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
 
 // Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
+    carriedContextHandle?: boolean
     resolveConversation?(conversationId: string): Promise<ResolvedState>
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
@@ -237,6 +238,9 @@ export class ToolExecutor {
             rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
+        const carriedContextHandle =
+            hooks?.carriedContextHandle ??
+            Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -256,12 +260,32 @@ export class ToolExecutor {
                 preparedCall.conversationId !== previousConversationId &&
                 hooks?.resolveConversation
             ) {
-                // The SDK can mint the first handle after state resolves; bind its store before a switch executes.
+                // Bind the new handle before execution so this call and its retry share defaults.
                 state = await hooks.resolveConversation(preparedCall.conversationId)
             }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
+
+        const targetToolName =
+            toolName === 'exec' && typeof args.command === 'string'
+                ? parseExecCallInnerToolName(args.command)
+                : toolName
+        const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
+        if (isContextSwitch && !carriedContextHandle) {
+            return this.deliverConversationHandle(
+                {
+                    isError: true,
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Switch not applied. Retry with the returned `conversation_id` and include it on subsequent calls. If your client cannot retain it, pin the project or organization in the connection URL.',
+                        },
+                    ],
+                },
+                preparedCall
+            )
+        }
 
         const invitation = await hooks?.beforeExecute(callState)
         if (invitation) {

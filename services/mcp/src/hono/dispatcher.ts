@@ -274,6 +274,7 @@ class McpDispatcher {
             props.mcpConversationId = echoedConversationId(requests[0]!) ?? props.mcpConversationId
         }
 
+        const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
@@ -322,6 +323,7 @@ class McpDispatcher {
                 props,
                 state,
                 getPublicUrl(req).origin,
+                carriedContextHandle,
                 canStream
                     ? (request) => {
                           elicitation = request
@@ -342,7 +344,9 @@ class McpDispatcher {
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin)))
+        const results = await Promise.all(
+            requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin, carriedContextHandle))
+        )
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
@@ -351,6 +355,7 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState | undefined,
         requestOrigin: string,
+        carriedContextHandle: boolean,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
@@ -369,6 +374,7 @@ class McpDispatcher {
                 stateless,
                 id,
                 requestOrigin,
+                carriedContextHandle,
                 onLegacyElicitation
             )
             if (result === METHOD_NOT_FOUND) {
@@ -393,6 +399,7 @@ class McpDispatcher {
         stateless: boolean,
         requestId: string | number,
         requestOrigin: string,
+        carriedContextHandle: boolean,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
@@ -412,6 +419,7 @@ class McpDispatcher {
                     state!,
                     params
                         ? {
+                              carriedContextHandle,
                               resolveConversation: (conversationId) => {
                                   props.mcpConversationId = conversationId
                                   return this.stateResolver.resolve(props)

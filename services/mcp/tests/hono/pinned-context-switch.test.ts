@@ -221,7 +221,6 @@ const pathsFor = (projectId: string, orgId: string): string[] => [
     `/api/environments/${projectId}/mcp_tools/execute_sql/`,
     `/api/organizations/${orgId}/billing/subscription/`,
 ]
-const billingPathFor = (orgId: string): string[] => [`/api/organizations/${orgId}/billing/subscription/`]
 
 async function cacheOtherProjectOnToken(token: string): Promise<void> {
     await tokenCache(token).setMany({ projectId: OTHER_PROJECT, orgId: OTHER_ORG })
@@ -287,15 +286,6 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(result.paths).toEqual([])
     })
 
-    it('clears a project when the first conversation call switches organizations', async () => {
-        const token = 'phx_switch_org'
-        const response = await postToolCall('switch-organization', { orgId: OTHER_ORG }, { token })
-        expect(response.result?.isError).toBeFalsy()
-        const conversationId = mintedConversationId(response)
-        expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
-        expect(await targets({ token, conversationId })).toEqual({ project: null, org: OTHER_ORG })
-        expect(await runBilling({ token })).toEqual({ isError: undefined, paths: billingPathFor(PINNED_ORG) })
-    })
     it.each([
         ['unpinned conversation', ''],
         ['pinned conversation', `?project_id=${PINNED_PROJECT}`],
@@ -311,23 +301,69 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(await tokenCache(token).get('projectId')).toBeUndefined()
     })
 
-    it.each(['', `?project_id=${PINNED_PROJECT}`])(
-        'persists a first-call switch with a newly minted conversation and pin %s',
-        async (query) => {
-            const token = `phx_first_conversation_${query ? 'pin' : 'default'}`
-            const first = await postToolCall('switch-project', { projectId: Number(OTHER_PROJECT) }, { token, query })
-            expect(first.result?.isError).toBeFalsy()
+    it.each(
+        [
+            {
+                tool: 'switch-project',
+                args: { projectId: Number(OTHER_PROJECT) },
+                expected: { project: OTHER_PROJECT, org: OTHER_ORG },
+            },
+            {
+                tool: 'switch-organization',
+                args: { orgId: OTHER_ORG },
+                expected: { project: null, org: OTHER_ORG },
+            },
+        ].flatMap((testCase) =>
+            ['', `?project_id=${PINNED_PROJECT}`].flatMap((query) =>
+                ['direct', 'exec'].map((mode) => ({ ...testCase, query, mode }))
+            )
+        )
+    )(
+        'requires a carried handle before $mode $tool with pin "$query"',
+        async ({ tool, args, expected, query, mode }) => {
+            const token = `phx_require_handle_${tool}_${mode}_${query ? 'pin' : 'default'}`
+            const toolName = mode === 'exec' ? 'exec' : tool
+            const toolArgs = mode === 'exec' ? { command: `call ${tool} ${JSON.stringify(args)}` } : args
+            const first = await postToolCall(toolName, toolArgs, { token, query })
+            expect(first.result?.isError).toBe(true)
+            expect(first.result?.content?.[0]?.text).toContain('Retry with the returned `conversation_id`')
             const conversationId = mintedConversationId(first)
             expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
-            await callTool(
-                'switch-project',
-                { projectId: Number(PINNED_PROJECT) },
-                { token, query: '', conversationId: CONVERSATION_B }
-            )
+            const defaults = { project: PINNED_PROJECT, org: PINNED_ORG }
+            expect(await targets({ token, query, conversationId })).toEqual(defaults)
+            expect(await targets({ token, query })).toEqual(defaults)
 
-            expect(await targets({ token, query, conversationId })).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+            const retry = await postToolCall(toolName, toolArgs, { token, query, conversationId })
+            expect(retry.result?.isError).toBeFalsy()
+            expect(await targets({ token, query, conversationId })).toEqual(expected)
+            expect(await targets({ token, query })).toEqual(defaults)
         }
     )
+
+    it('rejects every switch in a legacy batch without a carried handle', async () => {
+        const token = 'phx_batch_requires_handle'
+        const response = await app.request('/mcp', {
+            method: 'POST',
+            headers: requestHeaders({ token }),
+            body: JSON.stringify([
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: { name: 'switch-project', arguments: { projectId: Number(OTHER_PROJECT) } },
+                },
+                {
+                    jsonrpc: '2.0',
+                    id: 2,
+                    method: 'tools/call',
+                    params: { name: 'switch-organization', arguments: { orgId: OTHER_ORG } },
+                },
+            ]),
+        })
+        const results = (await response.json()) as Array<Omit<ToolCallResponse, 'status'>>
+        expect(results.map(({ result }) => result?.isError)).toEqual([true, true])
+        expect(await targets({ token, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+    })
 
     it('keeps a conversation bound to its credential and separate from a transport session with the same id', async () => {
         const token = 'phx_conversation_namespace'
@@ -357,9 +393,15 @@ describe('pinned project with switch-project (Hono)', () => {
                 { projectId: Number(OTHER_PROJECT) },
                 { token, query: '', conversationId: supplied }
             )
-            expect(first.result?.isError).toBeFalsy()
+            expect(Boolean(first.result?.isError)).toBe(supplied === 'conv-1')
             const conversationId = supplied === 'conv-1' ? mintedConversationId(first) : CONVERSATION_A
             expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
+            const retry = await callTool(
+                'switch-project',
+                { projectId: Number(OTHER_PROJECT) },
+                { token, query: '', conversationId }
+            )
+            expect(retry.isError).toBeFalsy()
 
             expect(await targets({ token, query: '', conversationId })).toEqual({
                 project: OTHER_PROJECT,
