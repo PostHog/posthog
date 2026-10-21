@@ -553,6 +553,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             insight_images=insight_images or None,
             core_memory_text=core_memory_text,
             annotations_section=annotations_section,
+            slack_formatting=subscription.target_type == Subscription.SubscriptionTarget.SLACK,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

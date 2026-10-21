@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any, Optional, Union
 
 import structlog
+from openai.lib._pydantic import to_strict_json_schema
 
 from posthog.schema import AssistantHogQLQuery
 
@@ -24,6 +25,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportDocument
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
@@ -38,6 +40,7 @@ from products.subscriptions.backend.temporal.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
+    REPORT_PRESENTATION_INSTRUCTIONS,
     SYNTHESIS_PROMPT_NAME,
     prepend_hogql_query_writing_rules,
     render_prompt,
@@ -180,6 +183,7 @@ class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
     chart: Optional[ValidatedChart] = None
+    source_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,6 +192,7 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
+    source_urls: tuple[str, ...] = ()
 
 
 @frozen
@@ -272,7 +277,7 @@ async def generate_ai_report(
                     selected=len(selected),
                 )
             synthesis_task = asyncio.ensure_future(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
+                _synthesize(spec, execution.rendered, team, user, trace_correlation_id, execution.source_urls)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
             try:
@@ -467,6 +472,7 @@ async def _synthesize(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
+    source_urls: tuple[str, ...] = (),
 ) -> str:
     posthog_properties: dict[str, Union[str, int]] = {
         "feature": "ai_subscription",
@@ -476,6 +482,11 @@ async def _synthesize(
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
 
+    report_schema = to_strict_json_schema(ReportDocument)
+    if source_urls:
+        report_schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] = list(source_urls)
+    else:
+        report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
@@ -483,26 +494,41 @@ async def _synthesize(
         team=team,
         billable=True,
         posthog_properties=posthog_properties,
-    )
+    ).with_structured_output(report_schema, method="json_schema", strict=True, include_raw=False)
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
     )
     # Inject the failure marker from the same constant the placeholder renders, so the prompt's
     # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
     synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
+    synthesis_prompt += f"\n\n{REPORT_PRESENTATION_INSTRUCTIONS}"
+    synthesis_prompt += (
+        f"\n\n{REPORT_TEXT_INSTRUCTIONS}"
+        + """
+Return a structured report document. Use a short topic for a major grouping of related sections,
+section headings for related findings, and subsection headings only for a meaningful deeper grouping.
+Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
+in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
+markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
+Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
+"""
+    )
+
+    human_message = _compose_synthesis_human_message(spec, rendered_results)
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
-        result = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
+        response = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
             [
                 ("system", synthesis_prompt),
-                ("human", _compose_synthesis_human_message(spec, rendered_results)),
+                ("human", human_message),
             ],
         )
+        result = ReportDocument.model_validate(response)
     except Exception as exc:
         raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
-    content = result.content if hasattr(result, "content") else str(result)
-    return content if isinstance(content, str) else str(content)
+    return result.render()
 
 
 def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str]) -> str:
@@ -580,6 +606,15 @@ async def _run_steps(
                         chart_dropped_reason=chart_dropped_reason,
                     ),
                     chart=chart,
+                    source_urls=tuple(
+                        dict.fromkeys(
+                            value
+                            for row in query_result.response.get("results", [])
+                            if isinstance(row, (list, tuple))
+                            for value in row
+                            if isinstance(value, str) and value.startswith(("https://", "http://"))
+                        )
+                    )[:100],
                 )
             except Exception as exc:
                 last_exc = exc
@@ -648,6 +683,7 @@ async def _run_steps(
         failed_count=sum(1 for diag in diagnostics if not diag.ok),
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+        source_urls=tuple(dict.fromkeys(url for outcome in step_results for url in outcome.source_urls))[:100],
     )
 
 

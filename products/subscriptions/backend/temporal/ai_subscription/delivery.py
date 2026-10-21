@@ -1,3 +1,4 @@
+import re
 import uuid
 import dataclasses
 from datetime import UTC, datetime, timedelta
@@ -9,11 +10,12 @@ from django.db.models import Q
 import nh3
 import structlog
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.markdown_safety import strip_external_links_markdown
+from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.slack.formatting import channel_id_from_target
@@ -27,6 +29,8 @@ from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
     SlackMessage,
+    _subscription_header_blocks,
+    _summary_rich_text,
     deliver_slack_message_data,
 )
 from products.subscriptions.backend.logic.teams_subscriptions import (
@@ -42,6 +46,7 @@ from products.subscriptions.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
+    SubscriptionResource,
     get_unsubscribe_token,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, generate_ai_report
@@ -119,6 +124,203 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def _split_fenced_markdown(content: str, opening: str, closing: str, limit: int) -> list[str]:
+    prefix = f"{opening}\n"
+    suffix = f"\n{closing}\n"
+    budget = limit - len(prefix) - len(suffix)
+    if budget <= 0:
+        prefix, suffix = "~~~\n", "\n~~~\n"
+        budget = limit - len(prefix) - len(suffix)
+    chunks = []
+    while content:
+        cut = len(content)
+        if cut > budget:
+            cut = content.rfind("\n", 0, budget) + 1 or budget
+        chunks.append(f"{prefix}{content[:cut]}{suffix}")
+        content = content[cut:]
+    return chunks
+
+
+def _split_slack_markdown(text: str) -> list[str]:
+    limit = SLACK_MARKDOWN_MESSAGE_LIMIT
+    if len(text) <= limit:
+        return [text] if text else []
+
+    lines = text.splitlines(keepends=True)
+    pieces: list[str] = []
+    cursor = 0
+    for token in _MARKDOWN_RENDERER.parse(text):
+        if token.level or token.map is None or token.map[0] < cursor:
+            continue
+        start, end = token.map
+        pieces.extend(_split_text_into_chunks("".join(lines[cursor:start]), limit))
+        block = "".join(lines[start:end])
+        if len(block) <= limit:
+            pieces.append(block)
+        elif token.type == "fence":
+            pieces.extend(_split_fenced_markdown(token.content, token.markup + token.info, token.markup, limit))
+        elif token.type == "table_open":
+            header = "".join(lines[start : start + 2])
+            rows = lines[start + 2 : end]
+            if any(len(header) + len(row) > limit for row in rows) or len(header) >= limit:
+                pieces.extend(_split_fenced_markdown(block, "~~~", "~~~", limit))
+            else:
+                table = header
+                for row in rows:
+                    if len(table) + len(row) > limit:
+                        pieces.append(table)
+                        table = header
+                    table += row
+                pieces.append(table)
+        else:
+            pieces.extend(_split_text_into_chunks(block, limit))
+        cursor = end
+    pieces.extend(_split_text_into_chunks("".join(lines[cursor:]), limit))
+
+    chunks: list[str] = []
+    current = ""
+    for piece in pieces:
+        if len(current) + len(piece) > limit:
+            if current.strip():
+                chunks.append(current)
+            current = ""
+        current += piece
+    if current.strip():
+        chunks.append(current)
+    return chunks
+
+
+def _slack_markdown_blocks(markdown: str) -> list[dict[str, Any]]:
+    if "<u>" not in markdown:
+        return [{"type": "markdown", "text": markdown}]
+    lines = markdown.splitlines(keepends=True)
+    blocks: list[dict[str, Any]] = []
+    cursor = 0
+    for token in _MARKDOWN_RENDERER.parse(markdown):
+        if token.level or token.map is None or token.map[0] < cursor:
+            continue
+        start, end = token.map
+        content = "".join(lines[cursor:end])
+        if token.type in {"paragraph_open", "bullet_list_open", "ordered_list_open"} and "<u>" in content:
+            content = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"_\1_", content)
+            blocks.append(_summary_rich_text(content))
+        else:
+            blocks.append({"type": "markdown", "text": content})
+        cursor = end
+    if remainder := "".join(lines[cursor:]):
+        blocks.append({"type": "markdown", "text": remainder})
+    return blocks
+
+
+def _slack_highlight_inline(tokens: list[Token]) -> list[dict[str, Any]] | None:
+    elements: list[dict[str, Any]] = []
+    styles: list[dict[str, bool]] = [{}]
+    link: str | None = None
+    style_tokens = {"strong": "bold", "em": "italic", "s": "strike"}
+    for token in tokens:
+        if token.type in {"strong_open", "em_open", "s_open"}:
+            styles.append({**styles[-1], style_tokens[token.type.removesuffix("_open")]: True})
+        elif token.type in {"strong_close", "em_close", "s_close"}:
+            styles.pop()
+        elif token.type == "link_open":
+            destination = str(token.attrGet("href") or "")
+            link = destination if is_allowed_link_url(destination, absolute_uri("/")) else None
+        elif token.type == "link_close":
+            link = None
+        elif token.type in {"text", "code_inline", "softbreak", "hardbreak"}:
+            content = token.content
+            if token.type in {"softbreak", "hardbreak"}:
+                content = "\n"
+            if not content:
+                continue
+            style = styles[-1]
+            if token.type == "code_inline":
+                style = {**style, "code": True}
+            element: dict[str, Any] = {"type": "text", "text": content}
+            if link is not None:
+                element = {"type": "link", "url": link, "text": content}
+                style = {key: value for key, value in style.items() if key != "code"}
+            if style:
+                element["style"] = style
+            if (
+                link is not None
+                and elements
+                and elements[-1]["type"] == "link"
+                and elements[-1]["url"] == link
+                and elements[-1].get("style") == element.get("style")
+            ):
+                elements[-1]["text"] += content
+                continue
+            elements.append(element)
+        else:
+            return None
+    return elements
+
+
+def _slack_highlight_content(markdown: str) -> dict[str, Any] | None:
+    if "<u>" in markdown:
+        return None
+    tokens = MarkdownIt("commonmark", {"html": False}).enable("strikethrough").parse(markdown)
+    sections: list[dict[str, Any]] = []
+    paragraph_count = 0
+    for token in tokens:
+        if token.type == "bullet_list_open":
+            if token.level != 0:
+                return None
+        elif token.type == "list_item_open":
+            paragraph_count = 0
+        elif token.type == "paragraph_open":
+            paragraph_count += 1
+            if paragraph_count > 1:
+                return None
+        elif token.type == "inline":
+            elements = _slack_highlight_inline(token.children or [])
+            if not elements:
+                return None
+            sections.append({"type": "rich_text_section", "elements": elements})
+        elif token.type not in {"bullet_list_close", "list_item_close", "paragraph_close"}:
+            return None
+    if not sections:
+        return None
+    return {"type": "rich_text", "elements": [{"type": "rich_text_list", "style": "bullet", "elements": sections}]}
+
+
+def _slack_report_blocks(markdown: str) -> list[dict[str, Any]]:
+    tokens = _MARKDOWN_RENDERER.parse(markdown)
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.level != 0 or token.tag != "h2":
+            continue
+        heading = tokens[index + 1].content
+        if len(heading) > 150:
+            break
+        following = tokens[index + 3 :]
+        if not following or following[0].type != "bullet_list_open":
+            break
+        findings = following[0]
+        assert token.map is not None and findings.map is not None
+        lines = markdown.splitlines(keepends=True)
+        before = "".join(lines[: token.map[0]]).rstrip()
+        content = "".join(lines[findings.map[0] : findings.map[1]])
+        after = "".join(lines[findings.map[1] :]).lstrip()
+        highlight = _slack_highlight_content(content)
+        if highlight is None:
+            return _slack_markdown_blocks(markdown)
+        blocks = _slack_markdown_blocks(before) if before else []
+        blocks.append(
+            {
+                "type": "container",
+                "title": {"type": "plain_text", "text": heading, "emoji": False},
+                "has_header_divider": True,
+                "width": "full",
+                "child_blocks": [highlight],
+            }
+        )
+        if after:
+            blocks.extend(_slack_markdown_blocks(after))
+        return blocks
+    return _slack_markdown_blocks(markdown)
 
 
 def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
@@ -373,13 +575,17 @@ def _build_ai_slack_message(
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = channel_id_from_target(subscription.target_value)
-    sections = _split_text_into_chunks(strip_external_links_markdown(markdown), SLACK_MARKDOWN_MESSAGE_LIMIT)
+    sections = _split_slack_markdown(
+        strip_external_links_markdown(markdown, additional_allowed_origin=absolute_uri("/"))
+    )
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
 
     blocks: list[dict] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
-        {"type": "markdown", "text": first_section},
+        *_subscription_header_blocks(
+            subscription, SubscriptionResource("AI prompt", title, subscription.url or ""), False
+        ),
+        *_slack_report_blocks(first_section),
     ]
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         caption = chart.get("title") or "Chart"
@@ -438,7 +644,7 @@ def _build_ai_slack_message(
         blocks.append({"type": "divider"})
         blocks.extend(footer_blocks)
 
-    thread_messages = [{"blocks": [{"type": "markdown", "text": section}]} for section in sections[1:]]
+    thread_messages = [{"blocks": _slack_report_blocks(section)} for section in sections[1:]]
     # unfurl=False: report content is LLM-generated; never let Slack auto-fetch a link it contains.
     return SlackMessage(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
 
