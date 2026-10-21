@@ -14,12 +14,20 @@ from posthog.models import Team
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import PROwnerDecision, PROwnerInput, PROwnerSelection
-from products.signals.backend.assignment_service import AssignmentSnapshot, ReportAssignmentService
+from products.signals.backend.artefact_schemas import (
+    PROwnerDecision,
+    PROwnerInput,
+    PROwnerSelection,
+    SuggestedReviewerEntry,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
 from products.signals.backend.pr_owner_evidence import MAX_OWNER_CANDIDATES, PROwnerEvidenceReader, report_owner_version
 from products.signals.backend.pr_owner_selection import owner_input_version, select_pr_owner, validate_owner_decision
-from products.signals.backend.report_generation.resolve_reviewers import _github_identity_prefetches
+from products.signals.backend.report_generation.resolve_reviewers import (
+    _github_identity_prefetches,
+    get_org_member_github_logins_by_user_uuid,
+)
+from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerSnapshot
 
 logger = structlog.get_logger(__name__)
 FAILURE_RETRY_AFTER = timedelta(minutes=10)
@@ -40,7 +48,7 @@ class PROwnerDecisionService:
 
     def inputs(self, *, repository: str, pr_number: int, head_sha: str, base_sha: str) -> PROwnerInput:
         report = SignalReport.objects.get(team_id=self.team.id, id=self.report_id)
-        snapshot = ReportAssignmentService.read_for_report(team_id=self.team.id, report_id=self.report_id)
+        snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=self.report_id)
         return PROwnerInput(
             repository=repository,
             pr_number=pr_number,
@@ -71,7 +79,7 @@ class PROwnerDecisionService:
             return saved
         return None
 
-    def prepare(self, inputs: PROwnerInput, snapshot: AssignmentSnapshot) -> PROwnerSelection | None:
+    def prepare(self, inputs: PROwnerInput, snapshot: ReviewerSnapshot) -> PROwnerSelection | None:
         if saved := self._saved(inputs):
             self.log.info("signals.pr_owner.selection_reused", outcome=saved.decision.outcome)
             return saved
@@ -114,6 +122,30 @@ class PROwnerDecisionService:
             )
         self.log.info("signals.pr_owner.selected", outcome=decision.outcome, candidates=len(decision.candidates))
         return selected
+
+    def filter_corrections(self, candidates: list[str], snapshot: ReviewerSnapshot) -> list[str]:
+        corrections = snapshot.corrections
+        if corrections.needs_review:
+            return []
+        entries = corrections.excluded + (snapshot.reviewers if corrections.confirmed else ())
+        logins = get_org_member_github_logins_by_user_uuid(
+            self.team.id, [entry.user_uuid for entry in entries if entry.user_uuid]
+        )
+
+        def current_login(entry: SuggestedReviewerEntry) -> str:
+            return (
+                logins.get(entry.user_uuid, entry.github_login or "") if entry.user_uuid else entry.github_login or ""
+            ).lower()
+
+        excluded = {current_login(entry) for entry in corrections.excluded}
+        confirmed = None
+        if corrections.confirmed:
+            uuids = [entry.user_uuid for entry in snapshot.reviewers if entry.user_uuid]
+            eligible = (
+                {str(member.uuid) for member in self.team.all_users_with_access(user_uuids=uuids)} if uuids else set()
+            )
+            confirmed = {current_login(entry) for entry in snapshot.reviewers if entry.user_uuid in eligible}
+        return [login for login in candidates if login not in excluded and (confirmed is None or login in confirmed)]
 
     def eligible_logins(self, selected: PROwnerSelection) -> EligiblePROwners:
         wanted = {candidate.login for candidate in selected.decision.candidates}
@@ -158,4 +190,6 @@ class PROwnerDecisionService:
                     team_logins[slug] = {login.lower() for login in result["logins"]}
                 if identity.login in team_logins[slug]:
                     eligible.add(identity.login)
-        return EligiblePROwners(logins=frozenset(eligible), opted_in=frozenset(opted_in))
+        snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=self.report_id)
+        eligible = set(self.filter_corrections(sorted(eligible), snapshot))
+        return EligiblePROwners(logins=frozenset(eligible), opted_in=frozenset(opted_in & eligible))

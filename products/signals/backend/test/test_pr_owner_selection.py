@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from typing import Literal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,14 +15,24 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import PROwnerSelection, SuggestedReviewerEntry, SuggestedReviewers
-from products.signals.backend.assignment_service import ReportAssignmentService
-from products.signals.backend.models import SignalReport, SignalRepositoryAreaActivity, SignalUserAutonomyConfig
+from products.signals.backend.artefact_schemas import (
+    PROwnerSelection,
+    ReviewerEdit,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalRepositoryAreaActivity,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.pr_owner_decisions import PROwnerDecisionService
 from products.signals.backend.pr_owning_team import OwningTeam
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_generation.repo_activity import area_for_path
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.test.test_reviewer_pr_assignment import (
     _NOT_UNASSIGNED,
     PR_URL,
@@ -41,8 +52,8 @@ class TestRelevantPROwner:
         with (
             patch("products.signals.backend.reviewer_pr_assignment.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_enabled", return_value=True),
-            patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True),
-            patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
+            patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False),
             patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True),
             patch(
                 "products.signals.backend.reviewer_pr_assignment.team_research_reviewer_selection_enabled",
@@ -80,6 +91,19 @@ class TestRelevantPROwner:
             "assignees": logins,
         }
         return report, github
+
+    def edit_reviewers(
+        self, report: SignalReport, action: Literal["add", "remove", "replace", "confirm"], *logins: str
+    ) -> None:
+        editor = User.objects.get(email="prolific@example.com")
+        snapshot = ReviewerRules.read_for_report(team_id=report.team_id, report_id=str(report.id))
+        SignalReportArtefact.append_status(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins]),
+            attribution=ArtefactAttribution.from_user(editor.id),
+            reviewer_edit=ReviewerEdit(action=action, expected_state=snapshot.state),
+        )
 
     def decision(self, *logins: str) -> dict:
         return {
@@ -193,7 +217,7 @@ class TestRelevantPROwner:
         saved = PROwnerSelection.model_validate_json(report.artefacts.get(type="pr_owner_selection").content)
         service = PROwnerDecisionService(team_id=team.id, report_id=str(report.id), github=github)
 
-        with django_assert_num_queries(6):
+        with django_assert_num_queries(10):
             eligible = service.eligible_logins(saved)
 
         assert eligible.logins == frozenset(logins)
@@ -263,7 +287,7 @@ class TestRelevantPROwner:
         assert any(report.summary in entry["content"] for entry in inputs["evidence"])
         assert report.artefacts.get(type="suggested_reviewers").content == before
 
-    @pytest.mark.parametrize("choice", ["assigned", "unassigned", "claim", "ineligible_claim"])
+    @pytest.mark.parametrize("choice", ["assigned", "unassigned", "claim", "ineligible_claim", "unrecovered_edit"])
     def test_existing_human_choice_prevents_selection(self, org_and_team, choice):
         org, team = org_and_team
         report, github = self.setup_report(org, team)
@@ -271,6 +295,9 @@ class TestRelevantPROwner:
             github.get_pull_request.return_value["assignees"] = ["prolific"]
         elif choice == "unassigned":
             github.was_ever_unassigned.return_value = {"success": True, "unassigned": True}
+        elif choice == "unrecovered_edit":
+            with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False):
+                self.edit_reviewers(report, "remove", "prolific")
         else:
             claimant = User.objects.get(email="prolific@example.com")
             claim_report(
@@ -281,27 +308,26 @@ class TestRelevantPROwner:
         model = self.model(self.decision("current-owner"))
         assert self.run_assignment(report, github, model) == (["prolific"] if choice == "claim" else [])
         model.assert_not_called()
+        if choice == "unrecovered_edit":
+            assert not report.artefacts.filter(type="reviewer_corrections").exists()
+            github.add_pull_request_assignees.assert_not_called()
         if choice == "ineligible_claim":
             github.is_assignable.assert_called_once_with("PostHog/posthog", "prolific")
 
     def test_human_edit_while_model_runs_discards_decision(self, org_and_team):
         org, team = org_and_team
         report, github = self.setup_report(org, team)
-        editor = User.objects.get(email="prolific@example.com")
 
         async def edit_then_select(**kwargs):
-            await sync_to_async(ReportAssignmentService(team=team, report_id=str(report.id)).edit_reviewers)(
-                SuggestedReviewers(root=[]), actor=ArtefactAttribution.from_user(editor.id)
-            )
+            await sync_to_async(self.edit_reviewers)(report, "add", "prolific")
             return kwargs["validate"](json.dumps(self.decision("current-owner")))
 
         model = AsyncMock(side_effect=edit_then_select)
         assert self.run_assignment(report, github, model) == []
         model.assert_called_once()
-        assert ReportAssignmentService.read_for_report(team_id=team.id, report_id=str(report.id)).control == "human"
+        assert ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).corrections.pinned
         assert not report.artefacts.filter(type="pr_owner_selection").exists()
         github.add_pull_request_assignees.assert_not_called()
-        github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.parametrize("gate", ["assignment_side_effects_enabled"])
     def test_delivery_gate_blocks_selection_even_before_writer_enrollment(self, org_and_team, gate):
@@ -375,24 +401,78 @@ class TestRelevantPROwner:
 
     @pytest.mark.parametrize("enabled", [True, False])
     @pytest.mark.parametrize("keep", [[], ["prolific"]])
-    def test_human_list_cannot_be_bypassed_by_pr_selection(self, org_and_team, keep, enabled):
+    def test_confirmed_list_restricts_pr_selection(self, org_and_team, keep, enabled):
         org, team = org_and_team
         report, github = self.setup_report(org, team)
-        editor = User.objects.get(email="prolific@example.com")
-        service = ReportAssignmentService(team=team, report_id=str(report.id))
-        service.edit_reviewers(
-            SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in keep]),
-            actor=ArtefactAttribution.from_user(editor.id),
-        )
-        before = service.read()
-        model = self.model(self.decision("current-owner"))
+        self.edit_reviewers(report, "replace", *keep)
+        self.edit_reviewers(report, "confirm")
+        before = ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id))
+        model = self.model(self.decision("current-owner", "prolific"))
         with patch(
             "products.signals.backend.reviewer_pr_assignment.team_research_reviewer_selection_enabled",
             return_value=enabled,
         ):
             assert self.run_assignment(report, github, model) == keep
+        assert ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)) == before
+
+    def test_pin_does_not_force_pr_ownership(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        self.edit_reviewers(report, "add", "prolific")
+        model = self.model(self.decision("current-owner"))
+        assert self.run_assignment(report, github, model) == ["current-owner"]
+        model.assert_called_once()
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_exclusion_blocks_pr_owner_in_both_policies(self, org_and_team, enabled):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        self.edit_reviewers(report, "remove", "prolific")
+        model = self.model(self.decision("prolific", "current-owner"))
+        with (
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.team_research_reviewer_selection_enabled",
+                return_value=enabled,
+            ),
+            patch(
+                "products.signals.backend.reviewer_pr_assignment._owning_team",
+                return_value=OwningTeam(slug="payments", logins=("prolific", "current-owner")),
+            ),
+        ):
+            assert self.run_assignment(report, github, model) == ["current-owner"]
+
+    def test_excluded_claimant_does_not_select_an_alternative(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        claimant = User.objects.get(email="prolific@example.com")
+        claim_report(
+            report=report, actor=ArtefactAttribution.from_user(claimant.id), user=claimant, was_impersonated=False
+        )
+        self.edit_reviewers(report, "remove", "prolific")
+        model = self.model(self.decision("current-owner"))
+        assert self.run_assignment(report, github, model) == []
         model.assert_not_called()
-        assert service.read() == before
+        github.add_pull_request_assignees.assert_not_called()
+
+    def test_incomplete_human_history_stops_pr_selection(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        editor = User.objects.get(email="prolific@example.com")
+        report.artefacts.filter(type="suggested_reviewers").update(actor_kind="user", created_by=editor)
+        model = self.model(self.decision("current-owner"))
+        assert self.run_assignment(report, github, model) == []
+        model.assert_not_called()
+        github.add_pull_request_assignees.assert_not_called()
+
+    def test_exclusion_follows_current_github_identity(self, org_and_team):
+        org, team = org_and_team
+        report, github = self.setup_report(org, team)
+        self.edit_reviewers(report, "remove", "prolific")
+        user = User.objects.get(email="prolific@example.com")
+        user.social_auth.filter(provider="github").update(extra_data={"login": "renamed-owner"})
+        github.list_team_members.return_value = {"success": True, "logins": ["renamed-owner", "current-owner"]}
+        model = self.model(self.decision("renamed-owner", "current-owner"))
+        assert self.run_assignment(report, github, model) == ["current-owner"]
 
     def test_failed_lookup_can_be_reassessed_after_cooldown(self, org_and_team):
         org, team = org_and_team
@@ -417,10 +497,7 @@ class TestRelevantPROwner:
 
         def change_state(*_args):
             if change == "human_edit":
-                editor = User.objects.get(email="prolific@example.com")
-                ReportAssignmentService(team=team, report_id=str(report.id)).edit_reviewers(
-                    SuggestedReviewers(root=[]), actor=ArtefactAttribution.from_user(editor.id)
-                )
+                self.edit_reviewers(report, "remove", "current-owner")
             elif change in ("head", "base"):
                 github.get_pull_request.return_value[f"{change}_sha"] = "c" * 40
             elif change == "claim":

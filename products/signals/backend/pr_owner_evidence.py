@@ -17,7 +17,6 @@ from posthog.models.integration import GitHubIntegration
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 
 from products.signals.backend.artefact_schemas import PROwnerEvidence, PROwnerIdentity, PROwnerInput
-from products.signals.backend.assignment_service import AssignmentSnapshot
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -31,6 +30,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.reviewer_rules import ReviewerSnapshot
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 
 MAX_OWNER_CANDIDATES = 200
@@ -57,7 +57,7 @@ class PROwnerEvidenceReader:
         self.team = team
         self.report = report
 
-    def collect(self, inputs: PROwnerInput, snapshot: AssignmentSnapshot) -> PROwnerInput:
+    def collect(self, inputs: PROwnerInput, snapshot: ReviewerSnapshot) -> PROwnerInput:
         files = self.github.list_pull_request_files(inputs.repository, inputs.pr_number)
         if not files.get("success") or len(files["paths"]) >= 100:
             raise OwnerEvidenceUnavailable("pr_files_unavailable_or_incomplete")
@@ -144,6 +144,14 @@ class PROwnerEvidenceReader:
                 content=json.dumps([entry.model_dump(mode="json") for entry in snapshot.reviewers]),
             )
         )
+        if snapshot.state.corrections_id:
+            evidence.append(
+                PROwnerEvidence(
+                    ref=f"corrections:{snapshot.state.corrections_id}",
+                    kind="correction",
+                    content=snapshot.corrections.model_dump_json(),
+                )
+            )
         evidence.append(
             PROwnerEvidence(ref=f"report:{self.report.id}", kind="research", content=(self.report.summary or "")[:8000])
         )

@@ -31,7 +31,7 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.slack_inbox_notifications import _resolve_suggested_reviewer_user_ids
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Task
@@ -98,7 +98,7 @@ class TestCustomAgentLogArtefacts(BaseTest):
             str(self.user.uuid),
         ]
         assert reviewers.root[0].reason == "Maintains the affected feature."
-        assert _resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+        assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
             member.id,
             self.user.id,
         }

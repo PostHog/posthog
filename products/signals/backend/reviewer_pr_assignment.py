@@ -43,7 +43,6 @@ from products.signals.backend.assignment_flags import (
     assignment_side_effects_enabled,
     assignment_writer_enabled,
 )
-from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -63,6 +62,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
+from products.signals.backend.reviewer_rules import ReviewerRules
 
 logger = structlog.get_logger(__name__)
 
@@ -361,7 +361,12 @@ def _add_assignees(
     try:
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return None
-        if require_delivery_flags and not (assignment_side_effects_enabled(team_id)):
+        if require_delivery_flags and not (
+            _pr_dri_enabled(team_id)
+            and assignment_writer_enabled(team_id)
+            and team_research_reviewer_selection_enabled(team_id)
+            and assignment_side_effects_enabled(team_id)
+        ):
             return None
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
@@ -496,10 +501,6 @@ def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_i
     return bool(result.get("unassigned"))
 
 
-def ordered_owner_logins_for_reviewers(reviewers: list[str], opted_in: set[str]) -> list[str]:
-    return [login for login in reviewers if login in opted_in] + [login for login in reviewers if login not in opted_in]
-
-
 def _assign_relevant_owner(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, pr: dict[str, Any]
 ) -> list[str]:
@@ -508,11 +509,11 @@ def _assign_relevant_owner(
         log.warning("signals.pr_owner.scope_lookup_failed")
         return []
     service = PROwnerDecisionService(team_id=team_id, report_id=report_id, github=github)
-    snapshot = ReportAssignmentService.read_for_report(team_id=team_id, report_id=report_id)
+    snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
     inputs = service.inputs(
         repository=parsed.repository, pr_number=parsed.number, head_sha=pr["head_sha"], base_sha=pr["base_sha"]
     )
-    if snapshot.control == "human" or snapshot.state != inputs.report_state:
+    if snapshot.corrections.needs_review or snapshot.state != inputs.report_state:
         log.info("signals.pr_owner.human_protected")
         return []
     selected = service.prepare(inputs, snapshot)
@@ -583,19 +584,15 @@ def _assign_one_dri(
         return []
 
     try:
-        snapshot = ReportAssignmentService.read_for_report(team_id=team_id, report_id=report_id)
+        snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+        service = PROwnerDecisionService(team_id=team_id, report_id=report_id, github=github)
+        if snapshot.corrections.needs_review or (snapshot.corrections.confirmed and not snapshot.reviewers):
+            return []
         claimant = human_claimant_login(team_id=team_id, report_id=report_id)
         if claimant is None and _has_human_claim(team_id=team_id, report_id=report_id):
             logger.info("signals.pr_owner.claimant_unavailable", team_id=team_id, report_id=report_id)
             return []
-        if snapshot.control == "human":
-            logger.info("signals.pr_owner.human_protected", team_id=team_id, report_id=report_id)
-            # A PR-specific choice must not restore a reviewer removed on this same report.
-            if not reviewers or (claimant is not None and claimant not in reviewers):
-                logger.info("signals.pr_owner.human_protected", team_id=team_id, report_id=report_id)
-                return []
-            candidates = [claimant] if claimant else ordered_owner_logins_for_reviewers(reviewers, opted_in)
-        elif claimant:
+        if claimant:
             candidates = [claimant]
         elif assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id):
             return _assign_relevant_owner(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
@@ -607,6 +604,7 @@ def _assign_one_dri(
                 team=_owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed),
                 reviewers=reviewers,
             )
+        candidates = service.filter_corrections(candidates, snapshot)
     except Exception as error:
         logger.warning(
             "signals.pr_owner.lookup_failed", team_id=team_id, report_id=report_id, error_type=type(error).__name__
@@ -623,14 +621,14 @@ def _assign_one_dri(
         or _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed)
     ):
         return []
-    current = ReportAssignmentService.read_for_report(team_id=team_id, report_id=report_id)
+    current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
     if current.state != snapshot.state or not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
         return []
     if claimant != human_claimant_login(team_id=team_id, report_id=report_id) or (
         claimant is None and _has_human_claim(team_id=team_id, report_id=report_id)
     ):
         return []
-    if snapshot.control == "human" and dri not in ranked_reviewer_logins(team_id=team_id, report_id=report_id):
+    if not service.filter_corrections([dri], current):
         return []
     return (
         _add_assignees(

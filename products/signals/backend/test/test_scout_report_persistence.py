@@ -57,7 +57,7 @@ from products.signals.backend.scout_report import (
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
-from products.signals.backend.slack_inbox_notifications import _resolve_suggested_reviewer_user_ids
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 from products.signals.backend.spend import signal_spend_totals
 from products.tasks.backend.models import Task, TaskRun
 
@@ -124,7 +124,7 @@ class TestScoutReportPersistence(BaseTest):
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
             assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
-            assert _resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+            assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
                 user.id for user in chosen
             }
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)

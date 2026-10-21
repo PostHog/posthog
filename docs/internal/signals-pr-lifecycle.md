@@ -135,18 +135,18 @@ Corrections apply only to the affected area. Research does not save its own choi
 The existing limit remains three reviewers.
 
 A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
-An explicit empty decision clears an automatic list. Human choices, including an empty list, remain protected.
-The shared writer rechecks project access before saving; if all proposed candidates have become ineligible, it retains valid existing recipients.
+An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
+The artefact write path rechecks project access before saving; if all proposed candidates have become ineligible, it retains valid existing recipients.
 Report recipients need project access, but do not need GitHub accounts.
-Scout and custom-agent reports also preserve the agent's selected order through the shared writer.
+Scout and custom-agent reports also preserve the agent's selected order through the existing artefact path.
 The saved list drives both the Inbox index and notification recipients; no later ownership selector reranks it.
 
 With research selection disabled, research uses the legacy ownership-and-commit selector.
-That rollback does not release human protection or bypass the shared writer.
+That rollback does not release corrections or bypass the artefact rules.
 The legacy resolver also remains an independent task-runner permission check; selecting a report recipient does not authorize a task.
 
-The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
-A different explanation alone does not add a row. Human edits retain precedence.
+The pipeline skips a reviewer row when the accepted content is unchanged.
+Human corrections retain precedence.
 A real selection change after the first Slack notification can still leave that notification out of date.
 Automatic reviewer changes do not send additional Slack notifications.
 
@@ -247,11 +247,12 @@ The repair keeps the old rows and existing corrections. It does not confirm the 
 With `signals-research-reviewer-selection`, `signals-assignment-writer`, and `signals-pr-dri-assignee` enabled,
 `reviewer_pr_assignment.py` consumes a PR-specific relevance decision instead of shuffling an owning team.
 Existing GitHub assignees and manual unassignment take precedence. A human claimant gets first choice;
-an unavailable claimant does not cause assignment to someone else. A human-protected Inbox list constrains
-the owner to that list, including an empty list. A conflicting claim stops automatic assignment.
+an unavailable or excluded claimant does not cause assignment to someone else.
+Per-person exclusions block those PR owners. A confirmed list restricts ownership to its eligible members, including an empty list.
+A pin alone does not select the PR owner. Incomplete edit history stops selection until the list is confirmed.
 These protections also apply when relevance selection is disabled.
 
-For automatic lists, suitable candidates who opted in come first, in relevance order, followed by other
+Suitable candidates who opted in come first, in relevance order, followed by other
 suitable candidates in relevance order. Owning-team membership supplies candidates, not a priority class.
 GitHub-only team members remain eligible for PR ownership, subject to current membership and assignability.
 Account-backed candidates also need active project access and a verified linked GitHub identity.
@@ -259,7 +260,7 @@ Account-backed candidates also need active project access and a verified linked 
 `pr_owner_evidence.py` collects the actual PR paths, current ownership, cached code history, report findings,
 verified identities, and scoped corrections. `pr_owner_selection.py` runs one bounded model assessment through
 the existing Signals LLM client on the assignment worker, without mutation tools. The first assessment needs
-the PR's actual scope; retries reuse it. Repository content and corrections are evidence, never application rules.
+the PR's actual scope; retries reuse it. Repository content and corrections from other reports provide evidence. The current report corrections also constrain application.
 A correction on another report is scoped evidence, not a project-wide exclusion.
 Ownership evidence retains every declared team and person, including ownerless CODEOWNERS overrides.
 Team roster reads stop at the candidate budget; an incomplete roster is a lookup failure, never an empty team.
@@ -267,7 +268,7 @@ Team roster reads stop at the candidate budget; an incomplete roster is a lookup
 `PROwnerDecisionService` stores a server-only `pr_owner_selection` artefact with the captured inputs, their hash,
 the report reviewer state and evidence version, PR head/base SHAs, ordered candidates, reasons, and evidence references.
 It performs model and network calls outside database locks. A short report lock rejects concurrent edits before saving.
-Before the GitHub call, the worker rechecks report and PR versions, human control, access, preferences, and delivery gates.
+Before the GitHub call, the worker rechecks report and PR versions, corrections, access, preferences, and delivery gates.
 The PR decision never rewrites Inbox recipients or grants task-start permission. Review requests still use the current Inbox list.
 
 An explicit `no_suitable_owner` leaves an unassigned PR unassigned. Missing evidence, failed identity lookups,
@@ -290,6 +291,9 @@ comparison of suitability, unresolved results, failures, latency, and cost remai
 | `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
 
 Both flags support organization targeting and require explicit enablement.
+The existing `signals-research-reviewer-selection` flag controls agent selection for reports and, with `signals-pr-dri-assignee`, for PRs.
+The PR relevance path also requires the writer and side-effect flags, including before a report enters the writer.
+Disabling research selection restores legacy ordering, while corrections and claims still constrain the result.
 They use local evaluation, so a report lock never waits for the flag service.
 Missing flag definitions keep the new behavior disabled.
 Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.
