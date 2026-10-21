@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -7,6 +7,8 @@ from unittest import mock
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -38,13 +40,15 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
     def _create_materialized_endpoint(
         self,
         name: str,
-        last_run_at=None,
-        last_executed_at=None,
-        materialization_created_at=None,
+        last_run_at: datetime | None = None,
+        last_executed_at: datetime | None = None,
+        materialization_created_at: datetime | None = None,
+        team: Team | None = None,
     ) -> tuple[Endpoint, EndpointVersion]:
         """Create an endpoint with a materialized version."""
+        team = team or self.team
         saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
+            team=team,
             name=name,
             query=self.sample_hogql_query,
             is_materialized=True,
@@ -59,13 +63,13 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
         endpoint = Endpoint.objects.create(
             name=name,
-            team=self.team,
+            team=team,
             created_by=self.user,
             is_active=True,
             last_executed_at=last_executed_at,
         )
         table = DataWarehouseTable.objects.create(
-            team=self.team,
+            team=team,
             name=f"{name}_table",
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern=f"s3://test-bucket/{name}_table",
@@ -306,7 +310,9 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert deactivated_ids == {old_version.id}
         assert current_version.id not in deactivated_ids
 
-    @parameterized.expand([("lineage_edge",), ("view_without_lineage",), ("endpoint_query",)])
+    @parameterized.expand(
+        [("lineage_edge",), ("view_without_lineage",), ("endpoint_hogql_query",), ("endpoint_structured_query",)]
+    )
     def test_keeps_stale_version_that_another_query_reads(self, reader: str):
         now = timezone.now()
         _, version = self._create_materialized_endpoint(
@@ -315,8 +321,15 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             last_executed_at=now - timedelta(days=45),
             materialization_created_at=now - timedelta(days=45),
         )
-        reader_query = {"kind": "HogQLQuery", "query": "SELECT count() FROM upstream_endpoint_v1"}
-        if reader == "endpoint_query":
+        reader_query = (
+            {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "DataWarehouseNode", "table_name": "upstream_endpoint_v1"}],
+            }
+            if reader == "endpoint_structured_query"
+            else {"kind": "HogQLQuery", "query": "SELECT count() FROM upstream_endpoint_v1"}
+        )
+        if reader.startswith("endpoint_"):
             reader_endpoint = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
             EndpointVersion.objects.create(
                 endpoint=reader_endpoint, version=1, query=reader_query, created_by=self.user
@@ -338,6 +351,31 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
         assert version.saved_query.deleted is False
+
+    def test_dependency_check_failure_only_skips_candidates_in_that_team(self):
+        now = timezone.now()
+        _, guarded_version = self._create_materialized_endpoint(
+            "guarded_endpoint",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="malformed_reader", query=[{"broken": True}])
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        _, deactivated_version = self._create_materialized_endpoint(
+            "other_team_endpoint",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+            team=other_team,
+        )
+
+        deactivate_stale_materializations()
+
+        guarded_version.refresh_from_db()
+        deactivated_version.refresh_from_db()
+        assert guarded_version.saved_query is not None
+        assert deactivated_version.saved_query is None
 
 
 class TestDeactivateEndpointMaterialization(BaseTest):

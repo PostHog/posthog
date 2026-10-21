@@ -26,15 +26,11 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import (
-    HasDependentsError,
-    check_saved_query_deletable,
-    delete_node_from_dag,
-    materialize_saved_query,
-)
+from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
@@ -70,6 +66,7 @@ class EndpointCrudService:
         self.request = request
         self.user = cast(User, request.user)
         self.materialization = EndpointMaterializationService(team, request)
+        self.materialization_dependencies = EndpointMaterializationDependencyService(team.pk)
 
     def _log_activity(self, *, item_id: str, scope: str, activity: str, detail: Detail) -> None:
         log_activity(
@@ -312,8 +309,7 @@ class EndpointCrudService:
             versions_to_disable = [target_version]
 
         for version in versions_to_disable:
-            if version.saved_query_id is not None:
-                check_saved_query_deletable(self.team.pk, version.saved_query_id)
+            self.materialization_dependencies.check_deletable(version)
 
     def _apply_query_change(
         self,
@@ -525,6 +521,7 @@ class EndpointCrudService:
             for version in endpoint.versions.filter(saved_query__isnull=False):
                 try:
                     if version.saved_query:
+                        self.materialization_dependencies.check_deletable(version)
                         delete_node_from_dag(version.saved_query)
                 except HasDependentsError:
                     raise

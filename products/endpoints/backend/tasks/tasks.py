@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 from typing import Any
 
@@ -11,13 +10,10 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.data_modeling.backend.facade.api import (
-    HasDependentsError,
-    check_saved_query_deletable,
-    saved_query_definitions,
-)
+from products.data_modeling.backend.facade.api import HasDependentsError
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
 
@@ -111,10 +107,31 @@ def deactivate_stale_materializations() -> None:
 
     deactivated_count = 0
     skipped_count = 0
-    reader_queries_by_team: dict[int, list[tuple[str, str]]] = {}
+    dependency_services: dict[int, EndpointMaterializationDependencyService] = {}
 
     for version in stale_versions:
-        if _has_live_readers(version, reader_queries_by_team):
+        team_id = version.endpoint.team_id
+        log_context = {
+            "endpoint_id": str(version.endpoint.id),
+            "endpoint_name": version.endpoint.name,
+            "version": version.version,
+            "team_id": team_id,
+            "saved_query_name": version.saved_query.name if version.saved_query else None,
+        }
+        dependency_service = dependency_services.setdefault(team_id, EndpointMaterializationDependencyService(team_id))
+        try:
+            dependency_service.check_deletable(version)
+        except HasDependentsError as error:
+            logger.info(
+                "deactivate_stale_materialization_skipped_dependents",
+                dependents=len(error.dependents),
+                **log_context,
+            )
+            skipped_count += 1
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="skipped_dependents").inc()
+            continue
+        except Exception:
+            logger.exception("deactivate_stale_materialization_dependents_check_failed", **log_context)
             skipped_count += 1
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="skipped_dependents").inc()
             continue
@@ -123,11 +140,8 @@ def deactivate_stale_materializations() -> None:
         except Exception as e:
             logger.exception(
                 "deactivate_stale_materialization_failed",
-                endpoint_id=str(version.endpoint.id),
-                endpoint_name=version.endpoint.name,
-                version=version.version,
-                team_id=version.endpoint.team_id,
                 error=str(e),
+                **log_context,
             )
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="error").inc()
             continue
@@ -139,59 +153,6 @@ def deactivate_stale_materializations() -> None:
         deactivated_count=deactivated_count,
         skipped_count=skipped_count,
     )
-
-
-def _has_live_readers(version: EndpointVersion, reader_queries_by_team: dict[int, list[tuple[str, str]]]) -> bool:
-    """True when another query reads this version's saved query, so the soft delete would break it."""
-    saved_query = version.saved_query
-    if saved_query is None:
-        return False
-    team_id = version.endpoint.team_id
-    log_context = {
-        "endpoint_id": str(version.endpoint.id),
-        "endpoint_name": version.endpoint.name,
-        "version": version.version,
-        "team_id": team_id,
-        "saved_query_name": saved_query.name,
-    }
-    try:
-        check_saved_query_deletable(team_id, saved_query.id)
-    except HasDependentsError as error:
-        logger.info(
-            "deactivate_stale_materialization_skipped_dependents", dependents=len(error.dependents), **log_context
-        )
-        return True
-    except Exception:
-        # Fail closed: a materialization left running costs less than readers that break.
-        logger.exception("deactivate_stale_materialization_dependents_check_failed", **log_context)
-        return True
-
-    # The DAG misses readers whose lineage never synced, so also look for the name in their HogQL.
-    if team_id not in reader_queries_by_team:
-        reader_queries_by_team[team_id] = _reader_queries(team_id)
-    name_pattern = re.compile(rf"(?<![\w$]){re.escape(saved_query.name)}(?![\w$])")
-    if any(
-        reader_id != str(saved_query.id) and name_pattern.search(hogql)
-        for reader_id, hogql in reader_queries_by_team[team_id]
-    ):
-        logger.info("deactivate_stale_materialization_skipped_name_reference", **log_context)
-        return True
-    return False
-
-
-def _reader_queries(team_id: int) -> list[tuple[str, str]]:
-    """The HogQL of every live saved query and active endpoint version in the team, with its id."""
-    readers = [(str(definition.id), definition.hogql) for definition in saved_query_definitions(team_id)]
-    endpoint_queries = (
-        EndpointVersion.objects.filter(endpoint__team_id=team_id, endpoint__is_active=True, is_active=True)
-        .exclude(endpoint__deleted=True)
-        .values_list("id", "query")
-    )
-    for version_id, query in endpoint_queries:
-        hogql = query.get("query") if isinstance(query, dict) and query.get("kind") == "HogQLQuery" else None
-        if isinstance(hogql, str):
-            readers.append((str(version_id), hogql))
-    return readers
 
 
 def _deactivate_version_materialization(version: EndpointVersion) -> None:
