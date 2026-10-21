@@ -8,17 +8,13 @@ provider-neutral ``ExpectedWarehouseView`` contract.
 
 from typing import Any
 
-import posthoganalytics
-
 from posthog.hogql.database.models import FieldOrTable
 
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.engineering_analytics.backend.facade.contracts import (
-    MATERIALIZED_VIEWS_FEATURE_FLAG,
-    ExpectedWarehouseView,
-)
+from products.engineering_analytics.backend.facade.contracts import ExpectedWarehouseView
+from products.engineering_analytics.backend.logic.materialized_ci import materialized_views_enabled
 from products.engineering_analytics.backend.logic.views import (
     ci_failures,
     ci_job_history,
@@ -78,16 +74,7 @@ def _stored_view(
 
 def _enabled_materialized_views(team: Team) -> set[str]:
     names = {pr_friction.VIEW_NAME, ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME}
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
-    enabled = posthoganalytics.feature_enabled(
-        MATERIALIZED_VIEWS_FEATURE_FLAG,
-        str(team.uuid),
-        groups={"organization": org_id, "project": project_id},
-        group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
+    enabled = materialized_views_enabled(team)
     if enabled is None:
         # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
         # does not expect, so keep the views the team has rather than drop a materialized table on an outage.
