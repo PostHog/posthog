@@ -21,7 +21,6 @@ export const MIRROR_FEATURES = [
     'hog-function-rate-limiter',
     'hog-masker',
     'hog-flow-rate-limiter',
-    'hog-flow-webhook-idempotency',
     'hog-watcher',
 ] as const
 

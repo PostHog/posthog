@@ -225,7 +225,12 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
+            config,
+            deps,
+            jobQueues,
+            new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
+        )
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,

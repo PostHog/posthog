@@ -14,17 +14,20 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
+import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
@@ -89,6 +92,8 @@ describe('getCustomHttpResponse', () => {
 })
 
 describe('SourceWebhooksConsumer', () => {
+    // One pool for the file, because a pool for each test leaves open connections behind.
+    const idempotencyValkey = createIdempotencyValkeyPool(defaultConfig)
     let hub: Hub
     let team: Team
 
@@ -118,10 +123,14 @@ describe('SourceWebhooksConsumer', () => {
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
-                hogQueue: createMockJobQueue(),
-                hogflowQueue: createMockJobQueue(),
-            })
+            api = new CdpApi(
+                hub,
+                { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue: createMockJobQueue(),
+                }
+            )
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
             mockQueueHogflowInvocationsSpy = jest.spyOn(
@@ -653,12 +662,29 @@ describe('SourceWebhooksConsumer', () => {
                     expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
-                it('queues the run when the redis claim never answers, and releases it if queueing fails', async () => {
-                    const redis = api['cdpSourceWebhooksConsumer']['redis']
-                    const useClient = redis.useClient
-                    let claims = 0
-                    jest.spyOn(redis, 'useClient').mockImplementation((options, callback) => {
-                        if (options.name === 'hogflow-webhook-idempotency-claim' && claims++ === 0) {
+                it('tells a retry to wait while the first request is still queueing', async () => {
+                    let finishQueueing: () => void = () => {}
+                    mockQueueHogflowInvocationsSpy.mockImplementationOnce(
+                        () => new Promise<void>((resolve) => (finishQueueing = resolve))
+                    )
+                    const first = postWithKey(hogFlow.id, 'escalation-5').then((res) => res)
+                    await waitForExpect(() => expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1))
+
+                    const retry = await postWithKey(hogFlow.id, 'escalation-5')
+                    finishQueueing()
+
+                    expect(retry.status).toEqual(409)
+                    expect(retry.body.status).toEqual('in_flight')
+                    expect((await first).status).toEqual(201)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                })
+
+                it('queues the run when the idempotency store never answers, and releases it if queueing fails', async () => {
+                    const valkey = api['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
+                    const useClient = valkey.useClient
+                    let reservations = 0
+                    jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) => {
+                        if (options.name === 'idempotency-reserve' && reservations++ === 0) {
                             void useClient(options, callback)
                             return new Promise(() => {})
                         }
