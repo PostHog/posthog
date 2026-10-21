@@ -1000,7 +1000,7 @@ jobs:
             # workspace root here, so this is a separate entry. No restore-keys.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -1012,7 +1012,7 @@ jobs:
             # in ci-storybook.yml.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: products/visual_review/cli
@@ -1078,6 +1078,34 @@ jobs:
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
+
+            - name: Verify snapshots against the baseline offline
+              if: ${{ !cancelled() && github.repository != 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  set +e
+                  node products/visual_review/cli/dist/cli/src/index.js verify --partial \
+                    --dir playwright/__snapshots__/ \
+                    --baseline playwright/snapshots.yml > /tmp/vr-verify.log 2>&1
+                  status=$?
+                  set -e
+                  cat /tmp/vr-verify.log
+                  {
+                      echo "### Offline snapshot check"
+                      echo
+                      echo "This run has no Visual Review run, so it compares its screenshots with \`playwright/snapshots.yml\` offline."
+                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky snapshot can also fail it."
+                      echo
+                      echo '```'
+                      cat /tmp/vr-verify.log
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
+                      echo "::error title=Snapshots differ from the baseline::These screenshots do not match playwright/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match. Update the baseline after reviewing the change. The job log lists the snapshots that differ."
+                  elif [ "$status" -ne 0 ]; then
+                      echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare the screenshots. The job log shows the error."
+                  fi
+                  exit "$status"
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
