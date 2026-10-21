@@ -165,6 +165,12 @@ class SandboxWarmer:
         self.enforce_quota(origin_product, team, self.user)
         pool_full = self.at_capacity(origin_product, team, self.user)
 
+        from products.signals.backend.facade.trial import (  # noqa: PLC0415 -- Signals imports Tasks
+            TrialRefused,
+            prepare_task_trial,
+        )
+
+        trial_admission = prepare_task_trial(team=team, origin=origin_product, report_id=self.task.signal_report_id)
         new_run: TaskRun
         with transaction.atomic():
             locked = Task.objects.select_for_update().get(id=self.task.id)
@@ -184,6 +190,9 @@ class SandboxWarmer:
                         raise WarmSourceChanged
                 # A warm Run already idling, or an active Run in progress — either way, no double-provision.
                 return WarmResult(run=existing, just_created=False)
+
+            if existing is not None and (existing.state or {}).get("cancel_source") == "self_driving_trial":
+                raise TrialRefused("explicit_retry_required")
 
             # The Run the successor resumes from. Normally the latest Run is the source itself, but a
             # successor the composer already handed back is terminal and sits in front of it — resume
@@ -221,7 +230,9 @@ class SandboxWarmer:
                 run_state["resume_from_run_id"] = str(resume_source.id)
                 run_state.update(parse_run_state(resume_source.state).resume_snapshot_carry_state())
 
-            new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
+            new_run = locked.create_run(
+                mode=mode, extra_state=run_state, branch=run_state.get("branch"), _trial_admission=trial_admission
+            )
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
             enqueue_or_start_workflow(

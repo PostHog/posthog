@@ -363,23 +363,25 @@ class BillingManager:
         self,
         organization: Organization | None,
         query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         if not organization or not self.license or not self.license.is_v2_license:
-            return self._get_default_billing_response(organization)
+            return self._get_default_billing_response(organization, timeout=timeout)
 
         # Get billing info from billing service
-        billing_service_response = self._get_billing(organization, query_params)
+        billing_service_response = self._get_billing(organization, query_params, timeout=timeout)
 
         customer = cast(dict[str, Any], billing_service_response).get("customer")
         if not customer:
-            return self._get_default_billing_response(organization)
+            return self._get_default_billing_response(organization, timeout=timeout)
 
         # Ensure the license and org are updated with the latest info
         if billing_service_response.get("license"):
             self.update_license_details(billing_service_response)
 
         if organization and billing_service_response:
-            self.update_org_details(organization, billing_service_response)
+            self.update_org_details(organization, billing_service_response, timeout=timeout)
 
         response: dict[str, Any] = {"available_product_features": []}
 
@@ -388,7 +390,7 @@ class BillingManager:
         response.update(billing_service_response["customer"])
 
         if not billing_service_response["customer"].get("products"):
-            products = self.get_default_products(organization)
+            products = self.get_default_products(organization, timeout=timeout)
             response["products"] = products["products"]
 
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
@@ -579,8 +581,10 @@ class BillingManager:
 
         return funding_status
 
-    def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
-        products = self.get_default_products(organization)
+    def _get_default_billing_response(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> dict[str, Any]:
+        products = self.get_default_products(organization, timeout=timeout)
         response = {
             "available_product_features": [],
             "products": products["products"],
@@ -588,10 +592,12 @@ class BillingManager:
 
         return response
 
-    def get_default_products(self, organization: Organization | None) -> dict:
+    def get_default_products(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> dict[str, Any]:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
-        products = self._get_products(organization)
+        products = self._get_products(organization, timeout=timeout)
         response["products"] = products
 
         return response
@@ -621,7 +627,13 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization, query_params: dict[str, Any] | None = None) -> BillingStatus:
+    def _get_billing(
+        self,
+        organization: Organization,
+        query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -632,6 +644,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
+            timeout=timeout,
         )
         handle_billing_service_error(res)
 
@@ -657,7 +670,9 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_products(self, organization: Organization | None):
+    def _get_products(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> list[dict[str, Any]]:
         headers = {}
         params = {"plan": "standard"}
 
@@ -668,13 +683,16 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
+            timeout=timeout,
         )
 
         handle_billing_service_error(res)
 
-        return res.json().get("products", [])
+        return cast(list[dict[str, Any]], res.json().get("products", []))
 
-    def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
+    def update_org_details(
+        self, organization: Organization, billing_status: BillingStatus, *, timeout: tuple[float, float] | None = None
+    ) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
         """
@@ -766,7 +784,8 @@ class BillingManager:
             product_key_to_usage_key = {
                 product["type"]: product["usage_key"]
                 for product in (
-                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                    billing_status["customer"].get("products")
+                    or self.get_default_products(organization, timeout=timeout)["products"]
                 )
             }
             org_customer_trust_scores = {}
