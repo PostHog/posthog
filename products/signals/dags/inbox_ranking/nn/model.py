@@ -24,10 +24,10 @@ from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ON
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
+from products.signals.dags.inbox_ranking.training.families import ModelFamily
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
-from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, holdout_grade
-from products.signals.dags.inbox_ranking.training.unseen import ModelFamily
+from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 
@@ -160,3 +160,42 @@ def champion_grades(
             continue
         grades[name] = holdout_grade(table.labels[rows, index].astype(int), probabilities[name][rows])
     return grades
+
+
+def vs_baseline_block(
+    table: ExampleTable,
+    *,
+    baseline: str,
+    seeds: Sequence[int],
+    experiment_scores: Sequence[np.ndarray],
+    baseline_scores: Sequence[np.ndarray],
+) -> dict[str, Any]:
+    """The experiment against its baseline, per head, on the same holdout rows.
+
+    Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair, and
+    `mean_delta_auc` is the mean over the pairs. One seed's gap can be noise from the network's
+    initialization alone; `delta_auc_std` and `wins` show whether the gap holds across seeds. A seed
+    where either arm has no AUC drops out of the pairs.
+    """
+    heads: dict[str, dict[str, Any]] = {}
+    for index, name in enumerate(NN_HEAD_NAMES):
+        rows = table.head_rows(index, holdout=True)
+        y = table.labels[rows, index].astype(int)
+        experiment_aucs = [_auc(y, scores[rows, index]) for scores in experiment_scores]
+        baseline_aucs = [_auc(y, scores[rows, index]) for scores in baseline_scores]
+        deltas = [
+            experiment - base
+            for experiment, base in zip(experiment_aucs, baseline_aucs)
+            if experiment is not None and base is not None
+        ]
+        heads[name] = {
+            "holdout_rows": len(rows),
+            "holdout_positives": int(y.sum()),
+            "experiment_aucs": experiment_aucs,
+            "baseline_aucs": baseline_aucs,
+            "paired_seeds": len(deltas),
+            "mean_delta_auc": float(np.mean(deltas)) if deltas else None,
+            "delta_auc_std": float(np.std(deltas)) if deltas else None,
+            "wins": sum(1 for delta in deltas if delta > 0),
+        }
+    return {"baseline": baseline, "seeds": list(seeds), "heads": heads}
