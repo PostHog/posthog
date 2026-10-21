@@ -155,6 +155,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
+    from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
@@ -184,6 +185,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
@@ -272,6 +274,9 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    # Data quality / observability (record kind: incident)
+    register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
+    register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
 
 
 _register_all_emitters()
