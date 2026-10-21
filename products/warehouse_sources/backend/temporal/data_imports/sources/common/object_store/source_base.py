@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Generic, NoReturn, Optional
 
 import pyarrow as pa
+from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
@@ -60,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     incremental_field,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -69,6 +71,18 @@ def _raise_translated(error: Exception, location: str) -> NoReturn:
     if translated is error:
         raise error
     raise translated from error
+
+
+def _http_status(error: BaseException) -> int | None:
+    """The HTTP status of the botocore error behind an s3fs error, if there is one."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ClientError):
+            status = current.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if isinstance(status, int):
+                return status
+        current = current.__cause__
+    return None
 
 
 def validate_store_location(config: StoreConfig) -> None:
@@ -146,6 +160,15 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             tables = self._discover(self.open_store(store_config), config)
         except ObjectStorageError as e:
             return False, str(e)
+        except OSError as e:
+            # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
+            status = _http_status(e)
+            if status in (401, 403):
+                return False, str(translate_storage_error(PermissionError(), store_config.display_location))
+            message = probe_status_message(self.get_source_config.label or "The storage provider", status)
+            if message is None:
+                raise
+            return False, message
         if not tables:
             return False, (
                 f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
