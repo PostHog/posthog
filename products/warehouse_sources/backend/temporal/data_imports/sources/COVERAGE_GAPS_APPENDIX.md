@@ -5185,13 +5185,13 @@ Today (5): `calls`, `conversations`, `participants`, `queues`, `users`
 
 Diffed against: <https://api.mypurecloud.com/api/v2/docs/swagger>
 
-- [ ] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
-- [ ] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
-- [ ] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
+- [x] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
+- [x] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
+- [x] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
 - [ ] `Get Team listing (GET /api/v2/teams)` — resolve participant teamId values for agent team reporting (high)
 - [ ] `Get a group list (GET /api/v2/groups)` — resolve groupId and agentGroups references in conversation routing data (high)
 - [ ] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
-- [ ] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
+- [x] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
 - [ ] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
 - [ ] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
 - [ ] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
@@ -5712,18 +5712,18 @@ Note: Downloaded the official bundled OpenAPI specification and enumerated GET c
 
 ## Harvest — gaps
 
-Today (15): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoices`, `projects`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `users`
+Today (19): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoice_payments`, `invoices`, `projects`, `pto_requests`, `pto_types`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `user_cost_rates`, `users`
 
 Diffed against: <https://help.getharvest.com/api-v2/>
 
-- [ ] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high)
-- [ ] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium)
+- [x] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high) Shipped as `invoice_payments`, fanned out over `invoices`.
+- [x] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium) Shipped as `user_cost_rates`, fanned out over `users` (full refresh only).
 - [ ] `User billable rates (GET /v2/users/{USER_ID}/billable_rates)` — track billing rate changes and compare historical pricing across users and projects (medium)
 - [ ] `Invoice messages (GET /v2/invoices/{INVOICE_ID}/messages)` — analyze invoice communication, payment reminders, and collection follow-up activity (medium)
 - [ ] `Estimate messages (GET /v2/estimates/{estimate_ID}/messages)` — connect estimate follow-up activity with acceptance outcomes and sales cycle duration (medium)
-- [ ] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium)
+- [x] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium) Shipped as `pto_requests`.
 - [ ] `Time off balances (GET /v2/pto/balances)` — measure accrued, used, pending, and remaining leave by employee and policy (medium)
-- [ ] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium)
+- [x] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium) Shipped as `pto_types` (active policies, full refresh).
 - [ ] `Work schedules (GET /v2/pto/work_schedules)` — compare tracked hours and leave against expected working days and capacity (medium)
 
 Note: Read the official API index and selected pages, extracting documented GET collection paths. Compared them with fifteen static tables; time entries include applied rates, while rate collections add effective history. Invoice, estimate, and rate collections need parent fan-out; leave collections require appropriate permissions. Excluded writes, settings, duplicate assignment views, and reports derivable from existing detail tables.
@@ -8071,14 +8071,14 @@ Today (15): `appointment_links`, `code_snippets`, `file_requests`, `insights_rep
 
 Diffed against: <https://developer.mixmax.com/reference>
 
-- [ ] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high)
+- [x] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high). Added as `sequence_recipients` (fan-out over `sequences`, offset paging capped by the API at 10,000 recipients per sequence).
 - [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high). Skipped: the endpoint returns a single count of sequence messages sent in the past 24 hours, not per-send records.
 - [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high). Skipped: Mixmax marks `/contacts` as deprecated. Live feed events already carry the recipient email and name.
 - [x] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high). Added as `live_feed_events` (fan-out over `live_feed` by `messageId`).
 - [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high). Skipped: an aggregate query whose rows change with the caller's `groupBy` and query string, with no documented row key. The per-message counters are already on `live_feed`.
-- [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium)
-- [ ] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium)
-- [ ] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium)
+- [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium). Skipped: Mixmax marks both `/contactgroups` operations as deprecated with no replacement, like `/contacts`.
+- [x] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium). Added as `teams` and `team_members` (fan-out over `teams`).
+- [x] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium). Added as `unsubscribes`.
 - [ ] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium)
 - [ ] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low)
 - [ ] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low)
