@@ -16,7 +16,10 @@ let nextRequestId = 1
 
 function postToPageAgent(request: PageAgentRequest): number {
     const id = nextRequestId++
-    window.postMessage({ source: PAGE_AGENT_REQUEST_SOURCE, id, request } satisfies PageAgentRequestMessage, '*')
+    window.postMessage(
+        { source: PAGE_AGENT_REQUEST_SOURCE, id, request } satisfies PageAgentRequestMessage,
+        window.location.origin
+    )
     return id
 }
 

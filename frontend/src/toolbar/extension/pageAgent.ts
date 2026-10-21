@@ -50,7 +50,10 @@ function analyticsInfo(posthog: PagePosthog): PageAnalyticsInfo {
 }
 
 function reply(message: PageAgentReply): void {
-    window.postMessage({ source: PAGE_AGENT_REPLY_SOURCE, reply: message } satisfies PageAgentReplyMessage, '*')
+    window.postMessage(
+        { source: PAGE_AGENT_REPLY_SOURCE, reply: message } satisfies PageAgentReplyMessage,
+        window.location.origin
+    )
 }
 
 function install(): void {
