@@ -14,6 +14,7 @@ from deltalake import write_deltalake
 from fsspec import AbstractFileSystem
 from fsspec.implementations.local import LocalFileSystem
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
@@ -327,6 +328,7 @@ def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path:
     # that nothing changed.
     assert (first.replace_scope is not None, first_rows) == (True, 1)
     assert (unchanged.replace_scope, unchanged_rows) == (None, 0)
+    validate_incremental_sync(True, unchanged, is_first_sync=False)
     assert (rewritten.replace_scope is not None and rewritten.replace_scope.replaced, rewritten_rows) == (
         frozenset({"orders/a.csv", "orders/b.csv"}),
         3,

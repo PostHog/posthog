@@ -260,7 +260,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return SourceResponse(
             name=inputs.schema_name,
             items=items,
-            primary_keys=None,
+            # A run with no scope reads no rows, but the pipeline still needs a key or a scope for an incremental run.
+            primary_keys=FILE_PRIMARY_KEYS if plan.replace_scope is None else None,
             chunk_size_bytes=CHUNK_SIZE_BYTES,
             replace_scope=plan.replace_scope,
         )
