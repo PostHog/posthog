@@ -6,6 +6,9 @@ from typing import Any
 from parameterized import parameterized
 
 from products.data_catalog.evals.constants import (
+    ANNOTATION_WRITE_COLUMN,
+    ANNOTATION_WRITE_REQUIRED_TERMS,
+    ANNOTATION_WRITE_TABLE_NAME,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
@@ -13,7 +16,9 @@ from products.data_catalog.evals.constants import (
     METRIC_UPDATE_TOOL,
 )
 from products.data_catalog.evals.scorers import (
+    AnswerValueStated,
     CanonicalMetricRun,
+    ColumnAnnotationWritten,
     DeprecationProposed,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
@@ -28,6 +33,15 @@ from products.data_catalog.evals.scorers import (
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
 METRIC_NAME = "top_customers_mrr_by_business_model"
 PROPOSE_TOOL = "data-catalog-certification-propose"
+ANNOTATION_CREATE_TOOL = "warehouse-column-annotations-create"
+ANNOTATION_SEED = {
+    "annotation_target": {
+        "table_id": "deals-uuid",
+        "table_name": ANNOTATION_WRITE_TABLE_NAME,
+        "column_name": ANNOTATION_WRITE_COLUMN,
+        "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
+    }
+}
 DEPRECATION_SEED = {
     "deprecation_candidate": {
         "stale_table_name": DEPRECATION_STALE_SOURCE_NAME,
@@ -440,9 +454,121 @@ def test_deprecation_proposed(
 
 @parameterized.expand(
     [
+        ("dollars_with_trailing_zero", "437.50", "We collected $437.50 in paid revenue.", 1.0),
+        ("dollars_without_trailing_zero", "437.50", "Collected revenue: 437.5 USD.", 1.0),
+        ("thousands_separator", "1387.50", "Total is $1,387.50.", 1.0),
+        ("raw_cents", "437.50", "The sum of amount is 43,750.", 0.0),
+        ("longer_number_with_same_digits", "437.50", "Revenue was $1437.50.", 0.0),
+        ("different_cents", "437.50", "Revenue was $437.55.", 0.0),
+        ("integer_inside_a_larger_integer", "10", "There are 100 refunded lines.", 0.0),
+        ("integer", "10", "10 lines were refunded.", 1.0),
+    ]
+)
+def test_answer_value_stated(_name: str, value: str, answer: str, expected_score: float) -> None:
+    score = AnswerValueStated()._run_eval_sync({"last_message": answer}, {"answer_value_stated": {"value": value}})
+
+    assert score.score == expected_score
+
+
+_FULL_STAGE_DESCRIPTION = "Deal stage code: 7 = closed-won, 8 = closed-lost."
+
+
+@parameterized.expand(
+    [
+        (
+            "describes_the_target_column",
+            [
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {
+                        "table": "deals-uuid",
+                        "column_name": ANNOTATION_WRITE_COLUMN,
+                        "description": _FULL_STAGE_DESCRIPTION,
+                    },
+                    "completed",
+                )
+            ],
+            1.0,
+        ),
+        (
+            "describes_another_column",
+            [
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {"table": "deals-uuid", "column_name": "amount_usd", "description": _FULL_STAGE_DESCRIPTION},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+        (
+            "drops_the_lost_stage",
+            [
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {"table": "deals-uuid", "column_name": ANNOTATION_WRITE_COLUMN, "description": "7 = closed-won."},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+        (
+            "last_create_overwrites_a_full_description",
+            [
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {
+                        "table": "deals-uuid",
+                        "column_name": ANNOTATION_WRITE_COLUMN,
+                        "description": _FULL_STAGE_DESCRIPTION,
+                    },
+                    "completed",
+                ),
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {"table": "deals-uuid", "column_name": ANNOTATION_WRITE_COLUMN, "description": "Deal stage code."},
+                    "completed",
+                ),
+            ],
+            0.0,
+        ),
+        (
+            "failed_create_does_not_count",
+            [
+                (
+                    ANNOTATION_CREATE_TOOL,
+                    {
+                        "table": "deals-uuid",
+                        "column_name": ANNOTATION_WRITE_COLUMN,
+                        "description": _FULL_STAGE_DESCRIPTION,
+                    },
+                    "failed",
+                )
+            ],
+            0.0,
+        ),
+    ]
+)
+def test_column_annotation_written(
+    _name: str,
+    calls: list[tuple[str, dict[str, Any], str]],
+    expected_score: float,
+) -> None:
+    score = ColumnAnnotationWritten()._run_eval_sync(
+        {"raw_log": _tool_log(calls), "seed": ANNOTATION_SEED},
+        {"column_annotation_written": {}},
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
         (MetricsCatalogBeforeDataDiscovery(), "metrics_catalog_before_data_discovery"),
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
+        (AnswerValueStated(), "answer_value_stated"),
+        (ColumnAnnotationWritten(), "column_annotation_written"),
         (MetricDescriptionConcise(), "metric_description_concise"),
         (TrustBadgeShown(), "trust_badge"),
         (ProposedBadgeShown(), "proposed_badge"),

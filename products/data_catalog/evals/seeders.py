@@ -33,6 +33,14 @@ from products.data_catalog.evals.constants import (
     ACTIVE_CUSTOMERS_METRIC_DESCRIPTION,
     ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME,
     ACTIVE_CUSTOMERS_METRIC_NAME,
+    ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
+    ANNOTATED_LEDGER_STATUS_DESCRIPTION,
+    ANNOTATED_LEDGER_VIEW_DESCRIPTION,
+    ANNOTATED_LEDGER_VIEW_NAME,
+    ANNOTATED_LEDGER_VIEW_SQL,
+    ANNOTATION_WRITE_COLUMN,
+    ANNOTATION_WRITE_REQUIRED_TERMS,
+    ANNOTATION_WRITE_TABLE_NAME,
     APPROVED_METRIC_DEFINITION,
     APPROVED_METRIC_DESCRIPTION,
     APPROVED_METRIC_DISTINGUISHING_FILTER,
@@ -62,6 +70,9 @@ from products.data_catalog.evals.constants import (
     FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
     FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME,
     FEEDBACK_BY_SURVEY_METRIC_NAME,
+    INJECTION_LEDGER_STATUS_DESCRIPTION,
+    INJECTION_LEDGER_VIEW_NAME,
+    INJECTION_LEDGER_VIEW_SQL,
     INJECTION_RELATIONSHIP_FIELD,
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
@@ -114,16 +125,25 @@ from products.data_catalog.evals.constants import (
     YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
 )
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableFormat,
+    WarehouseColumnAnnotationDescriptionSource,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
     "seed_accepted_relationship_context",
+    "seed_annotated_ledger_view",
+    "seed_annotation_write_target",
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
@@ -132,6 +152,7 @@ __all__ = [
     "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
+    "seed_instruction_like_column_annotation",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
     "seed_mcp_tool_call_fail_pct_metric",
@@ -141,6 +162,7 @@ __all__ = [
 ]
 
 _STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+_INTEGER_COLUMN = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}
 _INCIDENT_WAREHOUSE_QUERIES = {
     "paid_bills": "SELECT distinct_id, timestamp, amount_usd FROM paid_bills LIMIT 1",
     "extended_properties": ("SELECT hedgebox_user_id, account_kind, monthly_bill_usd FROM extended_properties LIMIT 1"),
@@ -649,5 +671,67 @@ def seed_instruction_like_relationship_context(context: CustomPromptSandboxConte
             "source": INJECTION_RELATIONSHIP_SOURCE_NAME,
             "preferred_target": INJECTION_RELATIONSHIP_TARGET_NAME,
             "reasoning": INJECTION_RELATIONSHIP_REASONING,
+        }
+    }
+
+
+def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
+    """Create a queryable view over ``numbers()`` and annotate it. ``""`` in ``descriptions`` is the view itself."""
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        created_by=user,
+        name=name,
+        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        query={"query": sql},
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    for column_name, description in descriptions.items():
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).create(
+            team=team,
+            saved_query=view,
+            column_name=column_name,
+            description=description,
+            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+            is_user_edited=True,
+        )
+
+
+def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=ANNOTATED_LEDGER_VIEW_NAME,
+        sql=ANNOTATED_LEDGER_VIEW_SQL,
+        descriptions={
+            "": ANNOTATED_LEDGER_VIEW_DESCRIPTION,
+            "amount": ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
+            "status": ANNOTATED_LEDGER_STATUS_DESCRIPTION,
+        },
+    )
+    return {"annotated_view": {"name": ANNOTATED_LEDGER_VIEW_NAME}}
+
+
+def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=INJECTION_LEDGER_VIEW_NAME,
+        sql=INJECTION_LEDGER_VIEW_SQL,
+        descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
+    )
+    return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
+
+
+def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, _ = _team_and_user(context)
+    table = _warehouse_table(team, ANNOTATION_WRITE_TABLE_NAME, ("deal_id", ANNOTATION_WRITE_COLUMN, "amount_usd"))
+    return {
+        "annotation_target": {
+            "table_id": str(table.id),
+            "table_name": ANNOTATION_WRITE_TABLE_NAME,
+            "column_name": ANNOTATION_WRITE_COLUMN,
+            "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
         }
     }
