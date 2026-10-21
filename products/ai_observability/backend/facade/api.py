@@ -2,6 +2,7 @@ from datetime import datetime
 
 from posthog.models import Team, User
 
+from ..logic.evaluations.pass_filters import build_evaluation_pass_filters
 from ..logic.traces.events_fallback import fallback_window
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
@@ -147,3 +148,10 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
             io_keys=contracts.TraceNodeIOKeys(input=keys.input, output=keys.output, tools=keys.tools),
         ),
     )
+
+
+def get_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
+    """Grade `$ai_evaluation` events with the same rules the evaluation UI applies: boolean polarity, the numeric
+    or categorical passing rule, and no skipped, N/A or sentiment runs. The conditions change when an evaluation's
+    output config changes, so a caller that stores them rebuilds them on `evaluation_output_changed`."""
+    return build_evaluation_pass_filters(team_id)

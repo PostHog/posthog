@@ -46,8 +46,9 @@ function isRailTab(tab: ScoutDetailTab): boolean {
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, rollups } = useValues(scoutFleetLogic)
     const { startRunsPolling, stopRunsPolling, loadScoutConfigs } = useActions(scoutFleetLogic)
-    const { entries } = useValues(scratchpadLogic)
-    const { scoutNotes } = useValues(scoutNotesLogic({ skillName }))
+    const { scoutEntries } = useValues(scratchpadLogic)
+    const { loadScoutEntries } = useActions(scratchpadLogic)
+    const { toldCount } = useValues(scoutNotesLogic({ skillName }))
     const { touchedReports, emissionRows, scoutRunsLoadedOnce } = useValues(scoutDetailLogic({ skillName }))
     const { scoutDetailTab, isStaff } = useValues(inboxSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -78,9 +79,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
 
+    useEffect(() => {
+        loadScoutEntries(skillName)
+    }, [skillName, loadScoutEntries])
+
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
-    const learnedCount = entriesForSkill(entries, skillName).length
+    const learnedCount = entriesForSkill(scoutEntries, skillName)?.length ?? 0
     const reportCount = touchedReports.length
     const canAccessTrials = isStaff && currentTeamId === 2
     // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
@@ -215,7 +220,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         },
     ]
     const railTabs = [
-        { key: 'told' as ScoutDetailTab, label: `Told ${scoutNotes.length}` },
+        { key: 'told' as ScoutDetailTab, label: `Told ${toldCount}` },
         { key: 'learned' as ScoutDetailTab, label: `Learned ${learnedCount}` },
     ]
 
@@ -235,12 +240,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     return (
         <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
-            <ScoutDetailHeader
-                config={config}
-                rollup={rollup}
-                noteCount={scoutNotes.length}
-                learnedCount={learnedCount}
-            />
+            <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
             <ScoutAskAiComposer skillName={skillName} scoutName={scoutDisplayName(config)} />
 
             <div className="grid grid-cols-1 items-start gap-4 px-4 py-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">

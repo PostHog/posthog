@@ -18,7 +18,6 @@ import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelection
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
@@ -725,9 +724,11 @@ const meta: Meta = {
         clearTodayStorage,
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
-                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     const params = new URL(request.url).searchParams
+                    if (params.get('view') !== 'for_you') {
+                        return [200, { results: REPORTS, count: 7 }]
+                    }
                     const limit = Number(params.get('limit') ?? REPORTS.length)
                     const offset = Number(params.get('offset') ?? 0)
                     const excluded = new Set(params.get('exclude')?.split(',') ?? [])
@@ -888,7 +889,7 @@ export const HomeWithReportsOnly: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
+            get: { '/api/projects/:team_id/signals/reports/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -897,7 +898,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
             },
         }),
@@ -907,7 +908,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -916,7 +917,7 @@ export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': () => [500, { detail: 'Server error' }],
             },
         }),
@@ -1072,9 +1073,36 @@ export const LibraryFeatureFlags: Story = {
     parameters: { pageUrl: urls.featureFlags() },
 }
 
-export const ToolsPane: Story = {
+const PRODUCT_STARS = mswDecorator({
+    get: {
+        '/api/environments/:team_id/file_system_shortcut/': {
+            count: 3,
+            next: null,
+            previous: null,
+            results: [
+                { id: 'star-1', path: 'Product analytics', type: 'insight', href: '/insights' },
+                { id: 'star-2', path: 'Session replay', type: 'session_recording_playlist', href: '/replay/home' },
+                { id: 'star-3', path: 'Error tracking', type: 'error_tracking', href: '/error_tracking' },
+            ],
+        },
+    },
+})
+
+export const ProductsPane: Story = {
+    decorators: [PRODUCT_STARS],
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Tools'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Products'))
+        await within(canvasElement).findByText('Starred')
+    },
+}
+
+// Hovering a product row opens its card with the description, an example and the docs link.
+export const ProductsPaneProductCard: Story = {
+    decorators: [PRODUCT_STARS],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Products'))
+        await userEvent.hover(await sidebarRow(canvasElement, 'Web analytics', 'today-tool'))
+        await within(document.body).findByText('For example')
     },
 }
 
@@ -1171,30 +1199,5 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
-    },
-}
-
-export const ViewsAll: Story = {
-    parameters: { pageUrl: urls.views() },
-}
-
-export const ViewsEmpty: Story = {
-    parameters: { pageUrl: urls.views() },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-            },
-        }),
-    ],
-}
-
-export const ViewsNewMenu: Story = {
-    parameters: { pageUrl: urls.views() },
-    play: async ({ canvasElement }) => {
-        const [newView] = await within(canvasElement).findAllByText('New view')
-        await userEvent.click(newView)
     },
 }

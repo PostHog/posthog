@@ -513,7 +513,6 @@ describe("PostHogAPIClient", () => {
             confidence_interval: [0.01, 0.39],
           },
         ],
-        significance_code: "significant",
         is_cached: true,
         last_refresh: new Date().toISOString(),
       };

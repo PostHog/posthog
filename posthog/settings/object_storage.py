@@ -105,7 +105,7 @@ INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
 # examples reach, and how many trailing days of reports grade a candidate. Promotion is manual: a
 # person runs `inbox_ranking_promote_job`, which writes the served pointer.
-INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
+INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 90, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
@@ -117,8 +117,9 @@ INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BU
 INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
 # Serving manifest (products/signals/dags/inbox_ranking/training/serving.py): how many of the served
 # family's newest versions the sweep also scores, read from the last 2N days. Each one costs the
-# sweep one more model per pass, and above 4 they take the pinned and cross-family entries' places.
-INBOX_RANKING_SERVING_RECENT_VERSIONS = get_from_env("INBOX_RANKING_SERVING_RECENT_VERSIONS", 3, type_cast=int)
+# sweep one more model per pass. The served entry, these versions and one challenger per other family
+# share the manifest's 5 entries, so a higher N leaves less room for the challengers.
+INBOX_RANKING_SERVING_RECENT_VERSIONS = get_from_env("INBOX_RANKING_SERVING_RECENT_VERSIONS", 2, type_cast=int)
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
 # bounds the vectors and matrices one call holds.
@@ -135,6 +136,9 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
+# Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
+# flag payload gates the work and holds the caps, so the schedule ticks in every environment.
+ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

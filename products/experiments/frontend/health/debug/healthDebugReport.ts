@@ -190,6 +190,21 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
+function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
+    if (finding.subcode === 'not_checked') {
+        return `Not checked: ${evidence.reason}. ${changed}`
+    }
+    const pinnedShare = share(evidence.pinned_share)
+    const removedOverride = pinnedShare
+        ? `Removed override share ${pinnedShare}.`
+        : typeof evidence.reason === 'string'
+          ? `Removed override share unknown: ${evidence.reason}.`
+          : null
+    return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
+}
+
 function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const parts = [`Pinned sets: ${evidence.pinned_condition_sets}, to ${evidence.pinned_variant_keys}.`]
@@ -283,6 +298,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
         exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
         exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
+        exposureCheck(
+            'multiple_variants_share',
+            ['exposures'],
+            'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
+        ),
     ]
 }
 
@@ -292,8 +312,10 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         flagStateCheck(input),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
+        serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
+        serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
         ...exposureChecks(input),
     ]

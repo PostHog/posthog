@@ -1,12 +1,14 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import grpc
@@ -32,11 +34,14 @@ from posthog.tasks.calculate_cohort import (
     STATIC_POPULATION_MAX_RETRIES,
     calculate_cohort_ch,
     calculate_cohort_from_list,
+    collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
+    refresh_static_cohort_count,
     reset_stuck_cohorts,
+    schedule_static_cohort_count_refresh,
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
@@ -2248,3 +2253,47 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+
+
+class TestCollectCohortQueryStats(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("retries_remain", 0, Retry),
+            ("retries_exhausted", 3, None),
+        ]
+    )
+    def test_missing_stats_are_not_logged_as_a_failure(
+        self, _name: str, retries: int, expected_exception: type[Exception] | None
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="cohort")
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+        task = collect_cohort_query_stats
+        task.push_request(retries=retries, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch("posthog.tasks.calculate_cohort.get_clickhouse_query_stats", return_value=None),
+                patch("posthog.tasks.calculate_cohort.logger") as mock_logger,
+                self.assertRaises(expected_exception) if expected_exception else nullcontext(),
+            ):
+                task.run("cohort_calc:abc", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1")
+        finally:
+            task.pop_request()
+
+        mock_logger.exception.assert_not_called()
+
+
+class TestScheduleStaticCohortCountRefresh(SimpleTestCase):
+    def test_a_failed_publish_lets_the_next_insert_schedule_the_recount(self) -> None:
+        cohort_id = 987654
+        self.addCleanup(cache.delete, f"static-cohort-count-refresh:{cohort_id}")
+
+        with patch.object(
+            refresh_static_cohort_count, "apply_async", side_effect=[ConnectionError("broker down"), None]
+        ) as publish:
+            with self.assertRaises(ConnectionError):
+                schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+            schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+
+        assert publish.call_count == 2
