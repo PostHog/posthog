@@ -241,7 +241,7 @@ function RunSurfaceThread({
 } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId, floatingInputsHeight } = useRunSurfaceContext()
     const skin = useThreadSkin()
-    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, logBootstrapLoading, runConnectionState, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
@@ -262,7 +262,8 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
+    const showSkeleton =
+        (bootstrapLoading || (logBootstrapLoading && !runConnectionState)) && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
