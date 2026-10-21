@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
-from products.alerts.backend.insight_alert_state_machine import apply_handback
+from products.alerts.backend.insight_alert_state_machine import apply_platform_state
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
@@ -193,7 +193,7 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
 
-        update_fields = apply_handback(
+        update_fields = apply_platform_state(
             alert, insight_state_of_platform(handback.state, snoozed_until=alert.snoozed_until, at=at)
         )
         alert.owner = PlatformAlertOwner.SOURCE
