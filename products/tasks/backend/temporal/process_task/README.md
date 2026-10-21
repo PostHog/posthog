@@ -76,12 +76,10 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
 - The relay coalesces streamed `agent_message_chunk` deltas into one `agent_text_delta` signal
   per second (and at turn/tool boundaries), rather than one signal per chunk — see
   `TEXT_DELTA_FLUSH_INTERVAL_SECONDS` in `activities/relay_sandbox_events.py`.
-- When enabled, the workflow calls `continue_as_new` from a clean idle point once its history is
+- The workflow calls `continue_as_new` from a clean idle point once its history is
   large (Temporal's `is_continue_as_new_suggested()`, or `TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD`
-  events), re-attaching to the same running sandbox instead of re-provisioning. It's off by
-  default and toggled per-org by the `tasks-cloud-run-continue-as-new` feature flag; `TASKS_CONTINUE_AS_NEW_ENABLED`
-  force-enables it (local E2E / emergency on). The enable decision is captured at workflow start,
-  so in-flight runs and the trigger stay deterministic across replay.
+  events), re-attaching to the same running sandbox instead of re-provisioning. The enable decision
+  is captured at workflow start, so histories recorded with it off keep replaying deterministically.
 
 ### Temporal client
 
@@ -164,7 +162,6 @@ Desktop and the command endpoint check this owner before sending a token.
 Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
 The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
 Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
-The separate event-ingest rollout flag does not control this path.
 The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
 If no token arrives within 120 seconds, the run fails with setup instructions.
 

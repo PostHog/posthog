@@ -161,16 +161,16 @@ export const scrollShadowsCss = `
 [data-component="scroll-area"][data-scroll-shadows="true"]::after {
     box-shadow: var(--shadow-x-end) inset, var(--shadow-y-end) inset;
 }
-.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-start] {
+:is(.dark, [theme="dark"]) [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-start] {
     --shadow-x-start: 28px 0 24px -16px rgb(0 0 0 / 100%);
 }
-.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-end] {
+:is(.dark, [theme="dark"]) [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-end] {
     --shadow-x-end: -28px 0 24px -16px rgb(0 0 0 / 100%);
 }
-.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-start] {
+:is(.dark, [theme="dark"]) [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-start] {
     --shadow-y-start: 0 28px 24px -16px rgb(0 0 0 / 100%);
 }
-.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-end] {
+:is(.dark, [theme="dark"]) [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-end] {
     --shadow-y-end: 0 -28px 24px -16px rgb(0 0 0 / 100%);
 }
 `

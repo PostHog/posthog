@@ -1226,6 +1226,29 @@ return result`,
                     },
                 },
                 {
+                    name: 'categorical LLM judge',
+                    templateKey: 'task_outcome',
+                    expectedEvaluation: {
+                        evaluation_type: 'llm_judge',
+                        output_type: 'categorical',
+                        output_config: expect.objectContaining({
+                            selection_mode: 'single',
+                            passing_rule: { categories: ['resolved'] },
+                        }),
+                        target: 'trace',
+                        target_config: expect.objectContaining({ strategy: 'fixed_window' }),
+                    },
+                },
+                {
+                    name: 'numeric Hog',
+                    templateKey: 'latency',
+                    expectedEvaluation: {
+                        evaluation_type: 'hog',
+                        output_type: 'numeric',
+                        output_config: expect.objectContaining({ passing_rule: { operator: 'lte', threshold: 10 } }),
+                    },
+                },
+                {
                     name: 'sentiment',
                     templateKey: 'sentiment',
                     expectedEvaluation: {

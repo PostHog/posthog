@@ -11,7 +11,7 @@ import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { InstallationProgressView } from './InstallationProgressView'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
-import { WizardModeShell } from './WizardModeShell'
+import { WizardModeShell, type WizardShellHog } from './WizardModeShell'
 
 /**
  * The primary, "we'll do it for you" way to run the wizard: connect GitHub, pick a
@@ -25,11 +25,11 @@ import { WizardModeShell } from './WizardModeShell'
  */
 export function WizardCloudRunBlock({
     onQueued,
-    hideHog = false,
+    hog,
     onRetryLocally,
 }: {
     onQueued?: () => void
-    hideHog?: boolean
+    hog?: WizardShellHog
     /** Forwarded to the install progress view so a failed run can offer "Run it yourself". */
     onRetryLocally?: () => void
 }): JSX.Element {
@@ -94,7 +94,7 @@ export function WizardCloudRunBlock({
     }
 
     return (
-        <WizardModeShell hideHog={hideHog} data-attr="wizard-cloud-run-block">
+        <WizardModeShell hog={hog} data-attr="wizard-cloud-run-block">
             <p className="text-sm text-muted mb-0">
                 We'll run the wizard against your repo and open a pull request with the SDK installed and events
                 flowing. Review it and merge whenever you're ready.
@@ -107,7 +107,7 @@ export function WizardCloudRunBlock({
                     to={connectGitHubUrl}
                     disableClientSideRouting
                     data-attr="wizard-cloud-run-connect-github"
-                    className={hideHog ? 'self-center' : 'self-start'}
+                    className="self-start"
                     onClick={() => reportIntegrationConnectClicked('github', 'github', 'onboarding_wizard')}
                 >
                     Connect GitHub

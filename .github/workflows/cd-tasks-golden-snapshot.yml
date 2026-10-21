@@ -140,7 +140,7 @@ jobs:
     # render; when it skips, the bake job (needs) skips too, keeping the no-op.
     render_skills:
         needs: validate_ref
-        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        if: vars.CD_DEPLOY_ENABLED == 'true' && vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Render agent skills from source
         runs-on: ubuntu-24.04
         # `Run migrations` needs a database: 24 skill templates call
@@ -376,7 +376,7 @@ jobs:
         # (unarmed), this skips too. `needs: validate_ref` to check out its
         # validated ref, never the raw workflow_dispatch input.
         needs: [validate_ref, render_skills]
-        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        if: vars.CD_DEPLOY_ENABLED == 'true' && vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Bake and promote the tasks golden snapshot
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 240 # worst case: 30m quiet-window guard + 30m cold create + ~90m setup + snapshot push + 30m smoke cold restore + buffer

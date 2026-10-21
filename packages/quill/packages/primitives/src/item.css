@@ -71,24 +71,6 @@
         border-color: transparent;
     }
 
-    .quill-item--variant-pressable {
-        border-color: var(--border);
-        box-shadow: var(--shadow-md);
-        transition:
-            color 0.15s ease,
-            background-color 0.15s ease;
-    }
-
-    .quill-item--variant-pressable:hover {
-        z-index: 1;
-    }
-
-    .quill-item--variant-pressable:not(:disabled):active {
-        border-width: 1px;
-        box-shadow: var(--shadow-sm);
-        translate: 0 1px;
-    }
-
     .quill-item--variant-menu {
         border: none;
     }
@@ -98,8 +80,7 @@
         background-color: var(--fill-hover);
     }
 
-    /* Semantic tones — orthogonal to variant, designed to pair with
-       `variant="pressable"`. Each sets a tint (pastel surface) + accent
+    /* Semantic tones for callouts, orthogonal to variant. Each sets a tint (pastel surface) + accent
        (readable foreground) pair, applied via shared rules below. */
     .quill-item--tone-info {
         --quill-item-tint: color-mix(in oklab, var(--info) 50%, var(--card));
@@ -149,11 +130,6 @@
     .quill-item[data-tone] {
         background-color: var(--quill-item-tint);
         border-color: color-mix(in oklab, var(--quill-item-accent) 50%, transparent);
-    }
-
-    /* Deepen the tint on hover for pressable toned items */
-    .quill-item--variant-pressable[data-tone]:hover {
-        background-color: color-mix(in oklab, var(--quill-item-accent) 12%, var(--card));
     }
 
     /* Sizes */

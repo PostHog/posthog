@@ -7,9 +7,13 @@ call. Any other result starts the run. The single-value rule lets a `SELECT coun
 as written, because a count always returns one row. Only the coordinator's scheduled dispatch
 evaluates it: a manual, workflow, or check run already has a reason to run.
 
-A skip writes nothing. The coordinator stamped `last_run_at` (the dispatch anchor) when it
-dispatched the run, so the next tick does not dispatch it again at once. `{since}` reads the last
-run row, so the next run that starts still sees everything since the last run that actually ran.
+A skip writes no run row. Every evaluation stores its outcome on the config (`last_precheck_at`,
+`last_precheck_outcome`, `last_precheck_row_count`), so the project profile's `scout_fleet` can
+tell a scout that skips on purpose from one that does not run. The dry run stores nothing.
+
+The coordinator stamped `last_run_at` (the dispatch anchor) when it dispatched the run, so the
+next tick does not dispatch it again at once. `{since}` reads the last run row, so the next run
+that starts still sees everything since the last run that actually ran.
 The failure breaker and the inactivity sweep read run rows, so a quiet scout is never paused for
 being quiet.
 
@@ -258,6 +262,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         result = _result_from_rows(found)
     result = dataclasses.replace(result, query_source=effective.source)
 
+    _store_last_precheck(config, result, now)
     _capture_precheck_evaluated(
         team=team,
         config=config,
@@ -411,6 +416,27 @@ def _render_rows(found: _PrecheckRows) -> str:
             break
         lines.append(line)
     return "\n".join(lines)
+
+
+def _store_last_precheck(config: SignalScoutConfig, result: PrecheckResult, now: datetime) -> None:
+    """Store the outcome on the config, so the fleet can tell a gated scout from a stuck one.
+
+    One indexed update and no read, because this runs on every scheduled evaluation. A failed write
+    only loses the stored outcome, so it never stops the run.
+    """
+    try:
+        SignalScoutConfig.objects.for_team(config.team_id).filter(pk=config.pk).update(
+            last_precheck_at=now,
+            last_precheck_outcome=result.outcome,
+            last_precheck_row_count=result.row_count,
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to store the pre-check outcome",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+            exc_info=True,
+        )
 
 
 def _capture_precheck_evaluated(

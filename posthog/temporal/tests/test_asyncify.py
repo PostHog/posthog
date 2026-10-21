@@ -1,10 +1,8 @@
 import asyncio
 import threading
 import dataclasses
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -15,27 +13,47 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.common import utils, worker
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.utils import asyncify, configure_asyncify_executor, get_asyncify_executor
+from posthog.temporal.common.utils import asyncify, get_asyncify_executor, on_asyncify_pool
+from posthog.temporal.tests.utils.asyncify import ConfigureExecutor
 
 pytestmark = pytest.mark.asyncio
 
 BARRIER_TIMEOUT_SECONDS = 5
 
 
-class ConfigureExecutor(Protocol):
-    def __call__(self, max_workers: int) -> ThreadPoolExecutor: ...
+@on_asyncify_pool
+def _thread_name_decorated_at_import() -> str:
+    return threading.current_thread().name
 
 
-@pytest.fixture
-def asyncify_executor() -> Iterator[ConfigureExecutor]:
-    previous = get_asyncify_executor()
-    try:
-        yield configure_asyncify_executor
-    finally:
-        configured = get_asyncify_executor()
-        if configured is not previous and configured is not None:
-            configured.shutdown(wait=False)
-        utils._asyncify_executor = previous
+async def test_on_asyncify_pool_uses_the_pool_configured_after_decoration(asyncify_executor: ConfigureExecutor) -> None:
+    asyncify_executor(2)
+
+    assert (await _thread_name_decorated_at_import()).startswith("asyncify")
+
+
+@pytest.mark.parametrize(
+    "helper,submit_start_end,expect_warning",
+    [
+        ("on_asyncify_pool", (0.0, 0.0, 5.0), False),
+        ("on_asyncify_pool", (0.0, 5.0, 5.0), True),
+        ("asyncify", (0.0, 0.0, 5.0), True),
+        ("asyncify", (0.0, 5.0, 5.0), True),
+    ],
+)
+async def test_slow_call_warning(
+    caplog: pytest.LogCaptureFixture, helper: str, submit_start_end: tuple[float, float, float], expect_warning: bool
+) -> None:
+    def blocking_call() -> None:
+        return None
+
+    wrapped = on_asyncify_pool(blocking_call) if helper == "on_asyncify_pool" else asyncify(blocking_call)
+    clock = mock.Mock(monotonic=mock.Mock(side_effect=submit_start_end))
+
+    with mock.patch.object(utils, "time", clock), caplog.at_level("WARNING"):
+        await ActivityEnvironment().run(wrapped)
+
+    assert any("asyncify_slow" in record.getMessage() for record in caplog.records) is expect_warning
 
 
 async def test_asyncify_runs_on_the_configured_executor(asyncify_executor: ConfigureExecutor) -> None:

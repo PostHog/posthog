@@ -78,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
@@ -106,6 +106,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthInputsSerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -531,7 +532,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action == "health":
+        if self.action in ("health", "health_inputs"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -910,7 +911,9 @@ class EnterpriseExperimentsViewSet(
     def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
-        that keep it from producing trustworthy results, each with a fix.
+        that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+        each check, so a check that found no problem can be told from one that did not apply or could
+        not read an input.
 
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
@@ -921,6 +924,19 @@ class EnterpriseExperimentsViewSet(
         `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
         experiment, because the changes are not read.
+
+        Two checks read whether the project received an event from its event definitions: a
+        definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
+        not received. A name whose definition was deleted since launch, or in the last day for a
+        draft, is not checked, because ingestion writes the definition again only when the event
+        arrives. `metric_event_not_ingested` names each metric that
+        reads an event the project never received, in the `evidence` keys `metric_N`,
+        `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
+        exposure event the project never received (`exposure_event_not_ingested`), and a
+        `$feature_flag` filter on the flag call events that requires another flag
+        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
+        hours after launch, and when only secondary metrics read it, and a warning otherwise.
+        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
@@ -934,14 +950,61 @@ class EnterpriseExperimentsViewSet(
         the caller's own assignment). A pin to a variant with 0% in the split adds an info,
         because that variant's results show only the pinned users, unless the experiment
         excludes the variant from the analysis.
+
+        Two findings say that the variants are assigned outside PostHog, as info. A running
+        experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+        `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+        flag version that are no local evaluation, from an hour after the window starts. When
+        every condition that includes users pins the variant whose key one property holds,
+        `assigned_by_property` replaces `all_conditions_pinned`.
+
+        A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
+        is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
+        check reports `not_checked` when the organization's flag calls skip the events table,
+        and when the project has no active flag, because the web SDK then requests no flags.
+
+        A running experiment whose flag is disabled gets `paused_from_experiment`, as info, when
+        its latest pause or resume since launch is a pause of the experiment. Otherwise it gets
+        `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
+        history gets the warning, because the pause is not read. A draft whose flag is already
+        active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
         """
         experiment: Experiment = self.get_object()
-        findings = get_experiment_health_findings(
+        health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
         )
-        return Response(ExperimentHealthSerializer({"findings": findings}).data)
+        return Response(ExperimentHealthSerializer(health).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthInputsSerializer,
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["experiment:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def health_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
+        the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
+        about the project from the setup context's providers (the team's experiment defaults and which SDKs call
+        flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
+        background and `exposures.status` says so.
+        """
+        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
+            raise PermissionDenied("Only staff users can read the health check inputs.")
+        experiment: Experiment = self.get_object()
+        inputs = get_experiment_health_inputs(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+            user=cast(User, request.user),
+        )
+        return Response(ExperimentHealthInputsSerializer(inputs).data)
 
     def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
@@ -1460,8 +1523,10 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
-        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+        already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+        a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+        `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+        minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1483,7 +1548,8 @@ class EnterpriseExperimentsViewSet(
         # the idempotent-reuse path without inspecting the HTTP status code.
         is_existing = result.get("is_existing", False)
 
-        if not is_existing:
+        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
+        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
             start_metrics_recalculation_workflow(
                 str(result["id"]),
                 team_id=experiment.team_id,

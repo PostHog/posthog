@@ -110,6 +110,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import (
     LogAttributesTable,
     LogsKafkaMetricsTable,
+    LogsPatternBucketsTable,
     LogsTable,
     LogsVolumeBucketsTable,
 )
@@ -585,6 +586,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     **clone_root_tables(),
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
+                    "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
                     # The flag check must stay out of this cached, process-global tree.
@@ -1789,10 +1791,13 @@ class Database(BaseModel):
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
+        include_flag_evaluations_table: bool | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_flag_evaluations_table`` overrides the organization flag that decides whether
+        ``posthog.flag_evaluations`` is in the catalog. None follows the flag.
         """
         build_started = time.perf_counter()
 
@@ -1852,6 +1857,11 @@ class Database(BaseModel):
             sources = dataclasses.replace(
                 sources,
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
+        if include_flag_evaluations_table is not None:
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            sources = dataclasses.replace(
+                sources, include_flag_evaluations_table=include_flag_evaluations_table and connection_id is None
             )
 
         with _OTEL_DATABASE.timed_histogram_twin(
@@ -2468,6 +2478,13 @@ class Database(BaseModel):
                     resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
+
+            if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
+                # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
+                # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
+                database.get_table(["posthog", "flag_evaluations"]).fields["session"] = cast(
+                    LazyJoin, database.get_table("events").fields["session"]
+                ).model_copy()
 
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
@@ -3192,6 +3209,13 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
     poe = cast(VirtualTable, events_table.fields["poe"])
+    # A flag call stores the event and person properties blobs that these fields read. A team's test account filters
+    # can read them.
+    flag_evaluations = (
+        database.get_table(["posthog", "flag_evaluations"])
+        if database.has_table(["posthog", "flag_evaluations"])
+        else None
+    )
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
@@ -3212,6 +3236,10 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+    if flag_evaluations is not None:
+        flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"])
+        for field_name in ("$virt_initial_referring_domain_type", "$virt_initial_channel_type"):
+            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
 
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
@@ -3230,6 +3258,20 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
+            if flag_evaluations is not None:
+                flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
+                    update={"hidden": True}
+                )
+
+    with timings.measure("mcp_harness_virtual_field"):
+        from products.mcp_analytics.backend.facade.api import mcp_harness_virtual_field_expr
+
+        events_table.fields["$virt_mcp_harness"] = ExpressionField(
+            name="$virt_mcp_harness",
+            expr=mcp_harness_virtual_field_expr(),
+            isolate_scope=True,
+            description="MCP client label computed from this event's client identity signals.",
+        )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

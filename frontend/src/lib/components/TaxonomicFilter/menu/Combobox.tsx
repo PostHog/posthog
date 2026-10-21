@@ -47,9 +47,11 @@ import { HiddenEventExplanation } from '../HiddenEventExplanation'
 import { useGroupList } from '../hooks/useGroupList'
 import {
     OPEN_AS_SELF_ON_REOPEN,
+    META_GROUP_TYPES,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    withoutSearchOnlyGroups,
 } from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
@@ -329,13 +331,12 @@ export function MenuFilterCombobox({
     // exposes them, not only via the outer dropdown menu.
     const categoryOptions = useMemo<{ value: DrillCategory; label: string }[]>(() => {
         const opts: { value: DrillCategory; label: string }[] = [{ value: 'all', label: 'All' }]
-        if (recentEntries && recentEntries.length > 0) {
-            opts.push({ value: 'recent', label: 'Recent' })
-        }
-        if (pinnedEntries && pinnedEntries.length > 0) {
-            opts.push({ value: 'pinned', label: 'Pinned' })
-        }
-        for (const g of visibleChipGroups) {
+        const categoryGroups = withoutSearchOnlyGroups(
+            visibleChipGroups,
+            (g) => g.type,
+            (type) => META_GROUP_TYPES.has(type)
+        )
+        for (const g of categoryGroups) {
             // Collapsed groups feed the "all" rows but aren't navigable categories.
             if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
                 continue
@@ -343,7 +344,7 @@ export function MenuFilterCombobox({
             opts.push({ value: g.type, label: g.name })
         }
         return opts
-    }, [recentEntries, pinnedEntries, visibleChipGroups])
+    }, [visibleChipGroups])
 
     // Resolve which groups feed the visible list, based on the active chip
     // (or the drill scope when chips are hidden).
@@ -806,6 +807,9 @@ export function MenuFilterCombobox({
                 body: <HiddenEventExplanation />,
             }
         }
+        if (singleGroup?.shouldSearch?.(searchQuery) === false && singleGroup.searchQueryHint) {
+            return { title: singleGroup.name, body: singleGroup.searchQueryHint }
+        }
         const categoryLabel = singleGroup?.name ?? null
         if (trimmedLen > 0) {
             return {
@@ -874,17 +878,18 @@ export function MenuFilterCombobox({
         if (!emptyState || emptyState.body || !trimmed || anyError || anyFetching) {
             return
         }
-        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        const key = `${activeScope}::${trimmed}`
         if (lastEmptyResultKeyRef.current === key) {
             return
         }
         lastEmptyResultKeyRef.current = key
         posthog.capture('taxonomic filter empty result', {
             surface: TAXONOMIC_FILTER_SURFACE,
+            scope: telemetryGroupType ? 'category' : activeScope,
             groupType: telemetryGroupType,
             searchQuery: trimmed,
         })
-    }, [emptyState, searchQuery, telemetryGroupType, anyError, anyFetching])
+    }, [emptyState, searchQuery, telemetryGroupType, activeScope, anyError, anyFetching])
 
     // `taxonomic filter fetch failed` — once per scope+query while the visible list's request
     // keeps failing. Mirrors legacy `lastFetchFailedDedupeKey`: the key is only cleared once the

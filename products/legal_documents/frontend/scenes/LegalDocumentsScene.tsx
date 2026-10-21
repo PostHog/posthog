@@ -4,6 +4,7 @@ import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/ic
 import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -15,10 +16,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ContactBillingSupportLink } from '../components/ContactBillingSupportLink'
 import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
-import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { BAA_BLOCK_REASON_MESSAGES, LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { QuillNewLegalDocumentMenu } from './QuillNewLegalDocumentMenu'
 
-function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
+function buildNewMenuItems(existingTypes: Set<LegalDocumentType>, baaBlockedReason?: string): LemonMenuItems {
     const alreadyExistsReason = (type: LegalDocumentType): string | undefined =>
         existingTypes.has(type)
             ? `Your organization already has a ${type}. Contact support if you need a new one.`
@@ -45,12 +48,12 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                         <div className="flex flex-col text-sm py-1">
                             <strong>Business Associate Agreement (BAA)</strong>
                             <span className="text-xs font-normal text-muted">
-                                HIPAA BAA — requires a Boost, Scale, or Enterprise add-on.
+                                HIPAA BAA. Requires a Boost, Scale, or Enterprise add-on.
                             </span>
                         </div>
                     ),
                     to: urls.legalDocumentNew('BAA'),
-                    disabledReason: alreadyExistsReason('BAA'),
+                    disabledReason: alreadyExistsReason('BAA') ?? baaBlockedReason,
                     'data-attr': 'new-legal-document-menu-baa',
                 },
                 {
@@ -76,10 +79,12 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId } = useValues(legalDocumentsLogic)
+    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId, baaBlockReason } =
+        useValues(legalDocumentsLogic)
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isCloudOrDev) {
         return (
@@ -116,6 +121,10 @@ export function LegalDocumentsScene(): JSX.Element {
         )
     }
 
+    const startupProgramBlocked = baaBlockReason === 'startup_program'
+    const baaBlockedReason = startupProgramBlocked ? BAA_BLOCK_REASON_MESSAGES.startup_program : undefined
+    const showStartupProgramNote = startupProgramBlocked && !legalDocumentsLoading && !existingDocumentTypes.has('BAA')
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -124,19 +133,41 @@ export function LegalDocumentsScene(): JSX.Element {
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
                 scope={settingsSectionSceneScope('organization-legal-documents')}
                 actions={
-                    <LemonMenu items={buildNewMenuItems(existingDocumentTypes)} placement="bottom-end">
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            data-attr="new-legal-document-button"
-                            tooltip="Generate a new legal document"
+                    todayRailNav ? (
+                        <QuillNewLegalDocumentMenu
+                            existingDocumentTypes={existingDocumentTypes}
+                            baaBlockedReason={baaBlockedReason}
+                        />
+                    ) : (
+                        <LemonMenu
+                            items={buildNewMenuItems(existingDocumentTypes, baaBlockedReason)}
+                            placement="bottom-end"
                         >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                data-attr="new-legal-document-button"
+                                tooltip="Generate a new legal document"
+                            >
+                                New
+                            </LemonButton>
+                        </LemonMenu>
+                    )
                 }
             />
+
+            {showStartupProgramNote && (
+                <div data-attr="legal-documents-startup-program-note">
+                    <LemonBanner type="info">
+                        BAAs aren't covered by startup program credits. If you need a HIPAA BAA,{' '}
+                        <ContactBillingSupportLink data-attr="legal-documents-startup-note-contact-support">
+                            contact us
+                        </ContactBillingSupportLink>{' '}
+                        to discuss options.
+                    </LemonBanner>
+                </div>
+            )}
 
             <LemonTable
                 dataSource={legalDocuments}

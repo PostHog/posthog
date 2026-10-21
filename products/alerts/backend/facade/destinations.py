@@ -16,27 +16,41 @@ from uuid import UUID
 from posthog.kafka_client.client import ProduceResult
 
 from products.alerts_platform.backend.facade.contracts import (
+    ALERT_TRANSITION_EVENT,
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    DeliveryPath,
     DestinationType,
     EventKindSpec,
     OwnedAlertDestination,
+    SourceKind,
+    TransitionEvent,
 )
 
 from ..logic import (
     delivery_destinations,
+    delivery_path,
     destination_bucket_report,
     destination_configs,
     destination_eligibility,
     destinations,
     insight_alert_destinations,
 )
-from .contracts import DestinationBucket, DestinationEligibility
+from .contracts import (
+    AlertInternalEvent,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
+
+# Below the emitting activity's own timeout, which a flush must not use up.
+TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 # Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -148,6 +162,14 @@ def list_alert_destination_groups(
     )
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -219,6 +241,36 @@ def alert_internal_event_delivered(
     )
 
 
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Enqueue the events and wait for the broker. Raises `AlertInternalEventsNotDelivered` when it took not all of them.
+
+    Each event's `uuid` is what lets a receiver drop the copy a retry emits.
+    """
+    destinations.emit_alert_internal_events(
+        team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
+    )
+
+
+def emit_alert_transition_events(*, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None:
+    """The platform's `$alert_transition` events. Raises `AlertInternalEventsNotDelivered` when the broker took not all of them."""
+    destinations.emit_alert_internal_events(
+        team_id=team_id,
+        alert_id=configuration_id,
+        events=[
+            AlertInternalEvent(
+                event_name=ALERT_TRANSITION_EVENT,
+                properties=event.properties,
+                timestamp=event.timestamp,
+                uuid=event.uuid,
+            )
+            for event in events
+        ],
+        flush_timeout_seconds=TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS,
+    )
+
+
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
@@ -230,14 +282,27 @@ def list_delivery_destination_groups(
 
 
 def classify_alert_destinations(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], lock: bool = False
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> tuple[DestinationEligibility, ...]:
-    """Every destination function of one alert, with what native delivery cannot carry for each.
-
-    With `lock`, call inside a transaction: the function rows stay locked until it ends.
-    """
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
     return destination_eligibility.classify_alert_destinations(
-        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, lock=lock
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
     )
 
 
@@ -258,3 +323,21 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
     """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
     return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def team_delivery_paths(
+    *, source: SourceKind, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, DeliveryPathChoice]:
+    """Whether native delivery may send each alert's destinations now, and why not when it may not."""
+    return delivery_path.team_delivery_paths(
+        source=source, team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
+def choose_delivery_path(
+    *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> DeliveryPath:
+    """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
+    return delivery_path.delivery_path(
+        source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )

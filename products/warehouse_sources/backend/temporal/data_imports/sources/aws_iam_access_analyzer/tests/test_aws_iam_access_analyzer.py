@@ -3,6 +3,7 @@ import datetime as dt
 from collections.abc import Iterable
 from dataclasses import asdict
 from typing import Any, cast
+from urllib.parse import quote
 
 import pytest
 from unittest.mock import patch
@@ -44,6 +45,12 @@ CONFIG = AwsIamAccessAnalyzerSourceConfig(
 )
 PARENT_A = {"arn": "arn:aws:access-analyzer:eu-west-1:123456789012:analyzer/example-a", "name": "example-a"}
 PARENT_B = {"arn": "arn:aws:access-analyzer:eu-west-1:123456789012:analyzer/example-b", "name": "example-b"}
+UNUSED_PARENT = {
+    "arn": "arn:aws:access-analyzer:eu-west-1:123456789012:analyzer/example-unused",
+    "name": "example-unused",
+    "type": "ACCOUNT_UNUSED_ACCESS",
+}
+EXTERNAL_PARENT = {**PARENT_A, "type": "ACCOUNT"}
 
 
 def driver() -> SourceDriver:
@@ -87,6 +94,24 @@ def response(body: dict[str, Any], status: int = 200, headers: dict[str, str] | 
         ("analyzers", "GET", "/analyzer?maxResults=100&nextToken=a%2B%2F%3D", None),
         ("findings", "POST", "/findingv2", {"maxResults": 100, "nextToken": "a+/=", "analyzerArn": PARENT_A["arn"]}),
         ("archive_rules", "GET", "/analyzer/example-a/archive-rule?maxResults=100&nextToken=a%2B%2F%3D", None),
+        (
+            "analyzed_resources",
+            "POST",
+            "/analyzed-resource",
+            {"maxResults": 100, "nextToken": "a+/=", "analyzerArn": PARENT_A["arn"]},
+        ),
+        (
+            "finding_details",
+            "GET",
+            "/findingv2/finding%2F1?maxResults=100&nextToken=a%2B%2F%3D&analyzerArn=arn%3Aaws%3Aaccess-analyzer%3Aeu-west-1%3A123456789012%3Aanalyzer%2Fexample-a",
+            None,
+        ),
+        (
+            "finding_recommendations",
+            "GET",
+            "/recommendation/finding%2F1?maxResults=100&nextToken=a%2B%2F%3D&analyzerArn=arn%3Aaws%3Aaccess-analyzer%3Aeu-west-1%3A123456789012%3Aanalyzer%2Fexample-a",
+            None,
+        ),
     ],
 )
 def test_requests_use_rest_json_and_sign_the_exact_url_and_body(
@@ -97,9 +122,9 @@ def test_requests_use_rest_json_and_sign_the_exact_url_and_body(
     ) as network:
         client = AwsIamAccessAnalyzerClient(CONFIG, API_VERSION)
         try:
-            client.request(endpoint, analyzer=PARENT_A, next_token="a+/=")
+            client.request(endpoint, analyzer=PARENT_A, finding_id="finding/1", next_token="a+/=")
             with pytest.raises(AwsIamAccessAnalyzerError) as caught:
-                client.request(endpoint, analyzer=PARENT_A, next_token="a+/=")
+                client.request(endpoint, analyzer=PARENT_A, finding_id="finding/1", next_token="a+/=")
         finally:
             client.close()
 
@@ -188,6 +213,97 @@ def test_child_pages_resume_with_remaining_analyzers_and_parent_cursor(
     assert resumed.requests[1].url.endswith("nextToken=parents-2")
     assert resumed.requests[2].url.endswith("nextToken=parents-3")
     assert len(resumed.committed_states) == 3
+    assert resumed.saved_states[-1].finished
+
+
+def test_recommendations_fan_out_over_unused_permission_findings_of_unused_access_analyzers() -> None:
+    result = driver().run(
+        "finding_recommendations",
+        [
+            ScriptedResponse(json={"analyzers": [EXTERNAL_PARENT, UNUSED_PARENT]}),
+            ScriptedResponse(
+                json={
+                    "findings": [
+                        {"id": "unused-role", "findingType": "UnusedIAMRole"},
+                        {"id": "not-generated", "findingType": "UnusedPermission"},
+                        {"id": "generated", "findingType": "UnusedPermission"},
+                    ]
+                }
+            ),
+            ScriptedResponse(status=404, json={"__type": "ResourceNotFoundException"}),
+            ScriptedResponse(
+                json={
+                    "resourceArn": "arn:aws:iam::123456789012:role/example",
+                    "status": "SUCCEEDED",
+                    "startedAt": "2025-01-01T00:00:00Z",
+                    "recommendedSteps": [{"step": 1}],
+                    "nextToken": "steps-2",
+                }
+            ),
+            ScriptedResponse(json={"recommendedSteps": [{"step": 2}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert len(result.rows) == 1
+    row = result.rows[0]
+    assert row["finding_id"] == "generated"
+    assert row["analyzer_arn"] == UNUSED_PARENT["arn"]
+    assert row["recommended_steps"] == [{"step": 1}, {"step": 2}]
+    assert row["started_at"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+    assert "next_token" not in row
+    assert [request.url.split("?")[0].rsplit("/", 1)[-1] for request in result.requests[2:]] == [
+        "not-generated",
+        "generated",
+        "generated",
+    ]
+    assert result.requests[-1].url.endswith("nextToken=steps-2&analyzerArn=" + quote(UNUSED_PARENT["arn"], safe=""))
+    assert result.saved_states[-1].finished
+
+
+def test_analyzed_resources_skip_analyzers_that_do_not_support_them() -> None:
+    result = driver().run(
+        "analyzed_resources",
+        [
+            ScriptedResponse(json={"analyzers": [UNUSED_PARENT, EXTERNAL_PARENT]}),
+            ScriptedResponse(json={"analyzedResources": [{"resourceArn": "arn:aws:s3:::example"}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"resource_arn": "arn:aws:s3:::example", "region": "eu-west-1", "analyzer_arn": EXTERNAL_PARENT["arn"]}
+    ]
+    assert result.requests[1].json() == {"maxResults": 100, "analyzerArn": EXTERNAL_PARENT["arn"]}
+
+
+def test_finding_details_resume_with_remaining_findings_and_findings_cursor() -> None:
+    first = driver().run(
+        "finding_details",
+        [
+            ScriptedResponse(json={"analyzers": [PARENT_A]}),
+            ScriptedResponse(json={"findings": [{"id": "f-1"}, {"id": "f-2"}], "nextToken": "findings-2"}),
+            ScriptedResponse(json={"id": "f-1", "findingDetails": [{"unusedPermissionDetails": {}}]}),
+        ],
+    )
+    assert [row["id"] for row in first.rows] == ["f-1"]
+    checkpoint = AwsIamAccessAnalyzerResumeConfig(**json.loads(json.dumps(asdict(first.final_state))))
+    assert checkpoint.pending_findings == ["f-2"]
+
+    resumed = driver().run(
+        "finding_details",
+        [
+            ScriptedResponse(json={"id": "f-2", "findingDetails": []}),
+            ScriptedResponse(json={"findings": [{"id": "f-3"}]}),
+            ScriptedResponse(json={"id": "f-3", "findingDetails": []}),
+        ],
+        resume_state=checkpoint,
+    )
+
+    assert resumed.raised is None
+    assert [row["id"] for row in resumed.rows] == ["f-2", "f-3"]
+    assert resumed.requests[0].url.split("?")[0].endswith("/findingv2/f-2")
+    assert resumed.requests[1].json() == {"maxResults": 100, "nextToken": "findings-2", "analyzerArn": PARENT_A["arn"]}
     assert resumed.saved_states[-1].finished
 
 
@@ -346,3 +462,19 @@ def test_table_validation_walks_empty_analyzer_pages() -> None:
         assert validate_credentials(CONFIG, "findings") == (True, None)
     assert network.requests_log[1].url.endswith("nextToken=next")
     assert network.requests_log[-1].json() == {"maxResults": 1, "analyzerArn": PARENT_A["arn"]}
+
+
+def test_recommendation_validation_accepts_findings_without_a_generated_recommendation() -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"analyzers": [EXTERNAL_PARENT], "nextToken": "next"}),
+            ScriptedResponse(json={"analyzers": [UNUSED_PARENT]}),
+            ScriptedResponse(json={"findings": [{"id": "role", "findingType": "UnusedIAMRole"}], "nextToken": "more"}),
+            ScriptedResponse(json={"findings": [{"id": "f-1", "findingType": "UnusedPermission"}]}),
+            ScriptedResponse(status=404, json={"__type": "ResourceNotFoundException"}),
+        ]
+    ) as network:
+        assert validate_credentials(CONFIG, "finding_recommendations") == (True, None)
+    assert network.requests_log[2].json() == {"maxResults": 100, "analyzerArn": UNUSED_PARENT["arn"]}
+    assert network.requests_log[3].json()["nextToken"] == "more"
+    assert network.requests_log[-1].url.split("?")[0].endswith("/recommendation/f-1")

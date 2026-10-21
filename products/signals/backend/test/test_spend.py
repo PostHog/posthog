@@ -23,6 +23,7 @@ from structlog.testing import capture_logs
 
 from posthog.schema import EmbeddingModelName
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost
 from posthog.models import Team
@@ -41,6 +42,7 @@ from products.signals.backend.spend import (
     complete_task_spend,
     publish_report_spend,
     record_llm_spend,
+    report_triggering_signal,
     settle_signal_task_spend,
     signal_spend_summaries,
     signal_spend_totals,
@@ -85,7 +87,7 @@ class TestSignalSpend(BaseTest):
             patch(
                 "products.signals.backend.spend_metadata.execute_hogql_query",
                 side_effect=lambda **kwargs: Mock(results=rows.get(kwargs["placeholders"]["model_name"].value, [])),
-            ),
+            ) as query,
         ):
             with self.assertRaisesRegex(RuntimeError, "not yet visible"):
                 publish_signal_spend_metadata(signal)
@@ -157,12 +159,35 @@ class TestSignalSpend(BaseTest):
                 json.loads(call.kwargs["data"]["metadata"])["spend_accounting_failed_stages"] == ["summarization"]
                 for call in producer.produce.call_args_list
             )
+            assert query.call_args_list
+            assert all(call.kwargs["ch_user"] == ClickHouseUser.SIGNALS for call in query.call_args_list)
         with patch(
             "products.signals.backend.signal_metadata.execute_hogql_query",
             return_value=Mock(results=[(driver, "Example finding", json.dumps(metadata), now, now)]),
         ):
             signal_row = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
             assert signal_row["total_spend"] == metadata["total_spend"]
+
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_triggering_signal_lookup_preserves_query_identity(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
+        report = SignalReport.objects.create(team=self.team)
+        driver = str(uuid4())
+        now = timezone.now()
+        with patch(
+            "products.signals.backend.signal_metadata.execute_hogql_query",
+            return_value=Mock(results=[(driver, "Example finding", "{}", now, now)]),
+        ) as query:
+            assert (
+                report_triggering_signal(
+                    team_id=self.team.id, report_id=str(report.id), **({"ch_user": ch_user} if ch_user else {})
+                )
+                == driver
+            )
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
+        report.refresh_from_db()
+        assert str(report.triggering_signal_id) == driver
 
     @parameterized.expand([("priced", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)])
     async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
