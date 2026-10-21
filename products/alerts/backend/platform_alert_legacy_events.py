@@ -15,6 +15,7 @@ from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
 from posthog.schema_enums import AlertState
+from posthog.tasks.alerts.utils import RenderedInsightChart, insight_chart_url
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
@@ -58,14 +59,25 @@ def emit_insight_legacy_events(
     )
 
 
+def insight_chart_url_of(team_id: int, source_detail: dict[str, Any]) -> str | None:
+    """The URL that embeds the chart a check rendered, minted now from the ids the check stored."""
+    asset_id = source_detail.get("insight_chart_asset_id")
+    render_user_id = source_detail.get("insight_chart_render_user_id")
+    if not isinstance(asset_id, int) or not isinstance(render_user_id, int):
+        return None
+    return insight_chart_url(
+        team_id=team_id, chart=RenderedInsightChart(asset_id=asset_id, render_user_id=render_user_id)
+    )
+
+
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
     properties: dict[str, Any] = {
         **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
         "breaches": "\n".join(detail.get("breaches") or []),
     }
-    if detail.get("insight_chart_url"):
-        properties["insight_chart_url"] = detail["insight_chart_url"]
+    if chart_url := insight_chart_url_of(alert.team_id, detail):
+        properties["insight_chart_url"] = chart_url
     # The occurrence is in the seed too, so two firings recorded without an evaluation key keep distinct ids.
     seed = (
         f"{alert.id}|{transition.grouping_key}|{LEGACY_INSIGHT_ALERT_EVENT}|{transition.evaluation_key}|"

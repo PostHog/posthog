@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import render_alert_insight_chart_url, skip_because_of_weekend
+from posthog.tasks.alerts.utils import RenderedInsightChart, render_alert_insight_chart, skip_because_of_weekend
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -561,7 +561,7 @@ def _decide_grouped(
     if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
         breaches = {bounded_grouping_key(series.identity): series.result.breaches or [] for series in evaluated.series}
         # One render serves every value that fires, because they all show the same insight.
-        chart_url = _chart_url(check, alert)
+        chart = _chart(check, alert)
         decision = replace(
             decision,
             verdicts=tuple(
@@ -569,7 +569,7 @@ def _decide_grouped(
                     verdict,
                     group=replace(
                         verdict.group,
-                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart_url),
+                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart),
                     ),
                 )
                 if verdict.outcome.notification == NotificationAction.FIRE
@@ -589,14 +589,14 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(alert, breaches, _chart_url(check, alert))
+    return _detail(alert, breaches, _chart(check, alert))
 
 
-def _chart_url(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> str | None:
+def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.
     if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
-        return render_alert_insight_chart_url(alert)
+        return render_alert_insight_chart(alert)
     return None
 
 
@@ -605,10 +605,13 @@ def _context(alert: AlertConfiguration) -> dict[str, Any]:
     return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
 
 
-def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart_url: str | None) -> dict[str, Any]:
+def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
     detail: dict[str, Any] = {"breaches": list(breaches), **_context(alert)}
-    if chart_url:
-        detail["insight_chart_url"] = chart_url
+    if chart is not None:
+        # The ids rather than a URL, because the URL opens the chart without a login and history keeps
+        # this for its whole retention. A delivery mints the URL when it sends.
+        detail["insight_chart_asset_id"] = chart.asset_id
+        detail["insight_chart_render_user_id"] = chart.render_user_id
     return detail
 
 
