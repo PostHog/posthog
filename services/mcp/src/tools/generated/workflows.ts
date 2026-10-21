@@ -30,6 +30,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.status !== undefined) {
             body['status'] = params.status
         }
@@ -110,6 +113,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 }
                 if (params.description !== undefined) {
                     body['description'] = params.description
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
                 }
                 if (params.status !== undefined) {
                     body['status'] = params.status
@@ -392,6 +398,7 @@ const workflowsList = (): ToolBase<
                     search: params.search,
                     source_record: params.source_record,
                     status: params.status,
+                    tags: params.tags,
                     trigger: params.trigger,
                     type: params.type,
                     updated_at: params.updated_at,
@@ -852,6 +859,9 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
                 }
                 if (params.description !== undefined) {
                     body['description'] = params.description
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
                 }
                 if (params.trigger_masking !== undefined) {
                     body['trigger_masking'] = params.trigger_masking
