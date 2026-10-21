@@ -276,8 +276,10 @@ from products.workflows.backend.facade.suggestions_scout import (
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
+    duration_cap_error,
     duration_error,
     duration_minutes,
+    exceeds_unit_cap,
     find_behavioral_cohort_name,
     find_clock_function,
     find_realtime_behavioral_cohort,
@@ -411,6 +413,47 @@ def _branch_delay_duration_already_stored(action: dict, context: dict) -> bool:
     if action_id not in stored:
         return False
     return stored[action_id] == (action.get("config") or {}).get("delay_duration")
+
+
+def _stored_durations(instance: Optional[WorkflowEditState]) -> dict[str, dict[str, Any]]:
+    """
+    The durations a flow's steps use, as {action id: {field: value}}, for the cap check to let through.
+
+    Any status counts, so a disabled flow with a legacy over-cap value can be enabled again. That is
+    safe because every save runs the cap check, lenient drafts included. A field the stored step does
+    not use does not count, because nothing ever checked it: a fixed delay ignores its
+    max_delay_duration, and a delay_until step ignores its delay_duration.
+    """
+    if instance is None:
+        return {}
+    stored: dict[str, dict[str, Any]] = {}
+    for step in instance.actions or []:
+        if not isinstance(step, dict) or not step.get("id"):
+            continue
+        config = step.get("config") or {}
+        if step.get("type") == "wait_until_condition":
+            field = "max_wait_duration"
+        elif step.get("type") == "delay":
+            field = "max_delay_duration" if config.get("delay_until") else "delay_duration"
+        else:
+            continue
+        stored[step["id"]] = {field: config.get(field)}
+    return stored
+
+
+def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
+    """
+    Refuse a duration the executor would clamp, such as '400d' running as 365 days.
+
+    A value the flow already stores is let through, like the other gates here, so an unrelated edit
+    to a flow that holds one is not refused. Changing the value is still checked.
+    """
+    value = (action.get("config") or {}).get(field)
+    if not exceeds_unit_cap(field, value):
+        return
+    if context.get("stored_durations", {}).get(action.get("id"), {}).get(field) == value:
+        return
+    raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
 def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
@@ -1362,9 +1405,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
-            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. "
-            "Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are "
-            "SILENTLY CLAMPED. Max 30d. "
+            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, "
+            "at most 365d, 24h, 60m or 60s. "
+            "Fractions OK ('1.5d'=36h). A larger value is rejected. "
             "delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date "
             "expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the "
             "same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours "
@@ -1374,15 +1417,15 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and "
             "fallback_timezone decide which zone a date with no offset of its own is read in; a date that "
             "states an offset, and unix seconds, ignore them. Default UTC. "
-            "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
+            "Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how "
             "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
             "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
             "or below that still splits traffic in the given proportions. "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
-            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
-            "delay). Continues when condition.filters match OR any events entry fires; each events entry "
+            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as "
+            "delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry "
             "must target at least one event or action. On resolution (a condition match or any events "
             "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
             "falls through the 'continue' edge. "
@@ -2091,6 +2134,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             # the parser a container and throw on every run.
             if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
+            # Checked on lenient saves too: the builder caps the field, so only an over-cap value from
+            # another client lands here, and grandfathering stored values relies on every write being checked.
+            _reject_over_cap_duration(data, "max_wait_duration", self.context)
 
         if (
             is_conditional_branch
@@ -2123,6 +2169,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if delay_until is None:
             if strict and not is_duration(config.get("delay_duration")):
                 raise serializers.ValidationError({"config": duration_error("delay_duration")})
+            _reject_over_cap_duration(data, "delay_duration", self.context)
             return
 
         if config.get("delay_duration"):
@@ -2135,6 +2182,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
         stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
         data["config"]["delay_until"] = stored
+        # Checked before the half-configured draft return, because a stored value is exempt from this check later.
+        _reject_over_cap_duration(data, "max_delay_duration", self.context)
 
         expression = delay_until.get("expression")
         if not isinstance(expression, str) or not expression.strip():
@@ -3224,6 +3273,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
+
+        # Durations the flow already stores, so the cap check refuses new over-cap values only.
+        self.context["stored_durations"] = _stored_durations(instance)
 
         # delay_duration values a branch already carries, so the rejection below polices new writes
         # only. Unlike the flag-gated set this does not require an active flow: enabling a draft that
