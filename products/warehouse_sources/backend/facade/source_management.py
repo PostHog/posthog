@@ -46,8 +46,6 @@ _LAZY = {
     "WebhookSource": "sources.common.base",
     "WebhookSyncResult": "sources.common.base",
     "Config": "sources.common.config",
-    "ConfigValueError": "sources.common.config",
-    "UndecryptedConfigError": "sources.common.config",
     "IntegrationAccountListingError": "sources.common.integration_accounts",
     "filter_integration_accounts": "sources.common.integration_accounts",
     "CredentialAccountsMixin": "sources.common.mixins",
