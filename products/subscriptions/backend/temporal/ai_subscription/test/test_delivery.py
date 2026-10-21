@@ -149,6 +149,27 @@ class TestExternalUrlExfilGuard:
         }
         assert links == expected
 
+    @pytest.mark.parametrize("kind", ["inline", "list_fence", "limit"])
+    def test_slack_split_sections_keep_external_links_inert(self, kind: str) -> None:
+        link = "[Report](h&#116;tps://example.com/report)"
+        padding = "x" * SLACK_MARKDOWN_MESSAGE_LIMIT
+        markdown = f"`{padding} {link}`"
+        if kind == "list_fence":
+            markdown = f"- Item\n\n  ```\n  {padding}\n  {link}\n  ```"
+        elif kind == "limit":
+            markdown = "`" + padding + " " + link + "y" * (SLACK_MARKDOWN_MESSAGE_LIMIT - len(link) - 1) + "`"
+        message = _build_message(markdown)
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        assert message.thread_messages
+        for blocks in messages:
+            for block in blocks:
+                if block["type"] != "markdown":
+                    continue
+                assert len(block["text"]) <= SLACK_MARKDOWN_MESSAGE_LIMIT
+                tokens = MarkdownIt("commonmark").parse(block["text"])
+                assert not any(child.type == "link_open" for token in tokens for child in token.children or [])
+        assert "Report" in str(messages)
+
     def test_email_strips_external_link_href_keeps_text(self) -> None:
         html = render_ai_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
         assert "attacker.example" not in html

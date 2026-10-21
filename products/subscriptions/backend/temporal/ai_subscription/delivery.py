@@ -221,6 +221,19 @@ def _split_slack_markdown(text: str) -> list[str]:
     return chunks
 
 
+def _safe_slack_markdown_sections(markdown: str) -> list[str]:
+    sections: list[str] = []
+    for section in _split_slack_markdown(markdown):
+        safe_section = strip_external_links_markdown(section, additional_allowed_origin=absolute_uri("/"))
+        if len(safe_section) <= SLACK_MARKDOWN_MESSAGE_LIMIT:
+            sections.append(safe_section)
+            continue
+        for content in _split_text_into_chunks(section, (SLACK_MARKDOWN_MESSAGE_LIMIT - 6) // 3):
+            fence = "`" * max(3, max((len(run) + 1 for run in re.findall(r"`+", content)), default=3))
+            sections.extend(_split_fenced_markdown(content, fence, fence, SLACK_MARKDOWN_MESSAGE_LIMIT))
+    return sections
+
+
 def _slack_markdown_blocks(markdown: str) -> list[dict[str, Any]]:
     if "<u>" not in markdown:
         return [{"type": "markdown", "text": markdown}]
@@ -622,7 +635,7 @@ def _build_ai_slack_message(
     markdown = strip_external_links_markdown(markdown, additional_allowed_origin=absolute_uri("/"))
     env: EnvType = {}
     _MARKDOWN_RENDERER.parse(markdown, env)
-    sections = _split_slack_markdown(markdown)
+    sections = _safe_slack_markdown_sections(markdown)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
 
