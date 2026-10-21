@@ -953,7 +953,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     "task_run_created",
                     {
                         "run_id": str(task_run.id),
-                        "ai_stage": state.get("ai_stage"),
                         "mode": mode,
                         "environment": task_run.environment,
                         # The bare `environment` property gets clobbered by the analytics client's

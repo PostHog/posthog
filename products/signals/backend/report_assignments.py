@@ -11,12 +11,10 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
-from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
@@ -120,29 +118,6 @@ def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) ->
     return {"assignee": assignee, "implementation_pr": implementation_pr}
 
 
-def _capture_external_agent_claim(report: SignalReport, claim: SignalReportArtefact) -> None:
-    user = claim.created_by
-    if user is None:
-        return
-    try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=str(user.distinct_id),
-                event="self-driving external agent work claimed",
-                uuid=str(claim.id),
-                timestamp=claim.created_at,
-                groups=groups(team=report.team),
-                properties={
-                    "project_id": report.team_id,
-                    "report_id": str(report.id),
-                    "claim_id": str(claim.id),
-                    "agent": claim.actor_agent,
-                },
-            )
-    except Exception:
-        logger.exception("external_agent_claim_analytics_failed", claim_id=str(claim.id))
-
-
 def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClaim:
     claim = SignalReportArtefact.add_log(
         team_id=report.team_id,
@@ -150,8 +125,6 @@ def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClai
         content=WorkClaim(display_name=claim_display_name(report, actor)),
         attribution=actor,
     )
-    if actor.kind == "agent":
-        transaction.on_commit(lambda: _capture_external_agent_claim(report, claim))
     if actor.task_id:
         associations = SignalReportArtefact.objects.filter(
             team_id=report.team_id,

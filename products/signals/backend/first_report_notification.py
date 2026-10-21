@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid5
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
@@ -13,9 +12,7 @@ from django.utils.text import Truncator
 import structlog
 
 from posthog.cloud_utils import is_cloud
-from posthog.event_usage import groups
 from posthog.models import Team
-from posthog.ph_client import ph_scoped_capture
 from posthog.transactional_email import (
     TransactionalEmailRejected,
     TransactionalEmailRetryableError,
@@ -118,7 +115,6 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
                 "report_priority": latest_report_priorities(team_id, [str(report.id)]).get(str(report.id), ""),
                 "report_url": build_report_url(team_id, report.id, ReportLinkSource.FIRST_REPORT_EMAIL),
                 "activation_id": str(notification.id),
-                "email_eligible_at": timezone.now().isoformat(),
             }
         # The transactional API has no idempotency key. A crash or uncertain response must leave
         # this marker intact, because another send could duplicate an email already queued.
@@ -129,33 +125,6 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         return notification
 
 
-def _capture_email_event(
-    notification: SignalFirstReportNotification, event: str, timestamp: datetime, *, message_id: str | None = None
-) -> None:
-    assert notification.activated_by is not None
-    try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=str(notification.activated_by.distinct_id),
-                event=event,
-                uuid=str(uuid5(notification.id, event)),
-                timestamp=timestamp,
-                groups=groups(team=notification.team),
-                properties={
-                    "project_id": notification.team_id,
-                    "report_id": str(notification.report_id),
-                    "activation_id": str(notification.id),
-                    "message_id": message_id,
-                    "template_id": SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID,
-                    "report_priority": notification.message_data.get("report_priority", ""),
-                },
-            )
-    except Exception:
-        logger.exception(
-            "first_report_email_analytics_failed", notification_id=str(notification.id), analytics_event=event
-        )
-
-
 def deliver_first_report_email(team_id: int) -> None:
     if not is_cloud() or not is_transactional_email_configured() or not team_first_report_email_enabled(team_id):
         return
@@ -163,11 +132,6 @@ def deliver_first_report_email(team_id: int) -> None:
     if notification is None:
         return
     assert notification.activated_by is not None
-    if eligible_at := notification.message_data.get("email_eligible_at"):
-        # Reuse the timestamp and event UUID on retries so eligibility is counted once.
-        _capture_email_event(
-            notification, "self-driving first report email eligible", datetime.fromisoformat(eligible_at)
-        )
     record = SignalFirstReportNotification.objects.for_team(team_id).filter(pk=notification.pk)
     try:
         message_id = send_transactional_email(
@@ -189,6 +153,4 @@ def deliver_first_report_email(team_id: int) -> None:
         record.update(last_error="delivery_uncertain")
         logger.exception("first_report_email_delivery_uncertain", notification_id=str(notification.id))
         raise
-    queued_at = timezone.now()
-    record.update(queued_at=queued_at, message_id=message_id)
-    _capture_email_event(notification, "self-driving first report email queued", queued_at, message_id=message_id)
+    record.update(queued_at=timezone.now(), message_id=message_id)
