@@ -470,7 +470,7 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
 
     @parameterized.expand([(False,), (True,)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_actor_source_is_reused_until_the_user_changes(self, native: bool) -> None:
+    def test_actor_source_follows_the_run_user(self, native: bool) -> None:
         query = ActorsQuery(
             source=InsightActorsQuery(
                 source=TrendsQuery(
@@ -485,17 +485,12 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         ):
             runner = ActorsQueryRunner(query=query, team=self.team, user=self.user)
             source = runner.source_query_runner
-            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
-            assert runner.source_query_runner is source
-            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=None)
-            anonymous_source = runner.source_query_runner
-            assert anonymous_source is not None and anonymous_source is not source
-            assert anonymous_source.user is None
-            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
-            restored_source = runner.source_query_runner
-            assert restored_source is not None and restored_source is not anonymous_source
-            assert restored_source.user is self.user
-            assert bool(restored_source.modifiers.useNewEventsCluster) is native
+            assert source is not None
+            for user in (self.user, None, self.user):
+                runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=user)
+                assert runner.source_query_runner is source
+                assert source.user is user
+            assert bool(source.modifiers.useNewEventsCluster) is native
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_rollout_flag_route_survives_async_worker_reconstruction(self) -> None:
