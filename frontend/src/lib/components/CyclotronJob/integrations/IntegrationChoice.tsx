@@ -26,7 +26,6 @@ export type IntegrationConfigureProps = {
     integration?: string
     beforeRedirect?: () => void
     allowClear?: boolean
-    /** Selects the first connection of the kind when no value is set. */
     autoSelect?: boolean
 }
 
