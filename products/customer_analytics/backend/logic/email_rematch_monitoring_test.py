@@ -1,5 +1,3 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -7,36 +5,36 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic.email_rematch_monitoring import run_tracked_email_thread_rematch
+from products.customer_analytics.backend.logic.email_rematch_monitoring import (
+    FLUSH_TIMEOUT_SECONDS,
+    run_tracked_email_thread_rematch,
+)
 
 MODULE = "products.customer_analytics.backend.logic.email_rematch_monitoring"
 
 
-class _RecordingCapture:
-    def __init__(self, steps: list[tuple[str, ...]], *, fail: bool = False) -> None:
+class _RecordingClient:
+    def __init__(self, steps: list[tuple[object, ...]], *, fail: bool = False) -> None:
         self.steps = steps
         self.fail = fail
         self.properties: list[dict[str, Any]] = []
 
-    def __call__(self, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None:
+    def capture(self, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None:
         if self.fail:
             raise RuntimeError("capture unavailable")
         self.steps.append(("capture", properties["status"]))
         self.properties.append(properties)
 
-    def flush(self) -> None:
-        if self.fail:
-            raise RuntimeError("capture unavailable")
-        self.steps.append(("flush",))
+    def flush(self, *, timeout_seconds: float | None) -> None:
+        self.steps.append(("flush", timeout_seconds))
 
 
 class TestRunTrackedEmailThreadRematch:
-    def _run(self, capture: _RecordingCapture, *, retries: int, run: Any) -> int:
-        @contextmanager
-        def scoped_capture() -> Iterator[_RecordingCapture]:
-            yield capture
-
-        with patch(f"{MODULE}.ph_scoped_capture", scoped_capture):
+    def _run(self, get_client: Any, *, retries: int, run: Any) -> int:
+        with (
+            patch(f"{MODULE}.is_cloud", return_value=True),
+            patch(f"{MODULE}._get_client", get_client),
+        ):
             return run_tracked_email_thread_rematch(
                 team_id=42,
                 rematch_type="threads",
@@ -57,8 +55,8 @@ class TestRunTrackedEmailThreadRematch:
     def test_flushes_started_before_work_and_records_one_outcome(
         self, _name: str, retries: int, error: type[BaseException] | None, terminal_status: str
     ) -> None:
-        steps: list[tuple[str, ...]] = []
-        capture = _RecordingCapture(steps)
+        steps: list[tuple[object, ...]] = []
+        client = _RecordingClient(steps)
 
         def run() -> int:
             steps.append(("run",))
@@ -67,23 +65,30 @@ class TestRunTrackedEmailThreadRematch:
             return 7
 
         if error is None:
-            assert self._run(capture, retries=retries, run=run) == 7
+            assert self._run(lambda: client, retries=retries, run=run) == 7
         else:
             with pytest.raises(error):
-                self._run(capture, retries=retries, run=run)
+                self._run(lambda: client, retries=retries, run=run)
 
-        assert steps == [("capture", "started"), ("flush",), ("run",), ("capture", terminal_status)]
-        terminal = capture.properties[-1]
+        flush = ("flush", FLUSH_TIMEOUT_SECONDS)
+        assert steps == [("capture", "started"), flush, ("run",), ("capture", terminal_status), flush]
+        terminal = client.properties[-1]
         assert terminal["attempt"] == retries + 1
         assert terminal.get("error_type") == (None if error is None else error.__name__)
         assert terminal.get("threads_processed") == (7 if error is None else None)
 
-    def test_capture_failure_does_not_stop_the_rematch(self) -> None:
-        steps: list[tuple[str, ...]] = []
+    @parameterized.expand([("capture_raises",), ("client_setup_raises",)])
+    def test_telemetry_failure_does_not_stop_the_rematch(self, failure: str) -> None:
+        steps: list[tuple[object, ...]] = []
+
+        def get_client() -> _RecordingClient:
+            if failure == "client_setup_raises":
+                raise RuntimeError("consumer thread could not start")
+            return _RecordingClient(steps, fail=True)
 
         def run() -> int:
             steps.append(("run",))
             return 3
 
-        assert self._run(_RecordingCapture(steps, fail=True), retries=0, run=run) == 3
+        assert self._run(get_client, retries=0, run=run) == 3
         assert steps == [("run",)]
