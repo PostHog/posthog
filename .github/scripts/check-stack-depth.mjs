@@ -27,14 +27,18 @@ function checkLocalStack() {
             })
         )
         // On the trunk, gh stack view reports some stack with no current branch.
-        const current = branches.findIndex((branch) => branch.isCurrent === true)
-        if (current === -1 || branches.some((branch) => typeof branch?.isMerged !== 'boolean')) {
+        if (
+            !branches.some((branch) => branch.isCurrent === true) ||
+            branches.some((branch) => typeof branch?.isMerged !== 'boolean')
+        ) {
             throw new Error('Current branch is not in a recognized stack')
         }
+        // gh stack submit and push publish every layer, whichever branch is checked out.
         return checkStackDepth(
-            branches
-                .slice(0, current + 1)
-                .map((branch) => ({ number: branch.pr?.number, state: branch.isMerged ? 'closed' : 'open' }))
+            branches.map((branch) => ({
+                number: branch.pr?.number,
+                state: branch.isMerged || branch.pr?.state === 'CLOSED' ? 'closed' : 'open',
+            }))
         )
     } catch {
         return { status: 'skipped', detail: 'The current branch is not in a gh stack.' }

@@ -133,6 +133,7 @@ jobs:
         uses: ./.github/workflows/pr-stack-depth.yml
         permissions:
             contents: read
+            pull-requests: read
 
     release-plan:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)

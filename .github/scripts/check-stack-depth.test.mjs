@@ -54,9 +54,10 @@ describe('checkStackDepth', () => {
 })
 
 describe('local stack adapter', () => {
-    for (const { name, current, expectedStatus } of [
+    for (const { name, current, closedBottom = false, expectedStatus } of [
         { name: 'fails pushing the sixth unpublished layer', current: 5, expectedStatus: 'fail' },
-        { name: 'allows pushing a lower layer of a deep stack', current: 1, expectedStatus: 'pass' },
+        { name: 'fails publishing from a lower layer of a deep stack', current: 1, expectedStatus: 'fail' },
+        { name: 'skips a closed pull request below', current: 5, closedBottom: true, expectedStatus: 'pass' },
         {
             name: 'skips the trunk, which gh stack reports with no current branch',
             current: -1,
@@ -67,6 +68,9 @@ describe('local stack adapter', () => {
             const directory = mkdtempSync(join(tmpdir(), 'stack-depth-local-'))
             t.after(() => rmSync(directory, { recursive: true, force: true }))
             const branches = Array.from({ length: 6 }, (_, i) => ({ isMerged: false, isCurrent: i === current }))
+            if (closedBottom) {
+                branches[0].pr = { number: EXEMPT_THROUGH_PR + 1, state: 'CLOSED' }
+            }
             writeFileSync(join(directory, 'gh'), `#!/bin/sh\nprintf '%s' '${JSON.stringify({ branches })}'\n`, {
                 mode: 0o755,
             })
