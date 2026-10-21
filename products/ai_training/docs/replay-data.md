@@ -312,7 +312,7 @@ The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionreq
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
-All processes that enqueue deletion work, including the general-purpose Temporal worker, need the key table setting.
+All processes that enqueue deletion work, including the general-purpose Temporal worker, need a key table setting: `AI_RESEARCH_REPLAY_KEY_TABLE` for v3 or `AI_RESEARCH_V4_KEY_TABLE` for v4. Either one turns queuing on.
 Shared Django and Temporal workers cannot delete keys from the key table.
 
 ## v4 dataset
@@ -390,20 +390,53 @@ Image and URL references therefore stay the same for a whole month, and cannot b
 
 ### Deletion
 
-v4 has no deletion worker and no shred job.
-Raw objects expire through the bucket lifecycle.
-A targeted deletion writes a tombstone, as in v3, and never removes a row:
+v4 uses the v3 deletion outbox and worker. The same team, recording and person deletion requests shred v4 keys.
+The worker shreds v4 keys only when `AI_RESEARCH_V4_KEY_TABLE` is set, and a request completes only when every configured key table is done.
+It keeps its v4 progress under its own cursor key, `v4_work`.
+It writes a tombstone and never removes a row:
 
 ```text
-UpdateItem  SET deleted = :true REMOVE wrapped_key, sealed_key, key_nonce
+UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry) REMOVE wrapped_key, sealed_key, key_nonce
 ```
 
-- A session tombstone makes every block of that session unreadable.
-- A team month tombstone makes every session key sealed under that month unreadable, and every image of that team and month.
-- To delete a team, tombstone every team month row of the team (query `pk = team:{team_id}`), and also create a tombstone for the current month so the recorder cannot create a key for it. A session keeps its first key month while it records, so new objects can use the previous month's key for about 15 days.
-- A conditional put cannot replace a tombstone, so no writer creates a new key for a deleted row. A writer that meets a tombstone drops the data.
-- A tombstone keeps its `expires_at`. By then no session of that month can be admitted again.
-- A process that already holds a key can use it until its cache entry expires: 5 minutes for a session row, one hour for a team month row.
+| Request                                  | The worker tombstones                                                                                                                         | Unreadable after the key caches expire                                                                                       |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Session, and person through its sessions | The session row                                                                                                                               | The session's blocks, its inline images and its sealed index values. Its `url_fingerprints` can no longer be linked to a URL |
+| Team                                     | The team month rows of the previous, current and next UTC month, then every `month:` row of the team, then every session row in the 32 shards | Everything of the team: blocks, inline images, fetched images and sealed index values                                        |
+
+- A session tombstone does not reach fetched images. They are sealed under the team month key, and other sessions of the team can refer to the same image.
+- A tombstone the worker creates for a row that does not exist yet gets an `expires_at` by the key rule, from the row's month for a team month row and from the current month for a session row. A tombstone that replaces a key keeps the key's expiry.
+- The worker reads only `pk` and `sk` and has no KMS access. Its role has Query and UpdateItem on the v4 key table.
+- A conditional put cannot replace a tombstone, so no writer creates a new key for a deleted row. A writer that meets a tombstone drops the data, and the image fetcher drops a job whose team month row is deleted.
+- A process that already holds a key can use it until its cache entry expires: 5 minutes for a session row, one hour for a team month row. What it writes in that time stays unreadable, because the stored row no longer holds the key.
+- v4 has no month deletion. `delete_ai_training_month` shreds v3 keys only, and v4 objects expire on their own (see [Lifecycle](#lifecycle)).
+- Deletion does not remove index rows or the plaintext columns in them. They expire with the bucket lifecycle.
+
+### Lifecycle
+
+Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a deletion only makes data unreadable sooner.
+
+| Data                           | Where                                                            | Lifetime                                                                                                                           | Removed by                    |
+| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                            | S3 expiration                 |
+| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                            | S3 expiration                 |
+| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                            | S3 expiration                 |
+| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old | S3 expiration                 |
+| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                               | DynamoDB TTL                  |
+| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                            | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | Until the key row of its month expires                                                                                             | DynamoDB TTL                  |
+| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                             | Topic retention               |
+| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                           | Topic retention               |
+| Seen and blocked sessions      | ML Redis, `@posthog/ai-research-v4/`                             | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
+| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                         | Cache expiry                  |
+
+- S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
+- The buckets have no versioning, so an expired object leaves no older version behind. S3 removes the parts of an unfinished upload after one day.
+- `blocks/` is stored in Glacier Instant Retrieval from the start. The index prefixes and both image prefixes stay in Standard, because readers read them often.
+- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it, because the recorder sends a job for each referenced URL at least once per day.
+- A key outlives every object it sealed: a session writes for at most about 15 days after its key month ends, and an object lives at most 38 days plus the S3 delay. The margin lets the object windows go up to 90 days without a change to the key expiry. Raise the object windows in `v4-staging.hcl` in posthog-cloud-infra only together with the key expiry.
+- DynamoDB TTL can remove a row days after `expires_at`. Writers and readers treat a row past `expires_at` as unusable, so the delay only costs storage.
+- The key table has no point-in-time recovery, backups, exports, streams or replicas, so no copy brings a shredded key back.
 
 ### Envelope
 
@@ -413,12 +446,12 @@ The additional authenticated data is the canonical JSON of `{"v": 4, "context": 
 | Object                 | Key            | `context`                                                                                           |
 | ---------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
 | Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "brotli"`, `ref` (the block object key) |
-| Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)                 |
+| Inline image in a pack | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)    |
 | Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)         |
 | Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
-`nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
+`nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
 
 ### Blocks
 
@@ -440,16 +473,11 @@ Fetched images are partitioned by the key month of their reference.
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
 | `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
-| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
+| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image and session                            |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
-S3 expires an object a fixed time after the object was written: 30 days in `rrweb-v4` and 38 days in `images-v4`.
-The lifecycle rounds up to midnight and runs late, so plan for data to stay readable for up to 2 days more.
-A block can use an image only while that image outlives the block:
-
-- A block finds each inline image in a pack that the same flush wrote, so the pack lives at least as long as the block.
-- The image fetcher copies a fetched image onto itself when a job refers to it and the copy is more than 7 days old. The copy restarts the image's expiry, so an image lives at least 30 days after the last block that refers to it.
+S3 expires every object a fixed time after it was written: 30 days in `rrweb-v4` and 38 days in `images-v4`. [Lifecycle](#lifecycle) lists every lifetime and why they fit together.
 
 The recorder does not write the two index prefixes itself, as in v3:
 
@@ -514,6 +542,14 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `window_ids` lists the distinct window IDs of the block's events, the same IDs as in `moments`.
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
+
+### Image index
+
+`index/images/` has one row per inline image and session in a pack: `team_id`, `session_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
+
+- Each frame in a pack is sealed under the session key of the session whose block moved the image out, so a session deletion makes that session's inline images unreadable.
+- `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct session and reference, so an image that two sessions show is stored twice.
+- A reader resolves an image of a block by (`team_id`, `session_id`, `image_ref`) and opens it with that session's key.
 
 ### Remote images
 
