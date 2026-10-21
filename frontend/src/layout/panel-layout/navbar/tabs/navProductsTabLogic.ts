@@ -11,7 +11,6 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { isWelcomeNavItemShown } from 'scenes/onboarding/welcome/welcomeNavItem'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,7 +26,7 @@ import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { findProductShortcut, shortcutFromEntry } from '../../ProjectTree/utils'
 import { APP_MATCH_THRESHOLD, AppMatchGroups, buildAppRankingQuestions, readAppRankings } from './appRanking'
-import { PINNED_CATEGORY, WELCOME_NAV_ITEM, getNavProductItems } from './navProductItems'
+import { PINNED_CATEGORY, getNavProductItems, groupNavProducts, pinnedNavProducts } from './navProductItems'
 import { ProductsItemGroup, groupProducts, productMatchesSearch, productsItemName } from './productsCatalog'
 
 // projectTreeLogic persists state under its logic key, so renaming this value resets it.
@@ -69,7 +68,6 @@ export interface navProductsTabLogicValues {
     pinnedItems: FileSystemImport[]
     rankedConfigurableApps: FileSystemImport[]
     search: string
-    showWelcomeNavItem: boolean
     starredProductIds: Record<string, string>
     starredProductsSaving: boolean
 }
@@ -226,9 +224,8 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
-        showWelcomeNavItem: (currentTeam: TeamPublicType | TeamType | null, featureFlags: FeatureFlagsSet) => boolean
-        pinnedItems: (allItems: FileSystemImport[], search: string, showWelcomeNavItem: boolean) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => FileSystemImport[]
+        pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
         starredProductIds: (allItems: FileSystemImport[], shortcutData: FileSystemEntry[]) => Record<string, string>
@@ -476,28 +473,17 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
-        ],
-        showWelcomeNavItem: [
-            (s) => [s.currentTeam, s.featureFlags],
-            (currentTeam: TeamPublicType | TeamType | null, featureFlags: FeatureFlagsSet): boolean =>
-                isWelcomeNavItemShown(currentTeam?.created_at, featureFlags),
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null): FileSystemImport[] =>
+                getNavProductItems(featureFlags, currentTeam?.created_at),
         ],
         pinnedItems: [
-            (s) => [s.allItems, s.search, s.showWelcomeNavItem],
-            (items: FileSystemImport[], search: string, showWelcomeNavItem: boolean): FileSystemImport[] =>
-                [...(showWelcomeNavItem ? [WELCOME_NAV_ITEM] : []), ...items]
-                    .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
-                    .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity)),
+            (s) => [s.allItems, s.search],
+            (items: FileSystemImport[], search: string): FileSystemImport[] => pinnedNavProducts(items, search),
         ],
         groupedItems: [
             (s) => [s.allItems, s.search],
-            (items: FileSystemImport[], search: string): ProductsItemGroup[] =>
-                groupProducts(
-                    items.filter((item) => item.category !== PINNED_CATEGORY),
-                    search
-                ),
+            (items: FileSystemImport[], search: string): ProductsItemGroup[] => groupNavProducts(items, search),
         ],
         configurableProducts: [
             (s) => [s.allItems],

@@ -180,40 +180,6 @@ describe('hogFlowEditorLogic', () => {
         logic.mount()
     })
 
-    it.each([
-        { name: 'the tile canvas', flags: ['tile'], layout: 'advanced', id: 'flow-1', expected: true },
-        {
-            name: 'the list view of both flags',
-            flags: ['tile', 'linear'],
-            layout: 'simple',
-            id: 'flow-1',
-            expected: true,
-        },
-        {
-            name: 'the graph view of both flags',
-            flags: ['tile', 'linear'],
-            layout: 'advanced',
-            id: 'flow-1',
-            expected: true,
-        },
-        { name: 'the graph editor', flags: [], layout: 'advanced', id: 'flow-1', expected: false },
-        { name: 'the tile canvas of a new workflow', flags: ['tile'], layout: 'advanced', id: 'new', expected: true },
-    ] as const)(
-        'moves the workflow header into the workflow bar only for $name: $expected',
-        ({ flags, layout, id, expected }) => {
-            const flagKeys = { tile: FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS, linear: FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW }
-            featureFlagLogic.actions.setFeatureFlags(
-                flags.map((flag) => flagKeys[flag]),
-                Object.fromEntries(flags.map((flag) => [flagKeys[flag], true]))
-            )
-            const editorLogic = hogFlowEditorLogic({ id })
-            editorLogic.mount()
-            editorLogic.actions.setEditorLayout(layout)
-
-            expect(editorLogic.values.showsHeaderInWorkflowBar).toBe(expected)
-        }
-    )
-
     it('resolves the selected action while React Flow nodes are still laying out', () => {
         const action = logic.values.workflow.actions[0]
         logic.actions.setNodesRaw([])

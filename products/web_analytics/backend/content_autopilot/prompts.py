@@ -1,3 +1,4 @@
+import re
 from html import escape
 from typing import Any
 
@@ -257,9 +258,13 @@ JUDGE_SCHEMA: dict[str, Any] = {
 }
 
 
+_ENVELOPE_TAGS = ("site_page", "competitor_page", "engine_answer", "prompt", "draft", "page_opening")
+_ENVELOPE_TAG_RE = re.compile(rf"</?\s*(?:{'|'.join(_ENVELOPE_TAGS)})(?:_none)?\b[^>\n]*>?", re.IGNORECASE)
+
+
 def tagged(tag: str, body: str, **attributes: str) -> str:
     attrs = "".join(f' {key}="{escape(value, quote=True)}"' for key, value in attributes.items())
-    return f"<{tag}{attrs}>\n{body}\n</{tag}>"
+    return f"<{tag}{attrs}>\n{_ENVELOPE_TAG_RE.sub('', body)}\n</{tag}>"
 
 
 def bullet_list(items: list[str]) -> str:

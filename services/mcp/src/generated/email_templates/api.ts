@@ -31,6 +31,10 @@ export const MessagingTemplatesCreateParams = () => zod.object({
 
 export const messagingTemplatesCreateBodyNameMax = 400
 
+export const messagingTemplatesCreateBodyTagsItemMax = 255
+
+export const messagingTemplatesCreateBodyTagsMax = 10
+
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyTypeMax = 24
 
@@ -40,6 +44,13 @@ export const MessagingTemplatesCreateBody = () => zod.object({
         .max(messagingTemplatesCreateBodyNameMax)
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesCreateBodyTagsItemMax))
+        .max(messagingTemplatesCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
         .object({
             templating: zod
@@ -116,6 +127,12 @@ export const MessagingTemplatesCreateBody = () => zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
 })
 
 export const MessagingTemplatesRetrieveParams = () => zod.object({
@@ -138,6 +155,10 @@ export const MessagingTemplatesPartialUpdateParams = () => zod.object({
 
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
+export const messagingTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const messagingTemplatesPartialUpdateBodyTagsMax = 10
+
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
@@ -148,6 +169,13 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
         .optional()
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesPartialUpdateBodyTagsItemMax))
+        .max(messagingTemplatesPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
         .object({
             templating: zod
@@ -224,6 +252,12 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({

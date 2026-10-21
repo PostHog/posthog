@@ -9,6 +9,9 @@ from posthog.models import ActivityLog
 from products.signals.backend.activity_summary.render import (
     MAX_ACTIVITY_ROWS_PER_PERSON,
     MAX_TASKS_PER_PERSON,
+    NOISY_ACTIVITY_SCOPES,
+    SANDBOX_PROMPT_TITLE_PREFIX,
+    SCOUT_CLIENT_PREFIX,
     ActivityItem,
     TaskItem,
 )
@@ -30,6 +33,7 @@ def user_tasks(team_id: int, user_id: int, start: datetime.datetime, end: dateti
             end=end,
             origin_products=TASK_ORIGIN_PRODUCTS,
             limit=MAX_TASKS_PER_PERSON,
+            exclude_title_prefixes=(SANDBOX_PROMPT_TITLE_PREFIX,),
         )
     ]
 
@@ -37,11 +41,14 @@ def user_tasks(team_id: int, user_id: int, start: datetime.datetime, end: dateti
 def user_activity(team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime) -> list[ActivityItem]:
     """The user's own activity log rows in [start, end), newest `MAX_ACTIVITY_ROWS_PER_PERSON` first.
 
-    System rows and rows written while someone impersonated the user are not the user's."""
+    System rows and rows written while someone impersonated the user are not the user's. Noisy scopes
+    and scout writes go before the limit, so a bulk write cannot push the rest of the window out."""
     rows = (
         ActivityLog.objects.filter(team_id=team_id, user_id=user_id, created_at__gte=start, created_at__lt=end)
         .exclude(is_system=True)
         .exclude(was_impersonated=True)
+        .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
+        .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
         .order_by("-created_at")
         .annotate(
             name=KeyTextTransform("name", "detail"),
