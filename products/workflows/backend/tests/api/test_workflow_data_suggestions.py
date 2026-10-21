@@ -184,7 +184,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_keeps_only_the_best_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock, _flag) -> None:
+    def test_keeps_the_models_first_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock, _flag) -> None:
         classify.return_value = {"user_registered": "signup", "query executed": "signup", "trial_started": "trial"}
         suggest_ideas.return_value = [
             _idea("user_registered"),
@@ -195,7 +195,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         body = self._list()
 
         assert [(s["trigger_event"], s["stage"]) for s in body["suggestions"]] == [
-            ("query executed", "signup"),
+            ("user_registered", "signup"),
             ("trial_started", "trial"),
         ]
 
