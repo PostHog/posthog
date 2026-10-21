@@ -1270,6 +1270,21 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
+def task_started_from_desktop_app(task_id: str | UUID, team_id: int) -> bool:
+    """Whether a person started this task in the desktop or mobile app, so its links should open there."""
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+        .values("origin_product", "client_provenance")
+        .first()
+    )
+    if task is None:
+        return False
+    return _task_source(task["origin_product"], task["client_provenance"]) in (
+        TaskClientProvenance.POSTHOG_DESKTOP,
+        TaskClientProvenance.POSTHOG_MOBILE,
+    )
+
+
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
     """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
 

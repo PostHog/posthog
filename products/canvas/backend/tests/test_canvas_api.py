@@ -427,6 +427,45 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         # The rejection names the task's channel so the agent can recover in one step.
         assert str(self.channel.id) in wrong_channel.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("posthog_ai_chat", Task.OriginProduct.POSTHOG_AI, None, True, "web"),
+            ("web_task", Task.OriginProduct.USER_CREATED, "posthog_web", True, "web"),
+            ("slack_task", Task.OriginProduct.SLACK, None, True, "web"),
+            ("desktop_task", Task.OriginProduct.USER_CREATED, "posthog_desktop", True, "desktop"),
+            ("task_with_no_client", Task.OriginProduct.USER_CREATED, None, True, "desktop"),
+            ("web_canvas_off", Task.OriginProduct.POSTHOG_AI, None, False, "desktop"),
+        ]
+    )
+    def test_sandbox_canvas_url_opens_where_the_task_started(
+        self, _name: str, origin_product: str, client_provenance: str | None, web_canvas_on: bool, expected: str
+    ) -> None:
+        canvas_id = self._create_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=origin_product,
+            client_provenance=client_provenance,
+        )
+        client = self._sandbox_client(task.id)
+
+        with patch("posthoganalytics.feature_enabled", return_value=web_canvas_on):
+            retrieved = client.get(
+                f"/api/projects/{self.team.id}/canvases/{canvas_id}/", HTTP_X_POSTHOG_TASK_ID=str(task.id)
+            )
+            listed = client.get(f"/api/projects/{self.team.id}/canvases/", HTTP_X_POSTHOG_TASK_ID=str(task.id))
+
+        expected_url = {
+            "web": f"/project/{self.team.id}/canvases/{canvas_id}",
+            "desktop": f"/code/canvas/{self.channel.id}/{canvas_id}",
+        }[expected]
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["url"].endswith(expected_url)
+        assert next(row["url"] for row in listed.json()["results"] if row["id"] == canvas_id).endswith(expected_url)
+
     def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
             team=self.team,

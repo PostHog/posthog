@@ -39,7 +39,13 @@ _CANVAS_URL_HELP_TEXT = (
 )
 
 
-def canvas_url(canvas: CanvasRecord) -> str:
+# Serializer context key: True when the caller's links should open the web app instead of the desktop app.
+WEB_CANVAS_LINKS_CONTEXT_KEY = "web_canvas_links"
+
+
+def canvas_url(canvas: CanvasRecord, *, web: bool = False) -> str:
+    if web:
+        return f"{settings.SITE_URL}/project/{canvas.team_id}/canvases/{canvas.id}"
     # The same shape the thread-message announcements use; the route deep-links
     # into the desktop app and renders in the web app. This URL has no
     # `/project/<id>/` prefix because released desktop apps read it, and their
@@ -137,7 +143,7 @@ class CanvasSerializer(serializers.Serializer):
         return canvas.pinned_at is not None
 
     def get_url(self, canvas: CanvasRecord) -> str:
-        return canvas_url(canvas)
+        return canvas_url(canvas, web=self.context.get(WEB_CANVAS_LINKS_CONTEXT_KEY, False))
 
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
     def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
@@ -578,7 +584,7 @@ class CanvasSummarySerializer(serializers.Serializer):
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     def get_url(self, canvas: CanvasRecord) -> str:
-        return canvas_url(canvas)
+        return canvas_url(canvas, web=self.context.get(WEB_CANVAS_LINKS_CONTEXT_KEY, False))
 
 
 class CanvasLayoutResponseSerializer(serializers.Serializer):

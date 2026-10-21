@@ -1074,6 +1074,8 @@ depends_on = [
     "products.mcp_store",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # Whether the web canvas page is on for a person (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 

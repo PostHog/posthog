@@ -2,6 +2,7 @@ import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Sequence
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -62,6 +63,7 @@ from products.canvas.backend.facade.contracts import (
 )
 from products.canvas.backend.facade.enums import CANVAS_BUILD_STATUS_READY, CANVAS_KIND_GRID, CANVAS_KINDS, CanvasAccess
 from products.canvas.backend.presentation.serializers import (
+    WEB_CANVAS_LINKS_CONTEXT_KEY,
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
     CanvasActionsResponseSerializer,
@@ -116,6 +118,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
+from products.today.backend.facade import api as today_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -288,6 +291,25 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
             sandboxed=self._is_sandbox_authenticated(self.request),
             sandbox_task_id=self._sandbox_task_id(self.request),
         )
+
+    @cached_property
+    def _web_canvas_links(self) -> bool:
+        """Whether canvas links in this response open the web app instead of the desktop app.
+
+        Only an agent that a person did not start in the desktop app gets web links, because
+        that person reads its answer outside the desktop app. The web canvas page shows
+        "Not found" without the new navigation, so the person must also have it.
+        """
+        task_id = self._sandbox_task_id(self.request)
+        user = self._request_user()
+        if task_id is None or user is None:
+            return False
+        if tasks_facade.task_started_from_desktop_app(task_id, self.team_id):
+            return False
+        return today_facade.is_enabled_for(user, self.team)
+
+    def _canvas_link_context(self) -> dict[str, Any]:
+        return {WEB_CANVAS_LINKS_CONTEXT_KEY: self._web_canvas_links}
 
     def _request_user(self) -> User | None:
         """The requesting real user, or None for anonymous/service principals."""
@@ -521,13 +543,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 CanvasSerializer(
                     canvas_api.list_canvases(viewer, offset=offset, limit=limit, ordering=ordering, **filters),
                     many=True,
+                    context=self._canvas_link_context(),
                 ).data
             ),
             canvas_api.count_canvases(viewer, **filters),
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(CanvasSerializer(self._canvas()).data)
+        return Response(CanvasSerializer(self._canvas(), context=self._canvas_link_context()).data)
 
     @extend_schema(
         operation_id="canvases_create",
@@ -571,7 +594,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             template_id=canvas.template_id,
             is_sandbox_created=canvas.generation_task_id is not None,
         )
-        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
+        return Response(
+            CanvasSerializer(canvas, context=self._canvas_link_context()).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         operation_id="canvases_partial_update",
@@ -612,7 +637,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             self._log_canvas_activity(
                 result.canvas, "updated", Detail(name=result.canvas.name, changes=_activity_changes(result.changes))
             )
-        return Response(CanvasSerializer(result.canvas).data)
+        return Response(CanvasSerializer(result.canvas, context=self._canvas_link_context()).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         canvas = canvas_api.delete_canvas(self.team_id, self._canvas().id)
@@ -656,7 +681,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         response = {
-            "canvas": CanvasSummarySerializer(canvas).data,
+            "canvas": CanvasSummarySerializer(canvas, context=self._canvas_link_context()).data,
             "project": project,
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
@@ -696,7 +721,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         if opened.component_lifecycles is not None:
             instance["component_lifecycles"] = opened.component_lifecycles
-        payload = CanvasViewResponseSerializer(instance=instance).data
+        payload = CanvasViewResponseSerializer(instance=instance, context=self._canvas_link_context()).data
         if opened.degraded:
             # A payload missing its source/layout must not revalidate as
             # current after storage recovers: no validator, no caching.
@@ -1032,7 +1057,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                     "current_version_id": str(published.version_id),
                     "diagnostics": diagnostics,
                     "build": settled.build,
-                }
+                },
+                context=self._canvas_link_context(),
             ).data
         )
 
@@ -1312,7 +1338,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         if read.component_lifecycles is not None:
             instance["component_lifecycles"] = read.component_lifecycles
-        return _conditional_response(request, CanvasLayoutWithComponentsResponseSerializer(instance=instance).data)
+        return _conditional_response(
+            request,
+            CanvasLayoutWithComponentsResponseSerializer(instance=instance, context=self._canvas_link_context()).data,
+        )
 
     @extend_schema(
         operation_id="canvases_layout_publish_create",
@@ -1471,7 +1500,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                     "canvas": published.canvas,
                     "layout": layout,
                     "current_version_id": str(published.version_id),
-                }
+                },
+                context=self._canvas_link_context(),
             ).data
         )
 
@@ -1502,14 +1532,16 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         existing = canvas_api.home_canvas(self.team_id, user.id)
         if existing is not None:
-            return Response(CanvasSerializer(existing).data)
+            return Response(CanvasSerializer(existing, context=self._canvas_link_context()).data)
         channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
         canvas, created = canvas_api.provision_home_canvas(self.team_id, user.id, channel_id)
         if not created:
-            return Response(CanvasSerializer(canvas).data)
+            return Response(CanvasSerializer(canvas, context=self._canvas_link_context()).data)
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action("canvas home provisioned", canvas)
-        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
+        return Response(
+            CanvasSerializer(canvas, context=self._canvas_link_context()).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         operation_id="canvases_build_action_create",
@@ -2108,7 +2140,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             self.team_id,
             acting_user_id=user.id if user else None,
             canvas_name=canvas.name or "Canvas",
-            canvas_url=canvas_url(canvas),
+            canvas_url=canvas_url(canvas, web=self._web_canvas_links),
         )
 
 
