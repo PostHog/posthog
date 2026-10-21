@@ -119,8 +119,6 @@ impl PollingStrategy for ContinuousPolling {
     }
 }
 
-/// The messages submitted and not yet completed, per partition, under the
-/// generation they were charged with.
 #[derive(Default)]
 struct Outstanding {
     partitions: HashMap<Partition, OutstandingPartition>,
@@ -187,11 +185,14 @@ impl Outstanding {
     }
 }
 
-/// Each partition's newest Kafka timestamp per submitted poll, until a commit
-/// passes the poll's last offset.
 struct ProcessedTimestamps {
     group_id: String,
-    partitions: HashMap<TopicPartition, VecDeque<(i64, i64)>>,
+    partitions: HashMap<TopicPartition, VecDeque<SubmittedSlice>>,
+}
+
+struct SubmittedSlice {
+    last_offset: i64,
+    latest_kafka_ts: i64,
 }
 
 impl ProcessedTimestamps {
@@ -207,7 +208,10 @@ impl ProcessedTimestamps {
             self.partitions
                 .entry(topic_partition.clone())
                 .or_default()
-                .push_back((deliveries.span.last, deliveries.latest_kafka_ts));
+                .push_back(SubmittedSlice {
+                    last_offset: deliveries.span.last,
+                    latest_kafka_ts: deliveries.latest_kafka_ts,
+                });
         }
     }
 
@@ -217,12 +221,12 @@ impl ProcessedTimestamps {
                 continue;
             };
             let mut latest = None;
-            while let Some(&(last_offset, kafka_ts)) = polls.front() {
-                if last_offset >= next_to_read.0 {
-                    break;
-                }
-                polls.pop_front();
-                latest = latest.max(Some(kafka_ts));
+            while polls
+                .front()
+                .is_some_and(|slice| slice.last_offset < next_to_read.0)
+            {
+                let slice = polls.pop_front().expect("checked above");
+                latest = latest.max(Some(slice.latest_kafka_ts));
             }
             if let Some(latest) = latest {
                 // Same name as the Node.js consumer's gauge, so one dashboard reads both.
