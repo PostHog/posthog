@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import ActivityLog
+from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -87,6 +87,43 @@ class TestUpdateActivitySummary(BaseTest):
         next_sent = json.dumps(next_llm.requests[0]["messages"])
         assert "Signup funnel" not in next_sent.split("Recent activity")[1]
         assert "Builds the signup funnel." in next_sent
+
+    def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for ref, name, creator in [("abc", "Weekly signups", other), ("def", "Churn by plan", self.user)]:
+            FileSystem.objects.create(
+                team=self.team, type="insight", ref=ref, path=f"Unfiled/{name}", created_by=creator
+            )
+        views = [
+            ("insight", "abc", 2),
+            ("insight", "def", 1.5),
+            ("scene", "Experiments", 1),
+            ("scene", "Settings", 0.5),
+        ]
+        for view_type, ref, days_ago in views:
+            viewed_at = NOW - datetime.timedelta(days=days_ago)
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=view_type,
+                ref=ref,
+                viewed_at=viewed_at,
+                view_days=[viewed_at.date()],
+            )
+        llm = FakeLLM([ANSWER])
+
+        result = self._update(llm)
+
+        assert result.status == UpdateStatus.OK
+        assert result.rendered_input is not None
+        assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
+        assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
+        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        stored = self._stored()
+        assert stored is not None
+        assert stored.inputs_used["view_lines"] == 3
+        assert stored.inputs_used["drops"] == {"generic_scene": 1}
+        assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
     def test_limits_reach_the_model_call_and_the_stored_inputs(self) -> None:
         self._changes(3, days_ago=2)
