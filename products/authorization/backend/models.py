@@ -7,11 +7,10 @@ Avoid ForeignKeys to models outside this app; if needed,
 disallow reverse relations with related_name='+'.
 """
 
-import uuid
-
 from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 from .facade.enums import SplineStatus
 
@@ -22,7 +21,7 @@ from .facade.enums import SplineStatus
 # Main-DB products (TeamScopedRootMixin): add `team = models.ForeignKey(
 # "posthog.Team", on_delete=models.CASCADE)` to the subclass.
 class SplineReticulator(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     name = models.CharField(max_length=255)
     status = models.CharField(
         max_length=32,
