@@ -329,8 +329,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE

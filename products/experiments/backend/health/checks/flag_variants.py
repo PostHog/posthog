@@ -12,10 +12,21 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import NEEDS_VARIANTS, CheckSkip, flag_setup_skip, not_applicable
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 FLAG_HAS_NO_VARIANTS = "flag_has_no_variants"
 NO_CONTROL_VARIANT = "no_control_variant"
+
+
+def flag_variants_skip(ctx: HealthContext) -> CheckSkip | None:
+    skip = flag_setup_skip(ctx, before_launch=True)
+    if skip is not None or ctx.flag is None:
+        return skip
+    # A draft without variants is not set up yet, so it has no variants to compare.
+    if not ctx.is_running and not any(variant.key for variant in ctx.flag.variants):
+        return not_applicable(NEEDS_VARIANTS)
+    return None
 
 
 def flag_variants_mismatch(ctx: HealthContext) -> ExperimentHealthFinding | None:

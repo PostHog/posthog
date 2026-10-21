@@ -1,5 +1,6 @@
-import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen, IconTrends } from '@posthog/icons'
+import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
+import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +28,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     // No home: like Products, a pick only opens the sidebar and the open page stays.
-    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconTrends />, action: TodayNewAnalyticsButton },
+    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }

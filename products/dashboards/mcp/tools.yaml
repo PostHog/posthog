@@ -308,6 +308,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        reads_ingested_data: events
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
@@ -625,6 +626,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        reads_ingested_data: events
     dashboards-bulk-delete:
         operation: dashboards_bulk_delete_create
         enabled: true

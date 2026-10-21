@@ -140,11 +140,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
                 "name": "Valid Template",
                 "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
                 "type": "email",
+                "sensitive": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
+        assert response.json()["sensitive"] is True
+        assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()

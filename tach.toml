@@ -1020,6 +1020,7 @@ depends_on = [
     "products.data_warehouse",
     "products.data_modeling",
     "products.warehouse_sources",
+    "products.access_control",
 ]
 layer = "modules"
 

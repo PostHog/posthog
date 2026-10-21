@@ -90,9 +90,16 @@ export function InsightDataCheckRow({
     }
 
     return (
-        <AccordionItem value={check.key} data-attr="insight-data-check" data-check={check.key} data-level={check.level}>
+        <AccordionItem
+            value={check.key}
+            data-attr="insight-data-check"
+            data-check={check.key}
+            data-level={check.level}
+            // The trigger sits in an h3, and the app's base styles give every h3 a bottom margin.
+            className="[&>h3]:m-0"
+        >
             <AccordionTrigger className="px-2 py-1 font-normal">{header}</AccordionTrigger>
-            <AccordionContent className="flex flex-col items-start gap-2 ps-6">
+            <AccordionContent className="flex flex-col items-start gap-2 ps-6 pt-2">
                 {foundRepeats && <DuplicateEventsDetails insightProps={insightProps} check={check} />}
                 {dependsOnFilter && <FilterCheckDetails insightProps={insightProps} check={check} />}
             </AccordionContent>

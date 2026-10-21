@@ -120,6 +120,10 @@
             "maxLength": 400,
             "type": "string"
         },
+        "sensitive": {
+            "description": "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+            "type": "boolean"
+        },
         "type": {
             "description": "Message channel of the template. Currently 'email'.",
             "maxLength": 24,

@@ -7,6 +7,7 @@ Field docs live on `BarChartConfig` and `BarsConfig` in `core/types.ts`; the per
 
 - `barLayout: 'stacked' | 'grouped' | 'percent'`. Percent stacks bar series to 100% and puts the value scale on 0..1, so formatters receive fractions. Stacking groups by axis.
 - `axisOrientation: 'horizontal'` for horizontal bars. Drag-to-zoom is disabled there, since the interaction axis is vertical.
+- The formatters keep their roles when the bars turn horizontal. `yTickFormatter` formats the value axis, now along the bottom, and `xTickFormatter` formats the category labels, now on the left.
 - `divergingStack` (stacked only) stacks negative values below the zero baseline instead of clamping them to 0. Same semantics on `ComboChart` and `TimeSeriesComboChart`.
 - `barCornerRadius` rounds the end caps. It is a top-level key on every bar-capable chart, including the time-series and combo configs.
 - Set `bandPadding: 0` to remove both category and within-group gaps. Set `barCornerRadius: 0` for adjoining square bars. `TimeSeriesComboChart` accepts the same top-level `bandPadding` setting.

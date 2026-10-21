@@ -1,7 +1,6 @@
 # Data suggestions
 
 Suggests workflows built from a project's own events, on the Workflows empty state.
-Everything is behind the `workflows-data-suggestions` feature flag.
 
 ## How it works
 
@@ -25,12 +24,13 @@ Making the cards (`_suggest` in `service.py`):
 2. Drop events a workflow already triggers on.
 3. Ask Jev which lifecycle stage each event marks.
 4. Rank by stage weight and volume, then ask Claude Sonnet for ideas.
-5. Keep the best card per stage, up to 3, and cache them per team.
+5. Keep the model's first card per stage, up to 3, ordered by stage weight, and cache them per team.
 
 Building a draft (`_plan_and_build` in `service.py`):
 
 1. Claude Opus plans a graph of up to 20 steps from the card, the step catalog, saved email templates and connected channels.
 2. The builder turns the plan into a workflow and rejects plans that do not hold up.
+   A trigger with more than 50,000 events a week starts on a random sample that brings it down to about that level.
 3. The draft is checked the way the caller's own create request checks it.
 
 ## Premade ideas

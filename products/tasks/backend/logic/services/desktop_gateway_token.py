@@ -23,7 +23,7 @@ from prometheus_client import Counter
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
+from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -305,7 +305,7 @@ def mint_desktop_gateway_token(
         "product": POSTHOG_CODE_PRODUCT,
         "obo": str(team_id),
         "user": user,
-        "allowed_models": allowed_models,
+        "allowed_models": gateway_pin(allowed_models),
         "limit_tier": limit_tier,
     }
     try:

@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
 
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
@@ -92,15 +92,23 @@ def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAle
 
 
 def list_configurations(
-    *, team_id: int, source_kinds: Sequence[str], limit: int, offset: int
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    limit: int,
+    offset: int,
+    legacy_configuration_id: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
-    """One page of configurations, newest first, with the total behind it.
+    """One page of configurations, newest first, with the total behind it. With a
+    `legacy_configuration_id`, only the copy of that source row.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
     page's rows alone.
     """
     readable = _readable(team_id, source_kinds)
+    if legacy_configuration_id is not None:
+        readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -132,18 +140,26 @@ def runtime_by_legacy_id(
     """The runtime state of each named alert the platform owns, keyed by the source's id, in one query.
 
     An alert the platform does not own is left out, because its source's own row is then the one
-    that moves. Only the ungrouped instance is read: a source that shows one state per alert has
-    no groups, and a copy with no instance yet has not been checked since the handover.
+    that moves. A source shows one state per alert, so a grouped alert fires while any of its groups
+    fires, and was last notified when any group last was. A copy with no instance yet has not been
+    checked since the handover.
     """
     if not legacy_configuration_ids:
         return {}
-    ungrouped = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"), grouping_key="")
+    instances = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"))
+    latest_notified = instances.order_by().values("configuration").annotate(at=Max("last_notified_at")).values("at")
     rows = (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
         .annotate(
-            instance_state=Subquery(ungrouped.values("state")[:1]),
-            instance_last_notified_at=Subquery(ungrouped.values("last_notified_at")[:1]),
+            instance_state=Case(
+                When(
+                    Exists(instances.filter(state=PlatformAlertState.FIRING)),
+                    then=Value(PlatformAlertState.FIRING.value),
+                ),
+                default=Subquery(instances.filter(grouping_key="").values("state")[:1]),
+            ),
+            instance_last_notified_at=Subquery(latest_notified),
         )
         .values_list(
             "legacy_configuration_id",
@@ -152,6 +168,7 @@ def runtime_by_legacy_id(
             "instance_last_notified_at",
             "consecutive_failures",
             "next_check_at",
+            "grouping",
         )
     )
     return {
@@ -167,8 +184,9 @@ def runtime_by_legacy_id(
             last_notified_at=last_notified_at,
             consecutive_failures=consecutive_failures,
             next_check_at=next_check_at,
+            grouping=Grouping.from_stored(grouping),
         )
-        for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at in rows
+        for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping in rows
         if legacy_id is not None
     }
 

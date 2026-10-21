@@ -4,8 +4,6 @@ from typing import Any, Optional, cast
 from posthog.schema import (
     ExperimentActorsQuery,
     FunnelAggregateByHogQL,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
@@ -32,7 +30,6 @@ from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.product_analytics.backend.facade.queries import (
-    FunnelCorrelationQueryRunner,
     FunnelsQueryRunner,
     LifecycleQueryRunner,
     PathsQueryRunner,
@@ -92,11 +89,6 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             funnels_runner.context.actorsQuery = cast(FunnelsActorsQuery, self.query)
             return funnels_runner.to_actors_query()
-        elif isinstance(self.source_runner, FunnelCorrelationQueryRunner):
-            funnel_correlation_runner = cast(FunnelCorrelationQueryRunner, self.source_runner)
-            assert isinstance(self.query, FunnelCorrelationActorsQuery)
-            funnel_correlation_runner.correlation_actors_query = self.query
-            return funnel_correlation_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
@@ -163,11 +155,6 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def group_type_index(self) -> int | None:
         if isinstance(self.source_runner, RetentionQueryRunner):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
-
-        if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
-            if not isinstance(self.query.source, FunnelCorrelationQuery):
-                raise ExposedHogQLError("Funnel correlation actors query requires a FunnelCorrelationQuery source")
-            return self.query.source.source.source.aggregation_group_type_index
 
         if isinstance(self.source_runner, FunnelsQueryRunner):
             if not isinstance(self.query.source, FunnelsQuery):

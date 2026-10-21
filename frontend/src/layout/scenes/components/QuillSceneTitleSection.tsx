@@ -102,6 +102,7 @@ export function QuillSceneTitleSection({
                                   : undefined
                         }
                         icon={resourceIcon}
+                        iconLeadsName={resourceType.iconLeadsName}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />
                 }

@@ -285,6 +285,7 @@ configuration also adds it to the `render-ui` umbrella tool.
 | `view_component`   | React component name that renders the tool result.                                |
 | `view_prop`        | Prop name that receives the tool result.                                          |
 | `data_type`        | TypeScript type for the tool result. Omit when the component accepts `unknown`.   |
+| `link_prop`        | Prop name that receives the host's link opener, for a view that opens links.      |
 
 **Example:**
 

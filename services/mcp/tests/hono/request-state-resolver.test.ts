@@ -9,8 +9,10 @@ const {
     mockRedisFailures,
     mockPinned,
     mockGetApiKey,
+    mockAnalyticsContext,
 } = vi.hoisted(() => ({
     mockGetApiKey: vi.fn(),
+    mockAnalyticsContext: { current: undefined as { projectHasData?: boolean } | undefined },
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -18,6 +20,7 @@ const {
         scoped_teams: [],
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
+        mcp_allowed_tools: undefined as string[] | undefined,
     },
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
     // Records the keys passed to every session-scoped refreshTtl call (only the
@@ -130,7 +133,7 @@ vi.mock('@/hono/request-context', () => {
                         },
                     }
                 }),
-                safelyGetAnalyticsContext: vi.fn(async () => undefined),
+                safelyGetAnalyticsContext: vi.fn(async () => mockAnalyticsContext.current),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
                 setPinnedContext: vi.fn((pinned: typeof mockPinned.last) => {
@@ -147,6 +150,7 @@ import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
@@ -196,10 +200,12 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
+        mockAnalyticsContext.current = undefined
         mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
+        mockApiKey.mcp_allowed_tools = undefined
     })
 
     it.each([true, false, undefined])(
@@ -491,17 +497,32 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
-        'evaluates %s even though no generated tool declares it',
-        async (flag) => {
-            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+    it.each([
+        MCP_EXEC_SKILLS_FEATURE_FLAG,
+        MCP_INTERVIEW_RECRUITMENT_FLAG,
+        MCP_INTENT_PROMPT_FLAG,
+        MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    ])('evaluates %s even though no generated tool declares it', async (flag) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-            const result = await makeResolver().resolve(makeProps())
+        const result = await makeResolver().resolve(makeProps())
 
-            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
-            expect(result.toolFeatureFlags?.[flag]).toBe(true)
-        }
-    )
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+        expect(result.toolFeatureFlags?.[flag]).toBe(true)
+    })
+
+    // Unknown must stay unknown: the no-data notice only fires on an explicit false.
+    it.each([
+        [{ projectHasData: false }, false],
+        [{ projectHasData: true }, true],
+        [undefined, undefined],
+    ])('carries the project ingestion state from analytics context %j', async (analyticsContext, expectedHasData) => {
+        mockAnalyticsContext.current = analyticsContext
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(result.projectHasData).toBe(expectedHasData)
+    })
 
     it.each([
         { taskId: 'test-task' },
@@ -858,6 +879,21 @@ describe('RequestStateResolver MCP client contexts', () => {
                 ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
                 : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
         )
+    })
+
+    // A gated hint outside the held set would send the agent after a tool it can never get.
+    it('limits the roster and the gated hints to the held tool set', async () => {
+        mockApiKey.scopes = ['project:read']
+        mockApiKey.mcp_allowed_tools = ['docs-search', 'dashboards-get-all']
+        const catalog = new ToolCatalog()
+        await catalog.warmup()
+        const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
+
+        const result = await resolver.resolve(makeProps({ mode: 'cli' }))
+
+        expect(result.allTools.map((tool) => tool.name)).toEqual(['docs-search'])
+        expect(result.scopeGatedTools.map((tool) => tool.name)).toEqual(['dashboards-get-all'])
+        expect(result.flagGatedTools).toEqual([])
     })
 
     it('merges request excludeTools into catalog filter options', async () => {

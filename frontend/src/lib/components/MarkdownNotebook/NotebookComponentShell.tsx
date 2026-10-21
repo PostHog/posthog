@@ -95,6 +95,7 @@ export type NotebookComponentShellProps = {
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     onBtw?: () => void
     askAIDisabledReason?: string
+    copyNode?: (node: NotebookComponentBlockNode) => void
     deleteNode: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
@@ -118,6 +119,7 @@ export function NotebookComponentShell({
     updateNode,
     onBtw,
     askAIDisabledReason,
+    copyNode,
     deleteNode,
     deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
@@ -192,6 +194,7 @@ export function NotebookComponentShell({
                   targetBlank: true,
               }
             : null,
+        copyNode ? { label: 'Copy', onClick: () => copyNode(node) } : null,
         mode === 'edit' && isTitleEditable ? { label: 'Edit title', onClick: () => setIsEditingTitle(true) } : null,
         ...(mode === 'edit'
             ? (toolbarExtras?.actions.map((action) => ({

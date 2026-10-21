@@ -6066,6 +6066,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -6145,6 +6146,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],

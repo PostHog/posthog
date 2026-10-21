@@ -69,8 +69,8 @@ REQUEST_TIMEOUT_SECONDS = 60.0
 # the same message need room too.
 MAX_RATIONALE_CHARS = 600
 
-# The evaluate activity runs AI checks on a dedicated executor of MAX_CONCURRENT_MODEL_CALLS
-# threads (see posthog/temporal/alerts/activities.py), so a check there never waits here;
+# The evaluate activities run AI checks on a dedicated executor of MAX_CONCURRENT_MODEL_CALLS
+# threads (see products/alerts/backend/judge/executor.py), so a check there never waits here;
 # the wait covers the API's simulate path, whose request threads are its own pool. The wait
 # is short so a full pool fails a request fast instead of holding its thread.
 MODEL_CALL_SLOT_WAIT_SECONDS = 5.0

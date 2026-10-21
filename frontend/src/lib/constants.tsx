@@ -230,7 +230,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: #team-analytics-platform
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: #team-analytics-platform
-    SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_EXPECTED_IMPACT_DISPLAY: 'signals-expected-impact', // owner: #team-self-driving, person-level display gate for metric follow-up graphs and actions
     SIGNALS_INBOX_VALUE_SUMMARY: 'signals-inbox-value-summary', // owner: #team-self-driving
@@ -349,7 +348,6 @@ export const FEATURE_FLAGS = {
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
-    INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
@@ -361,7 +359,6 @@ export const FEATURE_FLAGS = {
     INTERNAL_FEEDBACK_WIDGET: 'internal-feedback-widget', // owner: @adamleithp, gates the staff UI feedback bar that posts to Slack
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
-    LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LIVESTREAM_HOGQL: 'livestream-hogql', // owner: @benjackwhite #team-replay, swaps livestream service calls for HogQL queries
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
@@ -534,7 +531,6 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
-    TASKS_STREAM_VIA_PROXY: 'tasks-stream-via-proxy', // owner: #team-ai-observability
     TAXONOMIC_FILTER_EVENT_MATCH: 'taxonomic-filter-event-match', // owner: @pauldambra multivariate=control,test, experiment: test asks the decision model which core events an events search with no results describes, then suggests them or says why there are none; control asks nothing
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
@@ -570,7 +566,6 @@ export const FEATURE_FLAGS = {
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_AGENT_ANALYTICS: 'web-analytics-agent-analytics', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_BACK_NAVIGATION_RESET: 'web-analytics-back-navigation-reset', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONTENT_AUTOPILOT: 'web-analytics-content-autopilot', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
@@ -581,11 +576,9 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_MARKETING_CROSS_SELL: 'web-analytics-marketing-cross-sell', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_MARKETING_CROSS_SELL_V2: 'web-analytics-marketing-cross-sell-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
-    WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_PAGE_PERFORMANCE: 'web-analytics-page-performance', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_RECAP: 'web-analytics-recap', // owner: @jordanm-posthog #team-web-analytics
@@ -598,16 +591,15 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
-    WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WIZARD_RUN_SYNC: 'wizard-run-sync', // owner: #team-growth multivariate=wizard-session,wizard-run — selects the Wizard sync widget
     WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface
+    WORKFLOW_ADD_TO_STATIC_COHORT_ACTION: 'workflow-add-to-static-cohort-action', // owner: #team-workflows
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOWS_AI_EMAIL_DRAFT: 'workflows-ai-email-draft', // owner: @dmarchuk #team-workflows, AI first draft for cross-product entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_BROADCAST_RECIPIENT_LISTS: 'workflows-broadcast-recipient-lists', // owner: @mayteio #team-workflows
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
-    WORKFLOWS_DATA_SUGGESTIONS: 'workflows-data-suggestions', // owner: #team-workflows, suggests workflows built from the project's events on the empty state
     WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows

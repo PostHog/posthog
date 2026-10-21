@@ -583,7 +583,6 @@ services:
             ETCD_PREFIX: '/personhog/'
             POD_NAME: 'personhog-leader'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_PERSON_STATE_TOPIC: 'personhog_updates'
             FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             # Must name the same table the identity service and the writer
             # target (their defaults), or leader misses read the wrong table.
@@ -601,7 +600,8 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'personhog_updates'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
             KAFKA_CONSUMER_GROUP: 'personhog-writer'
             FLUSH_INTERVAL_MS: '5000'
             FLUSH_BUFFER_SIZE: '1000'

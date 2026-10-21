@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
     CheckFailure,
     Grouping,
     GroupingMode,
@@ -33,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     source_condition,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
@@ -43,6 +45,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
     compute_team_shard_offset_seconds,
+    parse_blocked_windows_tuples,
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
@@ -474,6 +477,28 @@ def _without_stale_groups(
     return replace(outcome, groups=(), overflowed=0, evicted=())
 
 
+_HELD_BY_MUTE: Final = {
+    AlertEventKind.FIRING: NotificationAction.FIRE.value,
+    AlertEventKind.RESOLVED: NotificationAction.RESOLVE.value,
+}
+
+
+def _held_by_mute(
+    configuration: PlatformAlertConfiguration, alert: PlatformAlert, group: GroupOutcome, now: datetime
+) -> GroupOutcome:
+    """The verdict, or the verdict muted when a mute that the check did not see holds now.
+
+    A check reads the mute when it starts, so a snooze set while it runs reaches only this write.
+    Held the way the machine holds a muted announcement: the state and the firing still move,
+    and `last_notified_at` stays behind, so a held fire goes out once the mute ends.
+    """
+    held = _HELD_BY_MUTE.get(group.kind)
+    snooze_until = _composed(configuration, alert).snooze_until
+    if held is None or snooze_until is None or snooze_until <= now:
+        return group
+    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held)
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -534,12 +559,13 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
-            for group in outcome.groups:
+            for reported in outcome.groups:
                 alert = alerts.get(
-                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=reported.grouping_key)
                 )
                 if alert is None:
                     continue
+                group = _held_by_mute(configuration, alert, reported, now)
                 touched.append(alert)
                 alert.last_seen_at = now
                 # Before either row is mutated, so the history row keeps the state the check found.
@@ -589,6 +615,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 now=now,
                 configuration_id=configuration.id,
                 shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
+                schedule_key=outcome.schedule_key,
+                blocked_windows=parse_blocked_windows_tuples(configuration.schedule_restriction),
             )
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.
@@ -684,7 +712,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
                 upsert.next_check_at or django_timezone.now(), django_timezone.now() + _REVIVE_FENCE
             )
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
-            legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
+            legacy_configuration_id=upsert.legacy_configuration_id,
+            defaults=defaults,
+            create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
@@ -846,6 +876,8 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     row lock and writes the source's owner in the same transaction, so both rows change together.
     Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
     delivery can have one open while its source is quiet, and replacing it would orphan the incident.
+    A grouped copy carries only the configuration's fields. Its source holds one state for the whole
+    alert, which no group inherits, and each group's row comes from the check that finds it.
     Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
     """
     if handover.state not in _HANDOVER_STATES:
@@ -856,10 +888,18 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             .select_for_update()
             .get(legacy_configuration_id=handover.legacy_configuration_id)
         )
-        key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
-        alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
+        alert: PlatformAlert | None = None
+        if Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
+            alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
+            alerts = [alert]
+        else:
+            # No grouped check writes the empty key, so a row for it would only hold a slot of the cap.
+            alerts = _instances_by_configuration(handover.team_id, [configuration]).get(str(configuration.id), [])
         # A failing check status means the machine already ended the firing the row still holds.
-        live_firing = alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None
+        live_firing = any(
+            instance.state == PlatformAlertState.FIRING or instance.firing_started_at is not None for instance in alerts
+        )
         if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
@@ -877,10 +917,11 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at", "check_status"]
         )
 
-        alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
-        alert.firing_started_at = None
-        alert.last_notified_at = handover.last_notified_at
-        alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
+        if alert is not None:
+            alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
+            alert.firing_started_at = None
+            alert.last_notified_at = handover.last_notified_at
+            alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
 
 
@@ -899,7 +940,12 @@ def give_back_ownership(
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
         alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
-        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+        # A grouped copy with no group open yet still splits its results, which its source cannot do.
+        if (
+            configuration.recurrence_unit is not None
+            or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
+            or any(alert.grouping_key for alert in alerts)
+        ):
             return HandbackRefusal.NOT_PORTABLE
         alert = alerts[0] if alerts else None
         if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):

@@ -12,9 +12,7 @@ import {
     Button,
 } from '@posthog/quill'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TeamMembershipLevel } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -28,19 +26,15 @@ import { insightDataChecksLogic } from './insightDataChecksLogic'
 export function ExcludeFromFilterButton({
     insightProps,
     check,
-    label,
+    canEditFilter,
 }: {
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
-    label: string
+    canEditFilter: boolean
 }): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { currentTeamLoading } = useValues(logic)
     const { addFilterRule } = useActions(logic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
     const rule = check.filter_to_add
 
     if (!rule) {
@@ -74,12 +68,16 @@ export function ExcludeFromFilterButton({
                         variant="outline"
                         size="sm"
                         loading={currentTeamLoading}
-                        disabledReason={restrictedReason}
+                        disabledReason={
+                            canEditFilter
+                                ? undefined
+                                : 'Only project admins can change the internal and test users filter.'
+                        }
                         data-attr="insight-data-check-add-filter-rule"
                     />
                 }
             >
-                {label}
+                Add to project filter
             </AlertDialogTrigger>
             <AlertDialogContent>
                 <AlertDialogHeader>

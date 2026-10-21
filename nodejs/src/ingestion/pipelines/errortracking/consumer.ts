@@ -6,10 +6,12 @@ import { PersonHogClientComponent } from '~/common/personhog/personhog-client-co
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { DisabledOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
 import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
@@ -50,6 +52,7 @@ export type ErrorTrackingLaneConfig = CommonIngestionConsumerConfig &
  * owned by the error tracking scope, not shared in here.
  */
 export type ErrorTrackingSharedScope = Scope<{
+    postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
     cookielessManager: CookielessManager
@@ -79,6 +82,7 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
                 'eventIngestionRestrictionManager',
                 new EventIngestionRestrictionManagerComponent(container.redisPool, { pipeline: 'errortracking' })
             )
+            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
             .add(
                 'overflowRedirectService',
                 overflowMode === 'redirect'
@@ -130,6 +134,7 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
             ),
             cookielessManager: container.cookielessManager,
             eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
+            eventFilterManager: container.eventFilterManager,
             overflowMode,
             preservePartitionLocality,
             overflowRedirectService: container.overflowRedirectService,

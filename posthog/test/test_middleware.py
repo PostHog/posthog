@@ -593,16 +593,18 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_cohorts_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
         self,
-    ):
+        path: str,
+    ) -> None:
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
         ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
-            response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
+            response_app = self.client.get(f"/{path}/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -613,10 +615,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_project_unchanged_when_creating_feature_flag(self):
+    def test_project_unchanged_when_creating_feature_flag(self, path: str) -> None:
         with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
-            response_app = self.client.get(f"/feature_flags/new")
+            response_app = self.client.get(f"/{path}/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()

@@ -1,5 +1,5 @@
 """Daily training for the `nn` model families: one multi-head network over the report vector and the
-team's project vectors, exported to ONNX. `nn_v2` reads the vector only, and `nn_with_prio` also
+team's project vectors, exported to ONNX. `nn_v3` reads the vector only, and `nn_with_prio_v2` also
 reads the report's priority levels.
 
 One examples asset, and a candidate and a champion asset per family, on the dataset dag's daily
@@ -91,7 +91,7 @@ from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 from products.signals.dags.inbox_ranking.training.unseen import NN_FAMILY, NN_WITH_PRIO_FAMILY, ModelFamily
 
 NN_EXAMPLES_TABLE = "inbox_ranking_nn_examples"
-# The `nn_v2` assets keep the names they had as the only family, so their Dagster history continues.
+# The `nn_v3` assets keep the names they had as the only family, so their Dagster history continues.
 NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
 NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"

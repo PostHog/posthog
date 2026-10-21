@@ -209,7 +209,7 @@ function ReportContextMenuItems({
         resolveWith(reason, '')
     }
 
-    // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
+    // The menu only mounts in the flat Reports list, whose rows link to the reports tab with no
     // back param, so the default detail URL is exactly the row's own href.
     const detailUrl = inboxReportDetailUrl(report.id)
 

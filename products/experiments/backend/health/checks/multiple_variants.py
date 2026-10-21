@@ -7,6 +7,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable, not_checked
 
 # Some users get more than one ID in any experiment, for example one per device, so a low share is expected.
 # The share grows as users return and log in, so a lower line fires on a large part of all experiments. The cases
@@ -15,6 +16,14 @@ MULTIPLE_VARIANTS_SHARE_THRESHOLD = 5.0  # on the 0-100 scale (5.0 = 5%)
 # The floor counts users or groups, not exposures: each of them is a fact, so the finding can fire on a new
 # experiment. The floor stops one or two testers who switch between variants from firing it.
 MULTIPLE_VARIANTS_MINIMUM_COUNT = 5
+
+
+def multiple_variants_share_skip(ctx: HealthContext) -> CheckSkip | None:
+    if ctx.exposures is None:
+        return not_applicable(RUNS_AFTER_LAUNCH)
+    if ctx.exposures.multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
+        return not_checked("Couldn't check because the First seen handling doesn't count these users")
+    return None
 
 
 def multiple_variants_share(ctx: HealthContext) -> ExperimentHealthFinding | None:

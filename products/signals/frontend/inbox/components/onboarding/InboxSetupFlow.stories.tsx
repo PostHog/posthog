@@ -71,7 +71,6 @@ const meta: Meta<typeof InboxSetupFlow> = {
         mockDate: '2026-10-14',
         featureFlags: {
             [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
         },
     },
@@ -198,7 +197,6 @@ export const GithubWithoutAutomaticImplementation: Story = {
     parameters: {
         featureFlags: {
             [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SELF_DRIVING_UBP]: false,
         },
     },
@@ -341,7 +339,7 @@ export const NarrowTreatmentEntry: Story = {
 
 export const ManualEntry: Story = {
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control', [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
     },
     render: () => <InboxOnboardingEntry />,
     decorators: [
@@ -384,7 +382,7 @@ const quickGeneralScout = {
 
 export const QuickEntry: Story = {
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github', [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' },
     },
     render: () => <QuickActivationPreview />,
     decorators: [

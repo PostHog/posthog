@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -108,6 +110,16 @@ describe('personalAPIKeysLogic', () => {
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])
+    })
+
+    it('opens a new key with the preset scopes for a ?preset= link', () => {
+        router.actions.push(urls.settings('user-api-keys'), { preset: 'source_map_upload' })
+
+        expect(logic.values.editingKeyId).toBe('new')
+        expect(logic.values.editingKey).toMatchObject({
+            preset: 'source_map_upload',
+            scopes: ['organization:read', 'error_tracking:write'],
+        })
     })
 
     it.each(['survey', 'early_access_feature'])(

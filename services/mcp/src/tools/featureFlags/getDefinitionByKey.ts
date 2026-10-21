@@ -85,7 +85,7 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
         const flag = matches[0]!
         // The list row is already the full flag, so it's wrapped directly instead of
         // triggering a redundant fetch-by-id round trip.
-        const flagWithUrl = await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+        const flagWithUrl = await withPostHogUrl(context, flag, `/feature-flags/${flag.id}`)
         return { ...flagWithUrl, found: true }
     },
 })

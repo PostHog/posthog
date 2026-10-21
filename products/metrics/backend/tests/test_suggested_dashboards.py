@@ -20,6 +20,7 @@ from products.metrics.backend.dashboard_import.spec import (
     GridLayout,
 )
 from products.metrics.backend.suggested_dashboards.bank import curated_templates
+from products.metrics.backend.suggested_dashboards.checks import AttributeStats, ProjectChecks, variable_candidates
 from products.metrics.backend.suggested_dashboards.dashboards import (
     attribute_variable,
     build_tiles,
@@ -64,6 +65,24 @@ def _panel(
     key: str, *names: str, x: int = 0, y: int = 0, w: int = 6, h: int = 4, kind: str = "MetricsQuery"
 ) -> TemplatePanel:
     return TemplatePanel(key=key, title=key, query=_query(*names, kind=kind), layout=GridLayout(x=x, y=y, w=w, h=h))
+
+
+class _Checks(ProjectChecks):
+    def __init__(
+        self,
+        value_counts: dict[str, int] | None,
+        pairs: frozenset[frozenset[str]] = frozenset(),
+        errors: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(Team(id=1), [], value_counts, deadline=0)
+        self._pairs = pairs
+        self._errors = errors or {}
+
+    def one_to_one(self, first: str, second: str) -> bool:
+        return frozenset({first, second}) in self._pairs
+
+    def run_errors(self, queries: Any, variables: Any) -> dict[str, str]:
+        return {key: error for key, error in self._errors.items() if key in queries}
 
 
 class TestSuggestedDashboards(SimpleTestCase):
@@ -283,6 +302,116 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert filter_referenced_names(
             MetricsQueryFilter.model_validate(item) for item in orders["clauses"][0]["filters"]
         ) == ["instance"]
+
+    @parameterized.expand(
+        [
+            ("one_value", ["instance"], {"instance": 1}, frozenset(), []),
+            ("several_values", ["instance"], {"instance": 3}, frozenset(), ["instance"]),
+            ("unread_profile", ["instance"], None, frozenset(), ["instance"]),
+            (
+                "one_to_one",
+                ["instance", "host"],
+                {"instance": 3, "host": 3},
+                {frozenset({"instance", "host"})},
+                ["instance"],
+            ),
+            ("independent", ["instance", "host"], {"instance": 3, "host": 3}, frozenset(), ["instance", "host"]),
+            ("profiled_attribute_outside_the_keys", ["env"], {"env": 3}, frozenset(), ["env"]),
+        ]
+    )
+    def test_convert_keeps_variables_with_several_values_that_select_different_things(
+        self,
+        _name: str,
+        attributes: list[str],
+        value_counts: dict[str, int] | None,
+        pairs: frozenset[frozenset[str]],
+        kept: list[str],
+    ) -> None:
+        converted = _convert(
+            [
+                self._draft(
+                    "orders",
+                    "orders_total",
+                    0,
+                    filters=[BuilderFilter(key=attribute, op="eq", value=f"${attribute}") for attribute in attributes],
+                )
+            ],
+            Team(id=1),
+            CATALOG,
+            variables=[DraftVariable(name=attribute, label=attribute, attribute=attribute) for attribute in attributes],
+            attributes={"orders_total": ["instance", "host"]},
+            checks=_Checks(value_counts, frozenset(pairs)),
+        )
+
+        assert [variable["name"] for variable in converted.variables] == kept
+        orders = converted.panels[0].query
+        assert orders is not None
+        assert (
+            filter_referenced_names(
+                MetricsQueryFilter.model_validate(item) for item in orders["clauses"][0].get("filters", [])
+            )
+            == kept
+        )
+
+    def test_convert_filters_on_the_kept_variable_where_a_panel_filtered_on_a_replaced_one(self) -> None:
+        converted = _convert(
+            [
+                self._draft(
+                    "orders", "orders_total", 0, filters=[BuilderFilter(key="instance", op="eq", value="$instance")]
+                ),
+                self._draft(
+                    "queue", "queue_depth", 4, filters=[BuilderFilter(key="host", op="regex", value="${host:regex}")]
+                ),
+                self._draft(
+                    "cache", "orders_total", 8, filters=[BuilderFilter(key="service.name", op="eq", value="$service")]
+                ),
+            ],
+            Team(id=1),
+            CATALOG,
+            variables=[
+                DraftVariable(name="instance", label="Instance", attribute="instance"),
+                DraftVariable(name="host", label="Host", attribute="host"),
+                DraftVariable(name="service", label="Service", attribute="service_name"),
+            ],
+            attributes={"orders_total": ["instance", "host"]},
+            checks=_Checks(
+                {"instance": 3, "host": 3, "service_name": 3},
+                frozenset({frozenset({"instance", "host"}), frozenset({"instance", "service_name"})}),
+            ),
+        )
+
+        assert [variable["name"] for variable in converted.variables] == ["instance"]
+        queue, cache = (panel.query for panel in converted.panels[1:])
+        assert queue is not None and cache is not None
+        assert queue["clauses"][0]["filters"] == [{"key": "instance", "op": "regex", "value": "${instance:regex}"}]
+        assert cache["clauses"][0]["filters"] == [{"key": "instance", "op": "eq", "value": "$instance"}]
+
+    def test_convert_drops_the_panels_whose_query_fails_to_run(self) -> None:
+        converted = _convert(
+            [self._draft("orders", "orders_total", 0), self._draft("queue", "queue_depth", 4)],
+            Team(id=1),
+            CATALOG,
+            checks=_Checks({}, errors={"queue": "Bad regex"}),
+        )
+
+        assert [panel.key for panel in converted.panels] == ["orders"]
+        assert converted.dropped == ("queue: Bad regex",)
+
+    @parameterized.expand(
+        [
+            ("one_value", 1, 3, False),
+            ("few_values_on_most_metrics", 5, 3, True),
+            ("on_half_of_the_metrics", 5, 2, False),
+            ("too_many_values", 21, 4, False),
+            ("at_the_limit", 20, 4, True),
+        ]
+    )
+    def test_variable_candidates_have_a_few_values_on_most_metrics(
+        self, _name: str, value_count: int, metric_count: int, candidate: bool
+    ) -> None:
+        profile = {"env": AttributeStats(value_count=value_count, metric_count=metric_count)}
+
+        assert (variable_candidates(profile, 4) == ["env"]) is candidate
 
     @staticmethod
     def _draft(key: str, metric: str, x: int, filters: list[BuilderFilter] | None = None) -> DraftPanel:

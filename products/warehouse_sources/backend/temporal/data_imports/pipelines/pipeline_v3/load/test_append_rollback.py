@@ -136,7 +136,7 @@ class _Loader:
 
 
 @pytest.fixture(autouse=True)
-def _boundaries(settings: Any) -> Iterator[None]:
+def _boundaries(settings: Any, queue_database: str) -> Iterator[None]:
     settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
     with ExitStack() as stack:
         for target in (

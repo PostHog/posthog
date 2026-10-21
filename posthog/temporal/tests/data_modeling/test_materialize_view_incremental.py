@@ -22,13 +22,14 @@ import deltalake
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
-from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError
+from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError, TableUnreadableError
 from posthog.temporal.data_modeling.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
     get_aws_storage_options,
 )
 
 from products.data_modeling.backend.facade.api import get_incremental_state
+from products.data_warehouse.backend.facade.api import get_s3_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -301,6 +302,48 @@ class TestIncrementalMaterialization:
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).watermark is None
+
+    async def test_a_log_that_vanishes_mid_run_clears_the_watermark_so_the_retry_rebuilds(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        """The table opens at the start of the run, then its log is gone when deltalite opens it to
+        upsert. Without the watermark cleared, every retry repeats the same failed upsert."""
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+
+            def remove_log_then_yield(*args, **kwargs):
+                async def generator():
+                    await asyncio.to_thread(get_s3_client().delete, f"{first.table_uri}/_delta_log", recursive=True)
+                    yield _batch([DAY2], [20]), [("day", "DateTime64(6, 'UTC')"), ("c", "Int64")]
+
+                return generator()
+
+            with (
+                unittest.mock.patch(
+                    "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", remove_log_then_yield
+                ),
+                unittest.mock.patch(
+                    "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
+                ),
+                pytest.raises(TableUnreadableError),
+            ):
+                await activity_environment.run(
+                    materialize_view_activity,
+                    MaterializeViewInputs(
+                        team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                    ),
+                )
+
+            await database_sync_to_async(asaved_query.refresh_from_db)()
+            assert get_incremental_state(asaved_query).watermark is None
+
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "full_refresh"
+        assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20)]
 
     async def test_an_unsigned_column_stays_incremental_across_runs(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

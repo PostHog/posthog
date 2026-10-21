@@ -15,7 +15,6 @@ from rest_framework import exceptions, serializers
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
-    Database,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -127,6 +126,11 @@ def _authored_model_answering_to(
     if exclude is not None:
         candidates = candidates.exclude(pk=exclude.pk)
     return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
+
+
+INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
+    "This view's incremental settings changed while you were editing it. Reload the view and try again."
+)
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -515,6 +519,13 @@ class DataWarehouseSavedQuerySerializer(
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
+            if (
+                query_changed
+                and "incremental_config" not in validated_data
+                and locked_instance.incremental_config != instance.incremental_config
+            ):
+                raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
+
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
 
@@ -674,16 +685,16 @@ class DataWarehouseSavedQuerySerializer(
         if not isinstance(sql, str):
             raise serializers.ValidationError({"incremental": "This view has no query to make incremental."})
 
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         # The stored column types describe the stored query, so they say nothing about a query being
         # replaced. The runtime guard still catches a nullable key on the first incremental run.
         column_types = None if query_changed or self.instance is None else self.instance.columns
-        # The context only carries a database when the request touches the query or name; a
-        # config-only PATCH still has to check `SELECT *` against real columns, so build one then.
-        database = self.context.get("database") or Database.create_for(
-            team_id=self.context["team_id"], user=cast(User, self.context["request"].user)
-        )
+        database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
             IncrementalConfig(

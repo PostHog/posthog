@@ -80,13 +80,16 @@ def current_request_deadline() -> float | None:
 
 
 @contextmanager
-def request_deadline(deadline: float) -> Iterator[None]:
+def request_deadline(deadline: float | None = None) -> Iterator[None]:
     """Make requests in the block end by `deadline`, a `time.monotonic()` value.
 
     For a caller that retries a request itself, so that all of its tries share one deadline. Each
     try gets only the time that is left, and the adapter starts no retry that the deadline cuts off.
-    An earlier deadline that is already in effect wins.
+    An earlier deadline that is already in effect wins. With no `deadline`, the block ends
+    `retry_budget_seconds()` from now.
     """
+    if deadline is None:
+        deadline = _monotonic() + retry_budget_seconds()
     current = _request_deadline.get()
     token = _request_deadline.set(deadline if current is None else min(current, deadline))
     try:

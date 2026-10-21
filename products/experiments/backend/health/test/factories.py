@@ -6,6 +6,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFlagCh
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionsChange,
+    ExposureEvents,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -22,12 +23,19 @@ RUNNING_CONTEXT = HealthContext(
     is_paused=False,
     archived=False,
     flag=None,
+    flag_called=None,
+    team_has_active_flag=None,
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
+    hours_since_launch=72,
+    metric_events=(),
+    exposure_events=ExposureEvents(custom_event=None, required_flag_key="flag", flag_key_filters=()),
+    events_received={},
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
+    pause_history=None,
     excluded_variant_keys=frozenset(),
 )
 

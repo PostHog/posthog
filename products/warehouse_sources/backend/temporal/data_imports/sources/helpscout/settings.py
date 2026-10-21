@@ -1,7 +1,7 @@
 """Help Scout source settings and endpoint catalog."""
 
 from dataclasses import field
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -22,7 +22,7 @@ HELP_SCOUT_API_BASE_V3 = "https://api.helpscout.net/v3"
 class HelpScoutEndpointConfig:
     name: str
     path: str
-    # Key the rows live under inside the HAL `_embedded` object.
+    # Key the rows live under inside the HAL `_embedded` object, or at the body root for reports.
     embedded_key: str
     primary_key: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -41,6 +41,10 @@ class HelpScoutEndpointConfig:
     # here since threads' fan-out passes `page_size_param=None` (Help Scout has no page-size param).
     page_size: int = 50
     fanout: Optional[DependentEndpointConfig] = None
+    params: dict[str, Any] = field(default_factory=dict)
+    # Reports return a plain JSON body (`results` with `page`/`pages`) instead of HAL, and require a
+    # `start`/`end` window.
+    is_report: bool = False
 
 
 HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
@@ -99,6 +103,45 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "conversation_id"},
         ),
+    ),
+    "mailbox_fields": HelpScoutEndpointConfig(
+        name="mailbox_fields",
+        path="/mailboxes/{mailbox_id}/fields",
+        embedded_key="fields",
+        # Field ids aren't documented as unique across mailboxes.
+        primary_key=["mailbox_id", "id"],
+        partition_key=None,
+        fanout=DependentEndpointConfig(
+            parent_name="mailboxes",
+            resolve_param="mailbox_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "mailbox_id"},
+        ),
+    ),
+    "organizations": HelpScoutEndpointConfig(
+        name="organizations",
+        path="/organizations",
+        embedded_key="organizations",
+        partition_key=None,
+        # The default sort is lastInteractionAt desc, which reorders rows while a sync paginates.
+        params={"sort": "name,asc"},
+    ),
+    "teams": HelpScoutEndpointConfig(
+        name="teams",
+        path="/teams",
+        embedded_key="teams",
+    ),
+    "happiness_ratings": HelpScoutEndpointConfig(
+        name="happiness_ratings",
+        path="/reports/happiness/ratings",
+        embedded_key="results",
+        # `id` is the conversation id and `ratingId` is the rating value, so the rated thread
+        # identifies the row.
+        primary_key=["id", "threadid"],
+        partition_key="ratingCreatedAt",
+        params={"sortField": "number", "sortOrder": "ASC"},
+        is_report=True,
     ),
 }
 

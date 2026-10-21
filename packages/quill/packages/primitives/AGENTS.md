@@ -382,6 +382,12 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 </Combobox>
 ```
 
+`ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
+
+Something attached to the popup's edge, such as a resize handle: pass `popupSibling` on `ComboboxContent`, as on `SelectContent`. It renders in the positioner beside the popup, outside the popup's overflow, so it can sit across the edge. Position it absolute so it never resizes the popup.
+
+A highlighted Combobox or Autocomplete item paints its content in the foreground color. Put `data-keep-color` on a child that must keep its own color, such as a colored product icon.
+
 Multi-select with chips:
 
 ```tsx
@@ -655,6 +661,8 @@ A Button, menu item, Checkbox or Switch that only needs a text tooltip or a disa
   <TooltipContent side="top">Helpful information</TooltipContent>
 </Tooltip>
 ```
+
+To keep a tooltip beside the pointer as it moves along a long target, such as a resize handle, pass `trackCursorAxis` on `Tooltip`. Such a tooltip takes no hover and no clicks by default: it sits under the pointer, so a press or a release would otherwise land on it. Pass `disableHoverablePopup={false}` only if it must stay open while hovered.
 
 For a row of icon buttons, share one tooltip across them so it slides from trigger to trigger instead of closing and reopening. Create a handle with `createTooltipHandle`, pass it and a `payload` to each `TooltipTrigger`, and render one `Tooltip` with the same handle that reads the payload:
 
@@ -1073,6 +1081,8 @@ Reduced motion shows the finished highlight at once.
   <ResizablePanel defaultSize={50}>Right panel</ResizablePanel>
 </ResizablePanelGroup>
 ```
+
+For an edge that resizes something outside a panel group, such as a popup, use `ResizeGrip`. It has the handle's look and no behavior: the caller runs the drag. It forwards its ref, so it can be a `TooltipTrigger` render target. Set `--quill-resizable-hit-size` to widen the hit area, and pass `className="bg-transparent"` when a border already draws the line.
 
 ### Scroll Area
 

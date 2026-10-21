@@ -118,11 +118,24 @@ def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> Dashboar
 
 
 def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
+    return _dashboard_insights(team, user, dashboard_id, limit)
+
+
+def dashboard_insight_tile(*, team: "Team", user: User, dashboard_id: int, short_id: str) -> DashboardInsights | None:
+    found = _dashboard_insights(team, user, dashboard_id, 1, short_id=short_id)
+    return found if found is not None and found.tiles else None
+
+
+def _dashboard_insights(
+    team: "Team", user: User, dashboard_id: int, limit: int, short_id: str | None = None
+) -> DashboardInsights | None:
     dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
     access = UserAccessControl(user=user, team=team)
     if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
         return None
     insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    if short_id is not None:
+        insight_tiles = insight_tiles.filter(insight__short_id=short_id)
     tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
     return DashboardInsights(
         dashboard_id=dashboard.id,

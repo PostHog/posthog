@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -13,12 +14,8 @@ PAGE_PAGINATION = "page"  # ?page= / ?per_page=, terminated by result_info
 CURSOR_PAGINATION = "cursor"  # ?cursor=, terminated by an absent next cursor
 SINGLE_PAGE = "single"  # the whole collection comes back in one response
 
-# Metrics and dimensions requested from the DNS analytics report. Cloudflare returns
-# each row as positional `metrics`/`dimensions` arrays, so these names are also what
-# the rows are flattened into. Both lists come from the vendor spec's examples for
-# `dns-analytics_metrics` / `dns-analytics_query.dimensions`.
-DNS_ANALYTICS_METRICS = ("queryCount", "uncachedCount")
-DNS_ANALYTICS_DIMENSIONS = ("queryType", "responseCode")
+# Matches the default window of the REST report this replaces.
+DNS_ANALYTICS_WINDOW = timedelta(hours=6)
 
 
 @dataclass
@@ -49,8 +46,8 @@ class CloudflareEndpointConfig:
 # Most Cloudflare v4 REST lists are small configuration tables with no updated-since
 # filter, so they sync as full refreshes. `audit_logs` is the exception — it takes a
 # server-side `since` filter, so it syncs incrementally.
-# The high-volume traffic datasets live in the separate GraphQL Analytics API, which
-# this REST source has no transport for.
+# The high-volume traffic datasets live in the separate GraphQL Analytics API. Only
+# `dns_analytics_report` reads it, because Cloudflare removes the REST endpoint it used.
 CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
     "accounts": CloudflareEndpointConfig(
         name="accounts",
@@ -218,16 +215,8 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
     # --- Zone-scoped analytics ---
     "dns_analytics_report": CloudflareEndpointConfig(
         name="dns_analytics_report",
-        path="/zones/{zone_id}/dns_analytics/report",
-        primary_keys=("_zone_id", *DNS_ANALYTICS_DIMENSIONS),
-        parent=ZONES_PARENT,
-        parent_key="_zone_id",
-        pagination=SINGLE_PAGE,
-        data_selector="result.data",
-        params={
-            "metrics": ",".join(DNS_ANALYTICS_METRICS),
-            "dimensions": ",".join(DNS_ANALYTICS_DIMENSIONS),
-        },
+        path="/graphql",
+        primary_keys=("_zone_id", "queryType", "responseCode"),
     ),
     # --- Account-scoped ---
     "audit_logs": CloudflareEndpointConfig(

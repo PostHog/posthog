@@ -43,6 +43,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: '{id}'
         title: Create broadcast
         description: >
             Create a broadcast: a one-time or scheduled email to an audience, which the user reviews and launches from
@@ -58,6 +59,27 @@ tools:
             workflows-patch-action-email.
         inject_body:
             origin_product: broadcasts
+        url_prefix: /broadcasts
+    workflows-convert-to-broadcast:
+        operation: hog_flows_convert_to_broadcast
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Convert workflow to broadcast
+        description: >
+            Move a workflow that sends one email to a batch audience over to broadcasts. It keeps its id, runs and
+            metrics, leaves the workflows list and opens in the broadcast editor, which shows delivery, open and click
+            numbers per send. It can no longer take more steps, and this cannot be undone, so ask the user first. The
+            workflow must be exactly a batch trigger, one email and an exit, joined in that order, with exit_condition
+            'exit_only_at_end' (set it with workflows-update first). It fails with a validation error for any other
+            shape, an archived workflow, a workflow with a staged draft, or one that is already a broadcast. Returns the
+            id and origin_product, plus _posthogUrl, the broadcast link.
+        url_prefix: /broadcasts
     workflows-create:
         operation: hog_flows_create
         enabled: true
@@ -70,7 +92,9 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
+            Create a workflow. For one email sent once or on a schedule to an audience (a batch trigger, one email step
+            and an exit), use broadcasts-create instead: the user gets the broadcast editor and per-send delivery, open
+            and click numbers. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
             is available, so the user knows what blocks sending. It is created as a draft and does NOT run until
             enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit
             approval — from then on it runs on real people, and further content edits stage as a draft you must publish
@@ -95,6 +119,7 @@ tools:
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
+        hooks: workflows/broadcastLinkHooks
     workflows-data-suggestions-create:
         operation: workflow_data_suggestions_build
         enabled: true
@@ -120,7 +145,6 @@ tools:
             save_draft: true
         ui_app: workflow-data-suggestions
         hooks: workflows/dataSuggestionCreateHooks
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -137,7 +161,6 @@ tools:
             up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none
             to show. Present them the same way as workflows-data-suggestions-list.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -171,7 +194,6 @@ tools:
             workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
             processing; 'unavailable' means there is nothing to suggest right now.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -216,6 +238,7 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+        hooks: workflows/broadcastLinkHooks
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
@@ -275,11 +298,12 @@ tools:
         title: List workflows
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<text> to find a
-            workflow by its name or description, or, when neither matches, by a step name or the subject, preheader or
-            body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that
-            value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as
-            'workflow_id'.
+            (draft/active/archived), version, trigger configuration, tags, and timestamps. Pass search=<text> to find a
+            workflow by its name, description or a tag, or, when none of those match, by a step name or the subject,
+            preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools
+            take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it
+            as 'workflow_id'. Pass tags='["growth"]' (a JSON-encoded list) to return only workflows that carry at least
+            one of those tags.
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
@@ -495,8 +519,8 @@ tools:
             workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
-            is. Automations that only post to Slack or call webhooks need none of these steps. When
-            data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.
+            is. Automations that only post to Slack or call webhooks need none of these steps. Offer
+            workflows-data-suggestions-list once setup is done.
         ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
@@ -581,16 +605,18 @@ tools:
         enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
-            Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
+            Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
-            content fields stage a draft (published with workflows-publish) while name/description apply immediately.
-            Status changes go through workflows-enable / workflows-archive.
+            content fields stage a draft (published with workflows-publish) while name, description and tags apply
+            immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status
+            changes go through workflows-enable / workflows-archive.
         exclude_params:
             - status
             - actions
             - edges
         ui_app: workflow
+        hooks: workflows/broadcastLinkHooks
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
         enabled: true

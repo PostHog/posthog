@@ -79,9 +79,8 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    If the `warehouse-suggestions-*` tools are available, also call `warehouse-suggestions-list` with
    `status=proposed`. A `certify` suggestion names a view or table that read usage says to certify. A
    `deprecate` suggestion names a materialized view that nobody reads. Neither is in `certifications` until
-   someone accepts it: accept with
-   `posthog:warehouse-suggestions-accept-prepare` / `-execute`, or dismiss with
-   `posthog:warehouse-suggestions-dismiss`.
+   someone accepts it. Follow the `reviewing-warehouse-suggestions` skill to explain, accept or dismiss
+   them.
 
    Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
    without this skill never mistakes an unreviewed item for an approved one:

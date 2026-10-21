@@ -92,7 +92,6 @@ export function InsightViz({
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
-    const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
     const showingFilters = query.showFilters ?? editMode ?? false
@@ -105,7 +104,6 @@ export function InsightViz({
             context={context}
             disableHeader={disableHeader}
             disableTable={disableTable}
-            disableCorrelationTable={disableCorrelationTable}
             disableLastComputation={disableLastComputation}
             disableLastComputationRefresh={disableLastComputationRefresh}
             showingResults={showingResults}

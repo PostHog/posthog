@@ -791,6 +791,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        EventDefinition.objects.create(
+            team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
+        )
         flag = FeatureFlag.objects.create(
             team=self.team,
             key=f"health-findings-{_name}",
@@ -844,6 +847,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
+        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
 
     @parameterized.expand(
         [

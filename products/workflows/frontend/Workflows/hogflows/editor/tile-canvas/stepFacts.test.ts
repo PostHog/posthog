@@ -270,10 +270,23 @@ describe('stepFacts', () => {
         expect(stepView(threePaths, split).badge).toBe('3 paths')
     })
 
-    it('falls back to the template name for a template it does not know', () => {
-        const action = fn('hubspot', 'template-hubspot', { email: 'x' })
+    it.each<[string, Partial<HogFlowAction>, string, string | undefined]>([
+        ['shows the template name for a step that keeps it', {}, 'HubSpot', undefined],
+        [
+            'keeps the name and description the author gave the step',
+            { name: 'Stamp the last email date', description: 'So the next run waits a week' },
+            'Stamp the last email date',
+            'So the next run waits a week',
+        ],
+        ['names the template under a renamed step', { name: 'Sync the contact' }, 'Sync the contact', 'HubSpot'],
+    ])('%s', (_, extra, headline, detail) => {
+        const action = fn('hubspot', 'template-hubspot', { email: 'x' }, extra)
 
-        expect(stepFacts(workflow([action]), action, 'HubSpot').headline).toBe('HubSpot')
+        expect(stepFacts(workflow([action]), action, 'HubSpot')).toMatchObject({
+            headline,
+            detail,
+            fields: [['Runs', 'HubSpot']],
+        })
     })
 
     it.each<[string, HogFlowAction, string | undefined]>([

@@ -60,6 +60,7 @@ Use it to mirror an external selection (the rows visible in a paired virtualized
 On band (bar) charts the box covers the endpoints' full bands; on point (line) charts it runs point to point.
 `color`, `fillOpacity`, and `borderOpacity` tune the look (`borderOpacity: 0` drops the edge border).
 It clamps to the plot area and renders null when an endpoint does not resolve.
+It draws no label. To name the range, such as an incident window, add a vertical `ReferenceLine` whose `value` is the range's start label, and give it a `label`.
 
 ### `AnomalyPointsLayer`
 

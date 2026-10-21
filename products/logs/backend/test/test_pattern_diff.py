@@ -1,18 +1,37 @@
 import json
 import datetime as dt
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogPropertyFilter,
+    LogsQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 
 from products.logs.backend.log_patterns import pattern_fingerprint
-from products.logs.backend.pattern_diff import diff_patterns, run_patterns_diff
+from products.logs.backend.pattern_diff import (
+    _first_seen_ever,
+    _raw_lines_call,
+    diff_patterns,
+    run_patterns_diff,
+    stored_pattern_keys,
+)
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 
 _HOUR = (dt.datetime(2026, 6, 23, 12, 0), dt.datetime(2026, 6, 23, 13, 0))
 _BASELINE_HOUR = (dt.datetime(2026, 6, 16, 12, 0), dt.datetime(2026, 6, 16, 13, 0))
@@ -229,3 +248,322 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
         assert results["baseline"]["date_from"].startswith("2026-06-20T12:00:00")
         assert results["baseline"]["total_count"] == 2
+
+
+class TestStoredPatternKeys(TestCase):
+    def test_groups_sharing_a_stored_member_compare_as_one_pattern(self) -> None:
+        current = [
+            {
+                **_pattern("Retry <*> timed out", count=100),
+                "match_patterns": ["Retry <N> timed out", "Retry <N> timed out again"],
+            }
+        ]
+        baseline = [{**_pattern("Retry <N> timed out", count=50), "match_patterns": ["Retry <N> timed out"]}]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert [e["classification"] for e in entries] == ["rate_shift"]
+
+    def test_a_baseline_group_spanning_two_current_groups_matches_both(self) -> None:
+        current = [
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+            {**_pattern("Retry <*> timed out again", count=100), "match_patterns": ["Retry <N> timed out again"]},
+        ]
+        baseline = [
+            {
+                **_pattern("Retry <*> timed out", count=100),
+                "match_patterns": ["Retry <N> timed out again", "Retry <N> timed out"],
+            }
+        ]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert "new" not in [e["classification"] for e in entries]
+
+
+def _bare_query() -> LogsQuery:
+    return LogsQuery(
+        dateRange=DateRange(date_from="-1h"),
+        filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+        severityLevels=[],
+        serviceNames=[],
+    )
+
+
+class TestRawLinesCall(TestCase):
+    _WINDOW = (dt.datetime(2026, 6, 23, 12, 0, tzinfo=dt.UTC), dt.datetime(2026, 6, 23, 13, 0, tzinfo=dt.UTC))
+
+    def _entry(self, **pattern: Any) -> dict:
+        return {"classification": "new", "masked_example": "boom <*>", "services": ["api"], "pattern": pattern}
+
+    def test_keeps_the_original_scope_and_adds_the_pattern(self) -> None:
+        query = LogsQuery(
+            dateRange=DateRange(date_from="-1h"),
+            serviceNames=[],
+            severityLevels=["error"],
+            searchTerm="checkout",
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(key="env", value="prod", operator=PropertyOperator.EXACT, type="log")
+                        ],
+                    )
+                ],
+            ),
+        )
+
+        call = _raw_lines_call(self._entry(match_regex="boom .*"), query, *self._WINDOW)
+
+        assert call is not None
+        assert call["query"]["severityLevels"] == ["error"]
+        assert call["query"]["searchTerm"] == "checkout"
+        assert [f["key"] for f in call["query"]["filterGroup"]] == ["env", "message"]
+
+    def test_omits_the_call_without_a_matcher(self) -> None:
+        query = _bare_query()
+
+        assert _raw_lines_call(self._entry(match_regex=None, match_literal=""), query, *self._WINDOW) is None
+
+
+class TestFirstSeenEver(TestCase):
+    _ENTRIES = [{"pattern": {"match_patterns": [f"pattern {i}" for i in range(150)]}}]
+
+    def test_sets_an_explicit_limit_for_every_member(self) -> None:
+        with patch("products.logs.backend.pattern_diff.execute_hogql_query") as execute:
+            execute.return_value.results = []
+            _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
+
+        assert execute.call_args.kwargs["query"].limit.value == 150
+
+    def test_returns_none_when_the_history_lookup_hits_its_budget(self) -> None:
+        with patch(
+            "products.logs.backend.pattern_diff.execute_hogql_query", side_effect=CHQueryErrorTooManyBytes("too many")
+        ):
+            result = _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
+
+        assert result is None
+
+
+class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _insert(self, rows: list[dict]) -> None:
+        sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+
+    def _log(
+        self,
+        body: str,
+        *,
+        day: int,
+        severity: str = "info",
+        service: str = "api",
+        minute: int = 0,
+        stored: str | None = None,
+    ) -> dict:
+        row: dict[str, str | int] = {
+            "timestamp": f"2026-06-{day:02d} 12:{minute:02d}:00.000000",
+            "body": body,
+            "severity_text": severity,
+            "service_name": service,
+        }
+        if stored is not None:
+            row.update({"pattern": stored, "pattern_version": 5})
+        return row
+
+    def _query(self, severity_levels: list[str] | None = None) -> LogsQuery:
+        return LogsQuery(
+            dateRange=DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z"),
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=severity_levels or [],
+            serviceNames=[],
+            searchTerm=None,
+        )
+
+    def _seed_stored(self, *, stamp_baseline: bool = True) -> None:
+        retry = [
+            self._log(
+                f"Retry {i} timed out",
+                day=23,
+                severity="error",
+                service="worker",
+                minute=i,
+                stored="Retry <N> timed out",
+            )
+            for i in range(3)
+        ]
+        archive_current = [
+            self._log(f"Archive job run_{i} queued", day=23, minute=i, stored="Archive job <ID> queued")
+            for i in range(3)
+        ]
+        archive_baseline = [
+            self._log(
+                f"Archive job run_{i} queued",
+                day=16,
+                minute=i,
+                stored="Archive job <ID> queued" if stamp_baseline else None,
+            )
+            for i in range(3)
+        ]
+        archive_history = [self._log("Archive job run_old queued", day=12, stored="Archive job <ID> queued")]
+        rows = retry + archive_current + archive_baseline + archive_history
+        self._insert(rows)
+        # The test `logs` table feeds no pattern rollup, so write the rows its materialized view would.
+        rollup = "".join(
+            json.dumps(
+                {
+                    "team_id": self.team.id,
+                    "time_bucket": row["timestamp"][:15] + "0:00",
+                    "service_name": row["service_name"],
+                    "severity_text": row["severity_text"],
+                    "pattern_version": 5,
+                    "pattern": row["pattern"],
+                    "log_count": 1,
+                }
+            )
+            + "\n"
+            for row in rows
+            if "pattern" in row
+        )
+        sync_execute(f"INSERT INTO logs_pattern_buckets FORMAT JSONEachRow\n{rollup}")
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_stored_patterns_are_used_when_both_windows_are_covered(self) -> None:
+        self._seed_stored()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = run_patterns_diff(self.team, self._query(), None)
+
+        assert results["source"] == "stored_patterns"
+        assert results["pattern_version"] == 5
+        assert results["sampled"] is False
+        assert results["current"]["source"] == results["baseline"]["source"] == "stored_patterns"
+        by_example = {e["masked_example"]: e for e in results["entries"]}
+        retry = by_example["Retry <N> timed out"]
+        assert retry["classification"] == "new"
+        assert retry["services"] == ["worker"]
+        assert retry["first_seen_ever"] == "2026-06-23T12:00:00Z"
+        archive = by_example["Archive job <ID> queued"]
+        assert archive["classification"] == "unchanged"
+        assert archive["first_seen_ever"] == "2026-06-12T12:00:00Z"
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_the_version_check_shares_the_runner_time_budget(self) -> None:
+        self._seed_stored(stamp_baseline=False)
+        clock = iter([0.0, 0.0] + [1000.0] * 100)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.logs.backend.patterns_query_runner.monotonic", side_effect=lambda: next(clock)),
+            self.assertRaises(ClickHouseQueryTimeOut),
+        ):
+            run_patterns_diff(self.team, self._query(), None)
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_partial_coverage_falls_back_to_body_mining_in_both_windows(self) -> None:
+        self._seed_stored(stamp_baseline=False)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.object(PatternsQueryRunner, "_calculate_stored_patterns", side_effect=AssertionError),
+            patch.object(PatternsQueryRunner, "_count", side_effect=AssertionError),
+            patch("products.logs.backend.patterns_query_runner.app_org_concurrency_slot") as slot,
+        ):
+            results = run_patterns_diff(self.team, self._query(), None)
+
+        assert slot.call_count == 2
+
+        assert results["source"] == "body_mining"
+        assert results["sampled"] is True
+        assert results["current"]["source"] == results["baseline"]["source"] == "body_mining"
+        assert sorted(e["classification"] for e in results["entries"]) == ["new", "unchanged"]
+        assert all(e["first_seen_ever"] is None for e in results["entries"])
+        assert any("first_seen_ever" in note for note in results["notes"])
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_body_mining_entries_carry_masked_examples_and_pivots(self) -> None:
+        self._insert(
+            [self._log(f"User {name} not found", day=23, severity="error") for name in ("alice", "bob", "carol")]
+        )
+
+        plain = run_patterns_diff(self.team, self._query(), None)
+
+        entry = plain["entries"][0]
+        assert entry["masked_example"] == "User <*> not found"
+        assert entry["services"] == ["api"]
+        assert plain["window"] == {
+            "current": {"from": "2026-06-23T12:00:00Z", "to": "2026-06-23T13:00:00Z"},
+            "baseline": {"from": "2026-06-16T12:00:00Z", "to": "2026-06-16T13:00:00Z"},
+            "timezone": "UTC",
+        }
+        assert plain["next"][0]["tool"] == "query-logs"
+        assert plain["next"][0]["query"]["filterGroup"][0]["operator"] == "regex"
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_severity_levels_scope_both_windows(self) -> None:
+        self._insert(
+            [
+                self._log("disk almost full", day=23, severity="warn"),
+                self._log("heartbeat ok", day=23),
+                self._log("heartbeat ok", day=16),
+            ]
+        )
+
+        results = run_patterns_diff(self.team, self._query(["warn", "error", "fatal"]), None)
+
+        assert [e["masked_example"] for e in results["entries"]] == ["disk almost full"]
+        assert results["baseline"]["total_count"] == 0
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_limit_truncates_entries(self) -> None:
+        self._insert([self._log("first new thing", day=23), self._log("second new thing", day=23)])
+
+        results = run_patterns_diff(self.team, self._query(), None, limit=1)
+
+        assert len(results["entries"]) == 1
+        assert results["truncated"] is True
+
+
+class TestPatternsDiffAPIV2(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_endpoint_accepts_limit(self) -> None:
+        sql = "".join(
+            json.dumps(
+                {
+                    "team_id": self.team.id,
+                    "timestamp": f"2026-06-23 12:0{i}:00.000000",
+                    "body": body,
+                    "severity_text": "error",
+                    "service_name": "api",
+                }
+            )
+            + "\n"
+            for i, body in enumerate(["socket closed by peer", "queue overflow detected"])
+        )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/patterns_diff/",
+            {
+                "query": {
+                    "dateRange": {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"},
+                    "severityLevels": ["error"],
+                    "limit": 1,
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert len(body["entries"]) == 1
+        assert body["truncated"] is True
+        assert body["sampled"] is True
+        assert body["window"]["timezone"] == "UTC"

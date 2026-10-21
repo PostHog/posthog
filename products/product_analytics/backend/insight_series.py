@@ -33,6 +33,7 @@ NO_BREAKDOWN_VALUE = "[No value]"
 LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+BLOCKING_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 def _run(
@@ -41,6 +42,7 @@ def _run(
     source: dict[str, Any],
     filters: dict[str, Any] | None,
     variables: dict[str, Any] | None,
+    blocking: bool = False,
 ) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
@@ -49,7 +51,7 @@ def _run(
         source,
         dashboard_filters_json=filters,
         variables_override_json=variables,
-        execution_mode=EXECUTION_MODE,
+        execution_mode=BLOCKING_EXECUTION_MODE if blocking else EXECUTION_MODE,
         user=user,
     )
     return response.model_dump() if isinstance(response, BaseModel) else response
@@ -114,13 +116,14 @@ def _sql_series(
     query: dict[str, Any],
     filters: dict[str, Any],
     variables: dict[str, Any] | None,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
-    response = _run(team, user, query["source"], filters, variables)
+    response = _run(team, user, query["source"], filters, variables, blocking)
     if response.get("hasMore"):
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
@@ -188,6 +191,7 @@ def insight_series(
     name: str | None,
     query: dict[str, Any],
     dashboard: InsightDashboardContext | None,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
@@ -199,7 +203,16 @@ def insight_series(
     filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
     source = query.get("source", query)
     if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
-        return _sql_series(team, user, short_id=short_id, name=name, query=query, filters=filters, variables=variables)
+        return _sql_series(
+            team,
+            user,
+            short_id=short_id,
+            name=name,
+            query=query,
+            filters=filters,
+            variables=variables,
+            blocking=blocking,
+        )
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
         return None
@@ -216,7 +229,7 @@ def insight_series(
         dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
         trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
-    response = _run(team, user, bounded, filters, variables)
+    response = _run(team, user, bounded, filters, variables, blocking)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
     series: dict[str, list[tuple[date, float]]] = {}

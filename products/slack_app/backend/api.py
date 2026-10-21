@@ -50,7 +50,6 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_project_picker_enabled,
     is_slack_app_unprompted_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
@@ -1900,7 +1899,6 @@ def _post_project_picker(
     event: dict[str, Any],
     event_id: str | None,
     *,
-    posthog_user: User,
     is_ext_shared_channel: bool,
     mention_is_threaded: bool,
 ) -> bool:
@@ -1911,9 +1909,6 @@ def _post_project_picker(
     message_ts = event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(message_ts, str):
         return False
-    if not is_slack_app_project_picker_enabled(probe, posthog_user.distinct_id):
-        return False
-
     context_token = uuid.uuid4().hex
     cache.set(
         _picker_context_cache_key(context_token),
@@ -3097,7 +3092,6 @@ def route_posthog_code_event_to_relevant_region(
                 candidates,
                 event,
                 event_id,
-                posthog_user=posthog_user,
                 is_ext_shared_channel=is_ext_shared_channel,
                 mention_is_threaded=mention_is_threaded,
             )

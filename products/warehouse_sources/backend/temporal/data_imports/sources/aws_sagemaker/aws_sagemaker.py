@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
     AwsSagemakerSourceConfig,
@@ -72,8 +73,9 @@ class AwsSagemakerResumeConfig:
 
 
 class AwsSagemakerError(Exception):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, status_code: int | None = None) -> None:
         self.code = code
+        self.status_code = status_code
         super().__init__(f"AWS SageMaker request failed: {code}")
 
 
@@ -99,8 +101,8 @@ def error_for_response(response: requests.Response) -> AwsSagemakerError:
     code = str(raw_code or f"HTTP {response.status_code}").split(":")[0].split("#")[-1]
     # Only body-level throttles need another retry layer; the transport retries 429 and 5xx.
     if response.status_code == 400 and code in THROTTLE_CODES:
-        return AwsSagemakerThrottledError(code)
-    return AwsSagemakerError(code)
+        return AwsSagemakerThrottledError(code, response.status_code)
+    return AwsSagemakerError(code, response.status_code)
 
 
 class AwsSagemakerClient:
@@ -331,6 +333,9 @@ def validate_credentials(
         for code, message in ERROR_MESSAGES.items():
             if error.code.startswith(code):
                 return False, message
+        status_message = probe_status_message("AWS SageMaker", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     except requests.RequestException:
         return False, "Could not reach AWS SageMaker. Check the region and try again."

@@ -266,6 +266,18 @@ class RepositoryCloneError(ProcessTaskTransientError):
     pass
 
 
+class RepositoryAccessError(ProcessTaskFatalError, NonReportableError):
+    """GitHub refused to serve the repository with the credential the sandbox has.
+
+    The run has no token, or its token does not cover the repository. A retry reuses the same
+    credential, so it cannot succeed. This is an expected customer setup state, so it is not
+    captured to error tracking.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
+
+
 class RetryableRepositorySetupError(ProcessTaskTransientError):
     """Failed to setup repository (install dependencies, etc)."""
 

@@ -162,7 +162,7 @@ impl Error {
     // TODO: turn into a per-error match arm with specific doc links
     pub fn error_uri(&self) -> &'static str {
         match self {
-            Self::BillingLimitExceeded => "https://posthog.com/docs/billing/limits",
+            Self::BillingLimitExceeded => "https://posthog.com/docs/billing/limits-alerts",
             _ => "https://posthog.com/docs/api",
         }
     }
@@ -417,7 +417,10 @@ mod tests {
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::PAYMENT_REQUIRED);
         let body = response_body(resp).await;
-        assert_eq!(body["error_uri"], "https://posthog.com/docs/billing/limits");
+        assert_eq!(
+            body["error_uri"],
+            "https://posthog.com/docs/billing/limits-alerts"
+        );
     }
 
     #[tokio::test]

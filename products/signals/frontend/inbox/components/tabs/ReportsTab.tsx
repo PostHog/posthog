@@ -176,7 +176,6 @@ const ReportRow = memo(function ReportRow({
         <ReportContextMenu report={report} sectionKey={sectionKey}>
             <ReportCard
                 report={report}
-                sectionKey={sectionKey}
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}

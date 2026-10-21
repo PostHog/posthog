@@ -198,6 +198,25 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
+    return (
+        AccessControl.objects.filter(
+            team_id=team_id,
+            resource__in=[
+                "project",
+                "dashboard",
+                "notebook",
+                "insight",
+                "external_data_source",
+                "warehouse_objects",
+                "warehouse_table",
+                "warehouse_view",
+            ],
+        ).exists()
+        or PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+    )
+
+
 def user_organizations_use_access_controls(*, user_id: int) -> bool:
     """Whether access rules can narrow what the user reaches in one of their organizations.
 

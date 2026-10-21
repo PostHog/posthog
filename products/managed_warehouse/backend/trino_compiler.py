@@ -233,6 +233,7 @@ def compile_hogql_to_trino_sql(
     catalog_manifest: TrinoCatalogManifest | None = None,
     select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
     | None = None,
+    preserve_clickhouse_output_names: bool = False,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -243,10 +244,12 @@ def compile_hogql_to_trino_sql(
     actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
     ``select_transform`` rewrites the parsed query after placeholders are replaced, so it sees the
     same AST the printer does. It needs ``TrinoExpansionMode.DJANGO``.
+    ``preserve_clickhouse_output_names`` resolves the query locally for both dialects and gives the
+    Trino output the names that ClickHouse derives. It does not execute a ClickHouse query.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
-        if select_transform is not None:
-            raise ValueError("A select transform needs Django expansion")
+        if select_transform is not None or preserve_clickhouse_output_names:
+            raise ValueError("A select transform or ClickHouse output names need Django expansion")
         return prepare_hogql_to_trino_compiler(
             team_id,
             team=team,
@@ -260,10 +263,11 @@ def compile_hogql_to_trino_sql(
     from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
     from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
     from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
+    from posthog.hogql.printer.clickhouse import ClickHousePrinter  # noqa: PLC0415
     from posthog.hogql.printer.trino_hogql import (
         TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
     )
-    from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
+    from posthog.hogql.printer.utils import prepare_and_print_ast, prepare_ast_for_printing  # noqa: PLC0415
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
@@ -319,6 +323,30 @@ def compile_hogql_to_trino_sql(
     if select_transform is not None:
         parsed = select_transform(parsed)
 
+    clickhouse_output_names: list[str] | None = None
+    if preserve_clickhouse_output_names:
+        clickhouse_context = HogQLContext(
+            team_id=team_id,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=query_modifiers.model_copy(deep=True),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
+        )
+        clickhouse_ast = prepare_ast_for_printing(clone_expr(parsed), clickhouse_context, dialect="clickhouse")
+        if clickhouse_ast is None:
+            raise ValueError("ClickHouse preparation returned an empty query")
+
+        clickhouse_output = clickhouse_ast
+        while isinstance(clickhouse_output, ast.SelectSetQuery):
+            clickhouse_output = clickhouse_output.initial_select_query
+        clickhouse_output_names = ClickHousePrinter(
+            context=clickhouse_context, stack=[clickhouse_output]
+        ).select_column_names(clickhouse_output)
+
     trino_table_locators = build_trino_table_locators(
         database,
         team_id,
@@ -340,7 +368,63 @@ def compile_hogql_to_trino_sql(
         trino_table_locators=trino_table_locators,
     )
     hogql_ast = clone_expr(parsed) if include_hogql else None
-    trino_sql, _ = prepare_and_print_ast(parsed, trino_context, dialect="trino")
+
+    def preserve_output_names(prepared: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if clickhouse_output_names is None:
+            return prepared
+
+        output_types: list[ast.SelectSetQueryType] = []
+        trino_output = prepared
+        while isinstance(trino_output, ast.SelectSetQuery):
+            if isinstance(trino_output.type, ast.SelectSetQueryType):
+                output_types.append(trino_output.type)
+            trino_output = trino_output.initial_select_query
+
+        if len(trino_output.select) != len(clickhouse_output_names):
+            raise ValueError(
+                "ClickHouse and Trino preparation produced different output column counts "
+                f"({len(clickhouse_output_names)} and {len(trino_output.select)})"
+            )
+
+        named_columns: dict[str, ast.Type] = {}
+        named_select: list[ast.Expr] = []
+        for column, name in zip(trino_output.select, clickhouse_output_names):
+            expression = column.expr if isinstance(column, ast.Alias) else column
+            column_type = column.type.type if isinstance(column.type, ast.FieldAliasType) else column.type
+            alias_type = ast.FieldAliasType(alias=name, type=column_type or ast.UnknownType())
+            named_select.append(ast.Alias(alias=name, expr=expression, type=alias_type))
+            named_columns[name] = alias_type
+        trino_output.select = named_select
+        if isinstance(trino_output.type, ast.SelectQueryType):
+            trino_output.type.columns = named_columns
+        for output_type in output_types:
+            output_type.columns = named_columns
+
+        # The output can read a derived table by column name, as the incremental guard does. Trino
+        # does not name an unaliased expression, so give each one the name the resolver referenced.
+        derived = trino_output.select_from.table if trino_output.select_from is not None else None
+        while isinstance(derived, ast.SelectSetQuery):
+            derived = derived.initial_select_query
+        if isinstance(derived, ast.SelectQuery) and isinstance(derived.type, ast.SelectQueryType):
+            resolved_names = {id(column_type): name for name, column_type in derived.type.columns.items()}
+            derived.select = [
+                ast.Alias(
+                    alias=resolved_names[id(column.type)],
+                    expr=column,
+                    type=ast.FieldAliasType(alias=resolved_names[id(column.type)], type=column.type),
+                )
+                if not isinstance(column, ast.Alias) and column.type is not None and id(column.type) in resolved_names
+                else column
+                for column in derived.select
+            ]
+        return prepared
+
+    trino_sql, _ = prepare_and_print_ast(
+        parsed,
+        trino_context,
+        dialect="trino",
+        prepared_ast_transform=preserve_output_names if preserve_clickhouse_output_names else None,
+    )
 
     hogql_pretty: str | None = None
     if hogql_ast is not None:

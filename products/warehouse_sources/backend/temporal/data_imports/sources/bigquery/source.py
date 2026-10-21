@@ -491,6 +491,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
             # runs. There's nothing we can do but stop retrying until they enable billing.
             "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
+            # Raised as a 400 BadRequest from `job.result()` (`_wait_for_job` in `bigquery.py`) when
+            # the queried region has neither on-demand pricing nor a flat-rate/capacity reservation
+            # configured for the customer's project, e.g. "Cannot run query: project does not have
+            # the reservation in the data region or no slots are configured; reason: invalid, ...".
+            # This is a billing/capacity setup problem on the customer's Google Cloud project, not a
+            # transient slot shortage — the same query fails identically on every retry until they
+            # enable on-demand pricing or create a reservation in that region. Matched on BigQuery's
+            # stable wording, not the volatile location or job id.
+            "project does not have the reservation in the data region or no slots are configured": "BigQuery couldn't run a query for this source because your Google Cloud project has neither on-demand pricing nor a flat-rate reservation configured for the queried region. Please enable on-demand pricing or create a BigQuery reservation for that region (https://console.cloud.google.com/bigquery/admin/reservations), then re-enable the source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower

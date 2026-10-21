@@ -158,7 +158,6 @@ FIELD_VALUES: dict[str, Any] = {
     "timezone": "America/New_York",
     "data_attributes": ["data-attr"],
     "person_display_name_properties": ["email"],
-    "correlation_config": {"excluded_person_property_names": ["foo"]},
     "autocapture_opt_out": True,
     "autocapture_exceptions_opt_in": True,
     "autocapture_web_vitals_opt_in": True,

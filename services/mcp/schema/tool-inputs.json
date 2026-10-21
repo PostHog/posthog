@@ -587,6 +587,29 @@
             },
             "required": ["id"]
         },
+        "ExperimentVariantNotesSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant."
+        },
+        "ExperimentVariantScreenshotMediaIdsSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose \"experiment\", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
@@ -739,7 +762,7 @@
                     ]
                 },
                 "filters_override": {
-                    "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.",
+                    "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token.",
                     "anyOf": [
                         {
                             "type": "string"

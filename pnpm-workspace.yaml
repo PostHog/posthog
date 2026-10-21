@@ -150,6 +150,8 @@ allowBuilds:
     '@datadog/pprof': false
     ffmpeg-static: false
     free-email-domains: false
+    # Optional dependency of code-inspector-plugin, used only by its AI terminal, which we do not enable.
+    node-pty: false
     puppeteer: false
 
 catalog:

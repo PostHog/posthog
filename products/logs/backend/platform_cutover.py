@@ -6,6 +6,7 @@ skipped with a reason, and a later run picks it up. The command is safe to run a
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -16,7 +17,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import HandbackRefusal, PlatformOwnershipHandover
+from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
@@ -166,11 +167,14 @@ def in_an_environment(alert: LogsAlertConfiguration) -> bool:
     return alert.team.parent_team_id is not None
 
 
-def hand_over(alert: LogsAlertConfiguration, at: datetime) -> bool:
+def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
     """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
-    on both rows. False, changing nothing, when the platform copy is inside a firing of its own."""
+    on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `grouping` applies only to a copy this creates, because the logs row stores none."""
+    upsert = platform_upsert_of(alert)
     savepoint = transaction.savepoint()
-    upsert_configuration(platform_upsert_of(alert))
+    upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,

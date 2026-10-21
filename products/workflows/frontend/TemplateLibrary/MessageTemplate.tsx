@@ -1,12 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconTrash } from '@posthog/icons'
+import { IconLock, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCard,
     LemonDivider,
     LemonMenuOverlay,
+    LemonSwitch,
     LemonTag,
     Spinner,
     SpinnerOverlay,
@@ -66,6 +68,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         keepMyTemplateVersion,
         setTransactionalTab,
         discardDraft,
+        setSensitive,
     } = useActions(logic)
     const {
         template,
@@ -84,6 +87,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         hasUnsavedChanges,
         isSavingDraft,
         isDiscardingDraft,
+        isSavingSensitive,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -170,7 +174,31 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalEmailApiExample templateId={props.id} />
+                        <div className="flex flex-col gap-4">
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Protect sensitive data</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                For emails with login codes or reset links. PostHog keeps no copy of
+                                                what each email contained, and clicked links keep only the site address.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={!!originalTemplate.sensitive}
+                                        onChange={setSensitive}
+                                        loading={isSavingSensitive}
+                                        disabledReason={isSavingSensitive ? 'Saving the setting' : undefined}
+                                        aria-label="Protect sensitive data"
+                                        data-attr="message-template-sensitive-toggle"
+                                    />
+                                </div>
+                            </LemonCard>
+                            <TransactionalEmailApiExample templateId={props.id} />
+                        </div>
                     ) : (
                         <MakeTransactionalPrompt {...props} />
                     ),
@@ -202,6 +230,18 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 <LemonTag type="success" className="ml-1">
                                     Transactional
                                 </LemonTag>
+                                {originalTemplate.sensitive && (
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and clicked links keep only the site address.">
+                                        <LemonTag
+                                            type="highlight"
+                                            icon={<IconLock />}
+                                            className="ml-1"
+                                            data-attr="message-template-sensitive-tag"
+                                        >
+                                            Sensitive
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                                 {(hasDraft || hasUnsavedChanges) && (
                                     <Tooltip title="Your changes save as a draft. Sends use the live version until you publish.">
                                         <LemonTag

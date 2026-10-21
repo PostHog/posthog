@@ -22,6 +22,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
+    increment_transition_events_emitted,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -36,7 +37,7 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.sync import database_sync_to_async_pool
 
-    from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+    from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation, emit_transition_events
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
@@ -80,11 +81,14 @@ DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
 # attempt left looks fresh to every one of those retries.
 BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
+# Delivery runs started before the transition events existed replay without them.
+TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
-# The last attempt can start one attempt and one delay past the limit.
-DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
+# One schedule-to-close for the transition events and three for the send attempts. The last send
+# attempt can start one attempt and one delay past the limit.
+DELIVERY_EXECUTION_TIMEOUT = 4 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
 
 
 @frozen
@@ -112,6 +116,24 @@ async def alerts_platform_probe_postgres_activity() -> None:
 @activity.defn
 async def alerts_platform_deliver_activity() -> None:
     pass
+
+
+@activity.defn
+async def alerts_platform_emit_transitions_activity(request: AlertDeliveryRequest) -> None:
+    """Emits the `$alert_transition` events of one evaluation, apart from native delivery.
+
+    Its own activity, so a held thread or a failing destination never delays or repeats them.
+    """
+    emitted = await database_sync_to_async_pool(emit_transition_events)(request)
+    if emitted:
+        await LOGGER.ainfo(
+            "alerts_platform_transition_events_emitted",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+            emitted=emitted,
+        )
+        safe_record(increment_transition_events_emitted, request.source.value, emitted)
 
 
 @activity.defn
@@ -164,24 +186,41 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
-        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+        """Emits every part's transition events, then delivers each part in turn.
 
-        A part that fails does not stop the parts after it. The first failure fails the run once
-        every part has had its attempts.
+        Emission comes first for every part, so a held thread on one part never delays another
+        part's events. Parts deliver in turn, so a split evaluation's sends to one destination
+        never overlap. A failure does not stop the steps after it. The first failure fails the
+        run once every part has had its attempts, a failed send before a failed emission.
         """
-        if inputs.parts <= 1:
-            await self._deliver(inputs)
-            return
-        failures: list[ActivityError] = []
-        for part in range(inputs.parts):
+        parts = [inputs] if inputs.parts <= 1 else [replace(inputs, part=part) for part in range(inputs.parts)]
+        emission_failures: list[ActivityError] = []
+        if workflow.patched(TRANSITION_EVENTS_PATCH):
+            for request in parts:
+                try:
+                    await self._emit(request)
+                except ActivityError as error:
+                    emission_failures.append(error)
+        send_failures: list[ActivityError] = []
+        for request in parts:
             try:
-                await self._deliver(replace(inputs, part=part))
+                await self._send(request)
             except ActivityError as error:
-                failures.append(error)
+                send_failures.append(error)
+        failures = [*send_failures, *emission_failures]
         if failures:
             raise failures[0]
 
-    async def _deliver(self, request: AlertDeliveryRequest) -> None:
+    async def _emit(self, request: AlertDeliveryRequest) -> None:
+        await workflow.execute_activity(
+            alerts_platform_emit_transitions_activity,
+            request,
+            start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+            schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _send(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
@@ -507,4 +546,5 @@ DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformDeliverWorkflow
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
+    alerts_platform_emit_transitions_activity,
 ]

@@ -360,6 +360,12 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                             />
                         </>
                     ) : null}
+                    {registeredMatch.showExitConditions ? (
+                        <>
+                            <LemonDivider />
+                            <ExitConditionSection />
+                        </>
+                    ) : null}
                 </>
             ) : node.data.config.type === 'event' ? (
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
@@ -1031,6 +1037,13 @@ function SendingRateLimitSection(): JSX.Element | null {
 function ExitConditionSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+    const trigger = workflow.trigger
+    const triggerMismatch =
+        trigger?.type === 'cohort'
+            ? trigger.transition === 'left'
+                ? 'they rejoin the cohort'
+                : 'they leave the cohort'
+            : 'trigger filters no longer match'
 
     return (
         <div className="flex flex-col flex-1 w-full py-2">
@@ -1051,7 +1064,7 @@ function ExitConditionSection(): JSX.Element {
                         },
                         {
                             value: 'exit_on_trigger_not_matched',
-                            label: 'Exit when trigger filters no longer match',
+                            label: `Exit when ${triggerMismatch}`,
                         },
                         {
                             value: 'exit_on_conversion',
@@ -1059,7 +1072,7 @@ function ExitConditionSection(): JSX.Element {
                         },
                         {
                             value: 'exit_on_trigger_not_matched_or_conversion',
-                            label: 'Exit when trigger filters no longer match, or when conversion goal is met',
+                            label: `Exit when ${triggerMismatch}, or when conversion goal is met`,
                         },
                     ]}
                 />

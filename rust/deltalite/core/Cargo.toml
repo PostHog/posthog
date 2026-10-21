@@ -53,6 +53,8 @@ arrow-ord = { version = "58" }
 delta_kernel = { package = "buoyant_kernel", version = "=0.22.2", default-features = false }
 chrono = { workspace = true }
 indexmap = "2"
+# Already linked by `deltalake`; decodes Add paths into the form the snapshot reports.
+percent-encoding = "2"
 sqlparser = "0.61"
 
 async-trait = { workspace = true }

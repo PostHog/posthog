@@ -96,6 +96,8 @@ class TestVersionRouting:
             ("v3", "users", HELP_SCOUT_API_BASE),
             ("v3", "tags", HELP_SCOUT_API_BASE),
             ("v3", "workflows", HELP_SCOUT_API_BASE),
+            ("v3", "organizations", HELP_SCOUT_API_BASE),
+            ("v3", "teams", HELP_SCOUT_API_BASE),
         ],
     )
     def test_request_url_follows_the_pinned_version(self, api_version: str, endpoint: str, base: str) -> None:
@@ -223,11 +225,24 @@ class TestIncrementalParams:
 
         assert result.queries[0] == {}
 
-    @pytest.mark.parametrize("endpoint", ["mailboxes", "users", "tags", "workflows"])
-    def test_endpoints_without_sort_support_send_no_extra_params(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,expected_query",
+        [
+            ("mailboxes", {}),
+            ("users", {}),
+            ("tags", {}),
+            ("workflows", {}),
+            ("teams", {}),
+            # The default lastInteractionAt sort reorders rows mid-sync, so a stable sort is sent.
+            ("organizations", {"sort": ("name,asc",)}),
+        ],
+    )
+    def test_endpoints_without_sort_support_send_only_static_params(
+        self, endpoint: str, expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
         result = _run(endpoint, [_page(HELP_SCOUT_ENDPOINTS[endpoint].embedded_key, [])])
 
-        assert result.queries[0] == {}
+        assert result.queries[0] == expected_query
 
 
 class TestRetries:
@@ -249,24 +264,42 @@ class TestRetries:
         assert len(result.requests) == 1
 
 
-class TestThreadsFanout:
-    @pytest.mark.parametrize("api_version,base", [("v2", HELP_SCOUT_API_BASE), ("v3", HELP_SCOUT_API_BASE_V3)])
-    def test_parent_and_child_endpoints(self, api_version: str, base: str) -> None:
+class TestFanout:
+    @pytest.mark.parametrize(
+        "api_version,endpoint,parent,child_path,base",
+        [
+            ("v2", "threads", "conversations", "conversations/42/threads", HELP_SCOUT_API_BASE),
+            ("v3", "threads", "conversations", "conversations/42/threads", HELP_SCOUT_API_BASE_V3),
+            ("v2", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE),
+            # Mailbox fields have no v3 route, so a v3 pin keeps parent and child on v2.
+            ("v3", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE),
+        ],
+    )
+    def test_parent_and_child_endpoints(
+        self, api_version: str, endpoint: str, parent: str, child_path: str, base: str
+    ) -> None:
         result = _run(
-            "threads",
-            [_page("conversations", [{"id": 42}]), _page("threads", [{"id": 7}])],
+            endpoint,
+            [_page(parent, [{"id": 42}]), _page(HELP_SCOUT_ENDPOINTS[endpoint].embedded_key, [{"id": 7}])],
             api_version=api_version,
         )
 
         assert result.raised is None
-        assert result.urls == [f"{base}/conversations", f"{base}/conversations/42/threads"]
+        assert result.urls == [f"{base}/{parent}", f"{base}/{child_path}"]
         assert result.queries == [{}, {}]
 
-    def test_thread_rows_carry_the_parent_conversation_id(self) -> None:
-        result = _run("threads", [_page("conversations", [{"id": 42}]), _page("threads", [{"id": 7, "body": "hi"}])])
+    @pytest.mark.parametrize(
+        "endpoint,parent,parent_key",
+        [("threads", "conversations", "conversation_id"), ("mailbox_fields", "mailboxes", "mailbox_id")],
+    )
+    def test_child_rows_carry_the_parent_id(self, endpoint: str, parent: str, parent_key: str) -> None:
+        result = _run(
+            endpoint,
+            [_page(parent, [{"id": 42}]), _page(HELP_SCOUT_ENDPOINTS[endpoint].embedded_key, [{"id": 7, "x": "y"}])],
+        )
 
         assert result.raised is None
-        assert result.rows == [{"conversation_id": 42, "id": 7, "body": "hi"}]
+        assert result.rows == [{parent_key: 42, "id": 7, "x": "y"}]
 
     def test_resume_seeds_fanout_state(self) -> None:
         state = {"completed": ["/conversations/1/threads"], "current": None, "child_state": None}
@@ -292,6 +325,46 @@ class TestThreadsFanout:
         )
 
 
+def _report_page(results: list[dict[str, Any]], page: int, pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"facets": {}, "results": results, "page": page, "count": 0, "pages": pages})
+
+
+class TestHappinessRatingsReport:
+    def test_walks_pages_until_the_last_page(self) -> None:
+        result = _run(
+            "happiness_ratings",
+            [
+                _report_page([{"id": 1, "threadid": 10}], page=1, pages=2),
+                _report_page([{"id": 2, "threadid": 20}], page=2, pages=2),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["threadid"] for row in result.rows] == [10, 20]
+        assert result.paths == ["/v2/reports/happiness/ratings", "/v2/reports/happiness/ratings"]
+        assert [request.param("page") for request in result.requests] == ["1", "2"]
+        first = result.requests[0]
+        assert first.param("start") == "2011-01-01T00:00:00Z"
+        assert first.param("end") is not None
+        assert first.param("sortField") == "number"
+        assert first.param("sortOrder") == "ASC"
+        # The window end stays fixed across pages so page offsets don't shift mid-sync.
+        assert result.requests[1].param("end") == first.param("end")
+        assert result.saved_states == [HelpScoutResumeConfig(page=2, report_end=first.param("end") or "")]
+
+    def test_resumes_from_saved_page_and_window(self) -> None:
+        result = _run(
+            "happiness_ratings",
+            [_report_page([{"id": 3, "threadid": 30}], page=3, pages=3)],
+            resume_state=HelpScoutResumeConfig(page=3, report_end="2024-05-01T00:00:00Z"),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("page") == "3"
+        assert result.requests[0].param("end") == "2024-05-01T00:00:00Z"
+        assert result.rows == [{"id": 3, "threadid": 30}]
+
+
 class TestSourceResponseShape:
     @pytest.mark.parametrize(
         "api_version,desc_endpoints",
@@ -303,9 +376,9 @@ class TestSourceResponseShape:
     )
     def test_response_metadata_per_top_level_endpoint(self, api_version: str, desc_endpoints: dict[str, str]) -> None:
         for endpoint in ENDPOINTS:
-            if endpoint == "threads":
-                continue
             config = HELP_SCOUT_ENDPOINTS[endpoint]
+            if config.fanout or config.is_report:
+                continue
             result = _run(endpoint, [_page(config.embedded_key, [])], api_version=api_version)
             response = result.response
 
@@ -314,8 +387,8 @@ class TestSourceResponseShape:
             assert response.name == endpoint
             assert response.primary_keys == config.primary_key
             assert response.sort_mode == desc_endpoints.get(endpoint, "asc")
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdAt"]
+            assert response.partition_mode == ("datetime" if config.partition_key else None)
+            assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
 
     def test_threads_response_uses_composite_primary_key(self) -> None:
         result = _run("threads", [_page("conversations", [])])
@@ -377,6 +450,7 @@ class TestValidateCredentials:
         [
             ("v2", "threads", f"{HELP_SCOUT_API_BASE}/conversations"),
             ("v3", "threads", f"{HELP_SCOUT_API_BASE_V3}/conversations"),
+            ("v3", "mailbox_fields", f"{HELP_SCOUT_API_BASE}/mailboxes"),
             ("v3", "customers", f"{HELP_SCOUT_API_BASE_V3}/customers"),
             ("v3", "mailboxes", f"{HELP_SCOUT_API_BASE}/mailboxes"),
             ("v3", None, f"{HELP_SCOUT_API_BASE}/users/me"),
@@ -390,3 +464,13 @@ class TestValidateCredentials:
 
         assert ok is True
         assert network.requests_log[0].url == expected_url
+
+    def test_report_probe_sends_a_window_and_maps_403_to_the_plan_error(self) -> None:
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            ok, error = validate_credentials("token", "v3", schema_name="happiness_ratings")
+
+        assert ok is False
+        assert error is not None and "Plus and Pro" in error
+        url = network.requests_log[0].url
+        assert url.startswith(f"{HELP_SCOUT_API_BASE}/reports/happiness/ratings?start=")
+        assert "&end=" in url

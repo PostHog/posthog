@@ -50,6 +50,8 @@ class GenesysCloudResumeConfig:
     window_start: Optional[str] = None
     # Listing endpoints: next page number to read.
     page_number: Optional[int] = None
+    # Scan endpoints: cursor of the next page to read. Genesys Cloud keeps a cursor for 24 hours.
+    cursor: Optional[str] = None
 
 
 def _validated_region(region: str) -> str:
@@ -233,6 +235,42 @@ def _iter_listing_rows(
         page_number += 1
 
 
+def _iter_scan_rows(
+    session: requests.Session,
+    base_url: str,
+    config: GenesysCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[GenesysCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    cursor = resume.cursor if resume is not None else None
+    sends_resumed_cursor = cursor is not None
+
+    url = f"{base_url}{config.path}"
+    while True:
+        params: dict[str, Any] = {**config.params, "limit": LISTING_PAGE_SIZE}
+        if cursor:
+            params["cursor"] = cursor
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        if sends_resumed_cursor and response.status_code in (400, 422):
+            # The saved cursor expired. Restarting here would append rows this run already loaded, so drop the
+            # cursor and fail: the retry then runs as a fresh full refresh.
+            resumable_source_manager.clear_state()
+        sends_resumed_cursor = False
+        response.raise_for_status()
+        data = response.json() or {}
+        entities = data.get("entities") or []
+        next_cursor = (data.get("cursors") or {}).get("after")
+        has_next_page = bool(entities) and bool(next_cursor)
+        if has_next_page:
+            resumable_source_manager.save_state(GenesysCloudResumeConfig(cursor=next_cursor))
+        if entities:
+            yield entities
+        if not has_next_page:
+            resumable_source_manager.clear_state()
+            return
+        cursor = next_cursor
+
+
 def genesys_cloud_source(
     region: str,
     client_id: str,
@@ -250,6 +288,8 @@ def genesys_cloud_source(
             yield from _iter_analytics_rows(
                 session, base_url, config, resumable_source_manager, db_incremental_field_last_value
             )
+        elif config.kind == "scan":
+            yield from _iter_scan_rows(session, base_url, config, resumable_source_manager)
         else:
             yield from _iter_listing_rows(session, base_url, config, resumable_source_manager)
 
@@ -286,7 +326,8 @@ def validate_credentials(
         else:
             response = session.get(
                 f"{base_url}{config.path}",
-                params={"pageSize": 1, "pageNumber": 1},
+                # The scan listings reject a limit below 10.
+                params={"limit": 10} if config.kind == "scan" else {"pageSize": 1, "pageNumber": 1},
                 timeout=VALIDATION_TIMEOUT_SECONDS,
             )
     except OAuth2AuthRequestError as e:

@@ -114,6 +114,19 @@ _MONGO_KEY_NOT_FOUND_MESSAGE = (
     "and ensure all replica set members are healthy, then try again."
 )
 
+# MongoDB OperationFailure code 125 (CommandFailed) with this errmsg comes from Atlas Data
+# Federation / Online Archive: the federated database's data source still names a cluster that
+# was since renamed or deleted from the Atlas project. The cluster name and project id are
+# variable, so match the fixed phrase between them rather than the whole sentence. A retry reads
+# the same stale data source config and fails the same way every time.
+_MONGO_CLUSTER_NOT_FOUND_MESSAGE = (
+    "MongoDB reported that the cluster this connection refers to no longer exists in your Atlas "
+    "project (MongoDB error code 125: CommandFailed). This happens when connecting through an "
+    "Atlas Data Federation or Online Archive endpoint whose data source still points at a cluster "
+    "that was renamed or deleted. Update the data source in your Federated Database Instance, or "
+    "connect with your cluster's regular connection string instead, then try again."
+)
+
 # Connection succeeded but nothing importable came back. This is usually a wrong-database or
 # permission problem rather than a genuinely empty database: a connection string ending in /admin
 # or /test lands on an empty system database, and a user without read access sees no collections.
@@ -312,6 +325,9 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # (timestamp, key id) is stable and unambiguous. Retrying the same cursor against the
             # same cluster always fails with the same error.
             "No keys found for HMAC": _MONGO_KEY_NOT_FOUND_MESSAGE,
+            # MongoDB OperationFailure code 125 (CommandFailed): an Atlas Data Federation / Online
+            # Archive data source still names a cluster that no longer exists in the project.
+            "not found in project": _MONGO_CLUSTER_NOT_FOUND_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:

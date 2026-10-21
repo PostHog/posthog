@@ -1,8 +1,11 @@
 import io
+import os
 import csv
 import gzip
-from datetime import UTC, datetime
+import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,18 +17,26 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.stub import Stubber
-from deltalake import write_deltalake
+from deltalake import DeltaTable, write_deltalake
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import formats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
+    delta,
+    formats,
+    source_base,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import iter_delta_tables
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
+    ObjectStorageDeltaCursor,
+    iter_delta_tables,
+    plan_delta_read,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
     group_tables,
@@ -50,9 +61,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_csv_tables,
+    iter_file_tables,
     iter_jsonl_tables,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import MAX_TABLES
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
+    FileSelection,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    JSONL_CHUNK_ROWS,
+    MAX_TABLES,
+    PARQUET_BATCH_ROWS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     iter_table,
     validate_store_location,
@@ -505,6 +524,180 @@ class TestReadTable:
         tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
+
+
+def _append(path: str) -> None:
+    write_deltalake(path, pa.table({"id": [3], "day": ["b"]}), mode="append")
+
+
+def _overwrite(path: str) -> None:
+    write_deltalake(path, pa.table({"id": [9], "day": ["c"]}), mode="overwrite")
+
+
+def _delete(path: str) -> None:
+    DeltaTable(path).delete("id = 1")
+
+
+def _append_then_compact(path: str) -> None:
+    _append(path)
+    DeltaTable(path).optimize.compact()
+
+
+class TestDeltaCursor:
+    @parameterized.expand(
+        [
+            ("no_cursor_reads_the_snapshot", None, [_append], False, [1, 2, 3], 1),
+            ("appends_read_only_the_new_files", "same", [_append], False, [3], 1),
+            ("an_unchanged_table_reads_nothing", "same", [], False, [], 0),
+            ("an_overwrite_rebuilds", "same", [_overwrite], True, [9], 1),
+            ("a_delete_rebuilds", "same", [_delete], True, [2], 1),
+            # Compaction keeps the rows but moves them to a new file, which an append would read twice.
+            ("a_compaction_rebuilds", "same", [_append_then_compact], True, [1, 2, 3], 2),
+            ("a_recreated_table_rebuilds", "other", [_append], True, [1, 2, 3], 1),
+            ("a_cursor_ahead_of_the_table_rebuilds", "ahead", [], True, [1, 2], 0),
+        ]
+    )
+    def test_plan(
+        self,
+        _name: str,
+        stored_cursor: str | None,
+        commits: list[Any],
+        expected_reset: bool,
+        expected_ids: list[int],
+        expected_version: int,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}), partition_by=["day"])
+            table_id = str(DeltaTable(path).metadata().id)
+            stored = {
+                None: None,
+                "same": ObjectStorageDeltaCursor(version=0, table_id=table_id),
+                "other": ObjectStorageDeltaCursor(version=0, table_id="another-table"),
+                "ahead": ObjectStorageDeltaCursor(version=5, table_id=table_id),
+            }[stored_cursor]
+            for commit in commits:
+                commit(path)
+
+            read = plan_delta_read(path, {}, "sales", stored=stored)
+            rows = [row for table in read.iter_tables(with_version=True) for row in table.to_pylist()]
+
+        assert read.reset_required is expected_reset
+        assert read.cursor == ObjectStorageDeltaCursor(version=expected_version, table_id=table_id)
+        assert sorted(row["id"] for row in rows) == expected_ids
+        # Rows read from a subset of the files keep the partition column and carry the version.
+        assert all(set(row) == {"id", "day", "_delta_version"} for row in rows)
+        assert {row["_delta_version"] for row in rows} <= {expected_version}
+
+    def test_a_cleaned_up_version_rebuilds(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "sales")
+        write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
+        table_id = str(DeltaTable(path).metadata().id)
+        _append(path)
+        DeltaTable(path).create_checkpoint()
+        # Log cleanup removes the entries before the checkpoint, so version 0 can no longer be loaded.
+        (Path(path) / "_delta_log" / f"{0:020d}.json").unlink()
+
+        read = plan_delta_read(path, {}, "sales", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id))
+
+        assert read.reset_required is True
+
+    def test_a_storage_failure_loading_the_stored_version_propagates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = str(tmp_path / "sales")
+        write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
+        table_id = str(DeltaTable(path).metadata().id)
+        _append(path)
+
+        def flaky_table(uri: str, version: int | None = None, **kwargs: Any) -> DeltaTable:
+            if version is not None:
+                raise OSError("Generic S3 error: request timed out")
+            return DeltaTable(uri, **kwargs)
+
+        monkeypatch.setattr(delta, "DeltaTable", flaky_table)
+
+        # A transient failure must be retried, not turned into a rebuild of the whole table.
+        with pytest.raises(OSError, match="timed out"):
+            plan_delta_read(path, {}, "sales", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id))
+
+
+class TestFileSelection:
+    @parameterized.expand(
+        [
+            (
+                "changed_files_include_the_watermark_and_come_oldest_first",
+                "changed",
+                1,
+                10,
+                ["b.csv", "c.csv", "a.csv"],
+            ),
+            ("new_files_exclude_the_watermark", "new", 1, 10, ["a.csv"]),
+            ("a_first_append_reads_every_settled_file", "new", None, 10, ["d.csv", "b.csv", "c.csv", "a.csv"]),
+            # The newest file is 30 seconds old, so another file could still get its timestamp.
+            ("an_append_leaves_a_file_that_just_landed_for_the_next_sync", "new", 1, 2.5, []),
+            ("a_changed_sync_reads_a_file_that_just_landed", "changed", 2, 2.5, ["a.csv"]),
+        ]
+    )
+    def test_select(
+        self, _name: str, mode: Any, watermark_minutes: int | None, now_minutes: float, expected: list[str]
+    ) -> None:
+        def at(minutes: float) -> datetime:
+            return MODIFIED_AT + timedelta(minutes=minutes)
+
+        files = [
+            StoredObject(path="a.csv", size=1, modified_at=at(2)),
+            StoredObject(path="c.csv", size=1, modified_at=at(1)),
+            StoredObject(path="b.csv", size=1, modified_at=at(1)),
+            StoredObject(path="d.csv", size=1, modified_at=at(0)),
+        ]
+        selection = FileSelection(mode=mode, watermark=None if watermark_minutes is None else at(watermark_minutes))
+
+        assert [stored.path for stored in selection.select(files, now=at(now_minutes))] == expected
+
+    def test_the_append_settle_window_counts_from_before_the_listing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        listing_started_at = MODIFIED_AT + timedelta(minutes=10)
+
+        monkeypatch.setattr(source_base, "datetime", SimpleNamespace(now=lambda tz=None: listing_started_at))
+        for name, age in (("settled.csv", timedelta(minutes=2)), ("fresh.csv", timedelta(seconds=30))):
+            (tmp_path / name).write_bytes(b"id\n1\n")
+            modified = (listing_started_at - age).timestamp()
+            os.utime(tmp_path / name, (modified, modified))
+        store = local_store(tmp_path)
+        [table] = group_tables(
+            store.list_objects("", 10), DiscoveryOptions(combined_table_name="orders"), root_name="root"
+        )
+
+        # The real clock is years past both files, so only a cutoff taken before listing leaves the fresh one out.
+        rows = [
+            row
+            for batch in iter_table(store, table, LOGGER, FileSelection(mode="new", watermark=MODIFIED_AT))
+            for row in batch.to_pylist()
+        ]
+
+        assert {row["_file_name"] for row in rows} == {"settled.csv"}
+
+    def test_row_numbers_continue_across_the_chunks_of_one_file(self) -> None:
+        rows = JSONL_CHUNK_ROWS + 3
+        content = b"".join(b'{"n":%d}\n' % number for number in range(rows))
+
+        tables = list(iter_file_tables(io.BytesIO(content), stored("big.jsonl"), "jsonl", CsvOptions()))
+
+        assert len(tables) == 2
+        assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
+
+    def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
+        rows = PARQUET_BATCH_ROWS + 3
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"n": list(range(rows))}), buffer)
+        content = gzip.compress(buffer.getvalue())
+
+        tables = list(iter_file_tables(io.BytesIO(content), stored("big.parquet.gz"), "parquet", CsvOptions()))
+
+        assert len(tables) == 2
+        assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
 
 
 class TestLocationAndErrors:

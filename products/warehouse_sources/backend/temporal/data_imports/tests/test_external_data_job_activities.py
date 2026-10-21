@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -450,6 +451,13 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.MATOMO,
             "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
             MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+        ),
+        # A Redshift cluster that never answered the connect keeps its schedule.
+        (
+            "redshift_connect_timeout",
+            ExternalDataSourceType.REDSHIFT,
+            "connection timeout expired",
+            RedshiftSource().get_retry_exhausted_errors()["connection timeout expired"],
         ),
     ]
 )

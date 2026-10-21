@@ -76,8 +76,6 @@ def test_celery_cache_warming_workload_routing(client_from_pool, access_method, 
         sync_execute("SELECT 1", flush=False)
 
     assert client_from_pool.call_args[0][0] == expected_workload
-    client = client_from_pool.return_value.__enter__.return_value
-    assert client.execute.call_args.kwargs["settings"].get("use_hedged_requests") == "0"
 
 
 @pytest.mark.parametrize(

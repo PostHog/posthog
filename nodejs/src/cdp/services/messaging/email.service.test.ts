@@ -1042,8 +1042,18 @@ describe('EmailService', () => {
             )
         })
 
-        it('should send an email if verified', async () => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        it.each([
+            ['an ordinary template', {}, [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }]],
+            [
+                'a sensitive template',
+                { sensitive: true },
+                [
+                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+                    { Name: 'ph_sensitive', Value: 'true' },
+                ],
+            ],
+        ])('should send an email if verified, for %s', async (_name, extraMetadata, expectedTags) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -1063,7 +1073,7 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
@@ -1779,28 +1789,36 @@ describe('EmailService', () => {
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
         })
 
-        it('should capture a $workflows_email_sent PostHog event on success', async () => {
-            // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
-            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
-                true
-            )
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            expect(result.capturedPostHogEvents).toHaveLength(1)
-            expect(result.capturedPostHogEvents[0]).toMatchObject({
-                team_id: team.id,
-                distinct_id: 'distinct_id',
-                event: '$workflows_email_sent',
-                properties: {
-                    $workflow_id: invocation.functionId,
-                    $workflow_action_id: invocation.state.actionId,
-                    $email_to: 'test@example.com',
-                    $email_subject: 'Test Subject',
-                    $email_tracking_enabled: true,
-                },
-            })
-        })
+        it.each([
+            ['an ordinary template', {}, 'Test Subject'],
+            ['a sensitive template', { sensitive: true }, undefined],
+        ])(
+            'should capture a $workflows_email_sent PostHog event on success, for %s',
+            async (_name, extraMetadata, subject) => {
+                // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(true)
+                invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.capturedPostHogEvents).toHaveLength(1)
+                expect(result.capturedPostHogEvents[0]).toMatchObject({
+                    team_id: team.id,
+                    distinct_id: 'distinct_id',
+                    event: '$workflows_email_sent',
+                    properties: {
+                        $workflow_id: invocation.functionId,
+                        $workflow_action_id: invocation.state.actionId,
+                        $email_to: 'test@example.com',
+                        $email_tracking_enabled: true,
+                    },
+                })
+                expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+            }
+        )
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
             // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.

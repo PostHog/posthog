@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -22,6 +23,12 @@ TODAY = date.today()
 NOW = datetime.combine(TODAY, time(hour=9), tzinfo=UTC)
 BEFORE_THE_WINDOW = NOW - timedelta(days=2 * RULES.window_days)
 SCENES = ("SQLEditor", "Dashboard")
+INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+DAILY_COUNT_COLUMNS = {
+    "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
+}
 FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 
@@ -47,6 +54,9 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
     def test_proposes_each_kind_from_a_month_of_reads_and_surfaces_them(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
         busy, busy_node = self._view("busy_orders", dag)
+        DataWarehouseSavedQuery.objects.filter(id=busy.id).update(
+            query={"kind": "HogQLQuery", "query": DAILY_COUNTS}, columns=DAILY_COUNT_COLUMNS
+        )
         for name, properties in [("events", {"origin": "posthog"}), ("legacy_orders", {})]:
             table = Node.objects.create(team=self.team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
             Edge.objects.create(team=self.team, dag=dag, source=table, target=busy_node)
@@ -72,7 +82,8 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        with patch(INCREMENTAL_FLAG, return_value=True):
+            result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(
@@ -93,6 +104,11 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
         materialize = WarehouseSuggestion.objects.for_team(self.team.pk).get(kind=WarehouseSuggestionKind.MATERIALIZE)
         assert (materialize.payload["refresh_interval_seconds"], materialize.run_id) == (24 * 60 * 60, "run-1")
         assert [source["name"] for source in materialize.payload["live_sources"]] == ["events"]
+        assert (
+            materialize.payload["refresh_mode"],
+            materialize.payload["incremental_key"],
+            materialize.payload["unique_key"],
+        ) == ("incremental", "day", ["day"])
 
     @parameterized.expand(
         [

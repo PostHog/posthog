@@ -15,6 +15,11 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   The read-only endpoint is `GET /api/projects/:id/signals/scout/configs/tool_catalogue/` in `views.py`.
   It omits superseded tools and reports scope requirements and feature conditions.
   Callers must evaluate feature flags for the project.
+  `scout_held_mcp_tools` is the one answer to what a narrowed run holds: the picked list, `SCOUT_RUN_CONTEXT_TOOLS`, and the always-available tools.
+- `tool_policy.py`
+  Refuses API writes a narrowed run did not pick a tool for. The runner stamps `allowed_mcp_tools` on `Task.state` (`mcp_tool_allowlist`) while `scouts-tool-access` is on, and `APIScopePermission` calls `scout_tool_denial` through `facade/tool_policy.py` for every request from a task-bound token.
+  A non-GET request, or one that needs a write scope, passes only when its path and view match an `api_operations` entry of a held tool (`posthog/mcp_tool_operations.py`) or of `SANDBOX_HARNESS_OPERATIONS`. The method counts because some actions change state behind a read scope.
+  A new non-GET endpoint the agent server or harness calls with the run's token belongs in `SANDBOX_HARNESS_OPERATIONS`. A hand-written MCP tool that makes a non-GET call lists its endpoints in `services/mcp/schema/tool-definitions.json`.
 
 - `runner.py`
   Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session, pumps the agent loop until budget exhaustion or natural completion, finalizes the run, and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py` delegates straight to this.
@@ -226,3 +231,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   Metrics default to `date_from: "-13d"` with a daily interval. This gives 14 inclusive buckets, including today. A longer window keeps only the trailing 14 strip buckets, while the whole-window value covers the full window. Do not author comparisons. Non-currency units are lowercase. Currency units use uppercase ISO codes such as `USD`.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`) to match.**
 - **If you change the harness layout or tool surface, update this file to match.**
+
+### Narrowed scout API writes
+
+`tool_policy.py` checks held tools at the API boundary, including soft-delete payloads on shared PATCH endpoints. Harness and scout run writes must target the token-bound task’s current run; report artefacts are not a harness bypass. `test_scout_tool_policy.py` covers these boundaries and nested skill file paths.

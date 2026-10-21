@@ -23,6 +23,11 @@ logger = structlog.get_logger(__name__)
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
+_REPEAT_ENTRY_SECONDS = 7 * 24 * 60 * 60
+# Above this many trigger events a week, a first send would hit the team's email limits and its sender reputation,
+# so the draft starts on a random sample that brings the volume down to about this level.
+_SAMPLE_ABOVE_WEEKLY_EVENTS = 50_000
+_SAMPLE_ID = "action_sample"
 
 
 @frozen
@@ -42,6 +47,7 @@ class BuildContext:
     slack_integration_id: int | None
     once_per_person: bool = False
     event_properties: frozenset[str] = frozenset()
+    weekly_count: int = 0
 
 
 @frozen
@@ -98,6 +104,14 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
         {"id": "trigger_node", "name": "Trigger", "description": "", "type": "trigger", "config": trigger_config}
     ]
     edges: list[dict[str, Any]] = [{"from": "trigger_node", "to": action_ids[plan.first_step], "type": "continue"}]
+    if context.weekly_count > _SAMPLE_ABOVE_WEEKLY_EVENTS:
+        actions.append(_sample_action(context.weekly_count))
+        edges = [
+            {"from": "trigger_node", "to": _SAMPLE_ID, "type": "continue"},
+            {"from": _SAMPLE_ID, "to": action_ids[plan.first_step], "type": "branch", "index": 0},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "branch", "index": 1},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "continue"},
+        ]
     uses_saved_template = False
     for step in steps:
         action = _build_step(step, action_ids[step.id], context)
@@ -131,14 +145,30 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "edges": edges,
             "conversion": {"filters": [], "window_minutes": None},
             "exit_condition": "exit_only_at_end",
-            # A person who repeats a welcome or onboarding event would otherwise start the whole sequence again.
-            **(
-                {"trigger_masking": {"hash": "{person.id}", "ttl": None, "threshold": None}}
-                if context.once_per_person
-                else {}
-            ),
+            # A person who repeats the trigger event would otherwise start the sequence again and get every email again.
+            "trigger_masking": {
+                "hash": "{person.id}",
+                "ttl": None if context.once_per_person else _REPEAT_ENTRY_SECONDS,
+                "threshold": None,
+            },
         },
     )
+
+
+def _sample_action(weekly_count: int) -> dict[str, Any]:
+    share = max(1, _SAMPLE_ABOVE_WEEKLY_EVENTS * 100 // weekly_count)
+    return {
+        "id": _SAMPLE_ID,
+        "name": "Start with a sample",
+        "description": f"Sends to {share}% of people first. Raise it once the first emails land well.",
+        "type": "random_cohort_branch",
+        "config": {
+            "cohorts": [
+                {"percentage": share, "name": "Gets the workflow"},
+                {"percentage": 100 - share, "name": "Skipped for now"},
+            ]
+        },
+    }
 
 
 def _log_rejection(reason: str, **details: Any) -> None:

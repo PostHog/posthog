@@ -190,6 +190,7 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
         description=issue.description,
         status=issue.status,
         severity=issue.severity,
+        first_seen=getattr(issue, "first_seen", None),
     )
 
 

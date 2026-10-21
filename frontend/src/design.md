@@ -194,6 +194,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Select: fixed options, no text input, up to ~15 items
   - Select and Combobox triggers follow the button size rule. Their popup items are always default size, so an `sm` trigger opens a menu bigger than itself. This includes a `Button` that opens a picker
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
+  - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
 - Picking an action:
   - DropdownMenu: click-triggered list of actions
@@ -360,7 +361,13 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 ## 8. Accessibility
 
-- <TODO>
+- Every action in a popup works from the keyboard alone: open the popup, reach each row with the arrow keys, and run it with Enter
+- A Combobox keeps focus in its search field, so the arrow keys move only through its items and Tab never leaves the field. A Button in `ComboboxListFooter` is therefore out of reach. Put an action such as "Settings" or "New project" in the list as a `ComboboxItem`, in a last group after a `ComboboxSeparator`
+  - Branch on the action's value in `onValueChange`, and keep the action out of the selected value
+  - A search must never hide the actions. When a logic already filters the items, pass `filter={null}`. Otherwise pass a `filter` that always keeps the actions
+  - When no other item matches, the action group's label says so. `ComboboxEmpty` never shows while the actions are in the list
+  - Precedent: `layout/today/TodaySwitcherMenu` (the org and project switchers)
+- Before handoff, drive each popup you touched with the keyboard only: open it, arrow to every row, and press Enter on each action
 
 ## 9. Review before handoff
 

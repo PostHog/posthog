@@ -6,6 +6,7 @@ pub mod fence;
 pub mod fencing;
 pub mod inflight;
 pub mod kafka;
+pub mod migration;
 pub mod person_update;
 pub mod pg;
 pub mod producer_stats;

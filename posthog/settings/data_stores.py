@@ -640,6 +640,15 @@ WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every

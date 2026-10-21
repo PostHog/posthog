@@ -81,8 +81,8 @@ def candidate_metadata(
 ) -> dict[str, Any]:
     """The `metadata.json` of a `family` candidate, in the layout of the per-head families.
 
-    The heads carry the same metric fields as a booster's (`train_head` and this trainer both fill
-    `HeadMetrics`), so the promotion rule, the events and the manifest read every family alike.
+    The heads carry the metric fields of `HeadMetrics`, the fields the per-head booster families
+    wrote, so the promotion rule, the events and the manifest read every family alike.
     """
     feature_set = family.feature_set
     metadata = {

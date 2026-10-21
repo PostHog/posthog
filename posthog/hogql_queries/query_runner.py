@@ -55,8 +55,6 @@ from posthog.schema import (
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
@@ -628,8 +626,6 @@ RunnableQueryNode = Union[
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationActorsQuery,
     InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,
@@ -941,7 +937,6 @@ def get_query_runner(
     if kind in (
         "InsightActorsQuery",
         "FunnelsActorsQuery",
-        "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
@@ -961,17 +956,6 @@ def get_query_runner(
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-            user=user,
-        )
-    if kind == "FunnelCorrelationQuery":
-        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
-
-        return FunnelCorrelationQueryRunner(
-            query=cast(FunnelCorrelationQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1845,10 +1829,6 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
-    # so that the correlation reads the same events table and person data as that funnel.
-    if isinstance(query, FunnelCorrelationQuery):
-        return query.source.source.modifiers
     return getattr(query, "modifiers", None)
 
 

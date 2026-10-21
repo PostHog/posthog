@@ -620,17 +620,9 @@ impl RawProxyInner {
             Err(resp) => return (resp, None),
         };
 
-        let partition = leader.partition_for_person(team_id, person_id);
-
         let _in_flight = ClientInFlightGuard::new("leader");
         leader
-            .forward_or_stash(
-                method,
-                partition,
-                (team_id, person_id),
-                parts.headers,
-                body_bytes,
-            )
+            .forward_or_stash(method, (team_id, person_id), parts.headers, body_bytes)
             .await
     }
 }

@@ -108,6 +108,14 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
     return `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email too large to capture</h3><p style="margin:0">The rendered email was ${mb}&nbsp;MB, which exceeds the ${MAX_HTML_BYTES / 1024 / 1024}&nbsp;MB capture limit. The send itself succeeded — this placeholder is stored so the &ldquo;View email&rdquo; link works, but the original body is not viewable here.</p></div>`
 }
 
+// Stored instead of the body when the template is marked sensitive, so the person view still shows the send.
+const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. Its template is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
+
+const sensitiveSubject = (invocation: CyclotronJobInvocationHogFunction): string => {
+    const subject = invocation.hogFunction.inputs?.email?.value?.subject
+    return typeof subject === 'string' ? subject : 'Subject not stored'
+}
+
 /**
  * Buffers rendered-email snapshots and flushes them as a single bulk Kafka
  * produce at the batch boundary — one round-trip per partition for the whole
@@ -138,8 +146,11 @@ export class MessageAssetsService {
             return null
         }
         const bodyBytes = Buffer.byteLength(body, 'utf8')
+        const sensitive = invocation.hogFunction.metadata?.sensitive === true
         let html = body
-        if (bodyBytes > MAX_HTML_BYTES) {
+        if (sensitive) {
+            html = SENSITIVE_PLACEHOLDER_HTML
+        } else if (bodyBytes > MAX_HTML_BYTES) {
             counterMessageAssetsTruncated.inc()
             html = oversizedPlaceholderHtml(bodyBytes)
         }
@@ -154,7 +165,9 @@ export class MessageAssetsService {
             distinct_id: resolveEmailEngagementDistinctId(invocation) ?? '',
             person_id: invocation.state.globals.person?.id ?? '',
             recipient: params.to.email,
-            subject: params.subject,
+            // A sensitive template's rendered subject can carry a login code, so the row keeps the unrendered
+            // template subject, which still names the email without the values.
+            subject: sensitive ? sensitiveSubject(invocation) : params.subject,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),

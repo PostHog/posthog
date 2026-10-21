@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { router } from 'kea-router'
 import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -14,13 +13,7 @@ import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
-import {
-    INBOX_SECTION_LEGACY_TAB,
-    InboxReportSectionKey,
-    SignalReport,
-    SignalReportStatus,
-    SignalSourceProduct,
-} from '../../types'
+import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
@@ -31,10 +24,8 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
-import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     knownSourceProductEntries,
     SourceProductIconRow,
@@ -108,16 +99,14 @@ export function InboxCardSourceMeta({
  * "Review" action; plain reports get a dashed border, a summary placeholder, and the
  * status/actionability chips.
  *
- * Under the redesign the row itself is the way in: the whole card links to the report detail, so
- * there is no separate open button. Dismissing and resolving live in the report detail pane and the
- * bulk selection bar, where what is being judged is in full view. Other surfaces that embed this
- * card can still opt into a row-level Dismiss via `onDismiss`. The redesign also drops the status
- * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
- * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
+ * The row itself is the way in: the whole card links to the report detail, so there is no separate
+ * open button. Dismissing and resolving live in the report detail pane and the bulk selection bar,
+ * where what is being judged is in full view. Other surfaces that embed this card can still opt
+ * into a row-level Dismiss via `onDismiss`. Rows show no status or actionability chips: the state a
+ * row is in (Needs decision, Not actionable, ...) already says what they said.
  */
 function ReportCardRaw({
     report,
-    sectionKey = 'needs-decision',
     attached = false,
     onDismiss,
     onRestore,
@@ -128,7 +117,6 @@ function ReportCardRaw({
     timestampField = 'updated_at',
 }: {
     report: SignalReport
-    sectionKey?: InboxReportSectionKey
     attached?: boolean
     /** Dismiss from the row. The inbox list omits it; surfaces that embed this card can opt in. */
     onDismiss?: (dismissal: DismissalFeedback) => void
@@ -145,8 +133,6 @@ function ReportCardRaw({
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
 }): JSX.Element {
-    // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
-    // through one section key, and the two need different affordances.
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
     // section. They can't be restored or dismissed; refunding their PR lives in the detail pane.
@@ -163,17 +149,10 @@ function ReportCardRaw({
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    // The impact column carries its own flag on top of the redesign: its figures come from live
-    // queries, so it rolls out per team as the metric quality is verified.
-    const showImpactColumn = redesign && metricsEnabled
-    // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
-    const detailUrl = inboxReportDetailUrl(
-        report.id,
-        backUrl,
-        redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
-    )
+    // The impact column carries its own flag: its figures come from live queries, so it rolls out
+    // per team as the metric quality is verified.
+    const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const detailUrl = inboxReportDetailUrl(report.id, backUrl)
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -198,7 +177,7 @@ function ReportCardRaw({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
-    const showsDismiss = !!onDismiss || !redesign
+    const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
     // on dismissed rows, and a resolve reason on rows resolved by hand. A report that was dismissed,
@@ -277,17 +256,6 @@ function ReportCardRaw({
                 >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                    {!hasPr &&
-                        !redesign &&
-                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                            <SignalReportStatusBadge
-                                status={report.status}
-                                suppressionSource={report.suppression_source}
-                            />
-                        )}
-                    {!hasPr && !redesign && report.actionability && (
-                        <SignalReportActionabilityBadge actionability={report.actionability} />
-                    )}
                     {outcomeLabel && (
                         <Tooltip title={outcomeTooltip}>
                             <LemonTag
@@ -375,7 +343,7 @@ function ReportCardRaw({
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
                 dismissed report can't be restored, so neither carries actions – skip the column (and
                 divider) for both. */}
-            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss || !redesign) && (
+            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isDismissed ? (
                         // A refunded report can't be restored (its PR can never be billed again).
@@ -396,41 +364,18 @@ function ReportCardRaw({
                             </LemonButton>
                         )
                     ) : (
-                        <>
-                            {showsDismiss && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconHide />}
-                                    tooltip="Dismiss this report"
-                                    aria-label="Dismiss this report"
-                                    loading={isDismissing}
-                                    onClick={preview ? undefined : onDismissClick}
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Dismiss
-                                </LemonButton>
-                            )}
-                            {!redesign && (
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    tooltip="Open the full report to see its summary, evidence, and actions"
-                                    onClick={
-                                        preview
-                                            ? undefined
-                                            : (event) => {
-                                                  event.preventDefault()
-                                                  event.stopPropagation()
-                                                  router.actions.push(detailUrl)
-                                              }
-                                    }
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Review
-                                </LemonButton>
-                            )}
-                        </>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconHide />}
+                            tooltip="Dismiss this report"
+                            aria-label="Dismiss this report"
+                            loading={isDismissing}
+                            onClick={preview ? undefined : onDismissClick}
+                            tabIndex={preview ? -1 : undefined}
+                        >
+                            Dismiss
+                        </LemonButton>
                     )}
                 </div>
             )}

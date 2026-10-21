@@ -893,7 +893,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "Checkout drop",
                     "*In progress*",
                     "0 signals",
-                    "Fewer orders",
+                    "/static/icons/self-driving.png",
                 ]
         raise ValueError(kind)
 
@@ -1120,7 +1120,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             if block["type"] == "section":
                 parts.extend(field["text"] for field in [block.get("text"), *block.get("fields", [])] if field)
             elif block["type"] == "context":
-                parts.extend(element["text"] for element in block["elements"])
+                parts.extend(element.get("text") or element["image_url"] for element in block["elements"])
             elif block["type"] == "actions":
                 parts.extend(element["text"]["text"] for element in block["elements"])
         return "\n".join(parts)

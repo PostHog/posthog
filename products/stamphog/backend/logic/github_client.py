@@ -12,7 +12,8 @@ just supplies its own ``Authorization`` header and the installation id as the bu
 import time
 import base64
 import binascii
-from datetime import datetime
+from dataclasses import field
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -23,6 +24,9 @@ import jwt
 import requests
 import structlog
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
@@ -194,9 +198,31 @@ def _parse_review_thread_comments(comment_nodes: list) -> list[dict]:
     ]
 
 
-def _app_private_key() -> str:
+@frozen
+class _AppJwtCredentials:
+    client_id: str
+    private_key: str = field(repr=False)
+
+
+@cache_for(timedelta(minutes=5))
+def _app_jwt_credentials() -> _AppJwtCredentials:
+    """The App's client id and private key, read from the credentials service.
+
+    Cached because an App JWT is signed for every installation token. A rotated key reaches each
+    process within five minutes, and GitHub accepts more than one private key per App, so the old key
+    stays valid for that time.
+    """
+    values = get_many_or_settings(
+        ["STAMPHOG_GITHUB_APP_CLIENT_ID", "STAMPHOG_GITHUB_APP_PRIVATE_KEY"], CredentialsCaller.STAMPHOG
+    )
+    return _AppJwtCredentials(
+        client_id=values["STAMPHOG_GITHUB_APP_CLIENT_ID"], private_key=values["STAMPHOG_GITHUB_APP_PRIVATE_KEY"]
+    )
+
+
+def _app_private_key(credentials: _AppJwtCredentials) -> str:
     """The Stamphog App private key, with escaped newlines restored (env vars often carry ``\\n``)."""
-    key = settings.STAMPHOG_GITHUB_APP_PRIVATE_KEY
+    key = credentials.private_key
     if not key:
         raise StamphogGitHubError("STAMPHOG_GITHUB_APP_PRIVATE_KEY is not configured")
     return key.replace("\\n", "\n").strip()
@@ -212,14 +238,15 @@ def _build_app_jwt() -> str:
     # Client id is the preferred issuer (matches the core GitHub integration); the app id fallback
     # covers workers whose chart predates the client id env. Drop the fallback once every worker
     # deploy ships STAMPHOG_GITHUB_APP_CLIENT_ID.
-    issuer = settings.STAMPHOG_GITHUB_APP_CLIENT_ID or settings.STAMPHOG_GITHUB_APP_ID
+    credentials = _app_jwt_credentials()
+    issuer = credentials.client_id or settings.STAMPHOG_GITHUB_APP_ID
     if not issuer:
         raise StamphogGitHubError("Neither STAMPHOG_GITHUB_APP_CLIENT_ID nor STAMPHOG_GITHUB_APP_ID is configured")
     now = int(time.time())
     try:
         return jwt.encode(
             {"iat": now - 60, "exp": now + 540, "iss": str(issuer)},
-            _app_private_key(),
+            _app_private_key(credentials),
             algorithm="RS256",
         )
     except Exception as exc:
@@ -241,8 +268,11 @@ def exchange_oauth_code_for_user_token(code: str) -> str | None:
     Stamphog's *own* client id/secret. Returns the user access token, or ``None`` when the creds are
     unset or GitHub rejects the code — callers must treat ``None`` as "unverified" and fail closed.
     """
-    client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
-    client_secret = settings.STAMPHOG_GITHUB_APP_CLIENT_SECRET
+    values = get_many_or_settings(
+        ["STAMPHOG_GITHUB_APP_CLIENT_ID", "STAMPHOG_GITHUB_APP_CLIENT_SECRET"], CredentialsCaller.STAMPHOG
+    )
+    client_id = values["STAMPHOG_GITHUB_APP_CLIENT_ID"]
+    client_secret = values["STAMPHOG_GITHUB_APP_CLIENT_SECRET"]
     if not client_id or not client_secret:
         # No creds means we can't verify ownership, so we must not bind anything.
         logger.warning("stamphog github: STAMPHOG_GITHUB_APP_CLIENT_ID/SECRET unset, cannot verify installation")

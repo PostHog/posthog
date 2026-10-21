@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { Text } from '@posthog/quill'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { TeamMembershipLevel } from 'lib/constants'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -10,6 +12,7 @@ import type { InsightDataCheckApi } from 'products/product_analytics/frontend/ge
 
 import { filterCheckParts } from './dataCheckText'
 import { ExcludeFromFilterButton } from './ExcludeFromFilterButton'
+import { ExcludeFromInsightButton } from './ExcludeFromInsightButton'
 import { FixWithPostHogAIButton } from './FixWithPostHogAIButton'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 import { NotCaughtByFilter } from './NotCaughtByFilter'
@@ -25,6 +28,10 @@ export function FilterCheckDetails({
     const { filtersTestAccounts, filterRemovesBots, queryFiltersTestAccounts } = useValues(logic)
     const { setFiltersTestAccounts } = useActions(logic)
     const { caught, missed } = filterCheckParts(check, filtersTestAccounts, filterRemovesBots)
+    const canEditFilter = !useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <div className="flex w-full flex-col gap-3">
@@ -56,9 +63,14 @@ export function FilterCheckDetails({
                         <ExcludeFromFilterButton
                             insightProps={insightProps}
                             check={check}
-                            label={missed.excludeLabel}
+                            canEditFilter={canEditFilter}
                         />
-                        <FixWithPostHogAIButton insightProps={insightProps} check={check} />
+                        {/* PostHog AI would change the project's filter, which only admins may change here. */}
+                        {canEditFilter ? (
+                            <FixWithPostHogAIButton insightProps={insightProps} check={check} />
+                        ) : (
+                            <ExcludeFromInsightButton insightProps={insightProps} check={check} />
+                        )}
                     </div>
                 </div>
             )}

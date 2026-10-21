@@ -415,7 +415,8 @@ _INBOX_SEARCH_RECIPE = (
     "Call `inbox-reports-list`, filtering or searching by the entity, error, or topic, with "
     "`ordering=-updated_at` (the default ordering buckets by your own reviewer-match and status first, so "
     "the most recent duplicate can sort below older rows) and `include_all_statuses=true` (statuses hidden "
-    "by default, human-dismissed ones especially, show up too). Read each row's `status` before deciding, "
+    "by default, human-dismissed ones especially, show up too), and `include_unlisted=true` (reports kept out of "
+    "the inbox, your own included, show up too). Read each row's `status` before deciding, "
     "and read the closest matches in full with `inbox-reports-retrieve`. Don't filter by "
     "`source_product=<your product>`: a report you authored persists its backing signals under "
     "`source_product=signals_scout`, so a product-named filter matches none of your own reports."
@@ -874,6 +875,11 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
     "hog_flow_proposal:write": "suggested changes to workflows, which a person approves or rejects",
     "canvas:write": "canvases",
 }
+
+
+_NARROWED_TOOLS_SECTION = """# Your tools
+
+This scout's owner picked the PostHog MCP tools it may use. A tool that was not picked comes back refused with `tool_not_granted`, and an API write outside those tools comes back with `scout_tool_not_granted`. These refusals are final: do not retry under another tool name or through the API. Say in your close-out what you could not do."""
 
 
 def _write_access_section(write_scopes: Sequence[str]) -> str:
@@ -1406,6 +1412,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     write_scopes: Sequence[str] | None = None,
+    tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
@@ -1472,6 +1479,9 @@ def build_run_prompt(
     the same allowlist), because the section it renders tells the scout it may change those objects.
     Empty or None renders nothing, so a scout with the fleet posture is never steered at a write the
     MCP server would refuse.
+
+    `tool_allowlist_narrowed` is True when the run is stamped with a picked tool list. It renders one
+    short section, so the scout treats a refused write as final instead of retrying it another way.
 
     `project_has_governed_metrics` is the harness-side check that the team has at least one
     approved, non-drifted metric the run's acting user may see. True renders a short nudge that the
@@ -1569,6 +1579,7 @@ def build_run_prompt(
             _governed_metrics_section(project_has_governed_metrics),
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",
             write_access_section,
+            _NARROWED_TOOLS_SECTION if tool_allowlist_narrowed else "",
             checkout_section,
             structured_output_section,
             run_identity,

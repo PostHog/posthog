@@ -31,7 +31,6 @@ import {
     ActorsQuery,
     DataTableNode,
     ExperimentActorsQuery,
-    FunnelCorrelationActorsQuery,
     FunnelsActorsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
@@ -141,13 +140,7 @@ function buildFunnelBreakdownFilter(source: ActorsQuery['source'] | null): Unive
 }
 
 export interface PersonModalLogicProps {
-    query?:
-        | InsightActorsQuery
-        | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
-        | ExperimentActorsQuery
-        | PathsV2ActorsQuery
-        | null
+    query?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]

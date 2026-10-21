@@ -468,6 +468,9 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // workflow id still keeps a sensitive run's message data out of its snapshot.
+    sensitive?: boolean
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -541,6 +544,9 @@ export type HogFlowInvocationContext = {
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
     conversionMatched?: boolean
+    // Set once the membership table has caught up with the change that started a cohort-triggered run.
+    // The writer that fills the table lags the trigger, so a mismatch read before this means a pending write.
+    cohortTriggerConfirmed?: boolean
     // Once-per-run guard for the property-based conversion metric. Executor-owned:
     // shouldExitEarly runs on every resume, so without this a persistently-true
     // conversion filter would emit a `conversion` metric on every step. Event-based

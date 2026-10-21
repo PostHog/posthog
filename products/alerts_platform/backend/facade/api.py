@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    DestinationSend,
     HandbackRefusal,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -20,13 +21,19 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
+    PlatformAlertSnapshot,
     PlatformAlertUpsert,
     PlatformCheckEventPage,
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import (
+    destination_sends,
+    platform_lifecycle,
+    platform_reads,
+    platform_writes,
+)
 
 
 def due_checks(
@@ -100,10 +107,22 @@ def disable_configurations(
 
 
 def list_configurations(
-    *, team_id: int, source_kinds: Sequence[str], limit: int, offset: int
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    limit: int,
+    offset: int,
+    legacy_configuration_id: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
-    """One page of configurations a caller may read, with the total behind it."""
-    return platform_reads.list_configurations(team_id=team_id, source_kinds=source_kinds, limit=limit, offset=offset)
+    """One page of configurations a caller may read, with the total behind it. With a
+    `legacy_configuration_id`, only the copy of that source row."""
+    return platform_reads.list_configurations(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        limit=limit,
+        offset=offset,
+        legacy_configuration_id=legacy_configuration_id,
+    )
 
 
 def get_configuration(
@@ -164,6 +183,43 @@ def update_configuration(
     )
 
 
+def create_configuration(
+    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+) -> PlatformAlertConfigurationView:
+    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+
+    Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
+    settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    return platform_writes.create_configuration(
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+    )
+
+
+def snooze_group(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    grouping_key: str,
+    snooze_until: datetime | None,
+) -> PlatformAlertSnapshot | None:
+    """Mutes one group of a configuration the platform owns until `snooze_until`, or clears the mute
+    when it is None. Returns the group, or None when the caller cannot read the configuration.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, `UnknownPlatformAlertGroup`
+    for a key with no instance, and `InvalidPlatformAlertEdit` for a time not in the future or an
+    alert that is not grouped.
+    """
+    return platform_writes.snooze_group(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        snooze_until=snooze_until,
+    )
+
+
 def update_owned_copy(
     *,
     team_id: int,
@@ -185,6 +241,17 @@ def update_owned_copy(
     )
 
 
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns, with its source's own row. False when the caller
+    cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API cannot delete.
+    """
+    return platform_writes.delete_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+    )
+
+
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
 
@@ -193,3 +260,10 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def recent_destination_sends(
+    *, team_id: int, destination_ids: Collection[str], limit: int
+) -> tuple[DestinationSend, ...]:
+    """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
+    return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)

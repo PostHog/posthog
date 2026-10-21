@@ -42,7 +42,12 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind, ToolPreset
-from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import (
+    SignalReportCheck,
+    SignalScoutConfig,
+    SignalScoutEmission,
+    scout_lists_reports_in_inbox,
+)
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -2966,6 +2971,21 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
     )
+    inbox = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to "
+            "keep the reports this scout authors out of the inbox and its Slack notifications, for "
+            "example for a digest scout read in Slack. Reports this scout only edits are not affected. "
+            "An update that omits this key keeps the stored value."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Configs stored before the key existed carry no `inbox`, and they list their reports.
+        data["inbox"] = scout_lists_reports_in_inbox(instance)
+        return data
 
 
 class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
@@ -2980,9 +3000,11 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     # The webhook reference is a pointer the owning product manages, not a channel Signals delivers
     # to, so it carries none of the Slack checks below and survives a write that clears Slack.
     webhook = value.get("webhook") or None
+    # Absent means "not supplied", which the update path reads to keep a stored opt-out.
+    inbox = {"inbox": value["inbox"]} if "inbox" in value else {}
     slack = value.get("slack")
     if slack is None:
-        return {"webhook": webhook} if webhook else {}
+        return {**({"webhook": webhook} if webhook else {}), **inbox}
 
     project_id = context.get("project_id")
     if not isinstance(project_id, int):
@@ -3014,7 +3036,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         if not any(scope in key_scopes for scope in ("task:read", "task:write")):
             raise PermissionDenied("API key missing required scope 'task:read'")
 
-    return {"slack": slack, **({"webhook": webhook} if webhook else {})}
+    return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 
 
 _SCOUT_TAGS_HELP_TEXT = (
@@ -4057,6 +4079,12 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             and "thread_reports" not in incoming_slack
         ):
             incoming_slack["thread_reports"] = False
+        if (
+            isinstance(output_destinations, dict)
+            and "inbox" not in output_destinations
+            and not scout_lists_reports_in_inbox(instance.output_destinations)
+        ):
+            output_destinations["inbox"] = False
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
         # an emit/enabled-only save must not defer an already-overdue scheduled run.
         schedule_fields = ("run_interval_minutes", "run_cron_schedule")
@@ -4633,6 +4661,9 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
         help_text=("Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out."),
     )
     tool_presets = ScoutToolPresetSerializer(many=True, help_text="Tool selections expanded and validated on save.")
+    run_context_tools = serializers.SerializerMethodField(
+        help_text="Tools every scout run holds. Show these as always available, excluding them from saved selections."
+    )
     presets = ScoutScopePresetSerializer(
         many=True,
         help_text="The scope presets a scout run can be dispatched with, and the scopes each one resolves to.",
@@ -4644,6 +4675,10 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
             "can never be added to a scout's token."
         ),
     )
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_run_context_tools(self, _obj: object) -> list[str]:
+        return sorted(SCOUT_RUN_CONTEXT_TOOLS)
 
 
 # --- Members (reviewer routing) --------------------------------------------

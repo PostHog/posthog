@@ -921,6 +921,11 @@ class APIScopePermission(ScopeBasePermission):
         else:
             self.check_team_and_org_permissions(request, view)
 
+        if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
+            request, view, authenticator.access_token, required_scopes
+        ):
+            return False
+
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
         # are programmatic-only and must not be reachable via user-consented tokens.
         # Also fall through when *any* required_scope on this action targets an
@@ -945,6 +950,36 @@ class APIScopePermission(ScopeBasePermission):
             _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
 
         return True
+
+    def _sandbox_tool_policy_allows(
+        self, request, view, access_token: OAuthAccessToken, required_scopes: list[str]
+    ) -> bool:
+        """A sandbox run narrowed to a tool list may only change state through the tools it holds.
+
+        Scopes alone cannot say this: `ticket:write` covers a private note and a reply to the
+        customer alike. The run is read from the token's server-written task binding.
+        """
+        if access_token.sandbox_task_id is None:
+            return True
+        # Deferred to break a cycle: the policy reads the tasks facade, which imports this module.
+        from products.signals.backend.facade.tool_policy import (  # noqa: PLC0415
+            TOOL_NOT_GRANTED_CODE,
+            scout_tool_denial,
+        )
+
+        denial = scout_tool_denial(
+            sandbox_task_id=access_token.sandbox_task_id,
+            view=view,
+            method=request.method,
+            path=request.path_info,
+            required_scopes=required_scopes,
+            data=request.data,
+        )
+        if denial is None:
+            return True
+        self.message = denial
+        self.code = TOOL_NOT_GRANTED_CODE
+        return False
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
         psak = request.successful_authenticator.project_secret_api_key

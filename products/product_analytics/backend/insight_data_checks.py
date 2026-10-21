@@ -76,10 +76,10 @@ SIZING_SAMPLE_ONE_IN = 1_000
 # A check that takes longer than this is skipped, so it never holds up the insight it sits next to.
 MAX_EXECUTION_SECONDS = 5
 # Backstops for a size estimate that is far too low, such as for an event sent under a few distinct IDs.
-# ClickHouse applies them to each shard separately.
-MAX_BYTES_READ_PER_SHARD = 1_000_000_000
+# ClickHouse applies them to the total across all shards, so this one sits above what a check reads at EVENT_BUDGET.
+MAX_BYTES_READ = 10_000_000_000
 # The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
-MAX_SAMPLE_BYTES_READ_PER_SHARD = 250_000_000
+MAX_SAMPLE_BYTES_READ = 1_000_000_000
 
 # A person cannot repeat an action this fast, but an app that sends an event twice does.
 REPEAT_WINDOW_MILLISECONDS = 100
@@ -208,7 +208,7 @@ class _EventReader:
     database: Database
 
     def rows_within_limits(
-        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read_per_shard: int
+        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read: int
     ) -> list[list[Any]] | Skipped:
         try:
             response = execute_hogql_query(
@@ -218,7 +218,7 @@ class _EventReader:
                 query_type=query_type,
                 modifiers=self.modifiers,
                 context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
-                settings=_query_settings(max_bytes_read_per_shard),
+                settings=_query_settings(max_bytes_read),
             )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
@@ -229,12 +229,12 @@ class _EventReader:
         return [list(row) for row in response.results or []]
 
 
-def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
+def _query_settings(max_bytes_read: int) -> HogQLGlobalSettings:
     # Without "throw", a query that reaches a limit can return the events it counted so far as the answer.
     return HogQLGlobalSettings(
         max_execution_time=MAX_EXECUTION_SECONDS,
         timeout_overflow_mode="throw",
-        max_bytes_to_read=max_bytes_read_per_shard,
+        max_bytes_to_read=max_bytes_read,
         read_overflow_mode="throw",
     )
 
@@ -326,9 +326,7 @@ def _count_events_per_day(
         where=ast.And(exprs=[events.sort_key_where, _between_days(events, days[0], days[-1], timezone)]),
         sample=_sample_of(1, SIZING_SAMPLE_ONE_IN),
     )
-    rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_sizing", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
-    )
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_sizing", max_bytes_read=MAX_BYTES_READ)
     if isinstance(rows, Skipped):
         return rows
 
@@ -524,9 +522,7 @@ def _count_every_event(
     )
     if match.person_fields is not None:
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, where, match.person_fields)
-    rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_counted", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
-    )
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_counted", max_bytes_read=MAX_BYTES_READ)
     if isinstance(rows, Skipped):
         return rows
 
@@ -564,9 +560,7 @@ def _count_local_events_the_filter_keeps(
     if person_fields is not None:
         local_events = ast.And(exprs=[clone_expr(where), clone_expr(is_local_host)])
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, local_events, person_fields)
-    rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_local", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
-    )
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_local", max_bytes_read=MAX_BYTES_READ)
     if isinstance(rows, Skipped):
         return rows
 
@@ -630,7 +624,7 @@ def _sample_events(
     rows = reader.rows_within_limits(
         cast(ast.SelectQuery, query),
         query_type="insight_data_checks_sample",
-        max_bytes_read_per_shard=MAX_SAMPLE_BYTES_READ_PER_SHARD,
+        max_bytes_read=MAX_SAMPLE_BYTES_READ,
     )
     if isinstance(rows, Skipped):
         return rows

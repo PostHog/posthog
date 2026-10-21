@@ -1236,12 +1236,17 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source, or a blip reaching our own egress proxy, isn't actionable
-        # on our side, so don't add error-tracking noise for it. clickhouse-connect
-        # wraps the proxy failure in the ClickHouseError caught here, so it never
-        # reaches the shared classification in `_handle_import_error`.
+        # the source, a read timeout from a slow or cold-starting source host, or a
+        # blip reaching our own egress proxy, isn't actionable on our side, so don't
+        # add error-tracking noise for it. clickhouse-connect wraps the proxy failure
+        # in the ClickHouseError caught here, so it never reaches the shared
+        # classification in `_handle_import_error`.
         message = str(e)
-        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
+        if (
+            not _is_transient_http_response(message)
+            and "Read timed out" not in message
+            and not is_transient_egress_proxy_error(message)
+        ):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None

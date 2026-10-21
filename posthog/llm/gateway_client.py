@@ -407,6 +407,11 @@ def anthropic_gateway_base_url(openai_base_url: str) -> str:
     return trimmed
 
 
+def openai_gateway_configured() -> bool:
+    """Whether :func:`build_openai_client` can build a client, without building one."""
+    return resolve_ai_gateway_config() is not None or bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
+
+
 def build_openai_client(
     product: Product,
     ai_product: str | None = None,

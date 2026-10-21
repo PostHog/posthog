@@ -5,6 +5,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable
+
+
+def no_metric_skip(ctx: HealthContext) -> CheckSkip | None:
+    return None if ctx.is_launched else not_applicable(RUNS_AFTER_LAUNCH)
 
 
 def no_metric(ctx: HealthContext) -> ExperimentHealthFinding | None:

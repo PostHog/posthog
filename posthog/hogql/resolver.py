@@ -1971,6 +1971,14 @@ class Resolver(CloningVisitor):
                 node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif (
+            self.dialect == "trino"
+            and node.op in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub)
+            and isinstance(left_type, ast.DateType)
+            and isinstance(right_type, ast.IntegerType)
+        ):
+            # ClickHouse reads `Date ± Int` as a day offset; the Trino printer lowers it to date_add by this type.
+            node.type = ast.DateType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
             # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
             # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.

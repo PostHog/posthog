@@ -218,15 +218,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(response.json()["attr"], "filters")
         self.assertIn("managed through the alert API", response.json()["detail"])
 
-    def test_generic_api_cannot_subscribe_to_reserved_internal_events(self):
+    @parameterized.expand([("$workflow_step_resume",), ("$alert_transition",)])
+    def test_generic_api_cannot_subscribe_to_reserved_internal_events(self, event_id: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Workflow result exfiltration",
+                "name": "Reserved event exfiltration",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$workflow_step_resume", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
@@ -1178,7 +1179,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "value": "I AM SECRET",
                     "order": 0,
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI57CYnHc8Meh0Qo-Ii9TRkDbxtU0E48PqNx6eqhGROrzCtN2rORP2bj-BM983QSq6ufd6CpPUqUUvSHhvhP0klo",
                 {"secret": True},
                 [],
             ),

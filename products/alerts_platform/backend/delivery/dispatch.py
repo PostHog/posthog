@@ -13,7 +13,12 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, buil
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle, RootEditor
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    MessageHandle,
+    RootEditor,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
@@ -34,6 +39,7 @@ def deliver(
     configuration_id: str,
     evaluation_key: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
@@ -57,6 +63,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
+                destination_id=destination_id,
                 message=build_message(
                     announcement,
                     transition,
@@ -86,6 +93,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
+                destination_id=destination_id,
                 message=build_message(
                     announcement,
                     transition,
@@ -116,19 +124,32 @@ def _send(
     team_id: int,
     configuration_id: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     message: AlertMessage,
     in_reply_to: MessageHandle | None,
 ) -> MessageHandle | None:
     try:
         sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=in_reply_to)
-    except Exception:
+    except Exception as error:
         # Every failure class. Counting only the refusals a provider names leaves an outage
-        # reading as no delivery attempted at all.
+        # reading as no delivery attempted at all. A transport words its own refusals safely, and
+        # any other exception's text can carry a credential URL, so it is named by class.
         record_delivery(
-            team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=False
+            team_id=team_id,
+            configuration_id=configuration_id,
+            provider=transport.provider,
+            destination_id=destination_id,
+            succeeded=False,
+            error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
         raise
-    record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
+    record_delivery(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=transport.provider,
+        destination_id=destination_id,
+        succeeded=True,
+    )
     return sent
 
 

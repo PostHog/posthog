@@ -265,6 +265,17 @@ sys.stdout.write(str(result))
 # that preloaded jemalloc.
 _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 
+# The pod authenticates to AWS through its service account token and never needs the instance
+# metadata service. Turning it off keeps the AWS SDK inside chdb from asking that service for
+# credentials when a read carries none.
+_CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
+
+# A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
+# redirects by default, so a URL that passes validation can send chdb to an internal address. The
+# ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
+# follows no redirect, and a URL that needs one fails over to the cluster.
+_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0}
+
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
     # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
@@ -273,11 +284,14 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
     try:
         process = subprocess.run(
             [sys.executable, "-c", _CHDB_SUBPROCESS_SCRIPT],
-            input=query,
+            input=chdb_set_statements(_CHDB_GUARD_SETTINGS) + query,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+            env={
+                **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
+            },
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"chdb query timed out after {timeout}s")
@@ -637,6 +651,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # a dataset that outgrows the budget reports the size of the customer's table rather than
         # a fault. get_count keeps the largest tables off chdb for the same reason.
         "chdb query timed out after",
+        # chdb follows no redirect (see _CHDB_GUARD_SETTINGS), so a URL that needs one, such as a
+        # path-style URL on the wrong region, is read by the cluster, which checks every hop.
+        "too many redirects",
     )
     # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
     # On Linux the same error means the engine lost Delta support and has to reach error tracking.
@@ -690,6 +707,33 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
         return settings
 
+    def _chdb_may_read(self, read_format: str) -> bool:
+        """Whether the embedded engine may run this read, given the format it reads the URL with.
+
+        deltaLake() reads through delta-kernel's own HTTP client, which s3_max_redirects does not
+        govern, so chdb cannot stop it from following a redirect. A table with a credential reads a
+        URL the team supplied, so its Delta reads go to the cluster, which checks every hop against
+        remote_url_allow_hosts. A table without a credential reads a URL that PostHog built.
+        """
+        return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
+
+    def _describe_with_chdb(
+        self, s3_table_func: str, placeholder_context: HogQLContext, describe_settings: dict[str, str | int]
+    ) -> list[tuple[str, ...]] | None:
+        """The DESCRIBE rows read by the embedded engine, or None when it cannot answer and
+        ClickHouse has to."""
+        try:
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            chdb_query = f"{chdb_set_statements(describe_settings)}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_result = run_chdb_query(chdb_query)
+        except Exception as chdb_error:
+            self._capture_unexpected_chdb_error(chdb_error)
+            return None
+
+        reader = csv.reader(StringIO(chdb_result))
+        return [tuple(row) for row in reader]
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -697,31 +741,22 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         result: list[tuple[str, ...]] | None = None
         describe_settings = self._describe_settings()
         placeholder_context = HogQLContext(team_id=self.team.pk)
+        # Use deltaLake() to get table schema for evolved tables
+        describe_format = DataWarehouseTableFormat.Delta if self.format == "DeltaS3Wrapper" else self.format
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
-            else self.format,
+            format=describe_format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
-        try:
-            # chdb hangs in CI during tests
-            if TEST:
-                raise Exception()
+        # chdb hangs in CI during tests
+        if not TEST and self._chdb_may_read(describe_format):
+            result = self._describe_with_chdb(s3_table_func, placeholder_context, describe_settings)
 
-            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
-            # chdb doesn't support parameterized queries
-            chdb_query = f"{chdb_set_statements(describe_settings)}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
-            chdb_result = run_chdb_query(chdb_query)
-            reader = csv.reader(StringIO(chdb_result))
-            result = [tuple(row) for row in reader]
-        except Exception as chdb_error:
-            self._capture_unexpected_chdb_error(chdb_error)
-
+        if result is None:
             tag_queries(
                 team_id=self.team.pk,
                 table_id=self.id,
@@ -858,7 +893,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         # chdb hangs in CI during tests
-        if not TEST and self._count_fits_the_chdb_budget():
+        if not TEST and self._count_fits_the_chdb_budget() and self._chdb_may_read(self.format):
             chdb_count = self._count_with_chdb()
             if chdb_count is not None:
                 return chdb_count

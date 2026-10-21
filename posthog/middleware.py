@@ -457,7 +457,7 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "notebooks":
                 notebook_short_id = path_parts[1]
                 return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
-            elif path_parts[0] == "feature_flags":
+            elif path_parts[0] in ("feature_flags", "feature-flags"):
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)

@@ -66,6 +66,11 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
     "correct, and that PostHog's IP addresses are allowed through your firewall."
 )
 
+# psycopg raises `ConnectionTimeout` with this text when `connect_timeout` runs out before the
+# cluster answers. A paused, resizing or briefly overloaded cluster gives the same result as a
+# blocked network path, so a later attempt can succeed.
+_CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
@@ -186,7 +191,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         #
         # `REDSHIFT_READ_TIMEOUT_ERROR` is the client-side limit on the wait for one batch of rows.
         # The cluster was reachable and then sent nothing, so a later attempt can succeed.
-        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR, REDSHIFT_READ_TIMEOUT_ERROR}
+        return {
+            HOST_RESOLUTION_TIMEOUT_ERROR,
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+            REDSHIFT_READ_TIMEOUT_ERROR,
+            _CONNECT_TIMEOUT_ERROR,
+        }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
@@ -196,6 +206,13 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
                 "Your Redshift cluster stopped sending rows in the middle of the sync, and it did so again "
                 "on every retry. Check that the cluster is not paused or resizing and that it has capacity "
                 "for the read. This sync is still enabled and will run again on its next schedule."
+            ),
+            _CONNECT_TIMEOUT_ERROR: (
+                "PostHog couldn't connect to your Redshift cluster before the connection timed out, and it "
+                "did so again on every retry. Check that the cluster is running and not paused, and that "
+                "PostHog's IP addresses are allowed through its security group. If you connect through an "
+                "SSH tunnel, check that the bastion host can reach the cluster. This sync is still enabled "
+                "and will run again on its next schedule."
             ),
         }
 
@@ -244,7 +261,6 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
             "Connection refused": None,
         }
 

@@ -29,6 +29,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
+certifi = false
 deltalite = false
 django = false
 google-ads = false
@@ -52,6 +53,21 @@ constraints = [{ name = "posthoganalytics", specifier = "<8" }]
 name = "xgboost"
 version = "3.2.0"
 requires-dist = ["numpy", "scipy"]
+
+[[package]]
+name = "adlfs"
+version = "2026.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "azure-identity" },
+    { name = "azure-storage-blob", extra = ["aio"] },
+    { name = "fsspec" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/29/9937905acfaf3e4826d7782f8efab845bb11eaa2e24749a16eeab32e7fa0/adlfs-2026.8.0.tar.gz", hash = "sha256:b78a01bd892c2a99f461b2b2ef4592c2eb45934e728f318472291ccaa6378e06", size = 55898, upload-time = "2026-08-11T18:43:14.13Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/8c/2a895811f69699915ddd4e346ea3a1ab26b585025eac890d19dd5193c7f4/adlfs-2026.8.0-py3-none-any.whl", hash = "sha256:858d8999b83ad70baae89ee2ad67f40443f9d94e0257351a74866d643f22d54d", size = 46108, upload-time = "2026-08-11T18:43:12.974Z" },
+]
 
 [[package]]
 name = "aioboto3"
@@ -515,6 +531,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/d8/b8fcba9464f02b121f39de2db2bf57f0b216fe11d014513d666e8634380d/azure_core-1.38.0-py3-none-any.whl", hash = "sha256:ab0c9b2cd71fecb1842d52c965c95285d3cfb38902f6766e4a471f1cd8905335", size = 217825, upload-time = "2026-01-12T17:03:07.291Z" },
 ]
 
+[package.optional-dependencies]
+aio = [
+    { name = "aiohttp" },
+]
+
+[[package]]
+name = "azure-identity"
+version = "1.26.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "cryptography" },
+    { name = "msal" },
+    { name = "msal-extensions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/87/e88098a024d74b7434de5b110c261da024fe5d6c139f1847f6f8a2b76678/azure_identity-1.26.0.tar.gz", hash = "sha256:61b4538b87df10d2d6d44b77cd5ea28a8929fd4929d58b45bf3f230f7daba02e", size = 310151, upload-time = "2026-10-01T14:17:47.825Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/d5/ae45ce8009d0d015304b206c7c4a6cbab02c03f8f07eedefb32b099ccee3/azure_identity-1.26.0-py3-none-any.whl", hash = "sha256:3c60d9682b3ac01507388d474cb5a5ffbe54152a96b6cdcaa7013da9315cf186", size = 195958, upload-time = "2026-10-01T14:17:49.705Z" },
+]
+
 [[package]]
 name = "azure-storage-blob"
 version = "12.27.1"
@@ -528,6 +565,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/36/7c/2fd872e11a88163f208b9c92de273bf64bb22d0eef9048cc6284d128a77a/azure_storage_blob-12.27.1.tar.gz", hash = "sha256:a1596cc4daf5dac9be115fcb5db67245eae894cf40e4248243754261f7b674a6", size = 597579, upload-time = "2025-10-29T12:27:16.185Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/9e/1c90a122ea6180e8c72eb7294adc92531b0e08eb3d2324c2ba70d37f4802/azure_storage_blob-12.27.1-py3-none-any.whl", hash = "sha256:65d1e25a4628b7b6acd20ff7902d8da5b4fde8e46e19c8f6d213a3abc3ece272", size = 428954, upload-time = "2025-10-29T12:27:18.072Z" },
+]
+
+[package.optional-dependencies]
+aio = [
+    { name = "azure-core", extra = ["aio"] },
 ]
 
 [[package]]
@@ -896,11 +938,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.1.4"
+version = "2026.10.19"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e0/2d/a891ca51311197f6ad14a7ef42e2399f36cf2f9bd44752b3dc4eab60fdc5/certifi-2026.1.4.tar.gz", hash = "sha256:ac726dd470482006e014ad384921ed6438c457018f4b3d204aea4281258b2120", size = 154268, upload-time = "2026-01-04T02:42:41.825Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/bd/1436c50cc46699de0230fbaacc1d1de7bfec413176099949e9d5112e88f2/certifi-2026.10.19.tar.gz", hash = "sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae", size = 137598, upload-time = "2026-10-20T02:24:16.604Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/ad/3cc14f097111b4de0040c83a525973216457bbeeb63739ef1ed275c1c021/certifi-2026.1.4-py3-none-any.whl", hash = "sha256:9943707519e4add1115f44c2bc244f782c0249876bf51b6599fee1ffbedd685c", size = 152900, upload-time = "2026-01-04T02:42:40.15Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", hash = "sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b", size = 136464, upload-time = "2026-10-20T02:24:15.072Z" },
 ]
 
 [[package]]
@@ -4566,6 +4608,32 @@ wheels = [
 ]
 
 [[package]]
+name = "msal"
+version = "1.39.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/85/747d28986a44b715cc51cf57aa021c8fd94e9614064261ceec77320e8b0b/msal-1.39.0.tar.gz", hash = "sha256:6ab7de335e6d7f5717e2c7e1dbf86e4dda2f6acf3c56773b78dc53ebc6395b5f", size = 205360, upload-time = "2026-09-17T16:07:45.1Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/32/178457385925ce301c7b3232bd85665d4df57da39568b62dcfc74031873f/msal-1.39.0-py3-none-any.whl", hash = "sha256:2d2577886906cd7293850dffa2da29119966c213bfc6ec0cecf8bf7621e1ca77", size = 131629, upload-time = "2026-09-17T16:07:46.722Z" },
+]
+
+[[package]]
+name = "msal-extensions"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "msal" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/99/5d239b6156eddf761a636bded1118414d161bd6b7b37a9335549ed159396/msal_extensions-1.3.1.tar.gz", hash = "sha256:c5b0fd10f65ef62b5f1d62f4251d51cbcaf003fcedae8c91b040a488614be1a4", size = 23315, upload-time = "2025-03-14T23:51:03.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/75/bd9b7bb966668920f06b200e84454c8f3566b102183bc55c5473d96cb2b9/msal_extensions-1.3.1-py3-none-any.whl", hash = "sha256:96d3de4d034504e969ac5e85bae8106c8373b5c6568e4c8fa7af2eca9dbe6bca", size = 20583, upload-time = "2025-03-14T23:51:03.016Z" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5812,6 +5880,7 @@ name = "posthog"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "adlfs" },
     { name = "aioboto3" },
     { name = "aiohttp" },
     { name = "aiokafka" },
@@ -6110,6 +6179,7 @@ sentiment = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adlfs", specifier = "~=2026.8.0" },
     { name = "aioboto3", specifier = "==15.4.0" },
     { name = "aiohttp", specifier = "==3.13.5" },
     { name = "aiokafka", specifier = "~=0.13.0" },
@@ -6129,7 +6199,7 @@ requires-dist = [
     { name = "cachetools", specifier = "~=5.5.2" },
     { name = "celery", specifier = "==5.6.3" },
     { name = "celery-redbeat", specifier = "==2.3.3" },
-    { name = "certifi", specifier = "==2026.1.4" },
+    { name = "certifi", specifier = "==2026.10.19" },
     { name = "chdb", specifier = "==4.3.0" },
     { name = "circular-dict", specifier = "==1.9" },
     { name = "click", specifier = "~=8.0" },

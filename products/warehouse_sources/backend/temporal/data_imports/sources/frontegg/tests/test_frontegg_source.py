@@ -2,8 +2,6 @@ from typing import Any, cast
 
 import pytest
 
-from requests import HTTPError
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     always,
@@ -26,7 +24,11 @@ class TestFronteggSource:
 
     @pytest.mark.parametrize(
         "status,expected",
-        [(400, AUTH_ERROR), (429, "raise"), (500, "raise")],
+        [
+            (400, AUTH_ERROR),
+            (429, "Couldn't reach Frontegg to check your credentials. Try again in a few minutes."),
+            (500, "Couldn't reach Frontegg to check your credentials. Try again in a few minutes."),
+        ],
     )
     def test_validate_credentials(self, status: int, expected: str | None) -> None:
         config = FronteggSourceConfig(client_id="example-client", api_key="fake-key", region="EU")
@@ -37,11 +39,7 @@ class TestFronteggSource:
             else ScriptedResponse(status=status, json={})
         )
         with scripted_network(always(answer)) as network:
-            if expected == "raise":
-                with pytest.raises(HTTPError):
-                    source.validate_credentials(config, 1)
-            else:
-                assert source.validate_credentials(config, 1) == (status == 200, expected)
+            assert source.validate_credentials(config, 1) == (status == 200, expected)
         assert {request.path for request in network.requests_log} == {"/auth/vendor"}
         mappings = source.get_non_retryable_errors()
         assert any(pattern in f"{status} Client Error" for pattern in mappings) == (status in (400, 401, 403))

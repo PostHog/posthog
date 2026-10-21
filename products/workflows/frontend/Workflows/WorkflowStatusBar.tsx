@@ -14,12 +14,15 @@ type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
     showEditorLayoutToggle: boolean
     onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+    /** Editor commands that sit in the bar, such as the tile canvas panels. They bring their own History. */
+    commands?: JSX.Element
 }
 
 export function WorkflowStatusBar({
     editorLayout,
     showEditorLayoutToggle,
     onEditorLayoutChange,
+    commands,
     ...props
 }: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
@@ -83,6 +86,7 @@ export function WorkflowStatusBar({
                             : 'Changes you make save as a draft.'}
                     </span>
                 )}
+                {commands}
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
                 toggle and History never shift as the narration or the timestamp changes. */}
@@ -113,15 +117,17 @@ export function WorkflowStatusBar({
                             <IconInfo className="text-tertiary size-4" />
                         </Tooltip>
                     </span>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconClock />}
-                        to={urls.workflow(historyWorkflowId, 'history')}
-                        tooltip="See and restore previous versions"
-                    >
-                        History
-                    </LemonButton>
+                    {!commands && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconClock />}
+                            to={urls.workflow(historyWorkflowId, 'history')}
+                            tooltip="See and restore previous versions"
+                        >
+                            History
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>

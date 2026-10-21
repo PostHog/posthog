@@ -40,6 +40,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
@@ -201,6 +204,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',

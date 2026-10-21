@@ -27,7 +27,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 )
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
-from .contracts import CreateExperimentInput, Experiment, ExperimentHealthFinding, ExperimentHealthReaderAccess
+from .contracts import CreateExperimentInput, Experiment, ExperimentHealth, ExperimentHealthReaderAccess
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -127,11 +127,11 @@ def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> i
     return count
 
 
-def get_experiment_health_findings(
+def get_experiment_health(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
-) -> list[ExperimentHealthFinding]:
-    """The findings of the health checks that read the experiment, its flag, its linked metrics, and the
-    changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows."""
+) -> ExperimentHealth:
+    """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
+    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows."""
     context = load_experiment_health_context(team_id=team_id, experiment_id=experiment_id, reader_access=reader_access)
     return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 

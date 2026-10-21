@@ -5,9 +5,12 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import (
@@ -164,7 +167,7 @@ def get_rows(
     if cursor:
         logger.debug(f"Squarespace: resuming {endpoint} from saved cursor")
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SquarespaceRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),

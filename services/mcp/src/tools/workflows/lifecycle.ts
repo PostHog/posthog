@@ -5,6 +5,7 @@ import { HogFlowsPartialUpdateParams } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
+import { hogFlowPath } from '@/tools/workflows/hogFlowLink'
 
 const LifecycleSchema = HogFlowsPartialUpdateParams().omit({ project_id: true })
 
@@ -22,7 +23,7 @@ const patchStatus = async (
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
         body: { status },
     })
-    return await withPostHogUrl(context, result, `/pipeline/destinations/hog-${result.id}`)
+    return await withPostHogUrl(context, result, hogFlowPath(result))
 }
 
 export const workflowsEnable = (): ToolBase<typeof LifecycleSchema, LifecycleResult> =>

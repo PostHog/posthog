@@ -97,7 +97,6 @@ TEAM_CONFIG_FIELDS = (
     "timezone",
     "data_attributes",
     "person_display_name_properties",
-    "correlation_config",
     "autocapture_opt_out",
     "autocapture_exceptions_opt_in",
     "autocapture_web_vitals_opt_in",

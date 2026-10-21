@@ -181,6 +181,7 @@ class RunDueChecksOutput:
     # Defaulted so a workflow history written before the agent lane existed still decodes.
     dispatched: int = 0
     deferred: int = 0
+    observed: int = 0
 
 
 @activity.defn
@@ -201,6 +202,7 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
         errored=summary.errored,
         dispatched=summary.dispatched,
         deferred=summary.deferred,
+        observed=summary.observed,
     )
 
 

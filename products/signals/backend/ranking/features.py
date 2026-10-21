@@ -150,11 +150,11 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     schema_version = 1
     feature_names = EMBEDDING_FEATURE_NAMES
     state_columns: tuple[str, ...] = ()
-    # 1536 float32 columns, so a head's Parquet slice and its training matrix both scale with this.
-    # Sized so every head of this family fits one partition's examples object and the fits stay
-    # inside the training job's runtime budget. The budget cuts the oldest report-creation days, so
-    # it must stay large enough to keep the rare heads' positives.
-    max_examples_per_head = 100_000
+    # 1536 float32 columns, so a head's training matrix scales with this. Sized above the largest
+    # head over the 90-day lookback, so the budget is a memory guard and does not trim the window.
+    # The budget cuts the oldest report-creation days, so a budget that binds starves the rare
+    # heads of the positives the longer lookback adds.
+    max_examples_per_head = 250_000
 
     def __init__(self, *, name: str, extras_key: str) -> None:
         self.name = name

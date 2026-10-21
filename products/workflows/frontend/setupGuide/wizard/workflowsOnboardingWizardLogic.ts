@@ -211,7 +211,7 @@ export interface workflowsOnboardingWizardLogicMeta {
         canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
-        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath) => boolean
         suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
@@ -465,12 +465,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (stepKeys: readonly WizardStepKey[], stepIndex: number): WizardStepKey =>
                 stepKeys[Math.min(stepIndex, stepKeys.length - 1)],
         ],
-        // The suggestions logic starts an AI run when it mounts, so nothing mounts it without the flag. Suggestions are
-        // messages to users, so the automation path never offers them.
+        // Suggestions are messages to users, so the automation path never offers them.
         offersSuggestions: [
-            (s) => [s.wizardPath, s.featureFlags],
-            (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet): boolean =>
-                wizardPath === 'messaging' && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+            (s) => [s.wizardPath],
+            (wizardPath: WorkflowsOnboardingPath): boolean => wizardPath === 'messaging',
         ],
         suggestionsFirst: [
             (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],

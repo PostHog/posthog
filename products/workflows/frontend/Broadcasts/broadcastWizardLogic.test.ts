@@ -15,6 +15,7 @@ import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/gen
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
+import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -94,6 +95,10 @@ describe('broadcastWizardLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
+                '/api/projects/:team_id/hog_flows/new/invocations/': () => [
+                    200,
+                    { status: 'success', nextActionId: null, logs: [] },
+                ],
                 '/api/projects/:team_id/hog_flows/': async () => {
                     await created
                     return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
@@ -132,6 +137,33 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('remembers a delivered test, for the address it went to, until the email changes', async () => {
+        const testSend = broadcastTestSendLogic({ id: 'new' })
+        testSend.mount()
+        // Let the wizard fill its default sender first, which is an email change of its own.
+        await expectLogic(logic).toFinishAllListeners()
+        const sendTest = async (): Promise<void> => {
+            testSend.actions.setRecipientEmail('reviewer@example.com')
+            testSend.actions.sendTestEmail()
+            // Edited while the send runs, which must not change who the card says got it.
+            testSend.actions.setRecipientEmail('typo@example.com')
+            await expectLogic(testSend).toDispatchActions(['sendTestEmailSuccess']).toFinishAllListeners()
+        }
+
+        await sendTest()
+        expect(testSend.values.lastTestSentTo).toBe('reviewer@example.com')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Changed after the test' })
+        expect(testSend.values.lastTestSentTo).toBeNull()
+
+        await sendTest()
+        logic.actions.applyExternalEdit(
+            savedBroadcast({ name: '', subject: 'Rewritten by the assistant', updatedAt: '2026-09-24T10:00:09Z' }),
+            null
+        )
+        expect(testSend.values.lastTestSentTo).toBeNull()
+        testSend.unmount()
     })
 
     it('prefills the audience, name and source from a link without creating a draft', async () => {
@@ -383,6 +415,19 @@ describe('broadcastWizardLogic', () => {
         expect(patchedSubjects).toEqual([testCase.subject])
         expect(patchedTracking).toEqual([testCase.tracking])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('autosaves a subject edited in place on the review step', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        logic.actions.setStep('review')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Edited on the review step' })
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toBe('Edited on the review step')
     })
 
     it('retries a failed email autosave and moves to the draft URL once it saves', async () => {

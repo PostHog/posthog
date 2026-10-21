@@ -132,7 +132,7 @@ describe('hogFlowEditorTestLogic', () => {
         })
     })
 
-    describe('createGlobalsFromResponse groups', () => {
+    describe('createGlobalsFromResponse', () => {
         const event = {
             uuid: 'e1',
             distinct_id: 'd1',
@@ -154,6 +154,26 @@ describe('hogFlowEditorTestLogic', () => {
         it('defaults groups to an empty object', () => {
             const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
             expect(globals.groups).toEqual({})
+        })
+
+        it.each([
+            [
+                'the events query person column',
+                { uuid: 'p-uuid', properties: { plan: 'pro' }, distinct_id: 'd1' },
+                'p-uuid',
+            ],
+            ['a person with an id', { id: 'p-id', properties: { plan: 'pro' } }, 'p-id'],
+        ])('reads the person id from %s', (_name, person, expectedId) => {
+            const globals = createGlobalsFromResponse(event, person, 1, 'wf')
+            expect(globals.person).toMatchObject({
+                id: expectedId,
+                properties: { plan: 'pro' },
+                url: expect.stringMatching(new RegExp(`/person/${expectedId}$`)),
+            })
+        })
+
+        it('leaves the person out for an event with no person', () => {
+            expect(createGlobalsFromResponse(event, { distinct_id: 'd1' }, 1, 'wf').person).toBeUndefined()
         })
     })
 
