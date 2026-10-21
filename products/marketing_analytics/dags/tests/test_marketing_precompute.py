@@ -4,11 +4,15 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import dagster
 from parameterized import parameterized
 
 from posthog.schema import MarketingAnalyticsDrillDownLevel
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
@@ -26,6 +30,7 @@ from products.marketing_analytics.dags.marketing_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     SHARDS_ENV_VAR,
     TEAM_CONCURRENCY_ENV_VAR,
+    _recently_active_team_ids,
     get_selected_team_ids,
     marketing_precompute_job,
     split_marketing_precompute_teams_op,
@@ -130,6 +135,30 @@ class TestGetSelectedTeamIds:
         # The override wins even when empty — an explicit kill switch, regardless of configured teams.
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
+
+
+class TestRecentlyActiveTeamIds(SimpleTestCase):
+    def _archive_query(self, team_id: int, query_type: str, days_ago: int) -> None:
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, team_id, initial_query_id, type, lc_query_type)
+            VALUES (now64(6) - toIntervalDay(%(days_ago)s), %(team_id)s, generateUUIDv4(), 'QueryFinish', %(query_type)s)
+            """,
+            {"team_id": team_id, "query_type": query_type, "days_ago": days_ago},
+        )
+
+    def test_reads_marketing_query_types_within_window_from_archive(self):
+        self._archive_query(101, "marketing_analytics_table_query", days_ago=1)
+        self._archive_query(102, "marketing_analytics_aggregated_query", days_ago=29)
+        self._archive_query(103, "web_overview_query", days_ago=1)
+        self._archive_query(104, "marketing_analytics_table_query", days_ago=31)
+        self._archive_query(0, "marketing_analytics_table_query", days_ago=1)
+
+        active = _recently_active_team_ids(30)
+        assert active is not None
+        # The archive MV also records this test run's own queries, so compare only the seeded teams.
+        assert active & {0, 101, 102, 103, 104} == {101, 102}
 
 
 class TestShardSplit:
