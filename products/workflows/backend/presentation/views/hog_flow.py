@@ -2839,7 +2839,7 @@ class HogFlowLastRunSerializer(serializers.Serializer):
 
 
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
-_MAX_WORKFLOW_TAGS = 32
+_MAX_WORKFLOW_TAGS = 10
 
 
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Serializer):

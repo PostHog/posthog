@@ -83,7 +83,7 @@ export const hogFlowsCreateBodyNameMax = 400
 export const hogFlowsCreateBodyDescriptionDefault = ``
 export const hogFlowsCreateBodyTagsItemMax = 255
 
-export const hogFlowsCreateBodyTagsMax = 32
+export const hogFlowsCreateBodyTagsMax = 10
 
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
@@ -520,7 +520,7 @@ export const hogFlowsPartialUpdateBodyNameMax = 400
 
 export const hogFlowsPartialUpdateBodyTagsItemMax = 255
 
-export const hogFlowsPartialUpdateBodyTagsMax = 32
+export const hogFlowsPartialUpdateBodyTagsMax = 10
 
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000

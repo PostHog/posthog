@@ -510,7 +510,7 @@ export const hogFlowsCreateBodyNameMax = 400
 export const hogFlowsCreateBodyDescriptionDefault = ``
 export const hogFlowsCreateBodyTagsItemMax = 255
 
-export const hogFlowsCreateBodyTagsMax = 32
+export const hogFlowsCreateBodyTagsMax = 10
 
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
@@ -930,7 +930,7 @@ export const hogFlowsUpdateBodyNameMax = 400
 export const hogFlowsUpdateBodyDescriptionDefault = ``
 export const hogFlowsUpdateBodyTagsItemMax = 255
 
-export const hogFlowsUpdateBodyTagsMax = 32
+export const hogFlowsUpdateBodyTagsMax = 10
 
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
@@ -1337,7 +1337,7 @@ export const hogFlowsPartialUpdateBodyNameMax = 400
 export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
 export const hogFlowsPartialUpdateBodyTagsItemMax = 255
 
-export const hogFlowsPartialUpdateBodyTagsMax = 32
+export const hogFlowsPartialUpdateBodyTagsMax = 10
 
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
@@ -1931,7 +1931,7 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
 export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
 
-export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 32
+export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 10
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
@@ -2847,7 +2847,7 @@ export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
 export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
 
-export const hogFlowsBulkDeleteCreateBodyTagsMax = 32
+export const hogFlowsBulkDeleteCreateBodyTagsMax = 10
 
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000

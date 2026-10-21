@@ -672,7 +672,7 @@ export interface HogFlowApi {
     description?: string
     /**
      * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
-     * @maxItems 32
+     * @maxItems 10
      * @items.maxLength 255
      */
     tags?: string[]
@@ -780,7 +780,7 @@ export interface HogFlowUpdateApi {
     description?: string
     /**
      * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
-     * @maxItems 32
+     * @maxItems 10
      * @items.maxLength 255
      */
     tags?: string[]
@@ -888,7 +888,7 @@ export interface PatchedHogFlowUpdateApi {
     description?: string
     /**
      * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
-     * @maxItems 32
+     * @maxItems 10
      * @items.maxLength 255
      */
     tags?: string[]
