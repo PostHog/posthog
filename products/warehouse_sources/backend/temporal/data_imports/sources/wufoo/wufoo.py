@@ -38,7 +38,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 VALIDATE_TIMEOUT_SECONDS = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class WufooResumeConfig:
     # Row offset (Wufoo `pageStart`) of the next page to fetch. Limit/offset pagination is
     # deterministic, so a crashed full-refresh sync resumes from the offset after the last page
@@ -50,13 +50,22 @@ class WufooResumeConfig:
 
 
 class WufooEntriesPaginator(OffsetPaginator):
-    # The Report Entries docs list no paging params. A page longer than the requested size means
-    # the endpoint ignored them and sent every entry, so asking for the next offset would repeat it.
+    # The Report Entries docs list no paging params. If the endpoint ignores them, every offset
+    # returns the same rows: a page longer than the requested size, or a page that starts with the
+    # previous page's first row, means the walk is done.
     def __init__(self) -> None:
         super().__init__(limit=PAGE_SIZE, offset_param="pageStart", limit_param="pageSize", total_path=None)
+        self._previous_first_row: Any = None
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data and self._previous_first_row is not None and data[0] == self._previous_first_row:
+            # Drop the repeated page in place so its rows are not yielded twice.
+            data.clear()
+            self._has_next_page = False
+            return
         super().update_state(response, data)
+        if data:
+            self._previous_first_row = data[0]
         if data is not None and len(data) > self.limit:
             self._has_next_page = False
 

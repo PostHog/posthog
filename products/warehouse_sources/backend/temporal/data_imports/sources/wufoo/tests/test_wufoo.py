@@ -206,6 +206,18 @@ class TestFanout:
         # Neither parent list takes the offset params the top-level tables send.
         assert result.requests[0].param("pageStart") is None
 
+    def test_report_entries_stop_when_an_unpaged_response_repeats_a_full_page(self) -> None:
+        def respond(request: Any) -> ScriptedResponse:
+            if request.path.endswith("/reports.json"):
+                return _rows("Reports", [{"Hash": "p1"}])
+            return _entries(1, PAGE_SIZE)
+
+        result = _driver().run("report_entries", respond)
+
+        assert result.raised is None
+        assert result.paths.count("/api/v3/reports/p1/entries.json") == 2
+        assert len(result.rows) == PAGE_SIZE
+
     def test_forms_parent_requests_next_page_only_after_a_full_page(self) -> None:
         def respond(request: Any) -> ScriptedResponse:
             if request.path.endswith("/forms.json"):

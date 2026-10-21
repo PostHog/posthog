@@ -29,7 +29,7 @@ REPORT_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class WufooEndpointConfig:
     name: str
     # Path relative to https://<subdomain>.wufoo.com/api/v3 (includes the .json suffix).
