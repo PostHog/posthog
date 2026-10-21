@@ -2,8 +2,9 @@
 
 A parallel run. The production insight fleet evaluates the same alerts against
 `AlertConfiguration` and notifies their destinations. This decides what the platform would have
-said, and asks for a delivery only for the alerts in `LIVE_DELIVERY_INSIGHT_ALERT_IDS`. The
-platform still sends only to projects on its live delivery flag.
+said, and asks for a delivery for the alerts the platform owns and for the alerts in
+`LIVE_DELIVERY_INSIGHT_ALERT_IDS`. An owned alert sends without the platform's live delivery flag.
+Every other alert on the list still sends only to projects on that flag.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
@@ -121,9 +122,9 @@ EVALUATED_INTERVALS = frozenset(
 )
 
 
-# The production insight alerts whose platform evaluations ask for a native delivery, as a test. The
-# platform's live delivery flag still has to be on for the project, and every other insight alert
-# keeps production as its only deliverer. Widening the test means adding an id here.
+# The production insight alerts whose platform evaluations ask for a native delivery while production
+# still owns them, as a test. The platform's live delivery flag still has to be on for the project.
+# The list stays short because production also sends for these alerts, so each one sends twice.
 LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
 
 # Which event each announced kind's destinations listen on. A resolve is left out, because
@@ -300,8 +301,11 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
         return None
-    legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
-    if legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
+    if check.legacy_configuration_id is None:
+        return None
+    legacy_id = str(check.legacy_configuration_id)
+    if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.INSIGHT,
@@ -312,6 +316,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         source_alert_url=_alert_url(check, legacy_id),
+        owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         parts=delivery_parts(outcome),
     )

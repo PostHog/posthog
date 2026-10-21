@@ -403,7 +403,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cody/cody.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cody/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/cohere/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coin_api/coin_api.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coin_api/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coingecko/coingecko.py
@@ -613,7 +612,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/guardian.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/gumroad.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guru/guru.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gusto/gusto.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gusto/settings.py
@@ -882,13 +880,9 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/persona.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/personio/personio.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pexels/pexels.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pexels/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pganalyze/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/phyllo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/picqer/picqer.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/picqer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/pingdom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/pinterest_ads.py
@@ -1116,7 +1110,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/telnyx/telnyx.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/tempo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/tenable_vulnerability_management.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/terraform_cloud.py
@@ -1196,8 +1189,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/writesonic.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wufoo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wufoo/wufoo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/xendit.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/yousign/settings.py

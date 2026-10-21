@@ -8,7 +8,7 @@ When a user opens an experiment and the cached results look stale, they click **
 
 It's distinct from the daily timeseries workflows in two ways:
 
-- **On-demand, not scheduled.** Triggered by the user (or by experiment lifecycle events like launch/stop), not by a cron schedule.
+- **One experiment per run.** Triggered by the user, by experiment lifecycle events like launch/stop, or by the hourly scheduled recalculation for enabled teams. Every trigger starts the same per-experiment run; there is no sweep across experiments inside one workflow. See "Scheduled recalculation".
 - **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
 
 ## End-to-end flow
@@ -220,6 +220,17 @@ An entry without the flag predates it and counts as non-retriable, so an old run
 
 For an in-progress run, `get_live_query_progress` reads `system.processes` and `system.query_log` by client-query-id prefix to surface cumulative ClickHouse `rows_read` while the run executes. Nothing is stored: each metric query is tagged with a deterministic `client_query_id`, so the progress is reconstructable from ClickHouse alone. It is best-effort and decorative; a failure there returns null and never sinks the core status payload.
 
+### Scheduled recalculation
+
+`ScheduledExperimentRecalculationWorkflow` (`scheduled_recalculation_workflow.py`) runs on one hourly schedule at `:30`, after the daily timeseries schedule at `:00`. It is behind the `experiments-scheduled-recalculation` flag. Each firing starts ordinary recalculation runs with trigger `SCHEDULED`, through the same dispatch the API uses.
+
+- **Discovery** (`find_scheduled_recalculation_candidates`) selects running experiments whose team recalculates at the current UTC hour (`experiment_recalculation_times`, default 02:00). It skips, before any ClickHouse query, a flag that serves nobody, no computable metric, an active or recent run, and an exposure back-off. Candidates come oldest scheduled run first, never-run first, so an experiment deferred one day starts first the next day.
+- **Exposure gate.** `check_experiment_exposures` runs one cheap query per candidate and skips experiments below `MIN_TOTAL_EXPOSURES`.
+- **Admission cap.** One experiment holds a slot of `MAX_CONCURRENT_EXPERIMENTS` from its exposure check until its run's workflow finishes (`wait_for_scheduled_recalculation`). A run fans out all its metrics, so the multiplier on ClickHouse load is the number of runs in flight, not the metrics per run. Without the wait, one team with many running experiments starts every run within minutes and exhausts the per-user concurrency limit of its ClickHouse user for every other workload on it.
+- **Start window.** No run starts later than `RUN_START_WINDOW` after the firing. The deadline bounds the activity timeouts, and `start_scheduled_recalculation` checks it again before it creates the row, so a delayed retry cannot start a run late. Candidates left over are counted as `deferred`. The window plus the start budget plus `RUN_WAIT_TIMEOUT` (the staleness threshold) stays under the hourly interval, because the schedule's `SKIP` overlap policy would otherwise drop the next hour's teams. `test_last_run_ends_before_the_next_hourly_firing` keeps that sum below an hour.
+- **Fail closed on unknown outcomes.** A start activity that fails, a dispatch that raised after Temporal may have accepted the run (`dispatch_uncertain`), or a wait that cannot observe the run each stop new admissions for the rest of the batch. The run may still be live, so releasing its slot could exceed the cap.
+- **Replay safety.** The wait, the window and the stop are gated on `workflow.patched("scheduled-recalc-wait-for-runs-2026-10")`.
+
 ## Eviction
 
 We don't currently delete old recalcs or their results. Power users compound rows fast: 50 clicks × 10 metrics × 90 days = 45k rows for one team. The plan is a bi-weekly Temporal Schedule that deletes both tables past a cutoff:
@@ -240,7 +251,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## Performance notes
 
-- **Fan out all metrics at once, Temporal owns retries.** The workflow schedules one calc activity per metric in a single `asyncio.gather` (`recalculation_workflow.py`), with no concurrency of its own. The activity slots of the worker that runs the calc activity set the pacing. The per-org ClickHouse app-query limiter does not apply inside Temporal activities. Scheduling every metric up front also keeps the task-queue backlog honest for the autoscaler. The workflow runs on its own `experiments-recalculation-task-queue` (see `EXPERIMENTS_RECALCULATION_TASK_QUEUE`), served by a dedicated worker deployment, so recalc load can be scaled and throttled independently of the general-purpose worker. That deployment autoscales on backlog, so its slots (`MAX_CONCURRENT_ACTIVITIES` times the pod count) do not cap the number of concurrent queries. The activity task queue below does.
+- **Fan out all metrics at once, Temporal owns retries.** The workflow schedules one calc activity per metric in a single `asyncio.gather` (`recalculation_workflow.py`), with no concurrency of its own. The activity slots of the worker that runs the calc activity set the pacing. The per-org ClickHouse app-query limiter does not apply inside Temporal activities. Scheduling every metric up front also keeps the task-queue backlog honest for the autoscaler. The per-run fan-out is unbounded by design; the scheduled path bounds how many runs it starts at once instead (see "Scheduled recalculation"). The workflow runs on its own `experiments-recalculation-task-queue` (see `EXPERIMENTS_RECALCULATION_TASK_QUEUE`), served by a dedicated worker deployment, so recalc load can be scaled and throttled independently of the general-purpose worker. That deployment autoscales on backlog, so its slots (`MAX_CONCURRENT_ACTIVITIES` times the pod count) do not cap the number of concurrent queries. The activity task queue below does.
 
 - **Activity task queue with a fixed cap.** A scheduled burst can send more concurrent queries than the ClickHouse default user allows, and the rejections then also hit other products that share that user. The calc activity is also registered on `experiments-recalculation-activity-task-queue` (`EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE`), with no workflows. A fixed worker with no autoscaling polls it in each region, so its pod count times its slot count is a hard cap on concurrent recalculation queries for the runs routed there. The workflow and its light Postgres activities stay on the main queue.
 

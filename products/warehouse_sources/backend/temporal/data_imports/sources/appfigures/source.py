@@ -107,6 +107,11 @@ Stores, Categories, and Countries are reference tables that need no data set gra
             "Some given products are not owned by your account": "Your Appfigures account doesn't own one or more products this sync needs credits for. Check product ownership and available credits in Appfigures, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # _fetch raises this only after its own backoff runs out on a 429 or 5xx. Temporal then
+        # retries the activity, so log it at warning instead of raising an error tracking issue.
+        return {"Appfigures API error (retryable)"}
+
     def get_schemas(
         self,
         config: AppfiguresSourceConfig,
