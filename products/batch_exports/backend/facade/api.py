@@ -757,7 +757,10 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
 def list_batch_export_runs(
     team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
-    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``."""
+    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``.
+
+    A deleted export has no runs.
+    """
     return _import_runs().list_runs(team_id, export_id, filters, page)
 
 
