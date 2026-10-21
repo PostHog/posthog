@@ -40,7 +40,7 @@ const REFRESH_POLL_INTERVAL_MS = 15_000
  * scan itself may run for up to 30 minutes and wait as long again for a worker, so this sits past
  * both rather than giving up while the workflow is still allowed to finish.
  */
-const REFRESH_POLL_TIMEOUT_MS = 60 * 60_000
+export const REFRESH_POLL_TIMEOUT_MS = 60 * 60_000
 /** How often the elapsed line is redrawn. Minutes are the unit, so seconds-precision buys nothing. */
 const REFRESH_ELAPSED_TICK_MS = 10_000
 
@@ -687,7 +687,9 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 actions.refreshRequestRefused()
                 // The endpoint refuses for ordinary reasons — the daily cap, the org's AI setting,
                 // a quota — so its own message is the one worth showing.
-                lemonToast.error(apiError?.detail ?? 'Could not start a new scan')
+                if (source !== 'onboarding' || apiError?.status !== 403) {
+                    lemonToast.error(apiError?.detail ?? 'Could not start a new scan')
+                }
             } finally {
                 cache.refreshInFlight = false
             }

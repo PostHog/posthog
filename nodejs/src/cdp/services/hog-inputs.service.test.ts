@@ -278,18 +278,22 @@ describe('Hog Inputs', () => {
 
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
-                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
-                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId1)).toContain(
+                inputs.oauth.access_token
+            )
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId2)).toContain(inputs.auth.access_token)
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {
@@ -376,6 +380,37 @@ describe('Hog Inputs', () => {
             expect(inputs.email.html).toEqual(
                 `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
+        })
+
+        it('escapes liquid output only in the email fields that are written into html', async () => {
+            const value = '{{ event.properties.feature }}'
+            globals.event.properties.feature = `Logs & "Traces" <beta>`
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}', name: value },
+                        from: { email: 'hey@example.com', name: value },
+                        subject: `Welcome to ${value}`,
+                        text: `Welcome to ${value}`,
+                        preheader: value,
+                        html: `<p>${value}</p>`,
+                    },
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const raw = `Logs & "Traces" <beta>`
+            const escaped = 'Logs &amp; &#34;Traces&#34; &lt;beta&gt;'
+            expect(inputs.email).toMatchObject({
+                to: { name: raw },
+                from: { name: raw },
+                subject: `Welcome to ${raw}`,
+                text: `Welcome to ${raw}`,
+                preheader: escaped,
+                html: `<p>${escaped}</p>`,
+            })
         })
 
         it('drops the editor design from a liquid email instead of rendering it', async () => {

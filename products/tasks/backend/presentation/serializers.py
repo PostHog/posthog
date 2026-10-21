@@ -77,6 +77,7 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
     get_runtime_adapter_for_model,
 )
+from products.tasks.backend.facade.task_defaults import CLOUD_TARGET_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -2348,6 +2349,17 @@ class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListFi
         return value
 
 
+class SandboxCustomImageListQuerySerializer(serializers.Serializer):
+    origin_product = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskOriginProduct.choices,
+        help_text=(
+            "Return 403 unless tasks from this origin product can run on custom images. "
+            "Leave it out to only check that custom images are enabled."
+        ),
+    )
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -3163,6 +3175,16 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     repositories = serializers.ListField(
         child=serializers.CharField(),
         help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
+    )
+
+
+class TaskSourcesResponseSerializer(serializers.Serializer):
+    sources = serializers.ListField(
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task "
+            "list `sources` filter. Each value filters the task list back to at least one task."
+        ),
     )
 
 
@@ -5006,7 +5028,7 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Temporal workflow id of the Slack mention that dispatched this run "
-            "(`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs "
+            "(`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs "
             "created before this field was persisted."
         ),
     )
@@ -5276,6 +5298,15 @@ class TasksTaskDefaultsSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.",
     )
+    default_cloud_target = serializers.RegexField(
+        regex=CLOUD_TARGET_PATTERN,
+        allow_null=True,
+        help_text=(
+            "The cloud target new tasks start on, as `environment:<sandbox environment id>` or "
+            "`image:<custom image id>`. Null means the default sandbox. Clients fall back to the default "
+            "sandbox when the target no longer exists."
+        ),
+    )
 
 
 class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
@@ -5286,6 +5317,7 @@ class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
         for field in self.fields.values():
             field.required = False
             field.allow_null = False
+        self.fields["default_cloud_target"].allow_null = True
 
 
 class TasksUserConfigResponseSerializer(serializers.Serializer):

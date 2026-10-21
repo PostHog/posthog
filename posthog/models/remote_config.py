@@ -21,7 +21,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from posthog.utils import get_instance_region
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -67,6 +69,42 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
+# Converting a trigger group's flag object starts recordings that the group never made before.
+# This PostHog flag targets the project group by id and region.
+# PostHog turns it on for a team only after it notifies that team.
+TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT = "replay-trigger-group-object-flags"
+
+
+def _converts_trigger_group_object_flags(team_id: int) -> bool:
+    # Local evaluation keeps a config build from waiting on a remote call. A flag that cannot be evaluated reads as off.
+    # Each region numbers its teams separately. EU evaluates a mirror of the US flag.
+    # Every condition must filter on region, or it also matches the project with the same id in the other region.
+    region = get_instance_region() or "DEV"
+    return feature_enabled_or_false(
+        TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+        f"team-{team_id}",
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def _flag_for_sdk(flag: dict[str, Any]) -> str | dict[str, Any] | None:
+    # posthog-js reads a flag gate as a bare key, or as {"flag": key, "variant": variant} to gate on one variant.
+    key = flag.get("key")
+    variant = flag.get("variant")
+    return {"flag": key, "variant": variant} if variant is not None else key
+
+
+class UnreadableTriggerGroupsError(Exception):
+    """
+    A team's stored session recording trigger groups hold a shape that posthog-js cannot read.
+    The Team API rejects these shapes.
+    A write that skipped the Team API validation stored this one.
+    """
+
+
 class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
@@ -104,12 +142,13 @@ class RemoteConfig(UUIDTModel):
             expiry_sorted_set_key=REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
         )
 
-    def _build_session_recording_config(self, team: Team) -> dict:
+    def _build_session_recording_config(self, team: Team) -> dict | bool:
         """
         Build session recording configuration with V1/V2 support.
 
         V2: If team.session_recording_trigger_groups is set, use new trigger groups format
         V1: Otherwise, use legacy trigger fields for backward compatibility
+        Returns False when team.session_recording_trigger_groups is set but holds no readable group.
         """
         # Build base config (common to both V1 and V2)
         capture_console_logs = True if team.capture_console_log_opt_in else False
@@ -156,15 +195,8 @@ class RemoteConfig(UUIDTModel):
         if sample_rate == "1":
             sample_rate = None
 
-        linked_flag = None
-        linked_flag_config = team.session_recording_linked_flag or None
-        if isinstance(linked_flag_config, dict):
-            linked_flag_key = linked_flag_config.get("key", None)
-            linked_flag_variant = linked_flag_config.get("variant", None)
-            if linked_flag_variant is not None:
-                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-            else:
-                linked_flag = linked_flag_key
+        linked_flag_config = team.session_recording_linked_flag
+        linked_flag = _flag_for_sdk(linked_flag_config) if isinstance(linked_flag_config, dict) else None
 
         v1_fields = {
             "sampleRate": sample_rate,
@@ -174,27 +206,55 @@ class RemoteConfig(UUIDTModel):
             "triggerMatchType": team.session_recording_trigger_match_type_config,
         }
 
+        # The Team API validates this column. A write that skips the Team API can still store malformed JSON.
+        trigger_groups_config = team.session_recording_trigger_groups
+
         # V2: If trigger groups configured, send V2 + V1 fallback fields
-        if team.session_recording_trigger_groups:
-            trigger_groups_config = team.session_recording_trigger_groups
-            groups = trigger_groups_config.get("groups", [])
+        if trigger_groups_config:
+            groups = trigger_groups_config.get("groups", []) if isinstance(trigger_groups_config, dict) else None
 
             # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
             # This future-proofs the contract so WHERE clauses (property filters on events)
             # can be added later without a breaking SDK change.
             # Build normalized copies to avoid mutating the team's stored data.
             normalized_groups = []
-            for group in groups:
-                conditions = group.get("conditions", {})
-                if "events" in conditions:
-                    group = {
-                        **group,
-                        "conditions": {
-                            **conditions,
-                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
-                        },
-                    }
-                normalized_groups.append(group)
+            for group in groups if isinstance(groups, list) else []:
+                # The SDK throws on a group whose conditions is not an object.
+                # It also throws on events that is neither null nor a list.
+                conditions = group.get("conditions") if isinstance(group, dict) else None
+                if not isinstance(conditions, dict):
+                    continue
+                events = conditions.get("events")
+                if isinstance(events, list):
+                    conditions = {**conditions, "events": [{"name": e} if isinstance(e, str) else e for e in events]}
+                elif events is not None:
+                    continue
+                flag = conditions.get("flag")
+                # A flag object without a non-empty string key stays as stored. Its flag condition then never matches.
+                # Converting a missing or empty key would send an empty flag.
+                # The SDK reads an empty flag as no flag condition.
+                # A group with no other condition then records every session.
+                if (
+                    isinstance(flag, dict)
+                    and isinstance(key := flag.get("key"), str)
+                    and key
+                    and _converts_trigger_group_object_flags(team.id)
+                ):
+                    conditions = {**conditions, "flag": _flag_for_sdk(flag)}
+                normalized_groups.append({**group, "conditions": conditions})
+
+            if not isinstance(groups, list) or len(normalized_groups) < len(groups):
+                capture_exception(
+                    UnreadableTriggerGroupsError(
+                        "Dropped session recording trigger groups that posthog-js cannot read"
+                    ),
+                    additional_properties={"team_id": team.id, "readable_groups": len(normalized_groups)},
+                )
+                # posthog-js uses the V1 fields when triggerGroups is empty.
+                # A team that set up only trigger groups has empty V1 fields.
+                # Empty V1 fields record every session.
+                if not normalized_groups:
+                    return False
 
             return {
                 **base_config,
@@ -217,7 +277,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.facade.flags import has_active_flags
         from products.messaging.backend.facade.api import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
         from products.web_analytics.backend.remote_config import build_heatmaps_config
@@ -231,7 +291,7 @@ class RemoteConfig(UUIDTModel):
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
+            "hasFeatureFlags": has_active_flags(team),
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {

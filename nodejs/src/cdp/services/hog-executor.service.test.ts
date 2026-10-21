@@ -8,7 +8,9 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -29,8 +31,14 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import {
+    createExampleInvocation,
+    createHogExecutionGlobals,
+    createHogFunction,
+    insertIntegration,
+} from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -59,15 +67,11 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    beforeEach(async () => {
-        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        hub = await createHub()
+    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-            hub.encryptedFields
+            encryptedFields
         )
         const emailService = new EmailService(
             {
@@ -87,7 +91,7 @@ describe('Hog Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorAsyncService(
+        return new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
@@ -114,6 +118,14 @@ describe('Hog Executor', () => {
                 pushNotificationService: undefined as any,
             }
         )
+    }
+
+    beforeEach(async () => {
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        hub = await createHub()
+        executor = createExecutor(hub.encryptedFields)
     })
 
     afterEach(async () => {
@@ -2024,7 +2036,10 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('replaces access token placeholders in body, headers, and url', async () => {
+        it.each([
+            ['the keys that built the inputs', (keys: string): string => keys],
+            ['a key rotation that promoted a new key', (keys: string): string => `${'n'.repeat(32)},${keys}`],
+        ])('puts each integration token only where the template placed it, under %s', async (_name, rotate) => {
             jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
@@ -2036,50 +2051,44 @@ describe('Hog Executor', () => {
                 })
             })
 
-            const mockIntegrationInputs = {
-                oauth: {
-                    value: {
-                        access_token_raw: 'actual_secret_token_12345',
-                    },
-                },
-            }
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const insertTokenIntegration = (token: string) =>
+                insertIntegration(hub.postgres, team.id, {
+                    kind: 'oauth',
+                    sensitive_config: { access_token: hub.encryptedFields.encrypt(token) },
+                })
+            const crm = await insertTokenIntegration('crm_secret_token')
+            const chat = await insertTokenIntegration('chat_secret_token')
 
-            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
-                mockIntegrationInputs
+            const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
+            invocation.hogFunction.inputs = { crm: { value: crm.id }, chat: { value: chat.id } }
+            invocation.hogFunction.inputs_schema = [
+                { key: 'crm', type: 'integration', required: true },
+                { key: 'chat', type: 'integration', required: true },
+            ]
+            const { inputs } = await executor.hogExecutor.buildInputsWithGlobals(
+                invocation.hogFunction,
+                invocation.state.globals
             )
+            const lookAlike = ACCESS_TOKEN_PLACEHOLDER + crm.id
 
-            const invocation = createExampleInvocation()
-            invocation.state.globals.inputs = mockIntegrationInputs
-            invocation.hogFunction.inputs = {
-                oauth: { value: 123 },
-            }
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
                 type: 'fetch',
-                url: 'https://example.com/test?q=$$_access_token_placeholder_123',
+                url: `https://example.com/test?q=${inputs.chat.access_token}`,
                 method: 'POST',
-                headers: {
-                    'X-Test': '$$_access_token_placeholder_123',
-                    Authorization: 'Bearer $$_access_token_placeholder_123',
-                },
-                body: '$$_access_token_placeholder_123',
+                headers: { Authorization: `Bearer ${inputs.crm.access_token}`, 'X-Chat': inputs.chat.access_token },
+                body: JSON.stringify({ token: inputs.crm.access_token, title: lookAlike }),
             } as any
 
-            await executor.executeFetch(invocation)
+            await createExecutor(new EncryptedFields(rotate(hub.ENCRYPTION_SALT_KEYS))).executeFetch(invocation)
 
-            expect(jest.mocked(fetch).mock.calls[0] as any).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/test?q=actual_secret_token_12345",
-                  {
-                    "body": "actual_secret_token_12345",
-                    "headers": {
-                      "Authorization": "Bearer actual_secret_token_12345",
-                      "X-Test": "actual_secret_token_12345",
-                    },
-                    "method": "POST",
-                  },
-                ]
-            `)
+            const [url, options] = jest.mocked(fetch).mock.calls[0] as any
+            expect([url, options.headers, parseJSON(options.body)]).toEqual([
+                'https://example.com/test?q=chat_secret_token',
+                { Authorization: 'Bearer crm_secret_token', 'X-Chat': 'chat_secret_token' },
+                { token: 'crm_secret_token', title: lookAlike },
+            ])
         })
 
         describe('with non_failure_status_codes', () => {

@@ -14,15 +14,19 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, UserBasicType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { ResourceTags } from '../components/ResourceTags'
 import type {
     ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
@@ -69,15 +73,15 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '25%',
+            width: '18%',
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="space-y-1">
-                        <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 truncate">
+                        <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 @max-[40rem]/scorers:max-w-24 truncate">
                             <Link to={urls.aiObservabilityScorer(scoreDefinition.id)}>{scoreDefinition.name}</Link>
                         </div>
                         {scoreDefinition.description ? (
-                            <div className="max-w-64 @max-[50rem]/scorers:max-w-32 truncate text-muted-alt">
+                            <div className="max-w-64 @max-[50rem]/scorers:max-w-32 @max-[40rem]/scorers:max-w-24 truncate text-muted-alt">
                                 {scoreDefinition.description}
                             </div>
                         ) : (
@@ -91,6 +95,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Kind',
             dataIndex: 'kind',
             key: 'kind',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderKind(kind) {
                 return <LemonTag type="muted">{formatKindLabel(kind as ScoreDefinitionKind)}</LemonTag>
             },
@@ -99,6 +104,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Version',
             dataIndex: 'current_version',
             key: 'current_version',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderVersion(version, scoreDefinition) {
                 return scoreDefinition.current_version_id ? (
                     <CopyToClipboardInline
@@ -124,6 +130,45 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                     <LemonTag type="success">Active</LemonTag>
                 )
             },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '18%',
+            className: '@max-[40rem]/scorers:hidden',
+            render: (_, scoreDefinition) => (
+                <ResourceTags
+                    entity="scorers"
+                    resourceId={scoreDefinition.id}
+                    tags={scoreDefinition.tags}
+                    onSaved={() => loadScoreDefinitions(false)}
+                    onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                />
+            ),
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            className:
+                '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
+            render: (_, scorer) =>
+                scorer.created_by ? (
+                    <ProfilePicture user={scorer.created_by as UserBasicType} size="md" showName />
+                ) : (
+                    <span className="text-muted">Unknown</span>
+                ),
+        },
+        {
+            title: <span className="whitespace-normal">Last updated by</span>,
+            key: 'updated_by',
+            className:
+                '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
+            render: (_, scorer) =>
+                scorer.updated_by ? (
+                    <ProfilePicture user={scorer.updated_by as UserBasicType} size="md" showName />
+                ) : (
+                    <span className="text-muted">Unknown</span>
+                ),
         },
         {
             ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
@@ -159,6 +204,15 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         className="min-w-64"
                         data-attr="llma-scorers-search-input"
                     />
+                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
+                    <div data-attr="llma-scorers-created-by-filter">
+                        <MemberSelect
+                            value={filters.created_by}
+                            size="medium"
+                            defaultLabel="Any creator"
+                            onChange={(user) => setFilters({ created_by: user?.id ?? null }, true, false)}
+                        />
+                    </div>
                     <LemonSelect<ScoreDefinitionKind | ''>
                         value={filters.kind}
                         onChange={(value) => setFilters({ kind: value || '' })}
@@ -201,6 +255,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             )}
             {!scoreDefinitionsError && (
                 <LemonTable
+                    className="@max-[50rem]/scorers:[&_colgroup]:hidden"
                     loading={scoreDefinitionsLoading}
                     columns={columns}
                     dataSource={scoreDefinitions.results}

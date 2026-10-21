@@ -13,7 +13,7 @@ import { todayReportQueueLogic } from './todayReportQueueLogic'
 
 const TodayReportPage = lazyWithRetry(() => import('./TodayReportPage').then((m) => ({ default: m.TodayReportPage })))
 
-/** The Today homepage: the daily briefing at `/home`, or one report at `/home/reports/:reportId`. */
+/** The Today homepage at `/home`, or one report at `/home/reports/:reportId`. */
 export function TodayHome(): JSX.Element {
     useMountedLogic(todayReportQueueLogic)
     const { reportId } = useValues(todayLogic)

@@ -103,7 +103,7 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
 Your domain prefix is the first part of your store URL — for `mystore.retail.lightspeed.app` enter `mystore`. An admin can create a personal token in Setup > Personal Tokens (available on the Plus plan and above).""",
             iconPath="/static/services/lightspeed_retail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/lightspeed-retail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

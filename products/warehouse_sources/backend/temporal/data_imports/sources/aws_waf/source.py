@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     ENDPOINTS,
     ERROR_MESSAGES,
     INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+    SHOULD_SYNC_DEFAULT,
     WAF_API_VERSION,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -80,7 +82,14 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=ENDPOINT_DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,
@@ -101,7 +110,11 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_waf_source(
-            config, inputs.schema_name, resumable_source_manager, self.resolve_api_version(inputs.api_version)
+            config,
+            inputs.schema_name,
+            resumable_source_manager,
+            self.resolve_api_version(inputs.api_version),
+            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
         )
 
     @property
@@ -116,12 +129,17 @@ Grant `wafv2:ListWebACLs` and `wafv2:GetWebACL` to sync web ACLs.
 Grant `wafv2:ListRuleGroups` and `wafv2:GetRuleGroup` to sync rule groups.
 Grant `wafv2:ListIPSets` and `wafv2:GetIPSet` to sync IP sets.
 Grant `wafv2:ListRegexPatternSets` and `wafv2:GetRegexPatternSet` to sync regex pattern sets.
+Grant `wafv2:ListAvailableManagedRuleGroups` and `wafv2:DescribeManagedRuleGroup` to sync managed rule groups.
+Grant `wafv2:ListWebACLs` and `wafv2:ListResourcesForWebACL`, plus the read permissions for each protected resource type, to sync protected resources.
+Grant `wafv2:ListWebACLs`, `wafv2:GetWebACL`, and `wafv2:GetSampledRequests` to sync sampled requests.
+Grant `cloudwatch:ListMetrics` and `cloudwatch:GetMetricData` to sync request metrics.
 
 Select a region for regional resources. CloudFront resources use us-east-1.
-All tables use full refresh. This source imports configuration data only, without request samples or traffic logs.""",
+Sampled requests cover at most the last 3 hours, so sync them at least every 3 hours to keep a continuous history.
+Protected resources are only listed for the regional scope.""",
             iconPath="/static/services/aws_waf.png",
             docsUrl="https://docs.aws.amazon.com/waf/latest/APIReference/Welcome.html",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "waf", "firewall", "security"],
             fields=cast(
                 list[FieldType],

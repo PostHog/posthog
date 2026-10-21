@@ -1,10 +1,14 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
+import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
+    type FlagEvaluation,
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
@@ -24,9 +28,18 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
+import {
+    type InterviewRecruitmentConfig,
+    type InterviewRecruitmentDiagnostics,
+    type InterviewRecruitmentUnavailableReason,
+    resolveInterviewRecruitmentConfig,
+    MCP_INTERVIEW_RECRUITMENT_FLAG,
+} from './interview-recruitment'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -39,10 +52,18 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
+    interviewRecruitmentConfig?: InterviewRecruitmentConfig
+    intentPrompt?: string
+    interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
+    interviewRecruitmentDiagnostics?: InterviewRecruitmentDiagnostics
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
+    projectHasData?: boolean | undefined
+    /** Set on the per-call state when the no-data notice blocked or warned this call. */
+    noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -50,6 +71,14 @@ export interface ResolvedState {
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
     flagGatedTools: FlagGatedTool[]
+    /**
+     * The tools a scout run with a picked tool list holds, from token introspection.
+     * Undefined means no per-tool policy. Every other tool is hidden, and exec refuses it
+     * as `tool_not_granted`.
+     */
+    heldTools?: ReadonlySet<string> | undefined
+    /** The task a sandbox token is bound to, from token introspection. */
+    sandboxTaskId?: string | undefined
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -62,6 +91,7 @@ export interface ResolvedState {
      * the full roster into the instructions payload.
      */
     gatewayToolsEnabled: boolean
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
 }
@@ -154,36 +184,89 @@ export class RequestStateResolver {
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
         // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG])]
+        const allFlagKeys = [
+            ...new Set([
+                ...getRequiredFeatureFlags(),
+                MCP_GATEWAY_FLAG,
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_INTERVIEW_RECRUITMENT_FLAG,
+                MCP_INTENT_PROMPT_FLAG,
+                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+            ]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [allFlags, _apiKey, distinctId] = await Promise.all([
+        const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+        const [oauthClientName, oauthClientId] = await Promise.all([
+            reqCtx.tokenCache.get('clientName'),
+            reqCtx.tokenCache.get('oauthClientId'),
+        ])
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
+        const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
+        const source = resolveEventSource({
+            mcpConsumer: liveClient.mcpConsumer,
+            clientUserAgent: props.clientUserAgent,
+            apiKeyScopes: _apiKey?.scopes,
+            oauthClientId: oauthClientId || undefined,
+        })
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
+        let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        if (
+            recruitmentPayload === undefined &&
+            isLocalApi() &&
+            (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') &&
+            overrides[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        ) {
+            try {
+                recruitmentPayload = JSON.parse(env.MCP_INTERVIEW_RECRUITMENT_PAYLOAD ?? '')
+            } catch {
+                // Local opt-in still requires explicit, valid invitation content.
+            }
+        }
+        const recruitmentFlagValue = mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        let interviewRecruitmentUnavailableReason: InterviewRecruitmentUnavailableReason | undefined
+        if (source !== EVENT_SOURCE.MCP) {
+            interviewRecruitmentUnavailableReason = 'surface_excluded'
+        } else if (_apiKey?.scopes?.includes('internal_run:read')) {
+            interviewRecruitmentUnavailableReason = 'internal_run'
+        } else if (props.taskId || props.taskOriginProduct) {
+            interviewRecruitmentUnavailableReason = 'task_bound'
+        } else if (recruitmentFlagValue === undefined) {
+            interviewRecruitmentUnavailableReason = 'flag_unavailable'
+        } else if (recruitmentFlagValue === false) {
+            interviewRecruitmentUnavailableReason = 'flag_disabled'
+        }
+        const interviewRecruitmentConfig = interviewRecruitmentUnavailableReason
+            ? undefined
+            : resolveInterviewRecruitmentConfig(recruitmentFlagValue, recruitmentPayload)
+        if (!interviewRecruitmentUnavailableReason && !interviewRecruitmentConfig) {
+            interviewRecruitmentUnavailableReason = 'invalid_configuration'
+        }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
-
-        const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
-        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
+        const intentPrompt =
+            source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
+                ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
+                : undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
             clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName,
+            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
         })
@@ -225,34 +308,49 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
+        // The held set is a server-derived ceiling on top of every other filter, so a tool
+        // outside it is neither listed nor offered as a gated hint the agent could chase.
+        const heldTools = _apiKey?.mcp_allowed_tools ? new Set(_apiKey.mcp_allowed_tools) : undefined
+        const isHeld = (tool: { name: string }): boolean => !heldTools || heldTools.has(tool.name)
+
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
-        )
+        const allTools = (
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            )
+        ).filter(isHeld)
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
-        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
         return {
             reqCtx,
             context,
             useSingleExec,
+            viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
+            interviewRecruitmentConfig,
+            intentPrompt,
+            interviewRecruitmentUnavailableReason,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
-            oauthClientId,
+            projectHasData: flagAnalyticsContext?.projectHasData,
+            oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
             sessionContext,
             allTools,
             scopeGatedTools,
             flagGatedTools,
+            gatewayToolFilter: { tools, features, excludeTools },
+            heldTools,
+            sandboxTaskId: _apiKey?.sandbox_task_id,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -378,21 +476,28 @@ export class RequestStateResolver {
         reqCtx: RequestContext,
         flagKeys: string[],
         groups?: FlagGroups
-    ): Promise<EvaluatedFlags> {
+    ): Promise<FlagEvaluation> {
         if (flagKeys.length === 0) {
-            return {}
+            return { flags: {}, payloads: {} }
         }
-        // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate exist. The flags only hide those surfaces on
-        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
+        // Enable product surfaces locally because the analytics flag client is disabled there.
+        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
-            return Object.fromEntries(flagKeys.map((key) => [key, true]))
+            return {
+                flags: Object.fromEntries(
+                    flagKeys.map((key) => [
+                        key,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                    ])
+                ),
+                payloads: {},
+            }
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
-            return {}
+            return { flags: {}, payloads: {} }
         }
     }
 }

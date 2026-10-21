@@ -141,8 +141,8 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
-                              |DailyBriefing
                               |TodayHighlights
+                              |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -160,7 +160,6 @@ rules:
                               |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
-                              |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
@@ -346,6 +345,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationFeedDismissal
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -380,6 +380,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFirstReportNotification
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -402,6 +403,7 @@ rules:
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
+                              |SignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -414,6 +416,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
@@ -612,8 +615,8 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
-                        |DailyBriefing
                         |TodayHighlights
+                        |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -631,7 +634,6 @@ rules:
                         |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
@@ -807,6 +809,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationFeedDismissal
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -841,6 +844,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -863,6 +867,7 @@ rules:
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
+                        |SignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -875,6 +880,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
@@ -1040,7 +1046,6 @@ rules:
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
@@ -1177,6 +1182,7 @@ rules:
                         |SessionRecordingViewed
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportCheck
@@ -1233,7 +1239,6 @@ rules:
                         |UserGroup
                         |UserInterview
                         |UserInterviewTopic
-                        |UserProductList
                         |UserRepoPreference
                         |WarehouseSuggestionTeamConfig
                         |WebAnalyticsFilterPreset
@@ -1496,7 +1501,6 @@ rules:
                           (?x)(
                               AccountAuditCredential
                               |CommunitySkillVote
-                              |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
@@ -1554,7 +1558,6 @@ rules:
                     (?x)(
                         AccountAuditCredential
                         |CommunitySkillVote
-                        |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
@@ -1651,9 +1654,9 @@ rules:
                               |MCPServerInstallation
                               |Reminder
                               |SessionRecordingViewed
+                              |UserActivitySummary
                               |UserFacetSettings
                               |UserHomeSettings
-                              |UserProductList
                               |UserScenePersonalisation
                               |WebAnalyticsUserConfig
                           )$
@@ -1725,9 +1728,9 @@ rules:
                         |KernelRuntime
                         |Reminder
                         |SessionRecordingViewed
+                        |UserActivitySummary
                         |UserFacetSettings
                         |UserHomeSettings
-                        |UserProductList
                         |UserScenePersonalisation
                         |WebAnalyticsUserConfig
                     )$

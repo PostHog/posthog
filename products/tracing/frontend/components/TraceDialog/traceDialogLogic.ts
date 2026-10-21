@@ -35,7 +35,7 @@ import { buildServiceColorMap } from 'products/tracing/frontend/TraceWaterfallVi
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import type { Span, SpanInspectorTab } from 'products/tracing/frontend/types'
 
-import { buildTraceDialogRows, countDescendantsById, type TraceDialogRow } from './traceDialogRows'
+import { buildTraceDialogRows, countDescendantsById, rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 
 // The trace endpoint pages at 2,000 spans, so this caps the dialog at 10,000. Bigger traces open in
 // Tracing, which pages in on scroll.
@@ -129,13 +129,20 @@ export interface traceDialogLogicValues {
     correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     activeInspectorTab: SpanInspectorTab
+    chainStartIds: {
+        folded: Set<string>
+        opened: Set<string>
+    }
     chosenInspectorTab: SpanInspectorTab | null
     collapsedSpanIds: Set<string>
     dialogEnabled: boolean
     flatSpans: SpanNode[]
     fullChildListSpanIds: Set<string>
+    inspectorOpen: boolean
+    isFullscreen: boolean
     isOpen: boolean
     missingParentSpanId: string | null
+    openChainIds: Set<string>
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
     openedSpan: Span | null
@@ -203,6 +210,9 @@ export interface traceDialogLogicActions {
     expandSelectedSpan: () => {
         value: true
     }
+    keepSelectionOnScreen: () => {
+        value: true
+    }
     loadTraceSpans: (trace: TraceLinkParams) => TraceLinkParams
     loadTraceSpansFailure: (
         error: string,
@@ -248,6 +258,15 @@ export interface traceDialogLogicActions {
     showAllChildren: (spanId: string) => {
         spanId: string
     }
+    toggleChain: (spanId: string) => {
+        spanId: string
+    }
+    toggleFullscreen: () => {
+        value: true
+    }
+    toggleInspector: () => {
+        value: true
+    }
     toggleSpanCollapsed: (spanId: string) => {
         spanId: string
     }
@@ -262,9 +281,14 @@ export interface traceDialogLogicMeta {
             spanTree: TraceDialogTree,
             collapsedSpanIds: Set<string>,
             fullChildListSpanIds: Set<string>,
+            openChainIds: Set<string>,
             trace: TraceLinkParams | null
         ) => TraceDialogRow[]
         flatSpans: (spanRows: TraceDialogRow[]) => SpanNode[]
+        chainStartIds: (spanRows: TraceDialogRow[]) => {
+            folded: Set<string>
+            opened: Set<string>
+        }
         selectedSpan: (
             traceSpans: TraceDialogSpans | null,
             selectedSpanId: string | null,
@@ -340,6 +364,10 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         selectSpan: (spanId: string) => ({ spanId }),
         toggleSpanCollapsed: (spanId: string) => ({ spanId }),
         showAllChildren: (spanId: string) => ({ spanId }),
+        toggleChain: (spanId: string) => ({ spanId }),
+        keepSelectionOnScreen: true,
+        toggleInspector: true,
+        toggleFullscreen: true,
         setInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
     }),
     loaders(({ values }) => ({
@@ -436,6 +464,34 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 showAllChildren: (shown, { spanId }) => new Set(shown).add(spanId),
             },
         ],
+        // Chains fold by default, so this holds the opened ones.
+        openChainIds: [
+            new Set<string>(),
+            {
+                openTraceDialog: () => new Set<string>(),
+                toggleChain: (opened, { spanId }) => {
+                    const next = new Set(opened)
+                    if (!next.delete(spanId)) {
+                        next.add(spanId)
+                    }
+                    return next
+                },
+            },
+        ],
+        inspectorOpen: [
+            true,
+            { persist: true },
+            {
+                toggleInspector: (open) => !open,
+            },
+        ],
+        isFullscreen: [
+            false,
+            { persist: true },
+            {
+                toggleFullscreen: (fullscreen) => !fullscreen,
+            },
+        ],
         // A tab the person picked sticks while they move between spans. Until they pick one, the
         // inspector chooses for the span in view.
         chosenInspectorTab: [
@@ -468,25 +524,43 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             },
         ],
         spanRows: [
-            (s) => [s.spanTree, s.collapsedSpanIds, s.fullChildListSpanIds, s.trace],
+            (s) => [s.spanTree, s.collapsedSpanIds, s.fullChildListSpanIds, s.openChainIds, s.trace],
             (
                 spanTree: TraceDialogTree,
                 collapsedSpanIds: Set<string>,
                 fullChildListSpanIds: Set<string>,
+                openChainIds: Set<string>,
                 trace: TraceLinkParams | null
             ): TraceDialogRow[] =>
-                buildTraceDialogRows(
-                    spanTree.roots,
+                buildTraceDialogRows(spanTree.roots, {
                     collapsedSpanIds,
                     fullChildListSpanIds,
-                    (trace?.spanId && spanTree.nodesById.get(trace.spanId)) || null
-                ),
+                    openChainIds,
+                    pinned: (trace?.spanId && spanTree.nodesById.get(trace.spanId)) || null,
+                }),
         ],
-        // The spans on screen, in order, for stepping through them.
         flatSpans: [
             (s) => [s.spanRows],
             (spanRows: TraceDialogRow[]): SpanNode[] =>
-                spanRows.flatMap((row) => (row.kind === 'span' ? [row.node] : [])),
+                spanRows.flatMap((row) => {
+                    const node = rowSpanNode(row)
+                    return node ? [node] : []
+                }),
+        ],
+        chainStartIds: [
+            (s) => [s.spanRows],
+            (spanRows: TraceDialogRow[]): { folded: Set<string>; opened: Set<string> } => {
+                const folded = new Set<string>()
+                const opened = new Set<string>()
+                for (const row of spanRows) {
+                    if (row.kind === 'chain') {
+                        folded.add(row.nodes[0].span.span_id)
+                    } else if (row.kind === 'span' && row.openChainLength) {
+                        opened.add(row.node.span.span_id)
+                    }
+                }
+                return { folded, opened }
+            },
         ],
         selectedSpan: [
             (s) => [s.traceSpans, s.selectedSpanId, s.summary],
@@ -715,16 +789,34 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             if (cache.session) {
                 cache.session.keyboardSteps += 1
             }
-            if (node.children.length > 0 && !values.collapsedSpanIds.has(node.span.span_id)) {
-                actions.toggleSpanCollapsed(node.span.span_id)
+            const spanId = node.span.span_id
+            if (values.chainStartIds.opened.has(spanId)) {
+                actions.toggleChain(spanId)
+            } else if (node.children.length > 0 && !values.collapsedSpanIds.has(spanId)) {
+                actions.toggleSpanCollapsed(spanId)
             } else if (node.parent) {
-                actions.selectSpan(node.parent.span.span_id)
+                // The parent can sit inside a folded chain, which stands for it on screen.
+                const shown = new Set(values.flatSpans)
+                let parent: SpanNode | null = node.parent
+                while (parent && !shown.has(parent)) {
+                    parent = parent.parent
+                }
+                if (parent) {
+                    actions.selectSpan(parent.span.span_id)
+                }
             }
         },
         // Right expands the selected span, or steps into its first child once it is open.
         expandSelectedSpan: () => {
             const node = values.spanTree.nodesById.get(values.missingParentSpanId ?? values.selectedSpan?.span_id ?? '')
             if (!node || node.children.length === 0) {
+                return
+            }
+            if (values.chainStartIds.folded.has(node.span.span_id)) {
+                if (cache.session) {
+                    cache.session.keyboardSteps += 1
+                }
+                actions.toggleChain(node.span.span_id)
                 return
             }
             if (!values.collapsedSpanIds.has(node.span.span_id)) {
@@ -736,20 +828,31 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             }
             actions.toggleSpanCollapsed(node.span.span_id)
         },
-        // Collapsing the span that holds the selection selects it, so the inspector shows a span on screen.
-        toggleSpanCollapsed: ({ spanId }) => {
+        toggleSpanCollapsed: () => {
             if (cache.session) {
                 cache.session.collapseToggles += 1
             }
-            if (!values.collapsedSpanIds.has(spanId) || !values.selectedSpanId) {
+            actions.keepSelectionOnScreen()
+        },
+        toggleChain: () => {
+            if (cache.session) {
+                cache.session.collapseToggles += 1
+            }
+            actions.keepSelectionOnScreen()
+        },
+        // The inspector must never show a span the list hides.
+        keepSelectionOnScreen: () => {
+            const selected = values.selectedSpanId ? values.spanTree.nodesById.get(values.selectedSpanId) : undefined
+            if (!selected) {
                 return
             }
-            const { nodesById } = values.spanTree
-            for (let node = nodesById.get(values.selectedSpanId)?.parent; node; node = node.parent) {
-                if (node.span.span_id === spanId) {
-                    actions.selectSpan(spanId)
-                    return
-                }
+            const shown = new Set(values.flatSpans)
+            let node: SpanNode | null = selected
+            while (node && !shown.has(node)) {
+                node = node.parent
+            }
+            if (node && node !== selected) {
+                actions.selectSpan(node.span.span_id)
             }
         },
         // The player and the full-screen logs viewer are global modals that can sit below this one,

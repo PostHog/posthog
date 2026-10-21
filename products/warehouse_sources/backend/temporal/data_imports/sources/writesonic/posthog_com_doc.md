@@ -4,7 +4,6 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: Writesonic
-beta: true
 ---
 
 <!--
@@ -18,9 +17,6 @@ in the posthog repo long-term. Once moved, run:
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 [Writesonic](https://writesonic.com) tracks your brand's visibility in AI search — how often, how prominently, and in what context AI platforms like ChatGPT, Perplexity, and Google AI Overviews mention your brand (GEO, generative engine optimization). This connector pulls your daily performance metrics, raw AI answers with brand mentions, citations, keywords, and tracked configuration (topics, prompts, platforms, websites) into the PostHog Data warehouse, where you can join AI visibility with your product analytics.
 

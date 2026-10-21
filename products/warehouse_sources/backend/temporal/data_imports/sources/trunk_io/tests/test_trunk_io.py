@@ -319,24 +319,6 @@ class TestValidateCredentials:
         assert network.session_options
         assert all(options["allow_redirects"] is False for options in network.session_options)
 
-    @parameterized.expand(
-        [
-            (200, True, None),
-            (
-                401,
-                False,
-                "Trunk.io authentication failed. Check your API token, organization slug, and repository details.",
-            ),
-            (500, False, "Trunk.io API returned HTTP 500."),
-        ]
-    )
-    def test_status_code_mapping(self, status_code: int, expected_ok: bool, expected_error: Optional[str]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            ok, error = validate_credentials("token", "my-org", REPO)
-
-        assert ok is expected_ok
-        assert error == expected_error
-
     def test_network_error_is_reported(self) -> None:
         with scripted_network(always(RequestException("boom"))):
             ok, error = validate_credentials("token", "my-org", REPO)

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
     ENDPOINT_NAME,
@@ -39,14 +40,6 @@ class TestNonRetryableErrors:
                 "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3",
             ),
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
-            ),
-            (
                 "quota_exceeded",
                 "429 Client Error: Too Many Requests for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
             ),
@@ -68,6 +61,49 @@ class TestNonRetryableErrors:
             'timed out. (read timeout=30)"))'
         )
         assert any(pattern in error_msg for pattern in MicrosoftClaritySource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=1",
+                True,
+            ),
+            (
+                "bad_gateway",
+                "502 Server Error: Bad Gateway for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3&dimension1=OS",
+                True,
+            ),
+            (
+                "service_unavailable",
+                "503 Server Error: Service Unavailable for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                True,
+            ),
+            (
+                "gateway_timeout",
+                "504 Server Error: Gateway Timeout for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                True,
+            ),
+            (
+                "different_host",
+                "500 Server Error: Internal Server Error for url: https://example.com/export-data/api/v1/project-live-insights",
+                False,
+            ),
+            (
+                "client_error",
+                "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                False,
+            ),
+        ]
+    )
+    def test_get_retryable_errors_match_only_clarity_server_errors(
+        self, _name: str, error_msg: str, retryable: bool
+    ) -> None:
+        assert error_message_matches(error_msg, MicrosoftClaritySource().get_retryable_errors()) is retryable
 
 
 class TestSourceForPipeline:

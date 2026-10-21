@@ -16,7 +16,7 @@ from products.workflows.backend.presentation.views.workflow_data_suggestions imp
     DataSuggestionStage,
     DataSuggestionStepKind,
 )
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.llm import invoke_structured, strict_schema
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -198,6 +198,11 @@ class TestDataSuggestions(SimpleTestCase):
         assert "slack_workspace" not in slack_inputs
         assert slack_inputs["text"]["value"] == "Trial user needs help"
         assert actions["action_5_wait_until_time_window"]["config"]["day"] == "weekday"
+        webhook_schema = {"template-webhook": [{"key": "url", "label": "Webhook URL", "required": True}]}
+        assert {(item.step_id, item.field) for item in missing_inputs(built.workflow, webhook_schema)} == {
+            ("action_0_email", "Email sender"),
+            ("action_2_function", "Webhook URL"),
+        }
 
     @patch("products.workflows.backend.services.data_suggestions.llm.logger")
     @patch("products.workflows.backend.services.data_suggestions.llm.is_privacy_mode_enabled", return_value=True)
@@ -248,7 +253,7 @@ class TestDataSuggestions(SimpleTestCase):
         assert email["html"] == "<p>saved</p>"
         assert "text" not in email
 
-    def test_build_workflow_puts_a_wait_between_back_to_back_emails(self) -> None:
+    def test_build_workflow_spaces_out_emails_for_a_person(self) -> None:
         built = build_workflow(
             IDEA, plan(step("first", next="second"), step("second", email_subject="Second")), context()
         )
@@ -259,10 +264,29 @@ class TestDataSuggestions(SimpleTestCase):
             "function_email",
         ]
         assert built.workflow["actions"][2]["config"] == {"delay_duration": "1d"}
+        assert built.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": 7 * 24 * 60 * 60, "threshold": None}
         assert edges(built)[1:3] == [
             ("action_0_email", "action_1_delay", "continue", None),
             ("action_1_delay", "action_2_email", "continue", None),
         ]
+
+    @parameterized.expand([("quiet trigger", 50_000, None), ("busy trigger", 1_000_000, 5), ("flood", 9_000_000, 1)])
+    def test_build_workflow_starts_a_busy_trigger_on_a_sample(
+        self, _name: str, weekly_count: int, share: int | None
+    ) -> None:
+        built = build_workflow(IDEA, plan(step("welcome")), context(weekly_count=weekly_count))
+        assert built is not None
+        if share is None:
+            assert edges(built)[0] == ("trigger_node", "action_0_email", "continue", None)
+            return
+        assert edges(built)[:4] == [
+            ("trigger_node", "action_sample", "continue", None),
+            ("action_sample", "action_0_email", "branch", 0),
+            ("action_sample", "exit_node", "branch", 1),
+            ("action_sample", "exit_node", "continue", None),
+        ]
+        sample = next(action for action in built.workflow["actions"] if action["id"] == "action_sample")
+        assert [cohort["percentage"] for cohort in sample["config"]["cohorts"]] == [share, 100 - share]
 
     @parameterized.expand(
         [
@@ -284,6 +308,12 @@ class TestDataSuggestions(SimpleTestCase):
                 lambda inputs: inputs["text"]["value"],
                 "{person",
             ),
+            (
+                "a placeholder for a property the trigger event does not carry",
+                step(email_paragraphs=["You left [[secret|an item]] behind"]),
+                lambda inputs: inputs["email"]["value"]["html"],
+                "secret",
+            ),
         ]
     )
     def test_build_workflow_strips_template_tags_from_model_copy(
@@ -294,6 +324,37 @@ class TestDataSuggestions(SimpleTestCase):
         copy = copy_of(built.workflow["actions"][1]["config"]["inputs"])
         assert leftover not in copy
         assert "{%" not in copy
+
+    def test_build_workflow_shows_trigger_event_properties_through_liquid(self) -> None:
+        planned = step(
+            email_subject="You left [[product_name|something]] behind",
+            email_paragraphs=[
+                "Your [[product_name|items]] cost [[price|less than you think]].",
+                "Pick [[product_name|your team's choice]] or [[price|Tom's deal]].",
+                "See [[product_name|Tom&#x27;s plan\\]] today.",
+            ],
+        )
+
+        built = build_workflow(IDEA, plan(planned), context(event_properties=frozenset({"product_name"})))
+
+        assert built is not None
+        email = built.workflow["actions"][1]
+        assert email["config"]["inputs"]["email"]["value"]["subject"] == (
+            "You left {{ event.properties.product_name | default: 'something' | raw }} behind"
+        )
+        assert (
+            "See {{ event.properties.product_name | default: 'Toms plan' | raw }} today."
+            in (email["config"]["inputs"]["email"]["value"]["text"])
+        )
+        assert (
+            "Your {{ event.properties.product_name | default: 'items' }} cost less than you think."
+            in (email["config"]["inputs"]["email"]["value"]["html"])
+        )
+        assert (
+            "Pick {{ event.properties.product_name | default: 'your teams choice' }} or Toms deal."
+            in (email["config"]["inputs"]["email"]["value"]["html"])
+        )
+        assert email["name"] == "You left something behind"
 
     @parameterized.expand(
         [
@@ -361,18 +422,30 @@ class TestDataSuggestions(SimpleTestCase):
                 "e2": ChoiceAnswer(choice="signup", confidence=0.6, probabilities={"signup": 0.6}),
                 "e3": ChoiceAnswer(choice="failure", confidence=0.6, probabilities={"failure": 0.6}),
                 "e4": ChoiceAnswer(choice="signup", confidence=0.9, probabilities={"signup": 0.9}),
+                "e5": ChoiceAnswer(choice="signup", confidence=0.1, probabilities={"signup": 0.1}),
+                "e6": ChoiceAnswer(choice="churn_risk", confidence=0.3, probabilities={"churn_risk": 0.3}),
             },
             input_tokens=10,
         )
         assert classify_event_stages(
             team_id=1,
-            event_names=["account_created", "thing_happened", "summary_generated", "upload_failed", "query executed"],
+            event_names=[
+                "account_created",
+                "thing_happened",
+                "summary_generated",
+                "upload_failed",
+                "query executed",
+                "workspace created",
+                "subscription paused",
+            ],
         ) == {
             "account_created": "signup",
             "thing_happened": "other",
             "summary_generated": "other",
             "upload_failed": "failure",
             "query executed": "other",
+            "workspace created": "signup",
+            "subscription paused": "churn_risk",
         }
 
     @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])

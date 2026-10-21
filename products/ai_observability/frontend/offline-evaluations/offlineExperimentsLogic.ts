@@ -17,6 +17,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { cleanTagFilters, restoreTagFilters, saveTagFilters } from '../components/resourceTagFilters'
 import * as api from '../generated/api'
 import type {
     OfflineExperimentPageApi,
@@ -249,6 +250,7 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                         }
                         const page = await api.aiObservabilityOfflineExperimentsList(String(props.teamId), {
                             ...filters,
+                            tags: filters.tags?.length ? JSON.stringify(filters.tags) : undefined,
                             date_from: range.dateFrom,
                             date_to: range.dateTo,
                             cursor: values.cursor || undefined,
@@ -342,7 +344,11 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
             { date_from: '-30d' } as OfflineExperimentFilters,
             {
                 setFilters: (state, { filters }) => cleanOfflineFilters({ ...state, ...filters }),
-                hydrateUrl: (_, { search }) => ({ date_from: '-30d', ...offlineFiltersFromUrl(search) }),
+                hydrateUrl: (_, { search }) => ({
+                    date_from: '-30d',
+                    ...offlineFiltersFromUrl(search),
+                    ...restoreTagFilters('experiments', search, props.teamId, props.userId),
+                }),
             },
         ],
         hasExperiments: [null as boolean | null, { setHasExperiments: (_, { hasExperiments }) => hasExperiments }],
@@ -441,7 +447,11 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
             (s) => [s.filters],
             (filters: OfflineExperimentFilters): OfflineOverviewTrendFilters => ({
                 run_source: filters.run_source,
+                created_by: filters.created_by,
+                created_by_is_null: filters.created_by_is_null,
                 statuses: filters.statuses || OFFLINE_ALL_UPLOAD_STATES,
+                tags: JSON.stringify(filters.tags || []),
+                tag_match: filters.tag_match || 'any',
             }),
         ],
         trendXDomain: [
@@ -486,7 +496,11 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                         trend.query.dateTo !== dateRange.dateTo ||
                         trend.query.refreshKey !== refreshKey ||
                         trend.query.filters?.run_source !== filters.run_source ||
-                        (trend.query.filters?.statuses || OFFLINE_ALL_UPLOAD_STATES) !== filters.statuses
+                        trend.query.filters?.created_by !== filters.created_by ||
+                        trend.query.filters?.created_by_is_null !== filters.created_by_is_null ||
+                        (trend.query.filters?.statuses || OFFLINE_ALL_UPLOAD_STATES) !== filters.statuses ||
+                        (trend.query.filters?.tags || '[]') !== filters.tags ||
+                        (trend.query.filters?.tag_match || 'any') !== filters.tag_match
                     ) {
                         return []
                     }
@@ -501,12 +515,14 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
     }),
     listeners(({ actions, values, props }) => ({
         setFilters: () => {
+            saveTagFilters('experiments', cleanTagFilters(values.filters), props.teamId, props.userId)
             actions.loadOfflineExperiments()
             if (!values.scorerIds?.length && values.dateRange && values.suggestedScorers === null) {
                 actions.loadOfflineSuggestedScorers()
             }
         },
         hydrateUrl: () => {
+            saveTagFilters('experiments', cleanTagFilters(values.filters), props.teamId, props.userId)
             actions.loadOfflineExperiments()
             if (!values.scorerIds?.length && values.dateRange) {
                 if (values.suggestedScorers) {
@@ -568,6 +584,7 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
         ]
         return {
             setFilters: location,
+            hydrateUrl: location,
             setScorerIds: location,
             suggestScorerIds: location,
             nextPage: location,

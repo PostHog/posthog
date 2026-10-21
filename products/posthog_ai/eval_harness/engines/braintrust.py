@@ -12,6 +12,8 @@ from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 from braintrust.logger import Span, SpanImpl
 
+from ..scorers.recording import ScorerRecorder
+
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
 from . import braintrust_patches  # noqa: F401
 from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
@@ -98,9 +100,12 @@ class BraintrustEngine:
         next(iter(trial_spans.values())).flush()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        recorder = ScorerRecorder() if spec.record_scorer_results else None
         trial_spans: dict[str, Span] = {}
 
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
+            if recorder is not None:
+                recorder.register(hooks.metadata, hooks.trial_index)
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
             try:
                 return await spec.task(input, _BraintrustCaseHooks(hooks))
@@ -116,7 +121,9 @@ class BraintrustEngine:
             spec.project_name,
             data=cases,
             task=bridged_task,
-            scores=list(spec.scorers),
+            scores=[recorder.wrap(scorer, index) for index, scorer in enumerate(spec.scorers)]
+            if recorder is not None
+            else list(spec.scorers),
             trial_count=spec.trial_count,
             # Our global concurrency semaphores are the only limiters that should
             # bind. Braintrust's own per-suite limiter must never gate, so let it
@@ -137,7 +144,7 @@ class BraintrustEngine:
             # across runs; the metadata is what lets Braintrust filter or compare.
             metadata=spec.metadata,
         )
-        translated = self._translate(result)
+        translated = self._translate(result, recorder)
         if spec.on_results is not None:
             await spec.on_results(translated)
             if trial_spans:
@@ -149,7 +156,7 @@ class BraintrustEngine:
                     )
         return translated
 
-    def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
+    def _translate(self, result: EvalResultWithSummary, recorder: ScorerRecorder | None = None) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
 
         ``score=None`` is preserved per-case (the aggregate drops it, online
@@ -175,6 +182,8 @@ class BraintrustEngine:
                     scores=dict(case.scores or {}),
                     expected=case.expected,
                     metadata=dict(case.metadata or {}),
+                    scorer_results=recorder.outcomes(case.metadata, case.scores) if recorder is not None else {},
+                    trial_index=recorder.trial_index(case.metadata) if recorder is not None else None,
                     error_kind="task" if case.error is not None else "scorer",
                     error=(
                         str(case.error)

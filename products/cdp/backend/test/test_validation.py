@@ -934,15 +934,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             # Read-back mask flagged as secret, nothing stored to restore.
-            ({"value": "********", "secret": True},),
+            ("string", {"value": "********", "secret": True}, {}),
             # Mask that lost its secret flag - the persistence guard must still refuse it.
-            ({"value": "********"},),
+            ("string", {"value": "********"}, {}),
+            # A hidden header row whose stored entry is gone.
+            (
+                "dictionary",
+                {"value": {"Authorization": "********"}},
+                {"secret_field": {"value": {"X-Api-Key": "STORED"}}},
+            ),
         ]
     )
-    def test_masked_secret_without_stored_value_is_rejected(self, input_value):
+    def test_masked_secret_without_stored_value_is_rejected(self, input_type, input_value, existing_secret_inputs):
         # The mask must never be encrypted as the real credential when there is nothing to restore.
         inputs_schema = [
-            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+            {"key": "secret_field", "type": input_type, "required": True, "secret": True},
         ]
 
         serializer = FunctionInputsSerializer(
@@ -950,10 +956,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},
             },
-            context={"function_type": "destination", "encrypted_inputs": {}},
+            context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
         )
         with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
+
+    @parameterized.expand(
+        [
+            (
+                "untouched",
+                {"Authorization": "********", "X-Api-Key": "********"},
+                {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_replaced",
+                {"Authorization": "Bearer NEW", "X-Api-Key": "********"},
+                {"Authorization": "Bearer NEW", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_removed_one_added",
+                {"X-Api-Key": "********", "X-Other": "OTHER"},
+                {"X-Api-Key": "STORED KEY", "X-Other": "OTHER"},
+            ),
+        ]
+    )
+    def test_secret_dictionary_restores_masked_entries(self, _name, sent, expected):
+        serializer = FunctionInputsSerializer(
+            data={
+                "inputs_schema": [
+                    {"key": "secret_headers", "type": "dictionary", "required": False, "secret": True},
+                ],
+                "inputs": {"secret_headers": {"value": sent}},
+            },
+            context={
+                "function_type": "destination",
+                "encrypted_inputs": {
+                    "secret_headers": {
+                        "value": {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+                        "templating": "liquid",
+                    }
+                },
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        assert serializer.validated_data["inputs"]["secret_headers"]["value"] == expected
+        assert serializer.validated_data["inputs"]["secret_headers"]["templating"] == "liquid"
 
     def test_validate_filters_builds_bytecode(self):
         filters = {
@@ -1457,6 +1504,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
             ("skills_not_list", "task_skills", "error-triage", False),
             ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
+            ("vision_scan_setup", "replay_vision_scan", {"type": "monitor", "prompt": "p"}, True),
+            ("vision_scan_without_type", "replay_vision_scan", {"prompt": "p"}, False),
+            ("vision_scan_not_object", "replay_vision_scan", "monitor", False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
@@ -1468,6 +1518,32 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestChoiceInputTemplating(SimpleTestCase):
+    CHOICE_SCHEMA = [
+        {
+            "key": "event_action",
+            "type": "choice",
+            "label": "Event action",
+            "choices": [
+                {"label": "Trigger", "value": "trigger"},
+                {"label": "Resolve", "value": "resolve"},
+            ],
+            "required": True,
+        }
+    ]
+
+    @parameterized.expand(
+        [
+            ("declared_choice", "trigger", False),
+            ("templated_choice", "{event.event == 'x' ? 'resolve' : 'trigger'}", True),
+        ]
+    )
+    def test_only_a_value_outside_the_declared_choices_is_compiled(self, _name, value, expect_bytecode):
+        validated = validate_inputs(self.CHOICE_SCHEMA, {"event_action": {"value": value}})
+
+        assert ("bytecode" in validated["event_action"]) is expect_bytecode
 
 
 class TestReservedFunctionsUsed(SimpleTestCase):
