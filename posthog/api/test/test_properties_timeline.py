@@ -978,12 +978,16 @@ class TestPropertiesTimelineRequestSerializer(SimpleTestCase):
         [
             (
                 "stickiness_source",
-                InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3),
+                InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3).model_dump(
+                    mode="json"
+                ),
                 "The properties timeline supports Trends insights only.",
             ),
             (
                 "unparseable_day",
-                InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="not-a-date"),
+                InsightActorsQuery(
+                    source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="not-a-date"
+                ).model_dump(mode="json"),
                 "A Trends data point's day must be a date string.",
             ),
             (
@@ -991,13 +995,18 @@ class TestPropertiesTimelineRequestSerializer(SimpleTestCase):
                 InsightActorsQuery(
                     source=TrendsQuery(series=[EventsNode(event="$pageview")], aggregation_group_type_index=0),
                     day="2020-01-01",
-                ),
+                ).model_dump(mode="json"),
                 "The properties timeline supports person aggregation only.",
+            ),
+            (
+                "non_integer_source_version",
+                {"kind": "InsightActorsQuery", "source": {"kind": "TrendsQuery", "version": "x", "series": []}},
+                "Provide a valid insight actors query.",
             ),
         ]
     )
-    def test_rejects_query_the_timeline_cannot_window(self, _name: str, query: InsightActorsQuery, error: str):
-        serializer = PropertiesTimelineRequestSerializer(data={"query": query.model_dump(mode="json")})
+    def test_rejects_query_the_timeline_cannot_window(self, _name: str, query: dict, error: str):
+        serializer = PropertiesTimelineRequestSerializer(data={"query": query})
 
         assert not serializer.is_valid()
         assert serializer.errors["query"] == [error]

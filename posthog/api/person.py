@@ -547,7 +547,7 @@ class PropertiesTimelineRequestSerializer(serializers.Serializer):
     def validate_query(self, value: Any) -> InsightActorsQuery:
         try:
             query = InsightActorsQuery.model_validate(upgrade(value) if isinstance(value, dict) else value)
-        except ValueError:
+        except (ValueError, TypeError):
             raise serializers.ValidationError("Provide a valid insight actors query.")
         if not isinstance(query.source, TrendsQuery):
             raise serializers.ValidationError("The properties timeline supports Trends insights only.")
