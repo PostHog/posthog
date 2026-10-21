@@ -98,6 +98,26 @@ class TestTrialAPI(APIBaseTest):
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         billing.assert_not_called()
 
+    @parameterized.expand([(TrialContinuation.PAID, 201), (TrialContinuation.PAYMENT, 402)])
+    def test_organization_trial_limit_preserves_paid_activation(
+        self, continuation: TrialContinuation, expected_status: int
+    ) -> None:
+        for index in range(3):
+            team = Team.objects.create(organization=self.organization, name=f"Trial project {index}")
+            TrialPolicy(team).claim(user_id=self.user.pk)
+        with patch(
+            "products.signals.backend.trial.billing.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=True, continuation=continuation),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/signals/source_configs/",
+                {"source_product": "github", "source_type": "issue", "enabled": True},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.content
+        assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
+        assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is (expected_status == 201)
+
     @parameterized.expand([("config_create",), ("config_update",), ("custom",)])
     def test_scout_activation_enrolls(self, path: str) -> None:
         name = "signals-scout-enrollment"

@@ -66,7 +66,11 @@ class TrialService:
             raise TrialRefused("billing_not_ready")
         # Read billing before taking locks; roll back the grant if the activation write fails.
         with transaction.atomic():
-            self.policy.claim(user_id=user.pk, limits=billing.limits)
+            try:
+                self.policy.claim(user_id=user.pk, limits=billing.limits)
+            except TrialRefused as error:
+                if error.reason != "organization_limit" or not billing.paid_authorized:
+                    raise
             yield
 
     def status(self) -> dict[str, object]:
