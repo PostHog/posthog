@@ -22,13 +22,12 @@ const headingVariants = cva('text-foreground font-semibold text-balance', {
     },
 })
 
-function Heading({
-    className,
-    size = 'lg',
-    render,
-    ...props
-}: useRender.ComponentProps<'h2'> & VariantProps<typeof headingVariants>): React.ReactElement {
+const Heading = React.forwardRef<
+    HTMLHeadingElement,
+    useRender.ComponentProps<'h2'> & VariantProps<typeof headingVariants>
+>(function Heading({ className, size = 'lg', render, ...props }, ref) {
     return useRender({
+        ref,
         defaultTagName: 'h2',
         props: mergeProps<'h2'>(
             {
@@ -43,6 +42,6 @@ function Heading({
             size,
         },
     })
-}
+})
 
 export { Heading, headingVariants }

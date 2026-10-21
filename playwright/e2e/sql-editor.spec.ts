@@ -57,7 +57,7 @@ test.describe('SQL Editor', () => {
 
         test('See SQL Editor', async ({ page }) => {
             await expect(page.getByTestId('editor-scene')).toBeVisible()
-            await expect(page.getByText('Sources', { exact: true })).toBeVisible()
+            await expect(page.getByTestId('menu-item-sources')).toBeVisible()
             await expect(page.getByTestId('sql-editor-add-source')).toBeVisible()
             await expect(page.getByTestId('sql-editor-output-pane-empty-state')).toBeVisible()
             await expect(page.locator('.scene-name h1 span').getByText('New SQL query', { exact: true })).toBeVisible()

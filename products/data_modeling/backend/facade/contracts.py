@@ -50,15 +50,15 @@ class SavedQuerySummary:
 
 @dataclass(frozen=True)
 class SavedQueryDefinition:
-    """A saved query with its HogQL and materialization settings."""
+    """A saved query with its HogQL and whether its DAG node materializes."""
 
     id: UUID
     name: str
     hogql: str
-    is_materialized: bool
-    sync_frequency_interval: timedelta | None
+    materializes: bool
     is_test: bool
     is_managed: bool
+    origin: str | None
     created_at: datetime
 
 
@@ -77,6 +77,7 @@ class Dependent:
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
+    is_posthog_table: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,12 @@ class SavedQueryNodeState:
 
 class MaterializationRefusedError(Exception):
     pass
+
+
+class IncrementalConfigRefusedError(MaterializationRefusedError):
+    def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.refused_keys = refused_keys
 
 
 class MaterializationForbiddenError(Exception):

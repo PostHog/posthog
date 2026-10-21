@@ -17,12 +17,12 @@ from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insights_including_soft_deleted_for_team,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -379,9 +379,11 @@ class UpsertDashboardTool(MaxTool):
                 if created:
                     created_insights.append((artifact, insight))
 
-            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+            check_can_add_insight_to_shared_dashboard(
+                self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
+            )
             if error := blocked_access_for_subscribed_dashboard_tile(
-                self._user, dashboard, insight.query, self.user_access_control
+                self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
             ):
                 raise ValidationError(error)
 
@@ -456,10 +458,10 @@ class UpsertDashboardTool(MaxTool):
             becomes_live = existing_tile is None or existing_tile.deleted
             if becomes_live:
                 check_can_add_insight_to_shared_dashboard(
-                    self._user, dashboard, insight.query, self.user_access_control
+                    self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
                 )
                 if error := blocked_access_for_subscribed_dashboard_tile(
-                    self._user, dashboard, insight.query, self.user_access_control
+                    self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
                 ):
                     raise ValidationError(error)
 

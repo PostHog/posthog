@@ -1810,8 +1810,22 @@ impl TestContext {
         label: &str,
         scopes: Option<Vec<&str>>,
     ) -> Result<(String, String), Error> {
-        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+        self.create_project_secret_api_key_with_value(team_id, label, scopes, &raw_key)
+            .await
+    }
+
+    /// Same, but hashing a caller-provided token value — e.g. a mirror row holding a
+    /// team's legacy secret token, as the backfill migration writes them.
+    pub async fn create_project_secret_api_key_with_value(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+        raw_key: &str,
+    ) -> Result<(String, String), Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = raw_key.to_string();
 
         let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
@@ -1836,6 +1850,25 @@ impl TestContext {
         .await?;
 
         Ok((key_id, raw_key))
+    }
+
+    /// Records a token hash as leak-revoked (`revoke_exposed_project_secret_api_key`).
+    pub async fn create_revoked_team_secret_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            r#"INSERT INTO posthog_revokedteamsecrettoken (team_id, secure_value, created_at)
+               VALUES ($1, $2, NOW())"#,
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
     }
 
     /// Creates a team with both public token and secret API token

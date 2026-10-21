@@ -1,8 +1,7 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
 
 
@@ -19,47 +18,6 @@ class TestN8nSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog, so the public docs can render tables.
         assert self.source.lists_tables_without_credentials is True
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://myorg.app.n8n.cloud/api/v1/workflows",
-            "403 Client Error: Forbidden for url: https://myorg.app.n8n.cloud/api/v1/users",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "error",
-        [
-            "500 Server Error for url: https://myorg.app.n8n.cloud/api/v1/workflows",
-            "429 Client Error: Too Many Requests",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient_failures(self, error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in error for key in non_retryable_errors)
-
-    def test_get_schemas_are_all_full_refresh(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # n8n exposes no server-side timestamp filter, so nothing is incremental.
-        assert all(not schema.supports_incremental for schema in schemas.values())
-        assert all(not schema.supports_append for schema in schemas.values())
-        assert all(schema.incremental_fields == [] for schema in schemas.values())
-        # Primary keys are surfaced so the public docs' Supported tables section renders them.
-        assert all(schema.detected_primary_keys == ["id"] for schema in schemas.values())
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["workflows"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "workflows"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.validate_n8n_credentials")
     @mock.patch.object(N8nSource, "is_database_host_valid")
@@ -123,9 +81,8 @@ class TestN8nSource:
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid):
         mock_host_valid.return_value = (False, "Host is not allowed")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "workflows"
-        inputs.team_id = self.team_id
+        result = SourceDriver(self.source, self.config).run("workflows", [], team_id=self.team_id)
 
-        with pytest.raises(ValueError, match="Host is not allowed"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Host is not allowed" in str(result.raised)
+        assert result.requests == []

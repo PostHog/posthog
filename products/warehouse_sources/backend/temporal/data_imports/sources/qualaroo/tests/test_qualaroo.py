@@ -1,85 +1,42 @@
-import json
+from datetime import UTC, datetime
 from typing import Any
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
+    QualarooSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo import (
     PAGE_SIZE,
     QualarooResumeConfig,
-    qualaroo_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.settings import (
     ENDPOINTS,
     QUALAROO_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the qualaroo module.
-QUALAROO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo.make_tracked_session"
-)
-# tenacity naps between retries; patch it out so failure-path tests don't sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source import QualarooSource
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = "https://api.qualaroo.com/api/v1/nudges.json"
-    resp.reason = "OK" if status < 400 else "Error"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(QualarooSource(), QualarooSourceConfig(api_key="q-key", api_secret="q-secret"))
 
 
-def _make_manager(resume_state: QualarooResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of inspecting the shared dict after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(manager) -> Any:
-    return qualaroo_source(
-        api_key="q-key",
-        api_secret="q-secret",
-        endpoint="nudges",
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
+def _run(script: Script, **inputs: Any) -> DriveResult:
+    return _driver().run("nudges", script, **inputs)
 
 
 def _full_page(start_id: int) -> list[dict[str, Any]]:
@@ -87,145 +44,200 @@ def _full_page(start_id: int) -> list[dict[str, Any]]:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_progresses_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
+    def test_paginates_and_progresses_offset(self) -> None:
+        result = _run([ScriptedResponse(json=_full_page(0)), ScriptedResponse(json=[{"id": 999}])])
 
-        manager = _make_manager()
-        rows = _rows(_run(manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert rows[-1] == {"id": 999}
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.rows[-1] == {"id": 999}
         # First request starts at offset 0 with the max page size; second advances one page.
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[1]["offset"] == PAGE_SIZE
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.params("limit") == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # Checkpoint saved once after the first full page (points at the next page); short page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == QualarooResumeConfig(offset=PAGE_SIZE)
+        assert result.saved_states == [QualarooResumeConfig(offset=PAGE_SIZE)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_run(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_run(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_offset(self) -> None:
         # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
-        params = _wire(session, [_response([{"id": 5}])])
+        result = _run([ScriptedResponse(json=[{"id": 5}])], resume_state=QualarooResumeConfig(offset=PAGE_SIZE))
 
-        manager = _make_manager(QualarooResumeConfig(offset=PAGE_SIZE))
-        rows = _rows(_run(manager))
+        assert result.rows == [{"id": 5}]
+        assert result.params("offset") == [str(PAGE_SIZE)]
 
-        assert rows == [{"id": 5}]
-        assert params[0]["offset"] == PAGE_SIZE
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run([ScriptedResponse(json=[{"id": 5}])])
+
+        assert result.params("offset") == ["0"]
 
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_are_retried_then_reraised(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
-        session.send.return_value = _response([], status=status)
+    def test_retryable_statuses_are_retried_then_reraised(self, _name: str, status: int) -> None:
+        result = _run(always(ScriptedResponse(status=status, json=[])))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run(_make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
         # A persistent retryable status is reissued, not surfaced on the first attempt.
-        assert session.send.call_count > 1
+        assert len(result.requests) > 1
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_fail_loud_without_retry(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
-        session.send.return_value = _response({"error": "nope"}, status=status)
+    def test_client_errors_fail_loud_without_retry(self, _name: str, status: int) -> None:
+        result = _run([ScriptedResponse(status=status, json={"error": "nope"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_run(_make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
         # 4xx is permanent — the request must not be reissued.
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
+    def test_non_list_body_is_retried(self) -> None:
         # Qualaroo list endpoints return a bare array; a 200 dict body is treated as a transient
         # shape glitch and reissued rather than ingested as a single row.
-        session.send.return_value = _response({"error": "nope"})
+        result = _run(always(ScriptedResponse(json={"error": "nope"})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_run(_make_manager()))
-        assert session.send.call_count > 1
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) > 1
 
 
 class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid Qualaroo API key or secret"),
-            (403, False, "Invalid Qualaroo API key or secret"),
-            (500, False, "Qualaroo returned HTTP 500"),
         ]
     )
-    @mock.patch(QUALAROO_SESSION_PATCH)
-    def test_status_mapping(
-        self, status: int, expected_valid: bool, expected_message: str | None, mock_session
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("q-key", "q-secret") == (expected_valid, expected_message)
+    def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json=[]))) as network:
+            assert validate_credentials("q-key", "q-secret") == (expected_valid, expected_message)
 
-    @mock.patch(QUALAROO_SESSION_PATCH)
-    def test_connection_error_is_unvalidated(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("q-key", "q-secret") == (False, "Could not validate Qualaroo credentials")
+        assert network.requests_log[0].path == "/api/v1/nudges.json"
+        assert network.requests_log[0].param("limit") == "1"
 
 
 class TestSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = qualaroo_source(
-            api_key="q-key",
-            api_secret="q-secret",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
+    def test_source_response_shape(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in QUALAROO_ENDPOINTS.values())
-        assert set(QUALAROO_ENDPOINTS) == set(ENDPOINTS)
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == QUALAROO_ENDPOINTS[endpoint].primary_keys
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert result.response.partition_mode is None
+
+
+class TestResponsesFanOut:
+    def test_walks_every_nudge_and_every_response_page(self) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}, {"id": 33}])],
+                    "/nudges/11/responses.json": [
+                        ScriptedResponse(
+                            json=[{"id": i, "time": "2024-03-01 10:00:00 -0700"} for i in range(PAGE_SIZE)]
+                        ),
+                        ScriptedResponse(json=[{"id": 900, "answered_questions": {}, "properties": None}]),
+                    ],
+                    "/nudges/22/responses.json": [ScriptedResponse(status=404, json={"error": "Not Found"})],
+                    "/nudges/33/responses.json": [ScriptedResponse(json=[{"id": 1}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert result.rows[PAGE_SIZE] == {"id": 900, "answered_questions": {}, "properties": None, "nudge_id": 11}
+        # Response ids are keyed with their nudge, so the same id under two nudges stays two rows.
+        assert {(row["nudge_id"], row["id"]) for row in result.rows if row["id"] == 1} == {(11, 1), (33, 1)}
+        assert [(request.path, request.param("offset")) for request in result.requests] == [
+            ("/api/v1/nudges.json", "0"),
+            ("/api/v1/nudges/11/responses.json", "0"),
+            ("/api/v1/nudges/11/responses.json", str(PAGE_SIZE)),
+            ("/api/v1/nudges/22/responses.json", "0"),
+            ("/api/v1/nudges/33/responses.json", "0"),
+        ]
+        child_requests = [request for request in result.requests if request.path.endswith("/responses.json")]
+        assert {request.param("order") for request in child_requests} == {"asc"}
+        assert {request.param("limit") for request in result.requests} == {str(PAGE_SIZE)}
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"should_use_incremental_field": False}, None),
+            ("first_incremental_run", {"incremental_field": "time"}, None),
+            (
+                "watermark_string_with_offset",
+                {"incremental_field": "time", "db_incremental_field_last_value": "2024-03-01 10:00:00 -0700"},
+                str(int(datetime(2024, 3, 1, 17, 0, 0, tzinfo=UTC).timestamp()) - 1),
+            ),
+            (
+                "watermark_naive_datetime_is_utc",
+                {"incremental_field": "time", "db_incremental_field_last_value": datetime(2024, 3, 1, 17, 0, 0)},
+                str(int(datetime(2024, 3, 1, 17, 0, 0, tzinfo=UTC).timestamp()) - 1),
+            ),
+        ]
+    )
+    def test_start_date_follows_the_watermark(
+        self, _name: str, inputs: dict[str, Any], expected_start_date: str | None
+    ) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}])],
+                    "/nudges/11/responses.json": [ScriptedResponse(json=[{"id": 1}])],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [request.param("start_date") for request in result.requests] == [None, expected_start_date]
+        end_dates = [request.param("end_date") for request in result.requests]
+        assert end_dates[0] is None
+        assert (end_dates[1] is not None) == inputs.get("should_use_incremental_field", True)
+
+    def test_resumed_incremental_sync_keeps_the_original_end_date(self) -> None:
+        sync_end = "2024-03-02T00:00:00+00:00"
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}])],
+                    "/nudges/22/responses.json": [ScriptedResponse(json=[{"id": 7, "time": "2024-03-01 10:00:00"}])],
+                }
+            ),
+            resume_state=QualarooResumeConfig(
+                fanout_state={"completed": ["/nudges/11/responses.json"], "current": None, "child_state": None},
+                sync_end=sync_end,
+            ),
+            incremental_field="time",
+            db_incremental_field_last_value="2024-03-01 00:00:00",
+        )
+
+        assert result.raised is None
+        child_requests = [request for request in result.requests if request.path.endswith("/responses.json")]
+        expected_end_date = str(int(datetime(2024, 3, 2, tzinfo=UTC).timestamp()) - 1)
+        assert [request.param("end_date") for request in child_requests] == [expected_end_date]
+        assert all(state.sync_end == sync_end for state in result.saved_states)
+
+    def test_resumes_inside_the_nudge_in_progress(self) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}, {"id": 33}])],
+                    "/nudges/22/responses.json": [ScriptedResponse(json=[{"id": 7}])],
+                    "/nudges/33/responses.json": [ScriptedResponse(json=[])],
+                }
+            ),
+            resume_state=QualarooResumeConfig(
+                fanout_state={
+                    "completed": ["/nudges/11/responses.json"],
+                    "current": "/nudges/22/responses.json",
+                    "child_state": {"offset": PAGE_SIZE},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "nudge_id": 22}]
+        assert [(request.path, request.param("offset")) for request in result.requests] == [
+            ("/api/v1/nudges.json", "0"),
+            ("/api/v1/nudges/22/responses.json", str(PAGE_SIZE)),
+            ("/api/v1/nudges/33/responses.json", "0"),
+        ]

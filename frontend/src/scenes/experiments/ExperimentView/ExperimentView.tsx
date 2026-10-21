@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -12,8 +10,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
+import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debug/ExperimentHealthDebug'
+import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
-import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
+import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'
@@ -42,44 +42,60 @@ import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 
 const MetricsTab = (): JSX.Element => {
-    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
+    const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
         useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
-    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
-
-    // The condition under which EmptyMetricsPanel renders its "No metrics defined" warning below.
+    // With health findings, the health panel above the tabs shows the "No metrics defined" and bias warnings.
+    const showsHealthPanel = healthFindings !== null
+    const showNoMetricsWarning = !showsHealthPanel && browserNoMetricsWarning
+    const hasNoMetricFinding = showsHealthPanel
+        ? healthFindings.some(({ code }) => code === 'no_metric')
+        : showNoMetricsWarning
+    // The add metric buttons below act on the finding also when the health panel shows it.
     const { reportActedOn: reportNoMetricActedOn } = useHealthFindingReporting(
-        !hasMetrics && isExperimentLaunched ? { code: 'no_metric' } : null
+        hasNoMetricFinding ? { code: 'no_metric' } : null,
+        !showsHealthPanel
     )
 
     return (
         <>
-            <ResultsNotificationBanner />
-
             <div className="w-full mb-4 flex flex-col gap-4">
                 <Hypothesis />
                 <div>
                     <Exposures />
-                    <MultiVariantBiasWarning />
+                    {!showsHealthPanel && <MultiVariantBiasWarning />}
                 </div>
             </div>
 
-            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
+            {hasMetrics && <RecalculationStatus experiment={experiment} />}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
-                <EmptyMetricsPanel
-                    isLaunched={isExperimentLaunched}
-                    onAddMetric={(metricType) =>
-                        reportNoMetricActedOn(metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric')
-                    }
-                />
+                <div className="flex flex-col gap-4">
+                    {showNoMetricsWarning && (
+                        <LemonBanner type="warning">
+                            <div>
+                                <strong>No metrics defined</strong>
+                            </div>
+                            <div>
+                                Your experiment is running and events are being collected, but no metric is defined. Add
+                                at least one metric to see results. Metrics can be added, removed, or changed at any
+                                time.
+                            </div>
+                        </LemonBanner>
+                    )}
+                    <EmptyMetricsPanel
+                        isLaunched={isExperimentLaunched}
+                        onAddMetric={(metricType) =>
+                            reportNoMetricActedOn(
+                                metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
+                            )
+                        }
+                    />
+                </div>
             ) : (
                 <>
                     <Metrics isSecondary={false} />
@@ -114,7 +130,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, exposureCriteria, showDebugPanel } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, exposureCriteria, showDebugPanel, healthFindings } =
+        useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -137,9 +154,9 @@ export function ExperimentView(): JSX.Element {
     }
 
     // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
-    // feature tabs (Recordings, User feedback), audit trail (History). Which of these actually
-    // render is resolved by experimentSceneLogic's availableTabs, so the tab set, the URL, and the
-    // tracked tab stay in agreement.
+    // feature tabs (Recordings, User feedback), audit trail (History), staff debugging (Health debug).
+    // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
+    // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
             { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
@@ -153,6 +170,7 @@ export function ExperimentView(): JSX.Element {
                 label: 'History',
                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
             },
+            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
         ] satisfies LemonTab<ExperimentTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
 
@@ -163,7 +181,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
-                    <ExperimentWarningBanner />
+                    {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">
                             <ExperimentDebugPanel
@@ -179,6 +197,7 @@ export function ExperimentView(): JSX.Element {
                         />
                     )}
                     <ExperimentMetaBar />
+                    <ExperimentHealthPanel />
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden

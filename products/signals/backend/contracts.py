@@ -409,6 +409,8 @@ class LogsAlertStateChangeSignalExtra(SignalExtraBase):
     consecutive_failures: int
     filters: dict[str, object]
     url: str
+    # The group a grouped alert fired for, by column. Absent for an ungrouped alert.
+    group_labels: dict[str, str] | None = None
 
 
 class LogsAlertStateChangeSignalInput(SignalInputBase):
@@ -650,7 +652,7 @@ class KustomerConversationSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     tags: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class KustomerConversationSignalInput(SignalInputBase):
@@ -676,7 +678,7 @@ class PlainThreadSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     labels: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class PlainThreadSignalInput(SignalInputBase):
@@ -730,8 +732,8 @@ class SentryIssueSignalExtra(SignalExtraBase):
     level: str | None
     status: str | None
     permalink: str | None
-    shortId: str | None
-    firstSeen: str | None
+    short_id: str | None
+    first_seen: str | None
 
 
 class SentryIssueSignalInput(SignalInputBase):
@@ -785,15 +787,47 @@ class HoneybadgerFaultSignalInput(SignalInputBase):
 
 class RaygunErrorGroupSignalExtra(SignalExtraBase):
     status: str | None
-    applicationUrl: str | None
-    lastOccurredAt: str | None
-    createdAt: str | None
+    application_url: str | None
+    last_occurred_at: str | None
+    created_at: str | None
 
 
 class RaygunErrorGroupSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ISSUE]
     source_product: Literal[SignalSourceProduct.RAYGUN]
     extra: RaygunErrorGroupSignalExtra
+
+
+class DatadogSignalExtra(SignalExtraBase):
+    # One schema serves every Datadog table, because a variant is keyed by (source_product, source_type).
+    # `kind` says which record kind the signal came from.
+    # Each emitter fills only the fields its kind has, so every field except `kind` is optional.
+    kind: Literal["incident", "error_tracking_issue", "error_span", "error_log", "monitor_alert"]
+    severity: str | None = None
+    state: str | None = None
+    created: str | None = None
+    service: str | None = None
+    platform: str | None = None
+    file_path: str | None = None
+    function_name: str | None = None
+    error_type: str | None = None
+    resource_name: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    is_crash: str | None = None
+    window_total_count: str | None = None
+    window_impacted_users: str | None = None
+    occurrences: str | None = None
+    monitor_id: str | None = None
+    monitor_type: str | None = None
+    priority: str | None = None
+    alert_url: str | None = None
+
+
+class DatadogSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.DATADOG]
+    extra: DatadogSignalExtra
 
 
 # ── Tier-2 security scanners + Tier-3 feedback/reviews ────────────────────────────
@@ -818,7 +852,7 @@ class SonarqubeScannerFindingSignalExtra(SignalExtraBase):
     status: str | None
     component: str | None
     rule: str | None
-    creationDate: str | None
+    creation_date: str | None
 
 
 class SonarqubeScannerFindingSignalInput(SignalInputBase):
@@ -858,7 +892,7 @@ class FeaturebaseFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     upvotes: str | None
-    createdAt: str | None
+    created_at: str | None
 
 
 class FeaturebaseFeedbackSignalInput(SignalInputBase):
@@ -910,8 +944,8 @@ class UservoiceFeedbackSignalInput(SignalInputBase):
 class ProductboardFeedbackSignalExtra(SignalExtraBase):
     state: str | None
     tags: list
-    displayUrl: str | None
-    createdAt: str | None
+    display_url: str | None
+    created_at: str | None
 
 
 class ProductboardFeedbackSignalInput(SignalInputBase):
@@ -924,7 +958,7 @@ class CannyFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     score: str | None
-    voteCount: str | None
+    vote_count: str | None
     url: str | None
     created: str | None
 
@@ -951,10 +985,10 @@ class AsknicelyFeedbackSignalInput(SignalInputBase):
 
 class RetentlyFeedbackSignalExtra(SignalExtraBase):
     score: str | None
-    ratingCategory: str | None
-    feedbackTopics: list
+    rating_category: str | None
+    feedback_topics: list
     resolved: str | None
-    createdDate: str | None
+    created_date: str | None
 
 
 class RetentlyFeedbackSignalInput(SignalInputBase):
@@ -1089,6 +1123,7 @@ SignalInput = Annotated[
     | BugsnagErrorSignalInput
     | HoneybadgerFaultSignalInput
     | RaygunErrorGroupSignalInput
+    | DatadogSignalInput
     | SnykScannerFindingSignalInput
     | SonarqubeScannerFindingSignalInput
     | SemgrepScannerFindingSignalInput
@@ -1145,6 +1180,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BugsnagErrorSignalInput,
     HoneybadgerFaultSignalInput,
     RaygunErrorGroupSignalInput,
+    DatadogSignalInput,
     SnykScannerFindingSignalInput,
     SonarqubeScannerFindingSignalInput,
     SemgrepScannerFindingSignalInput,

@@ -4,6 +4,8 @@ import path from 'node:path'
 
 import { CHUNK_IMPORT_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
 
+import { moduleKey } from './loggedOutScenes.mjs'
+
 /**
  * Stable chunk names.
  *
@@ -136,9 +138,62 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
 }
 
 /**
+ * The import map specifiers a logged-out page can reach. The walk starts at the chunk of `entry`
+ * and follows every import, except a dynamic import of a module in `signedInModules`. Modules are
+ * module keys (see loggedOutScenes.mjs). Each module in `loggedOutModules` must be reached.
+ *
+ * `outputs` is the esbuild metafile's `outputs`, and `plan` is the plan from planStableChunks.
+ */
+export function loggedOutSpecifiers(
+    outputs,
+    plan,
+    { entry, loggedOutModules, signedInModules, cssSpecifiersByOutput }
+) {
+    const moduleOf = (output) => (output.entryPoint ? moduleKey(output.entryPoint) : null)
+    const start = Object.keys(outputs).find(
+        (outputPath) => outputPath.endsWith('.js') && moduleOf(outputs[outputPath]) === moduleKey(entry)
+    )
+    if (!start) {
+        throw new Error(`stable chunks: no output chunk for the entry ${entry}`)
+    }
+    const reached = new Set([start])
+    const queue = [start]
+    while (queue.length > 0) {
+        for (const { path: target, kind } of outputs[queue.pop()].imports || []) {
+            const output = outputs[target]
+            if (!output || !target.endsWith('.js') || reached.has(target)) {
+                continue
+            }
+            if (kind === 'dynamic-import' && signedInModules.has(moduleOf(output))) {
+                continue
+            }
+            reached.add(target)
+            queue.push(target)
+        }
+    }
+
+    // A logged-out scene that the walk misses would load with no import map entries for its chunks.
+    const reachedModules = new Set([...reached].map((outputPath) => moduleOf(outputs[outputPath])))
+    const unreached = [...loggedOutModules].filter((module) => !reachedModules.has(module))
+    if (unreached.length > 0) {
+        throw new Error(`stable chunks: logged-out scenes not reachable from ${entry}: ${unreached.join(', ')}`)
+    }
+
+    const specifiers = new Set()
+    for (const outputPath of reached) {
+        specifiers.add(`${SPECIFIER_PREFIX}${plan.get(outputPath).identity}`)
+        for (const specifier of cssSpecifiersByOutput.get(outputPath) ?? []) {
+            specifiers.add(specifier)
+        }
+    }
+    return [...specifiers].sort()
+}
+
+/**
  * Writes the stable copies and their source maps next to esbuild's output, and returns the
  * manifest the backend reads. `chunks` is the chunk map (scene name -> esbuild chunk hashes) and
- * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them.
+ * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them. `loggedOut`
+ * holds the options for loggedOutSpecifiers. Without it, every page gets the full import map.
  */
 export function writeStableChunks({
     absWorkingDir,
@@ -149,6 +204,7 @@ export function writeStableChunks({
     preludes = new Map(),
     extraImports = {},
     eagerCss = [],
+    loggedOut = null,
 }) {
     const distDir = path.resolve(absWorkingDir, 'dist')
     const { plan, imports } = planStableChunks(
@@ -190,6 +246,8 @@ export function writeStableChunks({
     const manifest = {
         imports,
         eagerCss: eagerCss.map((file) => `static/${file}`),
+        // The backend renders only these import map entries for a logged-out page.
+        loggedOutImports: loggedOut ? loggedOutSpecifiers(outputs, plan, loggedOut) : null,
         preload: {
             js: (preloadManifest?.js || []).map(toStableUrl),
             authenticatedJs: (preloadManifest?.authenticatedJs || []).map(toStableUrl),

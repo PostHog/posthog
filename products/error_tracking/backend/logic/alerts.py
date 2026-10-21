@@ -8,13 +8,13 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.cdp.backend.filters import compile_filters_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
 logger = structlog.get_logger(__name__)
@@ -277,6 +277,7 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
         # Integrations are stored on environment teams while alert rows live on the
         # canonical team, so accept any integration in the same project.
         project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
+        # nosemgrep: environment-model-scoped-by-project -- alert rows live on the canonical team, so a Slack integration from any environment of the project is valid
         if not Integration.objects.filter(
             team__project_id=project_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
         ).exists():

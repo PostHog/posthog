@@ -1,23 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconFolder, IconPin, IconPinFilled, IconX } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { IconArchive, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { TodaySessionBulkArchiveDialog } from './TodaySessionBulkArchiveDialog'
 import { sessionsLabel } from './todaySessionSelection'
 import { TodayBulkAction, todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { todayShellLogic } from './todayShellLogic'
-import { TodaySpaceFileList } from './TodaySpaceFileList'
-import { todaySpacesLogic } from './todaySpacesLogic'
 
 const BUSY_REASON = 'Wait for the current change to finish'
 
@@ -26,13 +15,11 @@ interface BulkButtonProps {
     action: TodayBulkAction | null
     icon: JSX.Element
     dataAttr: string
-    onClick?: () => void
-    /** Wraps the button before the tooltip does, so it can open a menu. */
-    wrap?: (button: JSX.Element) => JSX.Element
+    onClick: () => void
 }
 
 /** The sidebar is narrow, so each action is an icon button that names itself in its tooltip, like Desktop's bar. */
-function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButtonProps): JSX.Element {
+function BulkButton({ label, action, icon, dataAttr, onClick }: BulkButtonProps): JSX.Element {
     const { bulkAction } = useValues(todaySessionSelectionLogic)
     const loading = action !== null && bulkAction === action
     const busy = bulkAction !== null && !loading
@@ -48,7 +35,7 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
     )
     return (
         <Tooltip>
-            <TooltipTrigger delay={0} render={wrap ? wrap(button) : button}>
+            <TooltipTrigger delay={0} render={button}>
                 {icon}
             </TooltipTrigger>
             <TooltipContent side="top">{busy ? BUSY_REASON : label}</TooltipContent>
@@ -59,15 +46,8 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
 export function TodaySessionBulkBar(): JSX.Element {
     const { selectedSessionIds, bulkPinDirection, bulkArchiveConfirm, bulkAction } =
         useValues(todaySessionSelectionLogic)
-    const {
-        pinSelected,
-        fileSelectedTo,
-        requestBulkArchive,
-        clearSelection,
-        closeBulkArchiveConfirm,
-        archiveSelected,
-    } = useActions(todaySessionSelectionLogic)
-    const { spaces } = useValues(todaySpacesLogic)
+    const { pinSelected, requestBulkArchive, clearSelection, closeBulkArchiveConfirm, archiveSelected } =
+        useActions(todaySessionSelectionLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const count = selectedSessionIds.length
     const minimum = phoneLayout ? 1 : 2
@@ -103,25 +83,6 @@ export function TodaySessionBulkBar(): JSX.Element {
                             onClick={pinSelected}
                             dataAttr="today-session-bulk-pin"
                         />
-                        {spaces.length > 0 && (
-                            <DropdownMenu>
-                                <BulkButton
-                                    label={`File ${sessions} to a space`}
-                                    action="file"
-                                    icon={<IconFolder />}
-                                    wrap={(button) => <DropdownMenuTrigger render={button} />}
-                                    dataAttr="today-session-bulk-file"
-                                />
-                                <DropdownMenuContent align="end" side="top" className="max-h-80 w-64">
-                                    <TodaySpaceFileList
-                                        currentSpaceId={null}
-                                        onSelect={fileSelectedTo}
-                                        itemDataAttr="today-session-bulk-file-space"
-                                        searchDataAttr="today-session-bulk-file-search"
-                                    />
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
                         <BulkButton
                             label={`Archive ${sessions}`}
                             action="archive"

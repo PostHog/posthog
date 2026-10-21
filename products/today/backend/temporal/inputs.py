@@ -2,27 +2,41 @@
 
 import dataclasses
 
-GENERATE_WORKFLOW_NAME = "today-generate-briefing"
-SCHEDULER_WORKFLOW_NAME = "today-briefing-scheduler"
+HIGHLIGHTS_WORKFLOW_NAME = "today-compute-highlights"
 
 
 @dataclasses.dataclass(frozen=True)
-class GenerateBriefingInputs:
+class ComputeHighlightsInputs:
     team_id: int
-    briefing_id: str
+    user_id: int
+    highlights_id: str
+    local_day: str
+    scopes: list[str] | None
+    source_names: list[str]
 
 
 @dataclasses.dataclass(frozen=True)
-class MarkFailedInputs:
+class HighlightSourceInputs:
     team_id: int
-    briefing_id: str
-    error: str
+    user_id: int
+    local_day: str
+    scopes: list[str] | None
+    source_name: str
 
 
 @dataclasses.dataclass(frozen=True)
-class SchedulerInputs:
-    pass
+class HighlightSourceResult:
+    source_name: str
+    found: str | None
+    failed: bool
 
 
-def generate_workflow_id(briefing_id: str) -> str:
-    return f"today-briefing-{briefing_id}"
+@dataclasses.dataclass(frozen=True)
+class FinalizeHighlightsInputs:
+    team_id: int
+    highlights_id: str
+    results: list[HighlightSourceResult]
+
+
+def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:
+    return f"today-highlights-{team_id}-{user_id}-{highlights_id}"

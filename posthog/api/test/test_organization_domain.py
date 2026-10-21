@@ -3,7 +3,7 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.test import SimpleTestCase
@@ -31,7 +31,7 @@ class FakeDNSResponse:
         self.response = FakeAnswer(answer)
 
 
-class TestOrganizationDomains(BaseTest):
+class TestOrganizationDomains(SimpleTestCase):
     def test_continuous_verification_task(self):
         """
         Tests the task that re-verifies domains to ensure ownership is maintained.

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -39,6 +39,18 @@ RUNS_SELECT_FIELDS = [
     "feedback_stats",
 ]
 
+# Run internals the annotation-queue runs listing returns but `RUNS_SELECT_FIELDS` leaves out of the
+# runs table: serialized manifests, event streams, and pre-signed S3 URLs that expire anyway.
+ANNOTATION_QUEUE_RUNS_DROPPED_FIELDS = (
+    "serialized",
+    "manifest_id",
+    "manifest_s3_id",
+    "events",
+    "inputs_s3_urls",
+    "outputs_s3_urls",
+    "s3_urls",
+)
+
 # The fields holding a run's raw prompt and completion. They carry nearly all of a run's size, so
 # `_fetch_runs_page` gives them up as a last resort when one run stays over the response cap.
 RUNS_HEAVY_SELECT_FIELDS = ("inputs", "outputs")
@@ -49,9 +61,9 @@ class LangSmithEndpointConfig:
     name: str
     path: str
     incremental_fields: list[IncrementalField]
-    # runs/query is a POST whose cursor lives in the JSON body; every other list endpoint is a
-    # GET paginated with offset/limit query params.
-    pagination: Literal["cursor", "offset"] = "offset"
+    # runs/query and threads/query are POSTs whose cursor lives in the JSON body, workspaces is one
+    # unpaginated GET, and every other list endpoint is a GET paginated with offset/limit params.
+    pagination: Literal["cursor", "offset", "none"] = "offset"
     # Stable creation-style timestamp to partition by (never a mutable `modified_at` field).
     partition_key: Optional[str] = None
     page_size: int = 100
@@ -61,7 +73,8 @@ class LangSmithEndpointConfig:
     # refresh only.
     window_param: Optional[str] = None
     # Floor the first incremental backfill to the last N days instead of the entire retention
-    # window, bounding the initial pull against the tight runs/query rate limits.
+    # window, bounding the initial pull against the tight runs/query rate limits. On threads it is
+    # the fixed window of every full refresh, because the API otherwise defaults to the last day.
     default_lookback_days: Optional[int] = None
     # Trailing overlap re-subtracted from the watermark on every incremental run, re-pulling a
     # window of rows so runs whose fields mutate after creation (end_time, outputs, feedback
@@ -73,9 +86,17 @@ class LangSmithEndpointConfig:
     # successful job end instead of checkpointing per batch, which is correct under any actual
     # ordering. Mid-run recovery comes from the resumable cursor/offset state instead.
     sort_mode: Literal["asc", "desc"] = "asc"
-    # GET /examples rejects an unscoped request — examples belong to a dataset — so it's paged per
-    # dataset with a `dataset` filter instead of the plain offset paginator. Only examples sets this.
-    scoped_by_dataset: bool = False
+    # Endpoint whose ids scope this one. Examples and annotation-queue runs can only be listed per
+    # dataset or per queue, and threads only per tracing project, so they are paged once per parent.
+    parent: Optional[str] = None
+    # Query param that carries the parent id. None puts it in the `{parent_id}` placeholder of `path`.
+    parent_query_param: Optional[str] = None
+    # Row field the parent id is written to, for endpoints whose rows don't carry it themselves.
+    parent_id_field: Optional[str] = None
+    # Extra query params for listing the parent ids.
+    parent_list_params: dict[str, Any] = field(default_factory=dict)
+    # Fields removed from every row before it is yielded.
+    dropped_fields: tuple[str, ...] = ()
 
 
 _START_TIME_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -126,13 +147,14 @@ LANGSMITH_ENDPOINTS: dict[str, LangSmithEndpointConfig] = {
         incremental_fields=[],
     ),
     # Dataset examples across all datasets. GET /examples must be scoped to a dataset, so this is
-    # paged per dataset (see `scoped_by_dataset`). The API versions examples via `as_of` snapshots
+    # paged per dataset (see `parent`). The API versions examples via `as_of` snapshots
     # rather than a created/modified filter, so full refresh only.
     "examples": LangSmithEndpointConfig(
         name="examples",
         path="/api/v1/examples",
         incremental_fields=[],
-        scoped_by_dataset=True,
+        parent="datasets",
+        parent_query_param="dataset",
     ),
     # Human and programmatic feedback scores attached to runs. `min_created_at` is a genuine
     # server-side filter; feedback edits move modified_at (not filterable), so the lookback
@@ -150,6 +172,40 @@ LANGSMITH_ENDPOINTS: dict[str, LangSmithEndpointConfig] = {
     "annotation_queues": LangSmithEndpointConfig(
         name="annotation_queues",
         path="/api/v1/annotation-queues",
+        incremental_fields=[],
+    ),
+    # Which runs sit in which annotation queue, with each item's review state. The listing has no
+    # time filter, so full refresh only.
+    "annotation_queue_runs": LangSmithEndpointConfig(
+        name="annotation_queue_runs",
+        path="/api/v1/annotation-queues/{parent_id}/runs",
+        incremental_fields=[],
+        parent="annotation_queues",
+        parent_id_field="queue_id",
+        primary_keys=["queue_id", "queue_run_id"],
+        dropped_fields=ANNOTATION_QUEUE_RUNS_DROPPED_FIELDS,
+    ),
+    # Conversation threads per tracing project, with turn counts, token, cost, and latency rolled
+    # up over the query window. The rollups only cover the window sent, so an incremental window
+    # would overwrite a thread's totals with partial ones: full refresh over a fixed lookback.
+    "threads": LangSmithEndpointConfig(
+        name="threads",
+        path="/api/v2/threads/query",
+        pagination="cursor",
+        incremental_fields=[],
+        parent="projects",
+        parent_id_field="project_id",
+        # Experiments are tracing projects too, but hold evaluation runs, not conversations.
+        parent_list_params={"reference_free": "true"},
+        primary_keys=["project_id", "thread_id"],
+        default_lookback_days=365,
+    ),
+    # Workspaces the API key can see. Resolves the `tenant_id` carried on queues, datasets, and
+    # projects. GET /workspaces returns them all in one unpaginated list.
+    "workspaces": LangSmithEndpointConfig(
+        name="workspaces",
+        path="/api/v1/workspaces",
+        pagination="none",
         incremental_fields=[],
     ),
 }

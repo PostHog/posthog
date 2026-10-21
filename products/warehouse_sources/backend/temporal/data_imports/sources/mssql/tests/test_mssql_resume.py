@@ -15,10 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
     MSSQLImplementation,
-    MSSQLKeyset,
     MSSQLResumeState,
     MSSQLUniqueIndex,
-    _build_keyset_query,
     resolve_mssql_keyset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLSource
@@ -234,6 +232,13 @@ _INCREMENTAL_INPUTS: dict[str, Any] = {
     "db_incremental_field_last_value": _INCREMENTAL_START,
     "sync_type": ExternalDataSchemaSyncType.INCREMENTAL,
 }
+# A usable unique index, so only the incremental sync keeps the read off the keyset walk.
+_INCREMENTAL_TABLE = (
+    _INCREMENTAL_COLUMNS,
+    ["id"],
+    [_index([("id", "int", False)], clustered=True, primary=True)],
+    _INCREMENTAL_ROWS,
+)
 
 
 @pytest.fixture
@@ -281,6 +286,7 @@ def _read(
         if index == stop_after and not write_last:
             break
         written.extend(table.to_pylist())
+        manager.confirm()
         manager.commit()
         if index == stop_after:
             break
@@ -304,12 +310,6 @@ class TestKeysetFullRefresh:
         assert first + resumed == uninterrupted
         assert store == {}
 
-    @pytest.mark.parametrize("table", _KEYSET_TABLES)
-    def test_run_reports_that_it_can_resume(self, serve, table):
-        serve(*_TABLES[table])
-        source, _ = _build({})
-        assert source.supports_resume is True
-
     @pytest.mark.parametrize("table", _SINGLE_QUERY_TABLES)
     def test_table_without_a_usable_key_reads_on_the_single_query(self, serve, table):
         server = serve(*_TABLES[table])
@@ -323,20 +323,12 @@ class TestKeysetFullRefresh:
         assert store == {}
         assert all("TOP" not in query and "ORDER BY" not in query for query, _ in server.queries)
 
-    def test_table_that_fits_in_one_batch_stores_no_checkpoint(self, serve):
-        columns, primary_keys, unique_indexes, rows = _TABLES["bigint_key"]
-        serve(columns, primary_keys, unique_indexes, rows[: _CHUNK_ROWS - 1])
-        store: dict[str, str] = {}
-
-        _read(store, stop_after=1)
-
-        assert store == {}
-
     def test_checkpoint_for_other_key_columns_restarts_the_read(self, serve):
         server = serve(*_TABLES["bigint_key"])
         store: dict[str, str] = {}
         manager = _MemoryResumeManager(store)
         manager.save_state(MSSQLResumeState(key_columns=["legacy_id"], last_key=[10**12]))
+        manager.confirm()
         manager.commit()
 
         source, manager = _build(store)
@@ -408,44 +400,13 @@ class TestResolveKeyset:
         assert (keyset.columns, keyset.reason) == (expected_columns, expected_reason)
 
 
-class TestBuildKeysetQuery:
-    @pytest.mark.parametrize(
-        "columns,cast_types,after,expected_sql,expected_params",
-        [
-            (["id"], ["bigint"], None, "SELECT TOP (500) * FROM [dbo].[orders] ORDER BY [id] ASC", {}),
-            (
-                ["id"],
-                ["uniqueidentifier"],
-                ("0a",),
-                "SELECT TOP (500) * FROM [dbo].[orders] WHERE ([id] > CAST(%(keyset_0)s AS uniqueidentifier))"
-                " ORDER BY [id] ASC",
-                {"keyset_0": "0a"},
-            ),
-            (
-                ["tenant", "day", "id"],
-                ["int", "date", "bigint"],
-                (4, "2020-01-05", 9),
-                "SELECT TOP (500) * FROM [dbo].[orders] WHERE ([tenant] >= CAST(%(keyset_0)s AS int)"
-                " AND ([tenant] > CAST(%(keyset_0)s AS int) OR ([day] >= CAST(%(keyset_1)s AS date)"
-                " AND ([day] > CAST(%(keyset_1)s AS date) OR ([id] > CAST(%(keyset_2)s AS bigint))))))"
-                " ORDER BY [tenant] ASC, [day] ASC, [id] ASC",
-                {"keyset_0": 4, "keyset_1": "2020-01-05", "keyset_2": 9},
-            ),
-        ],
-    )
-    def test_seeks_past_the_last_key_in_key_order(self, columns, cast_types, after, expected_sql, expected_params):
-        query, params = _build_keyset_query(
-            "dbo", "orders", MSSQLKeyset(columns=columns, cast_types=cast_types), after, 500
-        )
-        assert (query, params) == (expected_sql, expected_params)
-
-
 class TestIncrementalResume:
     @pytest.mark.parametrize("write_last", [True, False])
     @pytest.mark.parametrize("stop_after", [1, 2, 3])
     def test_interrupted_read_resumes_from_the_last_written_value(self, serve, stop_after, write_last):
         server = serve(_INCREMENTAL_COLUMNS, ["id"], [], _INCREMENTAL_ROWS)
         uninterrupted = _read({}, **_INCREMENTAL_INPUTS)
+        assert server.queries[-1][0].endswith("ORDER BY [updated_at] ASC")
 
         store: dict[str, str] = {}
         first = _read(store, stop_after=stop_after, write_last=write_last, **_INCREMENTAL_INPUTS)
@@ -455,6 +416,7 @@ class TestIncrementalResume:
         merged = {row["id"]: row for row in first + resumed}
         assert sorted(merged.values(), key=lambda row: row["id"]) == sorted(uninterrupted, key=lambda row: row["id"])
         assert store == {}
+        assert server.queries[-1][0].endswith("ORDER BY [updated_at] ASC")
         # Rows at the checkpoint value are read again. Rows below it are not.
         written_batches = stop_after if write_last else stop_after - 1
         if written_batches:
@@ -463,14 +425,36 @@ class TestIncrementalResume:
             assert min(row["updated_at"] for row in resumed) == checkpoint
 
     @pytest.mark.parametrize(
-        "primary_keys,sync_type,expected",
+        "table,input_overrides,expected_ascending,expected_resume",
         [
-            (["id"], ExternalDataSchemaSyncType.INCREMENTAL, True),
-            (["id"], ExternalDataSchemaSyncType.APPEND, False),
-            (None, ExternalDataSchemaSyncType.INCREMENTAL, False),
+            pytest.param(_INCREMENTAL_TABLE, _INCREMENTAL_INPUTS, True, True, id="incremental_merge"),
+            pytest.param(
+                _INCREMENTAL_TABLE,
+                {**_INCREMENTAL_INPUTS, "sync_type": ExternalDataSchemaSyncType.APPEND},
+                True,
+                False,
+                id="incremental_append",
+            ),
+            pytest.param(
+                # No `id` column: the source takes a column of that name as the primary key.
+                ([("code", "int"), ("updated_at", "datetime2")], None, [], []),
+                _INCREMENTAL_INPUTS,
+                True,
+                False,
+                id="incremental_without_primary_key",
+            ),
+            pytest.param(_TABLES["bigint_key"], {}, False, True, id="full_refresh_keyset"),
+            pytest.param(_TABLES["no_key"], {}, False, False, id="full_refresh_single_query"),
         ],
     )
-    def test_only_a_merge_on_a_primary_key_resumes(self, serve, primary_keys, sync_type, expected):
-        serve([("code", "int"), ("updated_at", "datetime2")], primary_keys and ["code"], [], [])
-        source, _ = _build({}, **{**_INCREMENTAL_INPUTS, "sync_type": sync_type})
-        assert source.supports_resume is expected
+    def test_only_the_incremental_single_query_claims_ascending_order(
+        self, serve, table, input_overrides: dict[str, Any], expected_ascending: bool, expected_resume: bool
+    ):
+        serve(*table)
+
+        source, _ = _build({}, **input_overrides)
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )

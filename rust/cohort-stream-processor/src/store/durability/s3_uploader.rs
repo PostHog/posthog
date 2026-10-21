@@ -6,19 +6,54 @@ use object_store::buffered::BufWriter;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use super::config::DurabilityConfig;
 use super::error::UploadCancelledError;
+use super::lineage::CheckpointLineage;
 use super::s3_client::create_s3_client;
 use super::uploader::CheckpointUploader;
 use crate::observability::metrics::CHECKPOINT_FILES_UPLOADED_TOTAL;
 
 const UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024; // 8MB
+
+/// Holds one upload's files, together, to a byte rate. The upload reads the disk the live path and
+/// the boot rebuild read, so an unpaced full upload competes with them for its whole run.
+struct UploadPace {
+    bytes_per_sec: u64,
+    /// When the bytes admitted so far are paid for. Time spent below the rate is not banked, so a
+    /// slow stretch never turns into a burst at full disk speed.
+    next: Mutex<Instant>,
+}
+
+impl UploadPace {
+    fn new(bytes_per_sec: u64) -> Self {
+        Self {
+            bytes_per_sec: bytes_per_sec.max(1),
+            next: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// Counts `bytes`, then waits until the rate allows them.
+    async fn admit(&self, bytes: u64) {
+        let due = {
+            let mut next = self
+                .next
+                .lock()
+                .expect("the pace lock is never held across a panic");
+            *next = (*next).max(Instant::now())
+                + Duration::from_secs_f64(bytes as f64 / self.bytes_per_sec as f64);
+            *next
+        };
+        tokio::time::sleep_until(due).await;
+    }
+}
 
 enum ChunkResult {
     Data(usize),
@@ -62,9 +97,13 @@ pub struct S3Uploader {
 }
 
 impl S3Uploader {
-    pub async fn new(config: DurabilityConfig) -> Result<Self> {
-        let store =
-            create_s3_client(&config, config.max_concurrent_checkpoint_file_uploads).await?;
+    pub async fn new(config: DurabilityConfig, lineage: CheckpointLineage) -> Result<Self> {
+        let store = create_s3_client(
+            &config,
+            config.max_concurrent_checkpoint_file_uploads,
+            &lineage.remote_dir(&config.s3_key_prefix),
+        )
+        .await?;
 
         info!(
             "S3 uploader initialized for bucket '{}' with max {} concurrent uploads",
@@ -81,18 +120,17 @@ impl S3Uploader {
         &self,
         local_path: &Path,
         s3_key: &str,
-        cancel_token: Option<&CancellationToken>,
+        cancel_token: &CancellationToken,
+        pace: &UploadPace,
     ) -> Result<()> {
-        if let Some(token) = cancel_token {
-            if token.is_cancelled() {
-                metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled")
-                    .increment(1);
-                warn!("Upload cancelled before starting: {s3_key}");
-                return Err(UploadCancelledError {
-                    reason: format!("before starting: {s3_key}"),
-                }
-                .into());
+        if cancel_token.is_cancelled() {
+            metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled")
+                .increment(1);
+            warn!("Upload cancelled before starting: {s3_key}");
+            return Err(UploadCancelledError {
+                reason: format!("before starting: {s3_key}"),
             }
+            .into());
         }
 
         let path = ObjectPath::from(s3_key);
@@ -113,7 +151,8 @@ impl S3Uploader {
         let mut buf = vec![0u8; UPLOAD_CHUNK_SIZE];
 
         loop {
-            let chunk_result = read_chunk_cancellable(&mut file, &mut buf, cancel_token).await;
+            let chunk_result =
+                read_chunk_cancellable(&mut file, &mut buf, Some(cancel_token)).await;
 
             match chunk_result {
                 ChunkResult::Data(n) => {
@@ -124,18 +163,16 @@ impl S3Uploader {
                         return Err(anyhow::Error::new(e))
                             .with_context(|| format!("Failed to write chunk to S3: {s3_key}"));
                     }
+                    if cancel_token
+                        .run_until_cancelled(pace.admit(n as u64))
+                        .await
+                        .is_none()
+                    {
+                        return Err(cancel_mid_stream(upload, s3_key).await);
+                    }
                 }
                 ChunkResult::EndOfStream => break,
-                ChunkResult::Cancelled => {
-                    drop(upload.abort().await);
-                    metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled")
-                        .increment(1);
-                    warn!("Upload of {s3_key} cancelled mid-stream");
-                    return Err(UploadCancelledError {
-                        reason: format!("mid-stream: {s3_key}"),
-                    }
-                    .into());
-                }
+                ChunkResult::Cancelled => return Err(cancel_mid_stream(upload, s3_key).await),
                 ChunkResult::Error(e) => {
                     drop(upload.abort().await);
                     metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "error")
@@ -172,6 +209,16 @@ impl S3Uploader {
     }
 }
 
+async fn cancel_mid_stream(mut upload: BufWriter, s3_key: &str) -> anyhow::Error {
+    drop(upload.abort().await);
+    metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled").increment(1);
+    warn!("Upload of {s3_key} cancelled mid-stream");
+    UploadCancelledError {
+        reason: format!("mid-stream: {s3_key}"),
+    }
+    .into()
+}
+
 #[async_trait]
 impl CheckpointUploader for S3Uploader {
     async fn upload_checkpoint_with_plan_cancellable(
@@ -200,6 +247,7 @@ impl CheckpointUploader for S3Uploader {
             .map(|parent| parent.child_token())
             .unwrap_or_default();
 
+        let pace = UploadPace::new(self.config.upload_max_bytes_per_sec);
         // At most N files open simultaneously: N * ~18MB (8MB read buf + ~10MB BufWriter).
         let upload_tasks: Vec<_> = plan
             .files_to_upload
@@ -210,8 +258,9 @@ impl CheckpointUploader for S3Uploader {
         let mut stream = stream::iter(upload_tasks)
             .map(|(src, dest)| {
                 let token = upload_token.clone();
+                let pace = &pace;
                 async move {
-                    self.upload_file_cancellable(&src, &dest, Some(&token))
+                    self.upload_file_cancellable(&src, &dest, &token, pace)
                         .await?;
                     Ok::<String, anyhow::Error>(dest)
                 }
@@ -350,5 +399,19 @@ mod tests {
             }
             _ => panic!("Expected Data result"),
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_pace_holds_concurrent_files_to_one_shared_byte_rate() {
+        let pace = UploadPace::new(4 * 1024 * 1024);
+        let started = Instant::now();
+
+        tokio::join!(
+            pace.admit(8 * 1024 * 1024),
+            pace.admit(8 * 1024 * 1024),
+            pace.admit(4 * 1024 * 1024),
+        );
+
+        assert_eq!(started.elapsed(), Duration::from_secs(5));
     }
 }

@@ -22,7 +22,9 @@ use personhog_proto::personhog::identity::v1::{
     GetPersonsByDistinctIdsRequest, GetPersonsByDistinctIdsResponse, MergePersonsRequest,
     MergePersonsResponse,
 };
-use personhog_proto::personhog::types::v1::{DistinctIdWithVersion, PersonDistinctIds};
+use personhog_proto::personhog::types::v1::{
+    DistinctIdWithVersion, Person as ProtoPerson, PersonDistinctIds,
+};
 
 use crate::leader::PropertyWriter;
 use crate::service::merge::MergeEntrance;
@@ -123,7 +125,8 @@ impl PersonHogIdentity for PersonHogIdentityService {
         &self,
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<GetPersonsByDistinctIdsResponse>, Status> {
-        let keys = request.into_inner().keys;
+        let request = request.into_inner();
+        let keys = request.keys;
         common_metrics::histogram(RESOLVE_KEYS_PER_CALL, &[], keys.len() as f64);
         validate_batch_size(&self.limits, keys.len())?;
         for key in &keys {
@@ -134,21 +137,39 @@ impl PersonHogIdentity for PersonHogIdentityService {
             .iter()
             .map(|key| (key.team_id, key.distinct_id.clone()))
             .collect();
-        let resolved = self
-            .storage
-            .resolve_distinct_ids(&identifiers)
-            .await
-            .map_err(|e| crate::service::error::log_and_convert_error(e, "resolve_distinct_ids"))?;
+        let resolved: std::collections::HashMap<(i64, String), ProtoPerson> = if request.ids_only {
+            self.storage
+                .resolve_person_ids(&identifiers)
+                .await
+                .map_err(|e| crate::service::error::log_and_convert_error(e, "resolve_person_ids"))?
+                .into_iter()
+                .map(|((team_id, distinct_id), id)| {
+                    let person = ProtoPerson {
+                        id,
+                        team_id,
+                        ..Default::default()
+                    };
+                    ((team_id, distinct_id), person)
+                })
+                .collect()
+        } else {
+            self.storage
+                .resolve_distinct_ids(&identifiers)
+                .await
+                .map_err(|e| {
+                    crate::service::error::log_and_convert_error(e, "resolve_distinct_ids")
+                })?
+                .into_iter()
+                .map(|(key, person)| (key, person.into()))
+                .collect()
+        };
 
         let results = identifiers
             .into_iter()
             .map(|(team_id, distinct_id)| {
                 // Look up rather than consume: a key repeated in one
                 // request must resolve on every occurrence.
-                let person = resolved
-                    .get(&(team_id, distinct_id.clone()))
-                    .cloned()
-                    .map(Into::into);
+                let person = resolved.get(&(team_id, distinct_id.clone())).cloned();
                 GetPersonByDistinctIdResult {
                     team_id,
                     distinct_id,

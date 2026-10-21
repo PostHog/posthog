@@ -346,7 +346,10 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(tiles[0].insight_id, insight.id)
 
     @parameterized.expand([("new_tile",), ("restored_tile",)])
-    @patch("products.exports.backend.facade.api.blocked_access_for_user", return_value=["restricted_table"])
+    @patch(
+        "products.subscriptions.backend.logic.subscription_query_access.blocked_access_for_user",
+        return_value=["restricted_table"],
+    )
     async def test_update_dashboard_enforces_subscribed_dashboard_access(
         self, source: str, _mock_blocked: MagicMock
     ) -> None:
@@ -384,7 +387,6 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             name="Restricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")
@@ -412,7 +414,6 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             name="Unrestricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")

@@ -33,6 +33,7 @@ class NetworkIndex:
     captured: bool = False
     truncated: bool = False
     partial: bool = False
+    unknown_outcomes: bool = False
 
     def has_requests(self) -> bool:
         """Whether this recording has anything a lookup could return, which decides if network lookups are offered."""
@@ -49,7 +50,7 @@ class NetworkIndex:
             return "available"
         # A truncated or partial read cannot show that nothing failed: the requests it did not reach are
         # unknown, so the honest answer is no evidence rather than evidence of absence.
-        if self.captured and not self.truncated and not self.partial:
+        if self.captured and not self.truncated and not self.partial and not self.unknown_outcomes:
             return "clean"
         return "none"
 
@@ -84,6 +85,7 @@ def build_network_index(
         captured=payload.captured,
         truncated=payload.truncated,
         partial=payload.partial,
+        unknown_outcomes=payload.unknown_outcomes,
     )
 
 

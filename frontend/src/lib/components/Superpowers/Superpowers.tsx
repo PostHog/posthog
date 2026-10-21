@@ -6,7 +6,6 @@ import { IconArrowLeft, IconChevronRight, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -14,7 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
+import { navProductsTabLogic } from '~/layout/panel-layout/navbar/tabs/navProductsTabLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsProducts } from '~/products'
 import type { TeamType } from '~/types'
@@ -171,30 +170,25 @@ function CaptureOptionDot({ option, team }: { option: CaptureOption; team: TeamT
     )
 }
 
-function EnablementTag({ enabled }: { enabled: boolean }): JSX.Element {
-    return enabled ? (
+function StarredTag({ starred }: { starred: boolean }): JSX.Element {
+    return starred ? (
         <LemonTag type="success" className="shrink-0">
-            Enabled
+            Starred
         </LemonTag>
     ) : (
-        <LemonTag className="shrink-0">Disabled</LemonTag>
+        <LemonTag className="shrink-0">Not starred</LemonTag>
     )
 }
 
 function ProductsSection(): JSX.Element {
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { loadCustomProducts } = useActions(customProductsLogic)
+    const { starredProductIds } = useValues(navProductsTabLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    // The modal content unmounts on close, so each open refetches the sidebar list.
-    useOnMountEffect(() => loadCustomProducts())
-
     const team = currentTeam as TeamType | null
-    const enabledByPath = new Map(customProducts.map((item) => [item.product_path, item]))
     const products = getTreeItemsProducts()
     const withOptions = products.filter((item) => PRODUCT_CAPTURE_OPTIONS[item.path])
     const others = products.filter((item) => !PRODUCT_CAPTURE_OPTIONS[item.path])
-    const enabledCount = products.filter((item) => enabledByPath.has(item.path)).length
+    const starredCount = products.filter((item) => !!starredProductIds[item.path]).length
 
     return (
         <Section
@@ -202,35 +196,32 @@ function ProductsSection(): JSX.Element {
                 <>
                     Products{' '}
                     <span className="font-normal text-secondary text-sm">
-                        ({enabledCount} of {products.length} in sidebar)
+                        ({starredCount} of {products.length} starred)
                     </span>
                 </>
             }
-            description="Sidebar enablement per product (UserProductList), plus the team capture settings behind each product. A red dot means the product renders but captures nothing."
+            description="Whether you starred each product, plus the team capture settings behind it. A red dot means the product renders but captures nothing."
         >
             <div className="space-y-2">
                 <div className="space-y-1.5">
-                    {withOptions.map((item) => {
-                        const listItem = enabledByPath.get(item.path)
-                        return (
-                            <div key={item.path} className="border rounded p-2.5 space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                    <span className="flex shrink-0 group/colorful-product-icons colorful-product-icons-true">
-                                        {iconForType(item.iconType)}
-                                    </span>
-                                    <span className="flex-1 text-sm font-medium truncate">{item.path}</span>
-                                    <EnablementTag enabled={!!listItem} />
-                                </div>
-                                {team && (
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pl-6">
-                                        {PRODUCT_CAPTURE_OPTIONS[item.path].map((option) => (
-                                            <CaptureOptionDot key={option.field} option={option} team={team} />
-                                        ))}
-                                    </div>
-                                )}
+                    {withOptions.map((item) => (
+                        <div key={item.path} className="border rounded p-2.5 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <span className="flex shrink-0 group/colorful-product-icons colorful-product-icons-true">
+                                    {iconForType(item.iconType)}
+                                </span>
+                                <span className="flex-1 text-sm font-medium truncate">{item.path}</span>
+                                <StarredTag starred={!!starredProductIds[item.path]} />
                             </div>
-                        )
-                    })}
+                            {team && (
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pl-6">
+                                    {PRODUCT_CAPTURE_OPTIONS[item.path].map((option) => (
+                                        <CaptureOptionDot key={option.field} option={option} team={team} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
                 </div>
                 {others.length > 0 && (
                     <>
@@ -242,14 +233,13 @@ function ProductsSection(): JSX.Element {
                                         {iconForType(item.iconType)}
                                     </span>
                                     <span className="flex-1 text-xs truncate">{item.path}</span>
-                                    <EnablementTag enabled={enabledByPath.has(item.path)} />
+                                    <StarredTag starred={!!starredProductIds[item.path]} />
                                 </div>
                             ))}
                         </div>
                     </>
                 )}
             </div>
-            {customProductsLoading && <div className="text-xs text-secondary">Refreshing…</div>}
         </Section>
     )
 }

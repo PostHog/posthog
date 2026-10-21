@@ -51,9 +51,9 @@ BAKE_MANIFEST=/opt/posthog/dev-stack-bake.json
 # the vendors' published manifests (go.dev/dl, static.rust-lang.org/rustup/archive) and
 # guard the privileged downloads below: a tampered artifact fails the bake instead of
 # being published into the shared internal image. Bump them together with the versions.
-GO_VERSION=1.25.5
-GO_SHA256_AMD64=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b
-GO_SHA256_ARM64=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9
+GO_VERSION=1.26.10
+GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
 RUSTUP_VERSION=1.29.0
 RUSTUP_SHA256_AMD64=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 RUSTUP_SHA256_ARM64=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
@@ -92,6 +92,11 @@ mkdir -p "$BAKE_ROOT" "$(dirname "$REPO_DIR")"
 # Rust target dir only counts as warm for a checkout at this same path.
 git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR"
 cd "$REPO_DIR"
+if [[ -n "${DEV_STACK_REPOSITORY_SHA:-}" ]]; then
+    git fetch --depth 1 origin "$DEV_STACK_REPOSITORY_SHA"
+    git checkout --detach FETCH_HEAD
+    [[ "$(git rev-parse HEAD)" == "$DEV_STACK_REPOSITORY_SHA" ]]
+fi
 BAKED_SHA=$(git rev-parse HEAD)
 export COMPOSE_PROJECT_NAME=posthog
 
@@ -342,7 +347,10 @@ echo "dev stack ready — from the posthog checkout: uv sync && source .venv/bin
 EOF
 chmod +x /usr/local/bin/bootstrap-dev-stack
 
+/usr/bin/python3 -I /opt/posthog/task-filesystem.py seed-home
+
 mkdir -p "$(dirname "$BAKE_MANIFEST")"
-printf '{"baked_at": "%s", "posthog_sha": "%s", "bootstrap": "bootstrap-dev-stack"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BAKED_SHA" > "$BAKE_MANIFEST"
+BAKED_AGENT_VERSION=$(node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
+export BAKED_SHA BAKE_MANIFEST BAKED_AGENT_VERSION
+python3 -c 'import json, os; from datetime import datetime, timezone; json.dump({"baked_at": datetime.now(timezone.utc).isoformat(), "posthog_sha": os.environ["BAKED_SHA"], "agent_version": os.environ["BAKED_AGENT_VERSION"], "base_reference": os.environ.get("DEV_STACK_BASE_REFERENCE"), "recipe_sha": os.environ.get("DEV_STACK_RECIPE_SHA"), "bootstrap": "bootstrap-dev-stack"}, open(os.environ["BAKE_MANIFEST"], "w"))'
 log "bake complete at $BAKED_SHA"

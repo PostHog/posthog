@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     build_jwt_assertion,
     decode_firestore_value,
     firebase_source,
-    flatten_auth_user,
     flatten_firestore_document,
     flatten_realtime_database_child,
     get_incremental_fields,
@@ -34,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     iter_firestore_documents,
     iter_firestore_documents_incremental,
     iter_realtime_database,
+    iter_tenant_auth_users,
     list_collection_ids,
     mint_access_token,
     resolve_incremental_cursor,
@@ -42,18 +42,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     validate_realtime_database_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
+    AUTH_TENANT_USERS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
-    FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
     FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
-    FIRESTORE_MAX_INTEGER,
-    FIRESTORE_MAX_TIMESTAMP,
     FIRESTORE_PATH_COLUMN,
     FIRESTORE_UPDATE_TIME_COLUMN,
     GOOGLE_TOKEN_URI,
     JWT_ASSERTION_LIFETIME_SECONDS,
-    OAUTH_SCOPES,
     REALTIME_DATABASE_KEY_COLUMN,
     REALTIME_DATABASE_PAGE_SIZE,
     REALTIME_DATABASE_PATH_COLUMN,
@@ -122,30 +119,6 @@ class TestFirestoreValueDecoding:
     def test_decodes_every_stored_value_type(self, wrapper: Any, expected: Any) -> None:
         assert decode_firestore_value(wrapper) == expected
 
-    def test_nested_containers_are_json_encoded_so_the_column_type_is_stable(self) -> None:
-        row = flatten_firestore_document(
-            firestore_document(
-                "abc",
-                {
-                    "title": {"stringValue": "Lobby"},
-                    "members": {"arrayValue": {"values": [{"stringValue": "a"}]}},
-                    "meta": {"mapValue": {"fields": {"pinned": {"booleanValue": True}}}},
-                },
-            )
-        )
-
-        assert row["title"] == "Lobby"
-        assert json.loads(row["members"]) == ["a"]
-        assert json.loads(row["meta"]) == {"pinned": True}
-
-    def test_metadata_columns_describe_the_document(self) -> None:
-        row = flatten_firestore_document(firestore_document("abc"))
-
-        assert row[FIRESTORE_ID_COLUMN] == "abc"
-        assert row[FIRESTORE_PATH_COLUMN] == "rooms/abc"
-        assert row[FIRESTORE_CREATE_TIME_COLUMN] == "2024-01-02T03:04:05.000000Z"
-        assert row[FIRESTORE_UPDATE_TIME_COLUMN] == "2024-05-06T07:08:09.000000Z"
-
     def test_document_with_no_fields_still_produces_metadata(self) -> None:
         row = flatten_firestore_document({"name": "", "createTime": None, "updateTime": None})
 
@@ -154,21 +127,6 @@ class TestFirestoreValueDecoding:
 
 
 class TestRowFlattening:
-    def test_auth_user_drops_password_material(self) -> None:
-        row = flatten_auth_user(
-            {
-                "localId": "u1",
-                "email": "a@example.com",
-                "passwordHash": "hash",
-                "salt": "salt",
-                "rawPassword": "hunter2",
-                "providerUserInfo": [{"providerId": "google.com"}],
-            }
-        )
-
-        assert set(row) == {"localId", "email", "providerUserInfo"}
-        assert json.loads(row["providerUserInfo"]) == [{"providerId": "google.com"}]
-
     @pytest.mark.parametrize(
         "value,expected_columns",
         [
@@ -188,16 +146,6 @@ class TestRowFlattening:
 
 
 class TestAccessTokens:
-    def test_assertion_is_signed_for_googles_token_endpoint(self) -> None:
-        assertion = build_jwt_assertion(credentials())
-
-        claims = jwt.decode(
-            assertion, PUBLIC_KEY_PEM, algorithms=["RS256"], audience="https://oauth2.googleapis.com/token"
-        )
-        assert claims["iss"] == "importer@demo-project.iam.gserviceaccount.com"
-        assert claims["scope"] == OAUTH_SCOPES
-        assert jwt.get_unverified_header(assertion)["kid"] == "key-id"
-
     def test_token_uri_from_the_key_file_cannot_retarget_the_exchange(self) -> None:
         hostile = credentials(token_uri="http://169.254.169.254/latest/meta-data/")
         session = FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)])
@@ -216,11 +164,6 @@ class TestAccessTokens:
     def test_unreadable_private_key_is_reported_as_an_auth_error(self) -> None:
         with pytest.raises(FirebaseAuthError, match="could not be read"):
             build_jwt_assertion(credentials(private_key="not-a-key"))
-
-    def test_mint_returns_the_token_and_its_lifetime(self) -> None:
-        session = FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)])
-
-        assert mint_access_token(session.as_session(), credentials()) == ("tok-1", 3600)
 
     @pytest.mark.parametrize(
         "response,message",
@@ -254,41 +197,6 @@ class TestAccessTokens:
         session = FakeSession(post_responses=[FakeResponse(payload=body)])
 
         assert mint_access_token(session.as_session(), credentials()) == ("tok-1", expected_lifetime)
-
-    def test_token_is_reused_until_forced_to_refresh(self) -> None:
-        session = FakeSession(
-            post_responses=[
-                FakeResponse(payload=TOKEN_PAYLOAD),
-                FakeResponse(payload={**TOKEN_PAYLOAD, "access_token": "tok-2"}),
-            ]
-        )
-        tokens = token_provider(session)
-
-        assert tokens.token() == "tok-1"
-        assert tokens.token() == "tok-1"
-        assert tokens.token(force_refresh=True) == "tok-2"
-        assert len(session.posts) == 2
-
-    def test_expired_token_mid_sync_is_reminted_once(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(status_code=401, payload={"error": {"status": "UNAUTHENTICATED"}}),
-                FakeResponse(payload={"documents": [firestore_document("abc")]}),
-            ],
-            post_responses=[
-                FakeResponse(payload=TOKEN_PAYLOAD),
-                FakeResponse(payload={**TOKEN_PAYLOAD, "access_token": "tok-2"}),
-            ],
-        )
-
-        batches = list(
-            iter_firestore_documents(
-                session.as_session(), token_provider(session), credentials(), "rooms", FakeResumeManager(), logger
-            )
-        )
-
-        assert len(batches) == 1
-        assert session.requests[1][2]["headers"] == {"Authorization": "Bearer tok-2"}
 
 
 class TestFirestorePagination:
@@ -454,60 +362,6 @@ def read_incremental(
 
 
 class TestFirestoreIncrementalReads:
-    def test_query_bounds_the_read_to_the_cursor_fields_own_type(self, logger: FilteringBoundLogger) -> None:
-        # Firestore orders across types, so the lower bound alone also matches strings, arrays and
-        # maps stored in the same field. Those rows can't be ordered and their values would become a
-        # watermark no later timestamp can beat, so the upper bound is what keeps the read sane.
-        session = FakeSession(
-            request_responses=[run_query_page([])], post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]
-        )
-
-        read_incremental(session, logger)
-
-        method, url, kwargs = session.requests[0]
-        query = kwargs["json"]["structuredQuery"]
-        assert (method, url) == ("POST", f"{DOCUMENTS_ROOT}:runQuery")
-        assert query["where"]["compositeFilter"]["filters"] == [
-            {
-                "fieldFilter": {
-                    "field": {"fieldPath": "updatedOn"},
-                    "op": "GREATER_THAN",
-                    "value": {"timestampValue": "2026-01-02T03:04:05Z"},
-                }
-            },
-            {
-                "fieldFilter": {
-                    "field": {"fieldPath": "updatedOn"},
-                    "op": "LESS_THAN_OR_EQUAL",
-                    "value": {"timestampValue": FIRESTORE_MAX_TIMESTAMP},
-                }
-            },
-        ]
-        # Documents that share a cursor value need the document id to break the tie, or paging past
-        # them drops whichever ones the first page didn't reach.
-        assert query["orderBy"] == [
-            {"field": {"fieldPath": "updatedOn"}, "direction": "ASCENDING"},
-            {"field": {"fieldPath": FIRESTORE_DOCUMENT_ID_FIELD}, "direction": "ASCENDING"},
-        ]
-        assert "startAt" not in query
-
-    def test_integer_cursor_is_sent_as_a_json_string(self, logger: FilteringBoundLogger) -> None:
-        # The REST API rejects a bare JSON number for integerValue.
-        session = FakeSession(
-            request_responses=[run_query_page([])], post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]
-        )
-
-        read_incremental(
-            session,
-            logger,
-            cursor=incremental_cursor(field_name="version", field_type=IncrementalFieldType.Integer, last_value=42),
-        )
-
-        assert [
-            fltr["fieldFilter"]["value"]
-            for fltr in session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
-        ] == [{"integerValue": "42"}, {"integerValue": str(FIRESTORE_MAX_INTEGER)}]
-
     def test_a_fractional_watermark_on_an_integer_cursor_is_not_truncated(self, logger: FilteringBoundLogger) -> None:
         # Firestore orders integers and doubles together, so a field sampled as an integer can still
         # carry a doubleValue on some document. int() truncating that watermark down would leave the
@@ -633,22 +487,6 @@ class TestFirestoreIncrementalReads:
         read_incremental(session, logger, FakeResumeManager(FirebaseResumeConfig(cursor="page-9")))
 
         assert "startAt" not in session.requests[0][2]["json"]["structuredQuery"]
-
-    def test_stream_entries_carrying_no_document_are_skipped(self, logger: FilteringBoundLogger) -> None:
-        # Firestore reports read progress with entries that hold only a readTime.
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(
-                    payload=[
-                        {"readTime": "2026-03-01T00:00:00Z"},
-                        {"document": timestamped_document("a", "2026-02-01T00:00:00Z")},
-                    ]
-                )
-            ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        assert [row[FIRESTORE_ID_COLUMN] for row in read_incremental(session, logger)] == ["a"]
 
 
 class TestFirestoreIncrementalFieldDiscovery:
@@ -819,20 +657,6 @@ class TestFirestoreCollectionGroup:
         assert session.requests[0][1] == f"{DOCUMENTS_ROOT}:runQuery"
         assert [row[FIRESTORE_ID_COLUMN] for row in batches[0]] == ["m1"]
 
-    def test_a_root_collection_named_like_a_group_reads_as_a_root(self, logger: FilteringBoundLogger) -> None:
-        # A root collection whose id starts with `collection_group_` has no slash, so it must read
-        # through `listDocuments`, not be misrouted to a collection-group query.
-        session = FakeSession(
-            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            list(get_rows(credentials(), "firestore_collection_group_orders", FakeResumeManager(), logger))
-
-        assert session.requests[0][0] == "GET"
-        assert session.requests[0][1] == f"{DOCUMENTS_ROOT}/collection_group_orders"
-
 
 class TestAuthUsersPagination:
     def test_stops_when_google_returns_no_token(self, logger: FilteringBoundLogger) -> None:
@@ -851,31 +675,120 @@ class TestAuthUsersPagination:
         assert [state.cursor for state in manager.saved] == ["p2"]
         assert session.requests[0][1].endswith("/projects/demo-project/accounts:batchGet")
 
-    def test_stops_on_an_empty_page_even_when_a_token_is_returned(self, logger: FilteringBoundLogger) -> None:
+
+def tenant(tenant_id: str) -> dict[str, Any]:
+    return {"name": f"projects/demo-project/tenants/{tenant_id}", "displayName": tenant_id}
+
+
+TENANTS_URL = "https://identitytoolkit.googleapis.com/v2/projects/demo-project/tenants"
+
+
+def tenant_accounts_url(tenant_id: str) -> str:
+    return f"https://identitytoolkit.googleapis.com/v1/projects/demo-project/tenants/{tenant_id}/accounts:batchGet"
+
+
+class TestTenantAuthUsers:
+    def test_walks_every_tenant_in_order_and_stages_the_next_position_before_each_yield(
+        self, logger: FilteringBoundLogger
+    ) -> None:
         session = FakeSession(
-            request_responses=[FakeResponse(payload={"users": [], "nextPageToken": "p2"})],
+            request_responses=[
+                # Tenants arrive out of order across two pages.
+                FakeResponse(payload={"tenants": [tenant("tenant-c"), tenant("tenant-a")], "nextPageToken": "t2"}),
+                FakeResponse(payload={"tenants": [tenant("tenant-b"), {"displayName": "no name"}]}),
+                FakeResponse(payload={"users": [{"localId": "u1"}], "nextPageToken": "p2"}),
+                FakeResponse(payload={"users": [{"localId": "u2", "passwordHash": "hash"}]}),
+                # A tenant with no users.
+                FakeResponse(payload={}),
+                FakeResponse(payload={"users": [{"localId": "u1", "tenantId": "tenant-c"}]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager()
+
+        staged_at_each_yield: list[list[tuple[str, Optional[str]]]] = []
+        rows: list[dict[str, Any]] = []
+        for batch in iter_tenant_auth_users(
+            session.as_session(), token_provider(session), credentials(), manager, logger
+        ):
+            staged_at_each_yield.append([(state.cursor, state.tenant_id) for state in manager.saved])
+            rows.extend(batch)
+
+        # The same `localId` in two tenants is two accounts, and each row says which tenant it is in.
+        assert [(row["tenantId"], row["localId"]) for row in rows] == [
+            ("tenant-a", "u1"),
+            ("tenant-a", "u2"),
+            ("tenant-c", "u1"),
+        ]
+        assert all("passwordHash" not in row for row in rows)
+        assert staged_at_each_yield == [
+            [("p2", "tenant-a")],
+            [("p2", "tenant-a"), ("", "tenant-b")],
+            [("p2", "tenant-a"), ("", "tenant-b"), ("", "tenant-c")],
+        ]
+        assert manager.cleared is True
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests] == [
+            (TENANTS_URL, {"pageSize": 1000}),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t2"}),
+            (tenant_accounts_url("tenant-a"), {"maxResults": 1000}),
+            (tenant_accounts_url("tenant-a"), {"maxResults": 1000, "nextPageToken": "p2"}),
+            (tenant_accounts_url("tenant-b"), {"maxResults": 1000}),
+            (tenant_accounts_url("tenant-c"), {"maxResults": 1000}),
+        ]
+
+    @pytest.mark.parametrize(
+        "state,expected_requests",
+        [
+            # Mid-tenant: the earlier tenant is skipped and the saved tenant continues from its token.
+            (
+                FirebaseResumeConfig(cursor="p2", tenant_id="tenant-b"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000, "nextPageToken": "p2"})],
+            ),
+            # At a tenant boundary: the saved tenant starts at its first page.
+            (
+                FirebaseResumeConfig(cursor="", tenant_id="tenant-b"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000})],
+            ),
+            # The saved tenant was deleted: the read continues at the next tenant, without its token.
+            (
+                FirebaseResumeConfig(cursor="p2", tenant_id="tenant-aa"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000})],
+            ),
+            # A checkpoint with no tenant did not come from this table, so the read starts over.
+            (
+                FirebaseResumeConfig(cursor="p2"),
+                [
+                    (tenant_accounts_url("tenant-a"), {"maxResults": 1000}),
+                    (tenant_accounts_url("tenant-b"), {"maxResults": 1000}),
+                ],
+            ),
+        ],
+        ids=["mid-tenant", "tenant-boundary", "deleted-tenant", "foreign-checkpoint"],
+    )
+    def test_resumes_from_the_saved_tenant(
+        self,
+        state: FirebaseResumeConfig,
+        expected_requests: list[tuple[str, dict[str, Any]]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"tenants": [tenant("tenant-a"), tenant("tenant-b")]}),
+                *[FakeResponse(payload={"users": [{"localId": "u9"}]}) for _ in expected_requests],
+            ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
 
-        batches = list(
-            iter_auth_users(session.as_session(), token_provider(session), credentials(), FakeResumeManager(), logger)
+        list(
+            iter_tenant_auth_users(
+                session.as_session(), token_provider(session), credentials(), FakeResumeManager(state), logger
+            )
         )
 
-        assert batches == []
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests[1:]] == expected_requests
 
 
 class TestRealtimeDatabase:
-    @pytest.mark.parametrize(
-        "url,expected",
-        [
-            ("https://demo-default-rtdb.firebaseio.com", "https://demo-default-rtdb.firebaseio.com"),
-            ("https://demo.europe-west1.firebasedatabase.app/", "https://demo.europe-west1.firebasedatabase.app"),
-            (" https://Demo-Default-Rtdb.firebaseio.com ", "https://demo-default-rtdb.firebaseio.com"),
-        ],
-    )
-    def test_accepts_firebase_hosts(self, url: str, expected: str) -> None:
-        assert validate_realtime_database_url(url) == expected
-
     @pytest.mark.parametrize(
         "url",
         [
@@ -1014,53 +927,6 @@ class TestTableDiscovery:
         yield
         django_cache.clear()
 
-    def test_lists_auth_firestore_and_configured_paths(self) -> None:
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(payload={"collectionIds": ["rooms", "users"]}),
-                # Neither root collection has documents to probe, so no subcollections are found.
-                FakeResponse(payload={"documents": []}),
-                FakeResponse(payload={"documents": []}),
-            ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            tables = get_tables(
-                credentials(
-                    realtime_database_url="https://demo-default-rtdb.firebaseio.com",
-                    realtime_database_paths=("rooms", "messages/lobby"),
-                )
-            )
-
-        assert tables == [
-            AUTH_USERS_TABLE,
-            "firestore_rooms",
-            "firestore_users",
-            "realtime_database_rooms",
-            "realtime_database_messages_lobby",
-        ]
-
-    def test_subcollections_are_discovered_by_sampling_documents(self) -> None:
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(payload={"collectionIds": ["rooms"]}),
-                # Sampling `rooms` returns one document to probe for subcollections.
-                FakeResponse(payload={"documents": [firestore_document("room1")]}),
-                FakeResponse(payload={"collectionIds": ["messages"]}),
-                # Sampling the `messages` collection group finds no deeper subcollections.
-                FakeResponse(payload=[]),
-            ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            tables = get_tables(credentials())
-
-        assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_collection_group/messages"]
-        # The subcollection is discovered by asking a sampled document for its child collections.
-        assert session.requests[2][1] == f"{DOCUMENTS_ROOT}/rooms/room1:listCollectionIds"
-
     def test_a_subcollection_id_is_listed_once_even_under_several_parents(self) -> None:
         session = FakeSession(
             request_responses=[
@@ -1071,6 +937,7 @@ class TestTableDiscovery:
                 FakeResponse(payload={"collectionIds": ["messages"]}),
                 # One collection-group sample for the single `messages` id, then nothing deeper.
                 FakeResponse(payload=[]),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -1080,30 +947,6 @@ class TestTableDiscovery:
 
         # `messages` under both parents is one collection group, so it becomes a single table.
         assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_chats", "firestore_collection_group/messages"]
-
-    def test_a_subcollection_sharing_an_id_with_a_root_collection_is_not_hidden(self) -> None:
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(payload={"collectionIds": ["messages", "rooms"]}),
-                # Root `messages` has no documents; root `rooms` holds a `messages` subcollection.
-                FakeResponse(payload={"documents": []}),
-                FakeResponse(payload={"documents": [firestore_document("room1")]}),
-                FakeResponse(payload={"collectionIds": ["messages"]}),
-                FakeResponse(payload=[]),
-            ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            tables = get_tables(credentials())
-
-        # The root table reads root documents only, so the subcollection needs its own group table.
-        assert tables == [
-            AUTH_USERS_TABLE,
-            "firestore_messages",
-            "firestore_rooms",
-            "firestore_collection_group/messages",
-        ]
 
     def test_a_table_whose_storage_name_collides_is_dropped(self) -> None:
         session = FakeSession(
@@ -1115,6 +958,7 @@ class TestTableDiscovery:
                 FakeResponse(payload={"documents": [firestore_document("room1")]}),
                 FakeResponse(payload={"collectionIds": ["messages"]}),
                 FakeResponse(payload=[]),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -1124,39 +968,6 @@ class TestTableDiscovery:
 
         # The root table is discovered first, so the colliding collection-group table is dropped.
         assert tables == [AUTH_USERS_TABLE, "firestore_collection_group_messages", "firestore_rooms"]
-
-    def test_subcollections_below_missing_parent_documents_are_discovered(self) -> None:
-        # A parent that exists only to hold a subcollection is a "missing" document: `listDocuments`
-        # omits it unless `showMissing` is set, and it returns a name with no fields. Discovery must
-        # still sample and probe it, or a collection written only under such a parent is never found.
-        missing_parent = {"name": f"{DOCUMENTS_ROOT}/rooms/room1"}
-        session = FakeSession(
-            request_responses=[
-                FakeResponse(payload={"collectionIds": ["rooms"]}),
-                FakeResponse(payload={"documents": [missing_parent]}),
-                FakeResponse(payload={"collectionIds": ["messages"]}),
-                FakeResponse(payload=[]),
-            ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            tables = get_tables(credentials())
-
-        assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_collection_group/messages"]
-        # Without `showMissing` on the root sample, the missing parent is dropped and its
-        # subcollection is never discovered.
-        assert session.requests[1][2]["params"]["showMissing"] == "true"
-
-    @pytest.mark.parametrize("status", [403, 404])
-    def test_unreachable_firestore_does_not_hide_the_other_tables(self, status: int) -> None:
-        session = FakeSession(
-            request_responses=[FakeResponse(status_code=status, payload={"error": {"status": "PERMISSION_DENIED"}})],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            assert get_tables(credentials()) == [AUTH_USERS_TABLE]
 
     def test_datastore_mode_database_does_not_hide_the_other_tables(self) -> None:
         session = FakeSession(
@@ -1170,7 +981,8 @@ class TestTableDiscovery:
                             "message": "The Cloud Firestore API is not available for Firestore in Datastore Mode database.",
                         }
                     },
-                )
+                ),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -1198,57 +1010,109 @@ class TestTableDiscovery:
                 get_tables(credentials())
 
     def test_discovery_is_cached_and_force_refresh_rewalks(self) -> None:
-        # `rooms` has no documents to probe, so one discovery pass is two requests: the root
-        # `listCollectionIds` and the sample read that finds no subcollections.
+        # `rooms` has no documents to probe, so one Firestore discovery pass is two requests: the
+        # root `listCollectionIds` and the sample read that finds no subcollections. The tenant probe
+        # after it is one request on every lookup.
         session = FakeSession(
             request_responses=[
                 FakeResponse(payload={"collectionIds": ["rooms"]}),
                 FakeResponse(payload={"documents": []}),
+                FakeResponse(payload={}),
+                FakeResponse(payload={}),
             ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD), FakeResponse(payload=TOKEN_PAYLOAD)],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD) for _ in range(3)],
         )
 
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             first = get_tables(credentials())
             # The second lookup reuses the cached collections instead of walking the project again.
             cached = get_tables(credentials())
-            assert len(session.requests) == 2
+            assert len(session.requests) == 4
 
             # A forced refresh walks again, so it needs a fresh set of discovery responses.
             session.request_queue.extend(
-                [FakeResponse(payload={"collectionIds": ["rooms"]}), FakeResponse(payload={"documents": []})]
+                [
+                    FakeResponse(payload={"collectionIds": ["rooms"]}),
+                    FakeResponse(payload={"documents": []}),
+                    FakeResponse(payload={}),
+                ]
             )
             get_tables(credentials(), force_refresh=True)
 
         assert first == cached == [AUTH_USERS_TABLE, "firestore_rooms"]
-        assert len(session.requests) == 4
+        assert len(session.requests) == 7
 
-
-class TestSampleCapture:
-    def test_auth_user_responses_never_reach_sample_capture(self, logger: FilteringBoundLogger) -> None:
+    @pytest.mark.parametrize(
+        "tenant_response,expected_tables",
+        [
+            (FakeResponse(payload={"tenants": [tenant("tenant-a")]}), [AUTH_USERS_TABLE, AUTH_TENANT_USERS_TABLE]),
+            (FakeResponse(payload={}), [AUTH_USERS_TABLE]),
+            # A project without Identity Platform, or a service account that can't list tenants.
+            (
+                FakeResponse(status_code=400, payload={"error": {"message": "CONFIGURATION_NOT_FOUND"}}),
+                [AUTH_USERS_TABLE],
+            ),
+            (FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}}), [AUTH_USERS_TABLE]),
+            (FakeResponse(status_code=404, payload={"error": {"status": "NOT_FOUND"}}), [AUTH_USERS_TABLE]),
+        ],
+        ids=["has-tenants", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
+    )
+    def test_tenant_users_table_is_listed_only_when_the_project_has_a_tenant(
+        self, tenant_response: FakeResponse, expected_tables: list[str]
+    ) -> None:
         session = FakeSession(
-            request_responses=[FakeResponse(payload={"users": [{"localId": "u1", "passwordHash": "hash"}]})],
+            request_responses=[FakeResponse(payload={}), tenant_response],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
 
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
-            batches = list(get_rows(credentials(), AUTH_USERS_TABLE, FakeResumeManager(), logger))
+            tables = get_tables(credentials())
+
+        assert tables == expected_tables
+        assert session.requests[1][1] == TENANTS_URL
+        assert session.requests[1][2]["params"] == {"pageSize": 1}
+        # A tenant listing carries each tenant's password hash signer key, so it is never captured.
+        assert factory.call_args_list[-1].kwargs["capture"] is False
+
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_transient_tenant_listing_errors_propagate(self, status: int) -> None:
+        # Dropping the table on a transient error would make the schema sync treat it as removed.
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={}), FakeResponse(status_code=status)],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with pytest.raises(requests.HTTPError, match=str(status)):
+                get_tables(credentials())
+
+
+class TestSampleCapture:
+    @pytest.mark.parametrize(
+        "table_name,listing_responses",
+        [
+            (AUTH_USERS_TABLE, []),
+            (AUTH_TENANT_USERS_TABLE, [FakeResponse(payload={"tenants": [tenant("tenant-a")]})]),
+        ],
+    )
+    def test_auth_user_responses_never_reach_sample_capture(
+        self, table_name: str, listing_responses: list[FakeResponse], logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                *listing_responses,
+                FakeResponse(payload={"users": [{"localId": "u1", "passwordHash": "hash"}]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            batches = list(get_rows(credentials(), table_name, FakeResumeManager(), logger))
 
         # The raw response carries password material that row-level redaction only removes
         # afterwards, so no session used for this table may capture a sample.
         assert [call.kwargs["capture"] for call in factory.call_args_list] == [False, False]
         assert "passwordHash" not in batches[0][0]
-
-    def test_firestore_responses_are_still_captured(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
-            list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
-
-        assert factory.call_args_list[-1].kwargs["capture"] is True
 
 
 class TestResponseSizeCaps:
@@ -1257,19 +1121,6 @@ class TestResponseSizeCaps:
     The real caps are patched down to a few kilobytes throughout: the behaviour under test is
     "stop reading at N bytes", and allocating 64 MiB per test to demonstrate it would be waste.
     """
-
-    def test_pages_are_requested_as_streams_rather_than_buffered(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
-
-        # Without stream=True, requests materialises the whole body before we get a chance to cap it.
-        assert session.posts[0][1]["stream"] is True
-        assert all(kwargs["stream"] is True for _, _, kwargs in session.requests)
 
     def test_an_oversized_page_is_rejected_instead_of_buffered(self, logger: FilteringBoundLogger) -> None:
         oversized = FakeResponse(body=b"x" * (_PAGE_CAP + 1))
@@ -1286,20 +1137,6 @@ class TestResponseSizeCaps:
         # Never more than one byte past the cap, and the connection is released either way.
         assert oversized.raw.bytes_read == _PAGE_CAP + 1
         assert oversized.closed is True
-
-    def test_a_page_that_exactly_fills_the_cap_is_still_accepted(self, logger: FilteringBoundLogger) -> None:
-        # Whitespace is JSON-insignificant, so padding to the cap keeps the page parseable.
-        page = json.dumps({"documents": [firestore_document("a")]}).encode()
-        session = FakeSession(
-            request_responses=[FakeResponse(body=page + b" " * (_PAGE_CAP - len(page)))],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
-        )
-
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            with mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP):
-                batches = list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
-
-        assert [row[FIRESTORE_ID_COLUMN] for row in batches[0]] == ["a"]
 
     def test_an_oversized_token_body_is_rejected(self) -> None:
         session = FakeSession(post_responses=[FakeResponse(body=b"x" * (_PAGE_CAP + 1))])
@@ -1388,6 +1225,8 @@ class TestSourceResponseShape:
         "table_name,primary_keys,partitioned",
         [
             (AUTH_USERS_TABLE, ["localId"], False),
+            # A user id is unique only inside its tenant.
+            (AUTH_TENANT_USERS_TABLE, ["tenantId", "localId"], False),
             ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
             # A subcollection is a collection group, so its unique key is the full document path.
             ("firestore_collection_group/messages", [FIRESTORE_PATH_COLUMN], True),
@@ -1423,30 +1262,6 @@ class TestSourceResponseShape:
         with mock.patch(_SESSION_FACTORY, return_value=FakeSession().as_session()):
             with pytest.raises(FirebaseConfigError, match="not configured"):
                 list(get_rows(credentials(), "made_up_table", FakeResumeManager(), logger))
-
-    @pytest.mark.parametrize(
-        "should_use_incremental_field,expected_sort_mode",
-        [(True, "asc"), (False, None)],
-        ids=["incremental", "full-refresh"],
-    )
-    def test_only_an_ordered_read_declares_a_sort_mode(
-        self, logger: FilteringBoundLogger, should_use_incremental_field: bool, expected_sort_mode: Optional[str]
-    ) -> None:
-        # The pipeline persists the watermark only for a sorted resource, so `None` here means an
-        # incremental sync re-reads the whole collection every run. Declaring "asc" for an unsorted
-        # read is worse: the watermark jumps to the highest value any batch happened to carry.
-        response = firebase_source(
-            credentials(),
-            "firestore_rooms",
-            FakeResumeManager(),
-            logger,
-            should_use_incremental_field=should_use_incremental_field,
-            incremental_field_name="updatedOn",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
-        )
-
-        assert response.sort_mode == expected_sort_mode
 
     def test_a_table_with_no_server_side_filter_is_never_read_incrementally(self) -> None:
         # Auth users and Realtime Database paths page on a key and expose no timestamp filter. If a

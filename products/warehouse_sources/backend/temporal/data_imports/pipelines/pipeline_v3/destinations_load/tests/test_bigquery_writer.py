@@ -6,12 +6,16 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
+from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.tests.fake_bigquery import (
     FakeBigQueryClient,
@@ -23,6 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BigQueryDestinationWriter,
     UnrelatedTableExistsError,
     staging_table_name,
+)
+
+_IMPERSONATION_DENIED_BODY = (
+    '{"error": {"code": 403, "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource '
+    '(or it may not exist).", "status": "PERMISSION_DENIED"}}'
 )
 
 
@@ -189,6 +198,42 @@ class TestConfigValidation:
         with pytest.raises(BigQueryDestinationConfigurationError):
             BigQueryDestinationWriter(ctx)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            RefreshError("Unable to acquire impersonated credentials", _IMPERSONATION_DENIED_BODY),
+            # The same refusal raised inside a gRPC auth plugin, which reaches the caller as a 503.
+            ServiceUnavailable(
+                f"Getting metadata from plugin failed with error: "
+                f"('Unable to acquire impersonated credentials', '{_IMPERSONATION_DENIED_BODY}')"
+            ),
+        ],
+        ids=["rest", "grpc"],
+    )
+    async def test_a_service_account_posthog_cannot_impersonate_is_a_configuration_error(
+        self, denial: Exception
+    ) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(side_effect=denial)  # type: ignore[method-assign]
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Token Creator"):
+            await writer.prepare_run(_ctx())
+
+    @pytest.mark.asyncio
+    async def test_a_service_account_missing_an_iam_permission_is_a_configuration_error(self) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "Access Denied: Project proj: User does not have bigquery.datasets.create permission in project proj."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Data Editor"):
+            await writer.prepare_run(_ctx())
+
 
 @pytest.mark.asyncio
 class TestFullRefresh:
@@ -317,3 +362,32 @@ class TestIncremental:
                 "WHEN MATCHED THEN UPDATE SET T.`name` = S.`name` "
                 "WHEN NOT MATCHED THEN INSERT (`id`, `name`) VALUES (S.`id`, S.`name`)"
             )
+
+    async def test_a_column_sent_as_text_merges_into_its_int64_column(self) -> None:
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+        await _deliver(
+            writer,
+            ctx,
+            pa.RecordBatch.from_pydict({"id": [1, 2], "delivered_at": ["1700000500", None]}),
+            1,
+            is_final=True,
+        )
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["delivered_at"] == "INTEGER"
+        assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
+
+    async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
+        # A retry sends the same values, so a retryable error would fail until someone changes the table.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="delivered_at"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": ["soon"]}), 1)

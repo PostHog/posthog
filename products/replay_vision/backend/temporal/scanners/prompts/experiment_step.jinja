@@ -3,12 +3,12 @@
 The experiment under test:
 - Name: {{ experiment.name }}{% if experiment.description %}
 - Hypothesis: {{ experiment.description }}{% endif %}
-- Feature flag: {{ experiment.feature_flag_key }}
-- Variants:{% for variant in experiment.variants %}
-  - `{{ variant.key }}` ({{ variant.rollout_percentage }}% rollout){% if variant.description %}: {{ variant.description }}{% endif %}{% endfor %}{% if experiment.primary_metric_names %}
-- Primary metrics: {{ experiment.primary_metric_names | join(', ') }}{% endif %}{% endif %}{% if session_variant %}
+- Feature flag: {{ experiment.feature_flag_key }}{% set forms = experiment.variants | map(attribute='description') | select | list %}{% if forms %}
+- The changed surface can take these forms:{% for form in forms %}
+  - {{ form }}{% endfor %}{% endif %}{% if experiment.primary_metric_names %}
+- Primary metrics: {{ experiment.primary_metric_names | join(', ') }}{% endif %}{% endif %}
 
-This session's user was exposed to the `{{ session_variant }}` variant. Judge the session with that variant's experience in mind: describe how the user moves through the surface the experiment changes, and whether the variant's change helps, hinders, or goes unnoticed. Never guess at what another variant would have shown.{% endif %}{% if user_prompt %}
+You are not told which variant this user got. Describe the version of the changed surface that the recording shows and how the user moves through it, from what is on screen only. Never name or guess the user's variant or group (such as "control" or "test"), and never describe a feature the recording does not show. If the user never reaches the changed surface, say so.{% if user_prompt %}
 
 Additional context from the team operating the product being recorded:
 {{ user_prompt }}{% endif %}

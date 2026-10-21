@@ -15,13 +15,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -56,6 +61,9 @@ class AirwallexResumeConfig:
     # `page_after` token. Exactly one is set, matching the endpoint's pagination style.
     page_num: Optional[int] = None
     cursor: Optional[str] = None
+    # Framework fan-out snapshot ({"completed": [...], "current": ..., "child_state": ...}) for
+    # per-parent child lists such as subscription items.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _to_iso8601(value: Any) -> Optional[str]:
@@ -234,7 +242,7 @@ def _make_drop_map(drop_fields: tuple[str, ...]) -> Any:
 def _build_endpoint(config: AirwallexEndpointConfig, should_use_incremental_field: bool) -> Endpoint:
     endpoint: Endpoint = {
         "path": config.path,
-        "params": {"page_size": config.page_size},
+        "params": {config.page_size_param: config.page_size},
         "data_selector": "items",
         # A missing `items` key means the response shape changed; fail loud rather than syncing 0 rows.
         "data_selector_required": True,
@@ -258,6 +266,72 @@ def _build_endpoint(config: AirwallexEndpointConfig, should_use_incremental_fiel
     return endpoint
 
 
+def _client_config(client_id: str, api_key: str, base_url: str, api_version: str) -> ClientConfig:
+    return {
+        "base_url": base_url,
+        "headers": {
+            "Accept": "application/json",
+            # Pinning the version keeps response shapes stable when Airwallex ships a new one.
+            "x-api-version": api_version,
+        },
+        "auth": AirwallexAuth(client_id, api_key, base_url),
+    }
+
+
+def _fanout_resource(
+    config: AirwallexEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AirwallexResumeConfig],
+) -> Resource:
+    """Walk the parent list and fetch the child list for each parent row.
+
+    The parent list is re-fetched each run. A resumed run skips parents already done and resumes
+    the one in progress from its saved cursor.
+    """
+    assert config.fanout_parent is not None
+    parent_config = AIRWALLEX_ENDPOINTS[config.fanout_parent]
+
+    child_endpoint = _build_endpoint(config, should_use_incremental_field=False)
+    child_endpoint["params"] = {
+        **(child_endpoint.get("params") or {}),
+        "id": {"type": "resolve", "resource": parent_config.name, "field": "id"},
+    }
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": parent_config.name,
+                "endpoint": _build_endpoint(parent_config, should_use_incremental_field=False),
+            },
+            {"name": config.name, "endpoint": child_endpoint},
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(AirwallexResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if getattr(resource, "name", None) == config.name)
+
+
 def airwallex_source(
     client_id: str,
     api_key: str,
@@ -273,16 +347,14 @@ def airwallex_source(
     config = AIRWALLEX_ENDPOINTS[endpoint]
     base_url = base_url_for(environment)
 
+    client_config = _client_config(client_id, api_key, base_url, api_version)
+
+    if config.fanout_parent is not None:
+        fanout_resource = _fanout_resource(config, client_config, team_id, job_id, resumable_source_manager)
+        return _source_response(config, fanout_resource)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            "headers": {
-                "Accept": "application/json",
-                # Pinning the version keeps response shapes stable when Airwallex ships a new one.
-                "x-api-version": api_version,
-            },
-            "auth": AirwallexAuth(client_id, api_key, base_url),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -326,8 +398,12 @@ def airwallex_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(config, resource)
+
+
+def _source_response(config: AirwallexEndpointConfig, resource: Resource) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
+        name=config.name,
         items=lambda: resource,
         primary_keys=config.primary_keys,
         # Airwallex documents an order for only one of its list endpoints, and that one is
