@@ -1,6 +1,6 @@
 import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
-import { barColorAt, dimColor, mixColors } from './color-utils'
+import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
 import type {
     BarFillStyle,
@@ -1311,15 +1311,15 @@ export function drawHighlightPoint(
 export interface DrawBoxOptions {
     /** Series base color — used for the box outline, whisker, median, and mean stroke. */
     color: string
-    /** Box fill from the median to p75 — typically the series color at reduced alpha. */
+    /** Box fill — typically the series color at reduced alpha. */
     fillColor: string
-    /** Box fill from p25 to the median. Defaults to `fillColor`. */
-    lowerFillColor?: string
+    /** Whisker stem and cap color. Defaults to `color`. */
+    whiskerColor?: string
     /** Optional explicit median stroke color. Defaults to `color`. */
     medianColor?: string
     /** Optional mean marker fill. Defaults to `fillColor`. */
     meanFillColor?: string
-    /** Box corner radius in CSS pixels, clamped to half the box size. Defaults to 6. */
+    /** Box corner radius in CSS pixels, clamped to half the box size. Defaults to 3. */
     cornerRadius?: number
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
@@ -1339,7 +1339,7 @@ function transposeAxes(ctx: CanvasRenderingContext2D): void {
 }
 
 const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
-const DEFAULT_BOX_CORNER_RADIUS = 6
+const DEFAULT_BOX_CORNER_RADIUS = 3
 
 /** Paint a whole series of box-and-whiskers. Whisker stems, caps, and medians are each one
  *  shared path; boxes and mean markers stay per-box since each needs its own fill and stroke.
@@ -1351,7 +1351,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     const {
         color,
         fillColor,
-        lowerFillColor = fillColor,
+        whiskerColor = color,
         medianColor = color,
         meanFillColor = fillColor,
         meanRadius = 3,
@@ -1366,9 +1366,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         transposeAxes(ctx)
     }
     ctx.lineWidth = lineWidth
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = dimColor(color, 0.7)
+    ctx.strokeStyle = whiskerColor
     ctx.setLineDash([])
 
     // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
@@ -1404,38 +1402,28 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     }
     ctx.stroke()
 
-    // 3. Rounded boxes (p25 → p75), two-tone: each half is filled inside the rounded clip, split
-    //    at the median. Each box is its own path because of the clip. A horizontal box has p25 at
-    //    `top`, so the two shades swap.
-    const [topFill, bottomFill] = horizontal ? [lowerFillColor, fillColor] : [fillColor, lowerFillColor]
+    // 3. Rounded boxes (p25 → p75) — fill then outline. Each box is its own rounded path.
+    ctx.fillStyle = fillColor
     ctx.strokeStyle = color
     for (const box of boxes) {
         const boxHeight = Math.max(0, box.bottom - box.top)
         if (boxHeight <= 0 || box.width <= 0) {
             continue
         }
-        const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
         ctx.beginPath()
         traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
-        ctx.save()
-        ctx.clip()
-        ctx.fillStyle = topFill
-        ctx.fillRect(box.x, box.top, box.width, medianClamped - box.top)
-        ctx.fillStyle = bottomFill
-        ctx.fillRect(box.x, medianClamped, box.width, box.bottom - medianClamped)
-        ctx.restore()
+        ctx.fill()
         ctx.stroke()
     }
 
-    // 4. Median lines — thicker, inset so the round caps stay inside the box.
+    // 4. Median lines — thicker than the outline so the median stands out.
     ctx.strokeStyle = medianColor
-    ctx.lineWidth = lineWidth * 2
+    ctx.lineWidth = lineWidth * 3
     ctx.beginPath()
     for (const box of boxes) {
         const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
-        const inset = Math.min(lineWidth * 3, box.width / 4)
-        ctx.moveTo(box.x + inset, medianClamped)
-        ctx.lineTo(box.x + box.width - inset, medianClamped)
+        ctx.moveTo(box.x, medianClamped)
+        ctx.lineTo(box.x + box.width, medianClamped)
     }
     ctx.stroke()
     ctx.lineWidth = lineWidth
