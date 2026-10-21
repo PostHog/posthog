@@ -35,13 +35,15 @@ export function DuplicateEventsDetails({
             }),
         })
     return (
-        <div className="flex flex-col items-start gap-1.5">
-            <Text size="xs" variant="muted">
-                {text.found}
-            </Text>
-            <Text size="xs" variant="muted">
-                {text.causes}
-            </Text>
+        <div className="flex flex-col items-start gap-3">
+            <div className="flex flex-col gap-1.5">
+                <Text size="xs" variant="muted">
+                    {text.found}
+                </Text>
+                <Text size="xs" variant="muted">
+                    {text.causes}
+                </Text>
+            </div>
             <div className="flex flex-wrap gap-2">
                 {repeatedEventsUrl && (
                     <Button

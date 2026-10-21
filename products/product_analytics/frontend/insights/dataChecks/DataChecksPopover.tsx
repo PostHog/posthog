@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId } from 'react'
 
-import { Accordion, Button, Dot, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/quill'
+import { Accordion, Button, Popover, PopoverContent, PopoverTrigger, Skeleton, Spinner, Text } from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -86,11 +86,16 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                             {Object.entries(DATA_CHECK_NAMES).map(([key, name]) => (
                                 <li key={key} className="flex items-start gap-2 px-2 py-1">
                                     <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                                        <Dot variant="default" pulse />
+                                        <Spinner aria-hidden className="text-(--muted-foreground)" />
                                     </span>
-                                    <Text size={null} variant="muted" render={<span />}>
-                                        {name}
-                                    </Text>
+                                    <span className="flex flex-col">
+                                        <Text size={null} weight="medium" render={<span />}>
+                                            {name}
+                                        </Text>
+                                        <span className="flex h-4 items-center">
+                                            <Skeleton className="h-2.5 w-28" />
+                                        </span>
+                                    </span>
                                 </li>
                             ))}
                         </ul>

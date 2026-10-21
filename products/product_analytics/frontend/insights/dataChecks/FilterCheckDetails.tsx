@@ -52,12 +52,14 @@ export function FilterCheckDetails({
                 />
             </div>
             {missed && (
-                <div className="flex flex-col items-start gap-1.5">
+                <div className="flex flex-col items-start gap-3">
                     <NotCaughtByFilter
                         count={missed.count}
                         noun={missed.noun}
                         examples={missed.examples}
                         fallback={missed.fallback}
+                        predicate={missed.predicate}
+                        explanation={missed.explanation}
                     />
                     <div className="flex flex-wrap gap-2">
                         <ExcludeFromFilterButton

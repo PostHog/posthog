@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
-import { AccordionContent, AccordionItem, AccordionTrigger, Dot, Text } from '@posthog/quill'
+import { AccordionContent, AccordionItem, AccordionTrigger, Dot, Skeleton, Spinner, Text } from '@posthog/quill'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -48,6 +48,7 @@ export function InsightDataCheckRow({
     check: InsightDataCheckApi
 }): JSX.Element {
     const { filtersTestAccounts, status } = useValues(insightDataChecksLogic(insightProps))
+    const checking = status === 'checking'
     const text = dataCheckText(check, filtersTestAccounts)
     const dependsOnFilter = FILTER_CHECK_KEYS.includes(check.key)
     const foundRepeats = check.key === 'duplicate_events' && isFinding(check)
@@ -56,22 +57,23 @@ export function InsightDataCheckRow({
     const header = (
         <span className="flex items-start gap-2">
             <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                <LevelIcon check={check} />
+                {checking ? <Spinner aria-hidden className="text-(--muted-foreground)" /> : <LevelIcon check={check} />}
             </span>
             <span className="flex flex-col">
                 {/* No size of its own, so the name takes the text size that quill gives a popover. */}
                 <Text size={null} weight="medium" render={<span />}>
                     {text.name}
-                    <span className="sr-only">{`: ${LEVEL_LABELS[check.level]}`}</span>
+                    <span className="sr-only">{`: ${checking ? 'Checking' : LEVEL_LABELS[check.level]}`}</span>
                 </Text>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    className={status === 'checking' ? 'animate-pulse motion-reduce:animate-none' : undefined}
-                    render={<span />}
-                >
-                    {text.result}
-                </Text>
+                {checking ? (
+                    <span className="flex h-4 items-center">
+                        <Skeleton className="h-2.5 w-28" />
+                    </span>
+                ) : (
+                    <Text size="xs" variant="muted" render={<span />}>
+                        {text.result}
+                    </Text>
+                )}
             </span>
         </span>
     )

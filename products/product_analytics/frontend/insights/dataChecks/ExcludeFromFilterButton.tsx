@@ -10,6 +10,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
     Button,
+    Text,
 } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -91,6 +92,9 @@ export function ExcludeFromFilterButton({
                         <li key={value}>{value}</li>
                     ))}
                 </ul>
+                <Text size="xs" variant="muted">
+                    You can change the rule later in project settings.
+                </Text>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
                     <AlertDialogClose
