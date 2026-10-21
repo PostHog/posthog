@@ -84,6 +84,12 @@ mark-changed = "all"
 globs = ["../**"]
 mark-changed = []
 
+# An unmatched workspace-root file marks every crate, and the default rules
+# do not match AGENTS.md.
+[[path-rule]]
+globs = ["AGENTS.md"]
+mark-changed = []
+
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
 # image trigger is handled in custom code outside the determinator.

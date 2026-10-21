@@ -901,7 +901,7 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (22): `application_feedback`, `application_history`, `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `users`
+Today (26): `application_feedback`, `application_hiring_team_roles`, `application_history`, `applications`, `archive_reasons`, `candidate_notes`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stage_groups`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `survey_submissions`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
@@ -911,10 +911,10 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [x] `application.listHistory` — stage-transition history; without it you cannot compute time-in-stage or funnel conversion (high)
 - [x] `interviewStage.list` — lookup resolving the currentInterviewStage ID carried on every synced application (high)
 - [x] `interviewEvent.list` — actual scheduled interview occurrences with interviewers and times, distinct from the interview definitions we sync (high)
-- [ ] `interviewStageGroup.list` — lookup grouping stages into funnel phases for stage-level reporting (medium)
-- [ ] `applicationHiringTeamRole.list` — membership table linking users to applications by role (recruiter, hiring manager) (medium)
-- [ ] `surveySubmission.list` — candidate survey responses (including DEI surveys) tied to applications (medium)
-- [ ] `candidate.listNotes` — recruiter notes per candidate, commonly wanted alongside candidates (medium)
+- [x] `interviewStageGroup.list` — lookup grouping stages into funnel phases for stage-level reporting (medium)
+- [x] `applicationHiringTeamRole.list` — membership table linking users to applications by role (recruiter, hiring manager) (medium)
+- [x] `surveySubmission.list` — candidate survey responses (including DEI surveys) tied to applications (medium)
+- [x] `candidate.listNotes` — recruiter notes per candidate, commonly wanted alongside candidates (medium)
 - [ ] `closeReason.list` — lookup resolving why openings/jobs were closed; pairs with the archiveReasons we already sync (medium)
 - [ ] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
 - [ ] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
