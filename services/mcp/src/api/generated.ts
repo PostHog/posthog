@@ -70376,6 +70376,8 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineExperimentRead {
+      /** User who submitted the experiment, or null for service credentials. */
+      readonly created_by: UserBasic | null;
       /** Project tag names assigned to this experiment. */
       tags: string[];
       /** Stable experiment UUID. */
@@ -75113,6 +75115,8 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+      /** User who last updated the scorer or created a version. */
+      readonly updated_by: UserBasic | null;
       readonly team: number;
     }
 
@@ -122924,6 +122928,15 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number;
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean;
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -123122,6 +123135,15 @@ export namespace Schemas {
      * @maxLength 255
      */
     application_version?: string;
+    /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number;
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean;
     /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
@@ -130370,6 +130392,10 @@ export namespace Schemas {
      * Filter by archived state.
      */
     archived?: boolean;
+    /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number;
     /**
      * Filter by scorer kind.
      */
