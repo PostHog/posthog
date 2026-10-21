@@ -48,7 +48,17 @@ export const Draft: Story = {
             ),
             skipped('no_metric', 'Metrics', 'not_applicable', 'Runs after launch'),
         ],
-        notes: [],
+        notes: [
+            {
+                code: 'new_flag_no_traffic',
+                subcode: null,
+                severity: 'info',
+                title: 'The feature flag has no traffic yet',
+                detail: "PostHog hasn't recorded any calls to the linked feature flag yet. The experiment only counts users after your code evaluates the flag, so launch after the flag starts getting traffic. New calls can take up to an hour to show up here.",
+                evidence: {},
+                actions: [],
+            },
+        ],
         isDraft: true,
         exposureChecksMissing: false,
     },

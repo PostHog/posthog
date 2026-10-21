@@ -944,6 +944,11 @@ class EnterpriseExperimentsViewSet(
         flag version that are no local evaluation, from an hour after the window starts. When
         every condition that includes users pins the variant whose key one property holds,
         `assigned_by_property` replaces `all_conditions_pinned`.
+
+        A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
+        is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
+        check reports `not_checked` when the organization's flag calls skip the events table,
+        and when the project has no active flag, because the web SDK then requests no flags.
         """
         experiment: Experiment = self.get_object()
         health = get_experiment_health(
