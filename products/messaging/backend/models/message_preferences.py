@@ -1,6 +1,6 @@
 from typing import Optional
 
-from django.db import models
+from django.db import models, router
 from django.db.models import F, Value
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Coalesce
@@ -56,7 +56,7 @@ class MessageRecipientPreference(UUIDTModel):
             ),
             updated_at=timezone.now(),
         )
-        self.refresh_from_db(fields=["preferences", "updated_at"])
+        self.refresh_from_db(using=router.db_for_write(type(self)), fields=["preferences", "updated_at"])
 
     def get_preference(self, category_id: str) -> PreferenceStatus:
         """Get preference for a specific category"""
