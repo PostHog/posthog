@@ -107,7 +107,7 @@ def get_uv_version_from_flox() -> str | None:
 
 
 def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
-    """Find direct setup-uv usages in CI configuration and their version pins.
+    """Find direct setup-uv usages and UV_VERSION prefetch pins in CI configuration.
 
     Returns a dict mapping each repo-relative file to its direct setup-uv
     versions. Composite actions are globbed rather than named, so a second
@@ -124,8 +124,15 @@ def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
     uv_usages: dict[str, list[str | None]] = {}
 
     for ci_file in ci_files:
+        path = str(ci_file.relative_to(repo_root))
         lines = ci_file.read_text().splitlines()
         for i, line in enumerate(lines):
+            # Steps that put uv into the tool cache before setup-uv runs name the version in UV_VERSION.
+            # A stale copy makes setup-uv miss the cache and fetch uv itself, and nothing fails.
+            prefetch = re.fullmatch(r"\s+UV_VERSION:\s*(['\"]?)(\d+\.\d+\.\d+)\1\s*(?:#.*)?", line)
+            if prefetch:
+                uv_usages.setdefault(path, []).append(prefetch.group(2))
+                continue
             if "setup-uv@" not in line:
                 continue
             version: str | None = None
@@ -139,7 +146,6 @@ def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
                 if m:
                     version = m.group(2)
                     break
-            path = str(ci_file.relative_to(repo_root))
             uv_usages.setdefault(path, []).append(version)
 
     return uv_usages

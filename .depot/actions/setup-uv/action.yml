@@ -1,3 +1,5 @@
+# Depot mirror of .github/actions/setup-uv. Kept equal to canonical except for the
+# "Download uv into the tool cache" step, which keeps setup-uv off the network.
 name: Set up uv
 description: |
     Installs CI's exact uv version and optionally restores its cache.
@@ -32,10 +34,11 @@ outputs:
 runs:
     using: composite
     steps:
-        # Depot delta from .github/actions/setup-uv. setup-uv reads its version manifest from
-        # raw.githubusercontent.com and does not retry, so a network error there fails the job.
-        # With the pinned uv already in the runner tool cache, setup-uv makes no network request
-        # to install it. If this step fails, setup-uv installs uv itself.
+        # setup-uv reads its version manifest from raw.githubusercontent.com and does not retry,
+        # so a network error there fails the job. With the pinned uv already in the runner tool
+        # cache, setup-uv makes no network request to install it. If this step fails, setup-uv
+        # installs uv itself. bin/check_uv_python_compatibility.py checks that UV_VERSION matches
+        # every setup-uv `version` pin.
         - name: Download uv into the tool cache
           shell: bash
           continue-on-error: true
@@ -45,7 +48,7 @@ runs:
           run: |
               dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
               archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
-              curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+              curl -fsSL --retry 5 --retry-all-errors --retry-max-time 30 --connect-timeout 10 --max-time 30 -o "$archive" \
                   "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
               echo "$UV_SHA256  $archive" | sha256sum -c -
               mkdir -p "$dir"
