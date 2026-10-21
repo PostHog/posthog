@@ -60,6 +60,9 @@ export function MaterializeSuggestionRow({
                     label={readSummary(suggestion.evidence)}
                 />,
                 <DataAgeMeta key="age" age={dataAgeLabel(payload, payload.refresh_interval_seconds)} />,
+                ...(payload.refresh_mode === 'incremental'
+                    ? [<span key="mode">{`Incremental by ${payload.incremental_key ?? 'new rows'}`}</span>]
+                    : []),
             ]}
             highlight={savingHighlight(payload)}
             actions={

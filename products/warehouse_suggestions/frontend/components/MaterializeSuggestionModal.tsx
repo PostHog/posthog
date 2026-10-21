@@ -1,11 +1,22 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IncrementalConfigOptions } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 import { CADENCE_LABELS, SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
 import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
-import { dataAgeLabel, isMaterializePayload, savingSentence, todayAgeLabel } from '../suggestionCopy'
+import {
+    dataAgeLabel,
+    isMaterializePayload,
+    refreshModeLabel,
+    savingSentence,
+    shorterScheduleWarning,
+    suggestedScheduleHint,
+    todayAgeLabel,
+} from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DataAgeMeta } from './DataAgeMeta'
 
@@ -16,8 +27,13 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         materializeInterval,
         materializeIntervalShorterThanSuggested,
         actionsInFlight,
+        refreshDraft,
+        incrementalCheck,
+        incrementalCheckLoading,
     } = useValues(warehouseSuggestionsLogic)
-    const { acceptSuggestion, closeMaterializeModal, setMaterializeInterval } = useActions(warehouseSuggestionsLogic)
+    const { confirmMaterialize, closeMaterializeModal, setMaterializeInterval, setRefreshDraft } =
+        useActions(warehouseSuggestionsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const payload = materializeModalSuggestion?.payload
 
     if (!materializeModalSuggestion || !payload || !isMaterializePayload(payload)) {
@@ -27,6 +43,11 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
     const suggestedInterval = intervalForSeconds(payload.refresh_interval_seconds)
     const suggestedCadence = suggestedInterval ? CADENCE_LABELS[suggestedInterval] : null
     const pickedSeconds = materializeInterval ? INTERVAL_SECONDS[materializeInterval] : payload.refresh_interval_seconds
+    const shorterWarning =
+        materializeIntervalShorterThanSuggested && suggestedCadence
+            ? shorterScheduleWarning(payload.refresh_interval_basis, suggestedCadence)
+            : null
+    const incrementalAvailable = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
 
     return (
         <LemonModal
@@ -46,10 +67,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         type="primary"
                         loading={inFlight}
                         disabledReason={materializeInterval ? undefined : 'Pick how often it refreshes'}
-                        onClick={() =>
-                            materializeInterval &&
-                            acceptSuggestion(materializeModalSuggestion.id, INTERVAL_SECONDS[materializeInterval])
-                        }
+                        onClick={() => confirmMaterialize()}
                         data-attr="warehouse-suggestions-materialize-confirm"
                     >
                         Materialize
@@ -69,31 +87,44 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                     />
                     {suggestedCadence && (
                         <span className="text-xs text-secondary">
-                            {`Suggested: every ${suggestedCadence}, the shortest schedule that saves more than it costs.`}
+                            {suggestedScheduleHint(payload.refresh_interval_basis, suggestedCadence)}
                         </span>
                     )}
                 </div>
+                {incrementalAvailable && (
+                    <fieldset disabled={inFlight} className="flex flex-col">
+                        <h4 className="m-0 text-sm font-semibold">Refresh mode</h4>
+                        {incrementalCheckLoading ? (
+                            <LemonSkeleton className="mt-3 h-16 w-full" />
+                        ) : (
+                            <IncrementalConfigOptions
+                                check={incrementalCheck}
+                                draft={refreshDraft}
+                                onChange={setRefreshDraft}
+                            />
+                        )}
+                    </fieldset>
+                )}
                 <div className="grid grid-cols-1 gap-3 rounded border border-primary px-3 py-2.5">
                     <div className="flex flex-col gap-0.5">
-                        <span className="text-xs font-semibold text-secondary">With this schedule</span>
+                        <span className="text-xs font-semibold text-secondary">With these settings</span>
                         <span className="text-sm">
                             <DataAgeMeta age={dataAgeLabel(payload, pickedSeconds)} />
                         </span>
                         <span className="text-xs text-secondary">{todayAgeLabel(payload)}</span>
+                        <span className="text-xs text-secondary">
+                            {refreshModeLabel(refreshDraft.enabled, refreshDraft.incrementalKey)}
+                        </span>
                     </div>
                     <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-semibold text-secondary">
-                            Estimated at the suggested schedule
+                            Estimated at the suggested settings
                         </span>
                         <span className="text-sm">{savingSentence(payload)}</span>
                     </div>
                 </div>
-                {materializeIntervalShorterThanSuggested && suggestedCadence && (
-                    <LemonBanner type="warning">
-                        {`Refreshing more often than every ${suggestedCadence} can cost more than it saves.`}
-                    </LemonBanner>
-                )}
-                {materializeError && <LemonBanner type="error">{materializeError} Pick another schedule.</LemonBanner>}
+                {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}
+                {materializeError && <LemonBanner type="error">{materializeError}</LemonBanner>}
             </div>
         </LemonModal>
     )

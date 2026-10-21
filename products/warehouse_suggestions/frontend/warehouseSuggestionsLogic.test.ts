@@ -2,10 +2,17 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+
+import {
+    warehouseSavedQueriesCheckIncrementalCreate,
+    warehouseSavedQueriesRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
 
 import {
     warehouseSuggestionsAcceptCreate,
@@ -25,12 +32,20 @@ jest.mock('./generated/api', () => ({
     warehouseSuggestionsResumeCreate: jest.fn(),
     warehouseSuggestionsStatusRetrieve: jest.fn(),
 }))
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    warehouseSavedQueriesRetrieve: jest.fn(),
+    warehouseSavedQueriesCheckIncrementalCreate: jest.fn(),
+}))
 
 const mockList = warehouseSuggestionsList as jest.MockedFunction<typeof warehouseSuggestionsList>
 const mockStatus = warehouseSuggestionsStatusRetrieve as jest.MockedFunction<typeof warehouseSuggestionsStatusRetrieve>
 const mockAccept = warehouseSuggestionsAcceptCreate as jest.MockedFunction<typeof warehouseSuggestionsAcceptCreate>
 const mockDismiss = warehouseSuggestionsDismissCreate as jest.MockedFunction<typeof warehouseSuggestionsDismissCreate>
 const mockResume = warehouseSuggestionsResumeCreate as jest.MockedFunction<typeof warehouseSuggestionsResumeCreate>
+const mockSavedQuery = warehouseSavedQueriesRetrieve as jest.MockedFunction<typeof warehouseSavedQueriesRetrieve>
+const mockCheck = warehouseSavedQueriesCheckIncrementalCreate as jest.MockedFunction<
+    typeof warehouseSavedQueriesCheckIncrementalCreate
+>
 
 const ACTIVE_STATUS: WarehouseSuggestionStatusApi = {
     enabled: true,
@@ -55,6 +70,8 @@ const MATERIALIZE: WarehouseSuggestionApi = {
         freshness_after_seconds: 86400,
         live_sources: { names: [], hidden_count: 0 },
         unknown_sources: { names: [], hidden_count: 0 },
+        refresh_mode: 'full',
+        refresh_interval_basis: 'savings',
     },
     payload_version: 1,
     evidence: { human_requests: 200, human_users: 6, human_days: 25 },
@@ -79,6 +96,18 @@ function materialize(id: string, savesSeconds: number, savesBytes = 0): Warehous
         subject_id: `view-${id}`,
         payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
     }
+}
+
+const INCREMENTAL: WarehouseSuggestionApi = {
+    ...MATERIALIZE,
+    id: 'suggestion-incremental',
+    payload: {
+        ...MATERIALIZE.payload,
+        refresh_mode: 'incremental',
+        incremental_key: 'day',
+        unique_key: ['day', 'plan'],
+        lookback_seconds: 3600,
+    },
 }
 
 function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSuggestionApi {
@@ -159,8 +188,8 @@ describe('warehouseSuggestionsLogic', () => {
         mockAccept.mockReturnValue(new Promise((resolve) => (finish = resolve)))
         await mountLogic()
 
-        logic.actions.acceptSuggestion(MATERIALIZE.id, 86400)
-        logic.actions.acceptSuggestion(MATERIALIZE.id, 86400)
+        logic.actions.acceptSuggestion(MATERIALIZE.id, { refresh_interval_seconds: 86400 })
+        logic.actions.acceptSuggestion(MATERIALIZE.id, { refresh_interval_seconds: 86400 })
         finish({ ...MATERIALIZE, status: 'accepted' })
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
@@ -178,21 +207,92 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual([MATERIALIZE.id])
     })
 
-    it('keeps the materialize modal open with the error when the schedule is refused', async () => {
-        mockAccept.mockRejectedValue(
-            new ApiError('refused', 400, undefined, {
-                detail: 'A source refreshes daily.',
-                attr: 'refresh_interval_seconds',
-            })
-        )
+    it.each(['refresh_interval_seconds', 'refresh_mode', 'incremental_key', 'unique_key', 'lookback_seconds'])(
+        'keeps the materialize dialog open with the error when the backend refuses %s',
+        async (attr) => {
+            mockAccept.mockRejectedValue(new ApiError('refused', 400, undefined, { detail: 'Not allowed.', attr }))
+            await mountLogic()
+            logic.actions.openMaterializeModal(MATERIALIZE.id)
+
+            logic.actions.confirmMaterialize()
+
+            await expectLogic(logic).toDispatchActions(['setMaterializeError'])
+            expect(logic.values.materializeError).toEqual('Not allowed.')
+            expect(logic.values.materializeModalSuggestion?.id).toEqual(MATERIALIZE.id)
+        }
+    )
+
+    it.each<[string, Parameters<typeof logic.actions.setRefreshDraft>[0], Record<string, unknown>]>([
+        ['keeps every proposed setting', {}, { refresh_interval_seconds: 86400 }],
+        [
+            'switches to a full refresh without sending keys the backend would refuse',
+            { enabled: false },
+            { refresh_interval_seconds: 86400, refresh_mode: 'full' },
+        ],
+        [
+            'sends only the incremental key that changed',
+            { incrementalKey: 'created_at' },
+            { refresh_interval_seconds: 86400, incremental_key: 'created_at' },
+        ],
+        [
+            'sends a new unique key and lookback',
+            { uniqueKey: ['day'], lookbackSeconds: 0 },
+            { refresh_interval_seconds: 86400, unique_key: ['day'], lookback_seconds: 0 },
+        ],
+    ])('materializing an incremental proposal %s', async (_name, change, expectedBody) => {
+        mockList.mockResolvedValue(page([INCREMENTAL]))
+        mockAccept.mockResolvedValue({ ...INCREMENTAL, status: 'accepted' })
+        await mountLogic()
+        logic.actions.openMaterializeModal(INCREMENTAL.id)
+        logic.actions.setRefreshDraft(change)
+
+        logic.actions.confirmMaterialize()
+
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody)
+    })
+
+    it('switching a full proposal to incremental sends the mode and the keys', async () => {
+        mockAccept.mockResolvedValue({ ...MATERIALIZE, status: 'accepted' })
         await mountLogic()
         logic.actions.openMaterializeModal(MATERIALIZE.id)
+        logic.actions.setRefreshDraft({ enabled: true, incrementalKey: 'day', uniqueKey: ['day'] })
 
-        logic.actions.acceptSuggestion(MATERIALIZE.id, 3600)
+        logic.actions.confirmMaterialize()
 
-        await expectLogic(logic).toDispatchActions(['setMaterializeError'])
-        expect(logic.values.materializeError).toEqual('A source refreshes daily.')
-        expect(logic.values.materializeModalSuggestion?.id).toEqual(MATERIALIZE.id)
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id, {
+            refresh_interval_seconds: 86400,
+            refresh_mode: 'incremental',
+            incremental_key: 'day',
+            unique_key: ['day'],
+            lookback_seconds: 0,
+        })
+    })
+
+    it.each([true, false])('checks the view for incremental refresh only when the flag is %s', async (flagOn) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] : [], {
+            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flagOn,
+        })
+        mockSavedQuery.mockResolvedValue({
+            query: { query: 'SELECT day, plan, count() FROM events GROUP BY day, plan' },
+        } as Awaited<ReturnType<typeof warehouseSavedQueriesRetrieve>>)
+        mockCheck.mockResolvedValue({
+            eligible: true,
+            key_candidates: ['day'],
+            unique_key_candidates: ['day', 'plan'],
+            key_candidate_types: { day: 'date' },
+            blockers: [],
+            warnings: [],
+        })
+        await mountLogic()
+
+        logic.actions.openMaterializeModal(MATERIALIZE.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockCheck).toHaveBeenCalledTimes(flagOn ? 1 : 0)
+        expect(logic.values.incrementalCheck?.key_candidates ?? null).toEqual(flagOn ? ['day'] : null)
     })
 
     it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([
@@ -230,7 +330,7 @@ describe('warehouseSuggestionsLogic', () => {
             mockAccept.mockResolvedValue({ ...materialize('a', 1800), status: 'accepted' })
             await mountLogic()
 
-            logic.actions.acceptSuggestion('a', 86400)
+            logic.actions.acceptSuggestion('a', { refresh_interval_seconds: 86400 })
             await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
             expect(logic.values.savingsSummary.savedSeconds).toEqual(1200)
@@ -250,7 +350,7 @@ describe('warehouseSuggestionsLogic', () => {
             mockAccept.mockResolvedValue({ ...MATERIALIZE, status: 'accepted' })
             await mountLogic()
 
-            logic.actions.acceptSuggestion(MATERIALIZE.id, 86400)
+            logic.actions.acceptSuggestion(MATERIALIZE.id, { refresh_interval_seconds: 86400 })
             await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
             expect(logic.values.stripState).toEqual('all_done')
 

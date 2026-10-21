@@ -1,5 +1,5 @@
 import type { WarehouseSuggestionMaterializePayloadApi } from './generated/api.schemas'
-import { UNKNOWN_SOURCES_CAVEAT, dataAgeLabel, todayAgeLabel } from './suggestionCopy'
+import { UNKNOWN_SOURCES_CAVEAT, dataAgeLabel, suggestedScheduleHint, todayAgeLabel } from './suggestionCopy'
 
 const DAY = 24 * 60 * 60
 const HOUR = 60 * 60
@@ -17,6 +17,8 @@ function payload(
         freshness_after_seconds: DAY + (freshnessTodaySeconds ?? 0),
         live_sources: { names: [], hidden_count: 0 },
         unknown_sources: unknownSources,
+        refresh_mode: 'full',
+        refresh_interval_basis: 'savings',
     }
 }
 
@@ -34,5 +36,15 @@ describe('suggestionCopy', () => {
     ])('states the data age honestly when %s', (_name, input, label, caveat, today) => {
         expect(dataAgeLabel(input, DAY)).toEqual({ label, caveat })
         expect(todayAgeLabel(input)).toEqual(today)
+    })
+
+    it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([
+        ['source_sync', "sources don't sync more often"],
+        ['read_rate', "People don't read it more often"],
+        ['fastest_schedule', 'the most often PostHog refreshes a view'],
+        ['savings', 'saves more than it costs'],
+        [null, 'saves more than it costs'],
+    ])('explains a %s interval with its own reason', (basis, reason) => {
+        expect(suggestedScheduleHint(basis, '1 day')).toContain(reason)
     })
 })

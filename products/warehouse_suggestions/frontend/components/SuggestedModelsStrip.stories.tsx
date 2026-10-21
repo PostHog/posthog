@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { DataModelingSyncInterval } from '~/types'
 
@@ -10,6 +12,8 @@ import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { SuggestedModelsStrip } from './SuggestedModelsStrip'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
+const SAVED_QUERY_URL = '/api/projects/:team_id/warehouse_saved_queries/:id/'
+const CHECK_INCREMENTAL_URL = '/api/projects/:team_id/warehouse_saved_queries/check_incremental/'
 const STATUS_URL = '/api/projects/:team_id/warehouse_suggestions/status/'
 
 const status: WarehouseSuggestionStatusApi = {
@@ -24,13 +28,14 @@ const status: WarehouseSuggestionStatusApi = {
 interface MaterializeOptions {
     canAct?: boolean
     unknownSources?: boolean
+    incremental?: boolean
 }
 
 function materialize(
     id: string,
     name: string,
     savedSeconds: number,
-    { canAct = true, unknownSources = false }: MaterializeOptions = {}
+    { canAct = true, unknownSources = false, incremental = false }: MaterializeOptions = {}
 ): WarehouseSuggestionApi {
     return {
         id,
@@ -46,6 +51,15 @@ function materialize(
             freshness_after_seconds: 90000,
             live_sources: { names: ['events'], hidden_count: 0 },
             unknown_sources: { names: [], hidden_count: unknownSources ? 1 : 0 },
+            refresh_interval_basis: 'source_sync',
+            ...(incremental
+                ? {
+                      refresh_mode: 'incremental',
+                      incremental_key: 'day',
+                      unique_key: ['day', 'plan'],
+                      lookback_seconds: 3600,
+                  }
+                : { refresh_mode: 'full' }),
         },
         payload_version: 1,
         evidence: {
@@ -100,6 +114,20 @@ function StripStory({
         get: {
             [LIST_URL]: () => (failing ? [500, { detail: 'Server error' }] : { count: results.length, results }),
             [STATUS_URL]: { ...status, ...statusOverrides },
+            [SAVED_QUERY_URL]: {
+                id: 'view-1',
+                query: { kind: 'HogQLQuery', query: 'SELECT day, plan, count() FROM events GROUP BY day, plan' },
+            },
+        },
+        post: {
+            [CHECK_INCREMENTAL_URL]: {
+                eligible: true,
+                key_candidates: ['day'],
+                unique_key_candidates: ['day', 'plan'],
+                key_candidate_types: { day: 'date', plan: 'string' },
+                blockers: [],
+                warnings: [],
+            },
         },
     })
     const logic = warehouseSuggestionsLogic({ surface: 'models' })
@@ -157,4 +185,12 @@ export const MaterializeDialogLongerScheduleUnknownSources: Story = {
         results: [materialize('3', 'stripe_invoices_enriched', 1080, { unknownSources: true })],
         openDialogWithInterval: '7day',
     },
+}
+
+export const MaterializeDialogIncrementalProposal: Story = {
+    args: {
+        results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
+        openDialogWithInterval: '24hour',
+    },
+    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] },
 }

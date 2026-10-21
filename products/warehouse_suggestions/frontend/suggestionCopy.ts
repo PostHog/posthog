@@ -2,6 +2,7 @@ import { humanizeBytes } from 'lib/utils/numbers'
 
 import type {
     WarehouseSuggestionApi,
+    WarehouseSuggestionRefreshIntervalBasisEnumApi,
     WarehouseSuggestionDeprecatePayloadApi,
     WarehouseSuggestionEvidenceApi,
     WarehouseSuggestionMaterializePayloadApi,
@@ -67,6 +68,45 @@ export function isDeprecatePayload(
 
 export function savesTime(payload: WarehouseSuggestionMaterializePayloadApi): boolean {
     return payload.saves_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
+}
+
+export function suggestedScheduleHint(
+    basis: WarehouseSuggestionRefreshIntervalBasisEnumApi | null,
+    cadence: string
+): string {
+    switch (basis) {
+        case 'source_sync':
+            return `Suggested: every ${cadence}. Its sources don't sync more often than that.`
+        case 'read_rate':
+            return `Suggested: every ${cadence}. People don't read it more often than that.`
+        case 'fastest_schedule':
+            return `Suggested: every ${cadence}, the most often PostHog refreshes a view.`
+        default:
+            return `Suggested: every ${cadence}, the shortest schedule that saves more than it costs.`
+    }
+}
+
+export function shorterScheduleWarning(
+    basis: WarehouseSuggestionRefreshIntervalBasisEnumApi | null,
+    cadence: string
+): string | null {
+    switch (basis) {
+        case 'source_sync':
+            return `Its sources sync every ${cadence} at most, so refreshing more often reads the same data again.`
+        case 'read_rate':
+            return `People don't read it more often than every ${cadence}, so extra refreshes mostly go unread.`
+        case 'fastest_schedule':
+            return null
+        default:
+            return `Refreshing more often than every ${cadence} can cost more than it saves.`
+    }
+}
+
+export function refreshModeLabel(incremental: boolean, incrementalKey: string | null): string {
+    if (!incremental) {
+        return 'Each refresh rebuilds the whole table'
+    }
+    return incrementalKey ? `Each refresh reads only new rows by ${incrementalKey}` : 'Each refresh reads only new rows'
 }
 
 export function savingHighlight(payload: WarehouseSuggestionMaterializePayloadApi): SavingHighlight {
