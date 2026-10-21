@@ -69,6 +69,36 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "AccountUsersQuery": {
+            "additionalProperties": false,
+            "description": "The persons who use an account. Only valid as an `ActorsQuery` source.",
+            "properties": {
+                "accountId": {
+                    "description": "ID of the account whose users to list.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "AccountUsersQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["accountId", "kind"],
+            "type": "object"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1274,6 +1304,9 @@
                         },
                         {
                             "$ref": "#/definitions/PathsV2ActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AccountUsersQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -39695,6 +39728,7 @@
                 "UsageMetricsQuery",
                 "AccountsQuery",
                 "AccountsTableQuery",
+                "AccountUsersQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
                 "EndpointsUsageTrendsQuery",

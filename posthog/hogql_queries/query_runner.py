@@ -1651,6 +1651,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "AccountUsersQuery":
+        from products.customer_analytics.backend.facade.queries import AccountUsersQueryRunner
+
+        return AccountUsersQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "AccountsTableQuery":
         from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
 
