@@ -140,6 +140,8 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     AlertEventKind.FIRING.value: LEGACY_INSIGHT_ALERT_EVENT,
     AlertEventKind.ERRORED.value: INSIGHT_ALERT_ERRORED_EVENT_ID,
 }
+# Every event an insight alert's destinations can listen on, for a question about all of them.
+DELIVERY_EVENT_IDS: Final = tuple(_EVENT_IDS_BY_KIND.values())
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
