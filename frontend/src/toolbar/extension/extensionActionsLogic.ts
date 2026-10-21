@@ -161,7 +161,12 @@ export const extensionActionsLogic = kea<extensionActionsLogicType>([
         // The page takes a moment to report that it started saving, so the button waits from the click.
         saveRequested: [
             false,
-            { submitActionForm: () => true, setSaveRequested: (_, { saveRequested }) => saveRequested },
+            {
+                submitActionForm: () => true,
+                // kea-forms fails the submit without calling submit when validation fails.
+                submitActionFormFailure: () => false,
+                setSaveRequested: (_, { saveRequested }) => saveRequested,
+            },
         ],
     }),
     selectors({
