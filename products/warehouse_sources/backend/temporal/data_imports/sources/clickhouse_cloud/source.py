@@ -55,7 +55,7 @@ class ClickhouseCloudSource(ResumableSource[ClickhouseCloudSourceConfig, Clickho
             name=ExternalDataSourceType.CLICKHOUSECLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ClickHouse Cloud (ClickHouse, Inc.)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ClickHouse Cloud API key to pull your organization's usage costs, service inventory, and audit log into the PostHog Data warehouse.
 
 This source reads your ClickHouse Cloud account, not the data in it. To sync tables out of a ClickHouse Cloud service, use the **ClickHouse** source instead.

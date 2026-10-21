@@ -77,15 +77,14 @@ class TestOwnedWorkflowHealth(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("ideas wait on the empty page", None, True, "ready", 3),
-            ("a workflow replaces the empty page", HogFlow.State.DRAFT, True, "ready", 0),
-            ("only archived workflows keep the empty page", HogFlow.State.ARCHIVED, True, "ready", 3),
-            ("flag off", None, False, "ready", 0),
-            ("still generating", None, True, "generating", 0),
+            ("ideas wait on the empty page", None, "ready", 3),
+            ("a workflow replaces the empty page", HogFlow.State.DRAFT, "ready", 0),
+            ("only archived workflows keep the empty page", HogFlow.State.ARCHIVED, "ready", 3),
+            ("still generating", None, "generating", 0),
         ]
     )
     def test_counts_ideas_only_where_the_empty_page_shows_them(
-        self, _name: str, existing: str | None, flag_on: bool, status: DataSuggestionsStatus, expected: int
+        self, _name: str, existing: str | None, status: DataSuggestionsStatus, expected: int
     ) -> None:
         if existing:
             self._flow("Existing", status=existing)
@@ -101,8 +100,5 @@ class TestOwnedWorkflowHealth(ClickhouseTestMixin, BaseTest):
         )
         suggestions = DataSuggestionsResult(status=status, suggestions=(idea,) * 3 if status == "ready" else ())
 
-        with (
-            patch("posthoganalytics.feature_enabled", return_value=flag_on),
-            patch(f"{SERVICE}.get_data_suggestions", return_value=suggestions),
-        ):
-            assert count_waiting_data_suggestions(team=self.team, user=self.user) == expected
+        with patch(f"{SERVICE}.get_data_suggestions", return_value=suggestions):
+            assert count_waiting_data_suggestions(team=self.team) == expected

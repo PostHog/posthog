@@ -11,13 +11,14 @@ from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import Organization, OrganizationMembership, User
 
 from .decisions import PROTECTED_DOMAIN
+from .rules import EmailPattern
 from .subjects import DOT_INSENSITIVE_DOMAINS
 
-# An email root or domain count has no index to use, so an uncapped count would scan
+# An email root, domain or pattern count has no index to use, so an uncapped count would scan
 # every row of posthog_user while the admin waits.
 COUNT_CAP = 500
 
-CountableType = Literal["email", "email_root", "email_domain"]
+CountableType = Literal["email", "email_root", "email_domain", "email_pattern"]
 
 
 @frozen
@@ -93,6 +94,10 @@ def _email_root_regex(root: str) -> str:
     return rf"^{re.escape(local)}{suffix}@{re.escape(domain)}$"
 
 
+def _email_pattern_regex(pattern: EmailPattern) -> str:
+    return "^" + ".*".join(re.escape(segment) for segment in pattern.segments) + "$"
+
+
 def count_active_accounts(target_type: CountableType, value: str) -> CappedCount:
     if target_type == "email":
         # Matches resolve_subject's fold (LOWER via EmailLookupHandler), not `iexact` (UPPER):
@@ -103,6 +108,12 @@ def count_active_accounts(target_type: CountableType, value: str) -> CappedCount
             condition = Q(email__iregex=_email_root_regex(value))
         case "email_domain":
             condition = Q(email__iendswith=f"@{value}") | Q(email__iendswith=f".{value}")
+        case "email_pattern":
+            pattern = EmailPattern.parse(value.strip().lower())
+            # A pattern the snapshot would refuse matches nobody at decision time, so it counts nobody.
+            if pattern is None:
+                return CappedCount(count=0, capped=False)
+            condition = Q(email__iregex=_email_pattern_regex(pattern))
     return _capped(User.objects.filter(condition, is_active=True))
 
 

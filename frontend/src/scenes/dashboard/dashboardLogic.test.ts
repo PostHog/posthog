@@ -19,7 +19,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -1056,6 +1056,28 @@ describe('dashboardLogic', () => {
                 expect(JSON.stringify(refreshes)).not.toContain('private_value')
             } finally {
                 refresh.mockRestore()
+            }
+        })
+
+        it('refreshes a large builtin dashboard on a variable change, since it has no Preview button', async () => {
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: dashboards[5], placement: DashboardPlacement.Builtin })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setMetricVariables([{ name: 'env', source: 'custom', current: { values: ['a'] } }])
+                }).toDispatchActions([
+                    logic.actionCreators.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                        previewUnsavedFilters: true,
+                    }),
+                ])
+            } finally {
+                autoPreviewLimit.restore()
             }
         })
 
@@ -4755,10 +4777,6 @@ describe('dashboardLogic', () => {
         }
 
         beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
-                [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
-            })
             fetchRunWidgetsMock = jest.spyOn(widgetFetchUtils, 'fetchRunWidgets').mockResolvedValue([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4844,21 +4862,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
-        })
-
-        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
-            logic = dashboardLogic({
-                id: 5,
-                placement: DashboardPlacement.Public,
-                dashboard: {
-                    ...dashboards[5],
-                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {

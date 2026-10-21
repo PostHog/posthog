@@ -256,6 +256,11 @@ export interface ExecToolOptions {
      * is the case where an agent has no way to reach a built-in skill at all.
      */
     builtInSkillHint?: BuiltInSkillHint
+    /**
+     * The tools a scout run with a picked tool list holds. A catalog tool outside this set is
+     * refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     */
+    heldTools?: ReadonlySet<string>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -567,6 +572,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
             : base
     },
+    'llma-tagger-create': () =>
+        'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. Each option is { key, label }: the key is lowercase snake_case or kebab-case (for example "billing-issue"), and the label keeps the tag name. For an LLM tagger, set evaluation_type="llm_judge" with model_configuration (provider and model), and put the tagger prompt plus any tag descriptions in evaluation_config.prompt. For a Hog tagger, set evaluation_type="hog" with Hog source in evaluation_config.source that returns option keys. Run "info llma-evaluation-create" for the full schema.',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -1668,7 +1675,8 @@ function findTool(
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
     name: string,
-    context: Context | undefined
+    context: Context | undefined,
+    heldTools: ReadonlySet<string> | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1685,6 +1693,12 @@ function findTool(
             throw new ExecCommandError(
                 `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
+            )
+        }
+        if (heldTools && !heldTools.has(name) && getToolDefinitions()[name] !== undefined) {
+            throw new ExecCommandError(
+                `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
+                'tool_not_granted'
             )
         }
         throw new ExecCommandError(
@@ -1886,7 +1900,14 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        infoArgs,
+                        context,
+                        options.heldTools
+                    )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1936,7 +1957,8 @@ export function createExecTool(
                         scopeGatedTools,
                         flagGatedTools,
                         schemaToolName,
-                        context
+                        context,
+                        options.heldTools
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -1994,7 +2016,14 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        toolName,
+                        context,
+                        options.heldTools
+                    )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -2104,7 +2133,7 @@ export function createExecTool(
                     }
                     const durationMs = Date.now() - startedAt
                     // The text path below builds no payload, so emptiness is reported from here.
-                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
+                    const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]

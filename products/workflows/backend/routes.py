@@ -13,7 +13,9 @@ from products.workflows.backend.presentation.views import (
     workflow_classifications,
     workflow_data_suggestions,
     workflow_scout_runs,
+    workflow_sending_rules,
     workflow_setup,
+    workflow_static_cohort_members,
     workflow_tasks,
     workflow_vision_requests,
 )
@@ -37,6 +39,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_data_suggestions",
         workflow_data_suggestions.WorkflowDataSuggestionsViewSet,
         "project_workflow_data_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_sending_rules",
+        workflow_sending_rules.WorkflowSendingRulesViewSet,
+        "project_workflow_sending_rules",
         ["team_id"],
     )
     routers.projects.register(
@@ -70,6 +78,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_vision_requests",
         workflow_vision_requests.WorkflowVisionRequestViewSet,
         "project_workflow_vision_requests",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_static_cohort_members",
+        workflow_static_cohort_members.WorkflowStaticCohortMemberViewSet,
+        "project_workflow_static_cohort_members",
         ["team_id"],
     )
     routers.projects.register(

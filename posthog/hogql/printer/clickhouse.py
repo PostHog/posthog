@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
@@ -48,6 +49,7 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
@@ -683,13 +685,13 @@ class ClickHousePrinter(BasePrinter):
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
         """
-        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        Wraps a StringJSONDatabaseField in JSONDropKeysPool() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
 
         `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
         document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
-        `$feature_flags` map, where JSONDropKeys cannot reach a restricted `$feature/<key>`, so the map is dropped and
-        merged back without the restricted flags.
+        `$feature_flags` map, where JSONDropKeysPool cannot reach a restricted `$feature/<key>`, so the map is dropped
+        and merged back without the restricted flags.
         """
         if not self.context.restricted_properties:
             return field_sql
@@ -701,7 +703,7 @@ class ClickHousePrinter(BasePrinter):
         # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
         # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
         # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
-        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # would incorrectly skip JSONDropKeysPool wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
@@ -733,13 +735,19 @@ class ClickHousePrinter(BasePrinter):
             }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not is_events_json_document:
-            # A String JSON column holds '' when its producer omits the value.
-            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
-            # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+        if is_events_json_document:
             # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
-            stripped = f"if(empty({field_sql}), '', {stripped})"
+            # The UDF reads RowBinary, which encodes a JSON column differently from a String. Without toString the
+            # worker misreads the row and waits for more input until ClickHouse times out the pipe.
+            stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(toString({field_sql}), {keys_placeholder})"
+        else:
+            # A String JSON column holds '' when its producer omits the value, and the UDF fails to parse ''.
+            # ClickHouse can evaluate both branches of `if`, so the UDF gets '{}' in place of '' and the outer
+            # `if` discards that result.
+            guarded_sql = f"if(empty({field_sql}), '{{}}', {field_sql})"
+            stripped = (
+                f"if(empty({field_sql}), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}({guarded_sql}, {keys_placeholder}))"
+            )
         if not mask_stored_feature_flags:
             return stripped
 
@@ -1261,7 +1269,9 @@ class ClickHousePrinter(BasePrinter):
             type=ast.BooleanType(),
         )
 
-    def _print_select_columns(self, columns):
+    def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
+        columns = list(columns)
+
         def _alias_from_column_type(column: ast.Expr) -> str | None:
             column_type = getattr(column, "type", None)
             if isinstance(column_type, ast.FieldAliasType):
@@ -1279,7 +1289,7 @@ class ClickHousePrinter(BasePrinter):
                 if not found_aliases.get(alias.alias, None) or not alias.hidden:
                     found_aliases[alias.alias] = alias
 
-        columns_sql = []
+        prepared_columns: list[tuple[ast.Expr, str | None]] = []
         used_aliases: set[str] = set()
         for column in columns:
             printed_alias: str | None = None
@@ -1314,11 +1324,32 @@ class ClickHousePrinter(BasePrinter):
                     printed_alias = column_alias
                 else:
                     printed_alias = None
-            columns_sql.append(self.visit(column))
+            prepared_columns.append((column, printed_alias))
             if printed_alias is not None:
                 used_aliases.add(printed_alias)
 
-        return columns_sql
+        return prepared_columns
+
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        return [self.visit(column) for column, _ in self._prepare_select_columns(columns)]
+
+    def select_column_names(self, query: ast.SelectQuery) -> list[str]:
+        # ClickHouse names an unaliased expression after the SQL it receives, with bound values inlined.
+        names: list[str] = []
+        for column, _ in self._prepare_select_columns(query.select):
+            if isinstance(column, ast.Alias) and not column.hidden:
+                names.append(column.alias)
+                continue
+
+            rendered = (
+                f"({', '.join(self.visit(expression) for expression in column.exprs)})"
+                if isinstance(column, ast.Tuple)
+                else self.visit(column)
+            )
+            if re.search(r"%\([^)]*_sensitive\)s", rendered):
+                raise QueryError("An expression that reads sensitive source data needs an explicit alias")
+            names.append(substitute_params(rendered, self.context.values))
+        return names
 
     def _get_extra_select_clauses(
         self,

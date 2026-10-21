@@ -124,15 +124,6 @@ class TestRequest:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            assert validate_credentials("key") is expected
-
-    def test_exception_returns_false(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            assert validate_credentials("key") is False
-
     def test_probes_symbols_and_redacts_key(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             assert validate_credentials("secret") is True

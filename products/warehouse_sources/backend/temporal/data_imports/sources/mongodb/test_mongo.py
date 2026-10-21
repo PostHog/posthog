@@ -435,6 +435,15 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
                 "PyMongo requires at least 8 (MongoDB 4.2).",
             ),
+            # Real pymongo OperationFailure string for an Atlas Data Federation / Online Archive
+            # data source whose cluster was renamed or deleted (code 125, CommandFailed).
+            (
+                "cluster_not_found_in_project",
+                'cluster "myCluster0" not found in project 000000000000000000000000, correlationID = '
+                "000000000000000000000000, full error: {'ok': 0, 'errmsg': 'cluster \"myCluster0\" not "
+                "found in project 000000000000000000000000, correlationID = 000000000000000000000000', "
+                "'code': 125, 'codeName': 'CommandFailed'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -493,6 +502,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("server_too_old", "version of PyMongo requires at least", "upgrade the cluster"),
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
+            ("cluster_not_found_in_project", "not found in project", "data federation"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -1125,6 +1135,7 @@ class TestMongoSourceResume(SimpleTestCase):
 
         assert len(rows) == 1
         assert response.supports_resume is False
+        assert response.sort_mode is None
         assert "$or" not in collection.find_queries[0]
         assert (manager.load_calls, manager.staged, manager.clear_calls) == (0, [], 0)
 

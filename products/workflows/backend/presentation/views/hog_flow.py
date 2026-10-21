@@ -16,6 +16,7 @@ from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
+from django.utils import timezone as django_timezone
 
 import requests
 import structlog
@@ -54,6 +55,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -82,6 +88,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -121,6 +128,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSerializer,
     require_viewer_access_to_added_actions,
 )
+from products.cohorts.backend.facade.api import get_cohort_ref
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -222,6 +230,7 @@ from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
     PROPOSAL_MERGE_BY_ID_FIELDS,
+    absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
     count_proposals,
@@ -264,6 +273,7 @@ from products.workflows.backend.facade.secrets import (
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_sample,
     suggestions_scout_refusal,
     suggestions_scout_status,
     sync_suggestions_scout,
@@ -271,8 +281,10 @@ from products.workflows.backend.facade.suggestions_scout import (
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
+    duration_cap_error,
     duration_error,
     duration_minutes,
+    exceeds_unit_cap,
     find_behavioral_cohort_name,
     find_clock_function,
     find_realtime_behavioral_cohort,
@@ -282,6 +294,7 @@ from products.workflows.backend.facade.validation import (
     realtime_cohort_cant_finish_error,
 )
 from products.workflows.backend.facade.workflows import (
+    ADD_TO_STATIC_COHORT_TEMPLATE_ID,
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
@@ -291,11 +304,14 @@ from products.workflows.backend.facade.workflows import (
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
+    exit_condition_that_runs,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    literal_static_cohort_id,
+    static_cohort_ids,
     workflow_from_fields,
     workflow_publish_impact,
 )
@@ -403,6 +419,47 @@ def _branch_delay_duration_already_stored(action: dict, context: dict) -> bool:
     if action_id not in stored:
         return False
     return stored[action_id] == (action.get("config") or {}).get("delay_duration")
+
+
+def _stored_durations(instance: Optional[WorkflowEditState]) -> dict[str, dict[str, Any]]:
+    """
+    The durations a flow's steps use, as {action id: {field: value}}, for the cap check to let through.
+
+    Any status counts, so a disabled flow with a legacy over-cap value can be enabled again. That is
+    safe because every save runs the cap check, lenient drafts included. A field the stored step does
+    not use does not count, because nothing ever checked it: a fixed delay ignores its
+    max_delay_duration, and a delay_until step ignores its delay_duration.
+    """
+    if instance is None:
+        return {}
+    stored: dict[str, dict[str, Any]] = {}
+    for step in instance.actions or []:
+        if not isinstance(step, dict) or not step.get("id"):
+            continue
+        config = step.get("config") or {}
+        if step.get("type") == "wait_until_condition":
+            field = "max_wait_duration"
+        elif step.get("type") == "delay":
+            field = "max_delay_duration" if config.get("delay_until") else "delay_duration"
+        else:
+            continue
+        stored[step["id"]] = {field: config.get(field)}
+    return stored
+
+
+def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
+    """
+    Refuse a duration the executor would clamp, such as '400d' running as 365 days.
+
+    A value the flow already stores is let through, like the other gates here, so an unrelated edit
+    to a flow that holds one is not refused. Changing the value is still checked.
+    """
+    value = (action.get("config") or {}).get(field)
+    if not exceeds_unit_cap(field, value):
+        return
+    if context.get("stored_durations", {}).get(action.get("id"), {}).get(field) == value:
+        return
+    raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
 def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
@@ -1354,9 +1411,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
-            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. "
-            "Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are "
-            "SILENTLY CLAMPED. Max 30d. "
+            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, "
+            "at most 365d, 24h, 60m or 60s. "
+            "Fractions OK ('1.5d'=36h). A larger value is rejected. "
             "delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date "
             "expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the "
             "same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours "
@@ -1366,15 +1423,15 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and "
             "fallback_timezone decide which zone a date with no offset of its own is read in; a date that "
             "states an offset, and unix seconds, ignore them. Default UTC. "
-            "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
+            "Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how "
             "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
             "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
             "or below that still splits traffic in the given proportions. "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
-            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
-            "delay). Continues when condition.filters match OR any events entry fires; each events entry "
+            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as "
+            "delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry "
             "must target at least one event or action. On resolution (a condition match or any events "
             "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
             "falls through the 'continue' edge. "
@@ -1613,6 +1670,45 @@ class HogFlowActionSerializer(serializers.Serializer):
         if error is not None:
             raise serializers.ValidationError({"template_id": error})
 
+    def _validate_add_to_static_cohort_action(self, inputs: dict, *, strict: bool) -> None:
+        """The step adds people as a service, so whoever saves it must be able to edit the cohort it names.
+
+        Runs on lenient draft saves too. The callback endpoint accepts only cohorts the saved workflow names,
+        so this is the one check that guards every way to run the step."""
+        cohort_id = literal_static_cohort_id(inputs)
+        if cohort_id is None:
+            if strict:
+                raise serializers.ValidationError({"inputs": {"cohort_id": "Choose a static cohort."}})
+            return
+        # Someone already passed this check for a cohort the saved workflow names, so other editors can keep
+        # saving the workflow.
+        if cohort_id in (self.context.get("stored_static_cohort_ids") or set()):
+            return
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        team = get_team()
+        cohort = get_cohort_ref(team_id=team.id, cohort_id=cohort_id)
+        if cohort is None or cohort.deleted or not cohort.is_static:
+            raise serializers.ValidationError({"inputs": {"cohort_id": "Choose a static cohort."}})
+
+        request = self.context.get("request")
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if scopes is not None and "*" not in scopes and "cohort:write" not in scopes:
+            raise serializers.ValidationError(
+                {"inputs": {"cohort_id": "Adding people to a cohort needs a key with the cohort:write scope."}}
+            )
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        cohort_ref = ObjectAccessRef(
+            resource="cohort", id=str(cohort.id), team_id=cohort.team_id, created_by_id=cohort.created_by_id
+        )
+        if not UserAccessControl(user=user, team=team).check_access_level_for_ref(cohort_ref, "editor"):
+            raise serializers.ValidationError(
+                {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1849,6 +1945,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
+            # Before template resolution, because a lenient save of a gated or unknown template skips input
+            # validation but still stores the cohort ID that the callback later trusts.
+            if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
+                self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
@@ -2040,6 +2140,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             # the parser a container and throw on every run.
             if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
+            # Checked on lenient saves too: the builder caps the field, so only an over-cap value from
+            # another client lands here, and grandfathering stored values relies on every write being checked.
+            _reject_over_cap_duration(data, "max_wait_duration", self.context)
 
         if (
             is_conditional_branch
@@ -2072,6 +2175,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if delay_until is None:
             if strict and not is_duration(config.get("delay_duration")):
                 raise serializers.ValidationError({"config": duration_error("delay_duration")})
+            _reject_over_cap_duration(data, "delay_duration", self.context)
             return
 
         if config.get("delay_duration"):
@@ -2084,6 +2188,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
         stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
         data["config"]["delay_until"] = stored
+        # Checked before the half-configured draft return, because a stored value is exempt from this check later.
+        _reject_over_cap_duration(data, "max_delay_duration", self.context)
 
         expression = delay_until.get("expression")
         if not isinstance(expression, str) or not expression.strip():
@@ -2836,6 +2942,10 @@ class HogFlowLastRunSerializer(serializers.Serializer):
     )
 
 
+# Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
+_MAX_WORKFLOW_TAGS = 10
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     # The fields the model used to supply. Each is read-only here; the full serializer declares the
     # writable ones again, so those are typed as any field.
@@ -2875,6 +2985,11 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
     suggestions_enabled = serializers.SerializerMethodField(
         help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Tags for organizing workflows, for example by team or use case. Sorted by name.",
+    )
 
     class Meta:
         # The fields each serializer returns, in this order. get_fields applies it.
@@ -2882,6 +2997,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -2905,6 +3021,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "last_run",
             "pending_suggestions",
             "suggestions_enabled",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -2979,6 +3096,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -3003,6 +3121,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
     description = serializers.CharField(required=False, allow_blank=True, default="", help_text="Optional description.")
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),  # Tag.name column limit.
+        required=False,
+        max_length=_MAX_WORKFLOW_TAGS,
+        help_text=(
+            "Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of "
+            "the project. Omit to keep the current tags, send an empty list to remove them all."
+        ),
+    )
     status = serializers.ChoiceField(
         choices=HogFlowState.choices,
         required=False,
@@ -3039,7 +3166,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_only_at_end: only at exit node (default). "
             "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
             "exit_on_trigger_not_matched: also when trigger filter stops matching. "
-            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
+            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). "
+            "Only event and cohort triggers are re-checked, so on any other trigger these two are stored as "
+            "exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person "
+            "leaves the cohort (or rejoins it, for a 'left' trigger)."
         ),
     )
     email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
@@ -3174,6 +3304,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 
+        # Durations the flow already stores, so the cap check refuses new over-cap values only.
+        self.context["stored_durations"] = _stored_durations(instance)
+
         # delay_duration values a branch already carries, so the rejection below polices new writes
         # only. Unlike the flag-gated set this does not require an active flow: enabling a draft that
         # stores one is the case that would otherwise be refused, and the field is inert at runtime,
@@ -3198,6 +3331,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and action.get("id")
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
+
+        self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -3283,6 +3418,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -3310,10 +3446,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
             "last_run",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "version",
+            "tags",
             "created_at",
             "created_by",
             "updated_at",
@@ -3390,6 +3528,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         data["trigger"] = trigger_actions[0]["config"]
 
+        # Store the exit condition that actually runs rather than reject one that never fires. The builder
+        # shows the exit options only for event triggers, so a value kept from before a trigger change has
+        # no control the author could use to clear it, and a rejection would block every save.
+        exit_condition = data.get("exit_condition", instance.exit_condition if instance else None)
+        runs = exit_condition_that_runs(data["trigger"].get("type"), exit_condition)
+        if runs != exit_condition:
+            data["exit_condition"] = runs
+
         # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
         # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
         # person-aware exit conditions would silently assume person data, so we block them here — the
@@ -3404,6 +3550,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         action.get("type", "")
                         for action in actions
                         if action.get("type") in PERSON_DEPENDENT_ACTION_TYPES
+                    }
+                    | {
+                        ADD_TO_STATIC_COHORT_TEMPLATE_ID
+                        for action in actions
+                        if (action.get("config") or {}).get("template_id") == ADD_TO_STATIC_COHORT_TEMPLATE_ID
                     }
                 )
                 if offending_types:
@@ -4010,10 +4161,11 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
         "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
         "them under `measured`; the page shows that reading and flags a disagreement with yours. "
-        "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
-        "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
-        "that lifts one number by harming another, and a number under a key of your own reads to a "
-        "person as no evidence at all."
+        "Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 "
+        "interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. "
+        "A rate with no denominator lets a reviewer mistake noise for a result, a target with no "
+        "counter-metrics hides a change that lifts one number by harming another, and a number under a "
+        "key of your own reads to a person as no evidence at all."
     ),
 }
 
@@ -4027,7 +4179,27 @@ class SuggestionsScoutStatus(models.TextChoices):
     RUNNING = "running"
     PAUSED_BY_USER = "paused_by_user"
     PAUSED_BY_SYSTEM = "paused_by_system"
+    DRY_RUN = "dry_run"
     NOT_RUNNING = "not_running"
+
+
+class SuggestionsSampleSerializer(serializers.Serializer):
+    reached = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
+        "PostHog to judge it.",
+    )
+    tracked_sends = serializers.IntegerField(
+        read_only=True,
+        help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
+        "last 7 days.",
+    )
+    required_sends = serializers.IntegerField(
+        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+    )
+    version_live_since = serializers.DateTimeField(
+        read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
+    )
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
@@ -4036,7 +4208,14 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         choices=SuggestionsScoutStatus.choices,
         read_only=True,
         help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
-        "workflows that have suggestions on.",
+        "workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on "
+        "writing to the inbox in its scout settings.",
+    )
+    sample = SuggestionsSampleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
+        "while suggestions are on but the scout is not running, or when the workflow has no email step.",
     )
 
 
@@ -4550,12 +4729,17 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+                description="Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             ),
             OpenApiParameter(
                 "created_by",
                 OpenApiTypes.UUID,
                 description="Filter to workflows created by the user with this uuid.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description='JSON-encoded list of tag names, e.g. ["growth", "onboarding"]. Returns workflows that carry at least one of these tags.',
             ),
             OpenApiParameter(
                 "type",
@@ -4589,9 +4773,19 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             ),
         ]
     ),
+    # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4636,8 +4830,11 @@ class HogFlowViewSet(
         "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
+        "bulk_update_tags",
     ]
     queryset = HogFlow.objects.all()
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
+    bulk_tag_activity_scope = "HogFlow"
     pagination_class = HogFlowPagination
     log_source = "hog_flow"
     app_source = "hog_flow"
@@ -4801,6 +4998,18 @@ class HogFlowViewSet(
         except (ValueError, KeyError, TypeError):
             raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
 
+    def _tags_filter(self) -> frozenset[str]:
+        raw = self.request.GET.get("tags")
+        if not raw:
+            return frozenset()
+        try:
+            tags = json.loads(raw)
+        except ValueError:
+            raise exceptions.ValidationError({"tags": "Must be a JSON-encoded list of tag names"})
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise exceptions.ValidationError({"tags": "Must be a JSON-encoded list of tag names"})
+        return frozenset(tags)
+
     def _list_query(self) -> WorkflowListQuery:
         """The list's query parameters, validated in the order the list has always checked them."""
         params = self.request.GET
@@ -4841,6 +5050,7 @@ class HogFlowViewSet(
             )
 
         trigger = self._trigger_filter()
+        tags = self._tags_filter()
 
         search = (params.get("search") or "").strip()
         if len(search) > 200:
@@ -4855,6 +5065,7 @@ class HogFlowViewSet(
             broadcast_eligible=params.get("broadcast_eligible") == "true",
             broadcast_statuses=frozenset(broadcast_statuses),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
+            tags=tags,
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )
 
@@ -5199,6 +5410,7 @@ class HogFlowViewSet(
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
+                requested_exit_condition=serializer.initial_data.get("exit_condition"),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
@@ -5967,19 +6179,26 @@ class HogFlowViewSet(
         """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
 
         Same read as the outcome's "before" side, over the producer's window when it names a
-        relative one. A read that fails leaves the suggestion filed with the producer's numbers
-        only, which the page labels as unverified."""
+        relative one or an absolute interval. A read that fails leaves the suggestion filed with
+        the producer's numbers only, which the page labels as unverified."""
         window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
-        if not window or not re.fullmatch(r"-\d+[dh]", window):
+        bounds = absolute_window(window, django_timezone.now())
+        if bounds is None and (not window or not re.fullmatch(r"-\d+[dh]", window)):
             window = "-7d"
         try:
-            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            after_date = (
+                bounds.start
+                if bounds
+                else relative_date_parse_with_delta_mapping(window or "-7d", self.team.timezone_info)[0]
+            )
+            before_date = bounds.end if bounds else None
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
             reading = version_outcome(
                 team_id=self.team_id,
                 hog_flow_id=hog_flow.id,
                 versions=[base_version],
                 after=after_date,
+                before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
             )
@@ -6065,10 +6284,19 @@ class HogFlowViewSet(
         else:
             enabled = is_optimization_enabled(instance.id)
 
+        scout_status = suggestions_scout_status(self.team)
+        sample = None
+        # Off, the sample tells the person what to expect before they turn it on. On, only a running scout is
+        # held back by it, so the metrics read is skipped while the scout is paused or in dry run.
+        if not enabled or scout_status == SuggestionsScoutStatus.RUNNING:
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            try:
+                sample = suggestions_sample(team_id=self.team_id, hog_flow_id=instance.id)
+            except Exception as error:
+                # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
+                capture_exception(error)
         return Response(
-            HogFlowOptimizationSerializer(
-                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
-            ).data
+            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:
