@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                     django.db.models.functions.text.Lower(
                         models.Func(
                             models.F("path"),
-                            models.Value("^.*(?<!\\\\)/"),
+                            models.Value("^((?:[^\\\\/]|\\\\.)*/)*"),
                             models.Value(""),
                             function="regexp_replace",
                             output_field=models.TextField(),
