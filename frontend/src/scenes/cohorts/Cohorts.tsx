@@ -3,7 +3,7 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -22,6 +22,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -179,21 +180,11 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete cohort?',
-                                            description: `Are you sure you want to delete "${cohort.name}"?`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () =>
-                                                    deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openDeleteCohortDialog({
+                                            cohortId: cohort.id,
+                                            cohortName: cohort.name,
+                                            onConfirm: () =>
+                                                deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
                                         })
                                     }}
                                     fullWidth
