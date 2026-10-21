@@ -24,9 +24,16 @@ import type { DataWarehouseSavedQuery } from '~/types'
 import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
 import { dataModelingJobsList, warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
-import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    DataModelingJobApi,
+    PaginatedDataModelingJobListApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
+import {
+    EMPTY_INCREMENTAL_DRAFT,
+    INCREMENTAL_CHECK_LOADING,
+    IncrementalConfigDraft,
+} from '../editor/IncrementalConfigFields'
 import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { latestSuccessfulSyncAt } from './materializationJobUtils'
 import { SyncFrequencyValue } from './SyncFrequencySelect'
@@ -37,6 +44,10 @@ const IDLE_REFRESH_INTERVAL_MS = 60000
 // Give up waiting after this long so the controls do not stay blocked when no job ever appears.
 const STARTING_TIMEOUT_MS = 120000
 export const DEFAULT_JOBS_PAGE_SIZE = 10
+
+function isNewRunVisible(newestJob: DataModelingJobApi | undefined, previousJobId: string | null | undefined): boolean {
+    return !!newestJob && newestJob.id !== previousJobId
+}
 
 export interface MaterializationJobsLogicProps {
     viewId: string
@@ -334,7 +345,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
         incrementalCheck: [
-            null as DataWarehouseSavedQueryIncrementalCheck | null,
+            INCREMENTAL_CHECK_LOADING as DataWarehouseSavedQueryIncrementalCheck | null,
             {
                 loadIncrementalCheck: async () => {
                     const sql = values.savedQuery?.query?.query
@@ -762,7 +773,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             }
             cache.newestJobState = newestJobState
             // Until the new run's job row exists, the newest job is the run before the click.
-            if (values.startingMaterialization && newestJob && newestJob.id !== cache.newestJobIdBeforeStart) {
+            if (values.startingMaterialization && isNewRunVisible(newestJob, cache.newestJobIdBeforeStart)) {
                 actions.setStartingMaterialization(false)
             }
             const active = values.startingMaterialization || running
