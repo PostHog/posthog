@@ -4,7 +4,7 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind, RefreshType, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -91,6 +91,7 @@ describe('query', () => {
 
     it('emits an event when a query is run', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const querySpy = jest.spyOn(api, 'query')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
             select: ['timestamp'],
@@ -100,7 +101,15 @@ describe('query', () => {
         await performQuery(q)
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
-        expect(queryCompletedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+        expect(queryCompletedCalls[0][1]).toMatchObject({
+            query: q,
+            duration: expect.any(Number),
+            client_query_id: querySpy.mock.calls.at(-1)?.[1]?.clientQueryId,
+            submit_attempts: 1,
+            retry_wait_ms: expect.any(Number),
+            retry_status: null,
+            retry_recovered: false,
+        })
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
@@ -295,6 +304,7 @@ describe('query', () => {
         })
 
         it('runs the query again when its status has expired', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
             const querySpy = jest
                 .spyOn(api, 'query')
                 .mockResolvedValueOnce(submitted('gone'))
@@ -308,6 +318,12 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(2)
             // Same ID, so anything holding it still points at the run the user is waiting for.
             expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('gone')
+            expect(captureSpy.mock.calls.find(([event]) => event === 'query completed')?.[1]).toMatchObject({
+                client_query_id: 'gone',
+                submit_attempts: 2,
+                retry_status: 404,
+                retry_recovered: true,
+            })
         })
 
         it('reads the cache on the retry rather than forcing the same work twice', async () => {
@@ -378,6 +394,274 @@ describe('query', () => {
             ).rejects.toMatchObject({ status: 404 })
 
             expect(querySpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('transient query submission failures', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const refused = (): ApiError => new ApiError('', 503, undefined, {})
+        const badGateway = (): ApiError => new ApiError('', 502, undefined, {})
+        const shortCapacityWait = (): ApiError => new ApiError('', 503, new Headers({ 'Retry-After': '5' }), {})
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['a 502 bad gateway', badGateway, 600, ['ok'], true],
+            ['a capacity 503 asked for a short wait', shortCapacityWait, 5000, ['ok'], true],
+            [
+                'a capacity 503 at the total retry budget',
+                () => new ApiError('', 503, new Headers({ 'Retry-After': '20' })),
+                20000,
+                ['ok'],
+                true,
+            ],
+            ['a capacity retry returns an empty result', shortCapacityWait, 5000, [], true],
+            ['a capacity retry returns no result', shortCapacityWait, 5000, null, false],
+        ])(
+            'submits the same run again once the wait ends after %s, and returns what the retry gets',
+            async (_name, makeError, waitMs, results, recovered) => {
+                jest.useFakeTimers()
+                const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+                const error = makeError()
+                const querySpy = jest
+                    .spyOn(api, 'query')
+                    .mockRejectedValueOnce(error)
+                    .mockResolvedValueOnce({ results } as any)
+
+                const promise = performQuery(query, undefined, 'blocking')
+                await jest.advanceTimersByTimeAsync(waitMs - 1)
+                expect(querySpy).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(1)
+
+                await expect(promise).resolves.toMatchObject({ results })
+                expect(querySpy).toHaveBeenCalledTimes(2)
+                const firstId = querySpy.mock.calls[0][1]?.clientQueryId
+                expect(firstId).toBeTruthy()
+                expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe(firstId)
+                const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+                expect(completed).toHaveLength(1)
+                expect(completed[0][1]).toMatchObject({
+                    client_query_id: firstId,
+                    submit_attempts: 2,
+                    retry_wait_ms: waitMs,
+                    retry_status: error.status,
+                    retry_recovered: recovered,
+                })
+                expect(captureSpy.mock.calls.filter(([event]) => event === 'query failed')).toHaveLength(0)
+            }
+        )
+
+        it('does not resubmit when the query is aborted during the capacity wait', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+            const controller = new AbortController()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(shortCapacityWait())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const outcome = Promise.allSettled([performQuery(query, { signal: controller.signal }, 'blocking')])
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(querySpy).toHaveBeenCalledTimes(1)
+
+            controller.abort()
+            await jest.advanceTimersByTimeAsync(5000)
+
+            await expect(outcome).resolves.toMatchObject([{ status: 'rejected', reason: { name: 'AbortError' } }])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(
+                captureSpy.mock.calls.filter(([event]) => event === 'query completed' || event === 'query failed')
+            ).toHaveLength(0)
+        })
+
+        it.each([
+            { name: 'empty result', error: false, results: { results: [] }, recovered: true },
+            { name: 'error stub', error: true, results: undefined, recovered: false },
+            { name: 'errored result', error: true, results: { results: [] }, recovered: false },
+        ])('records async recovery only after a usable result ($name)', async ({ error, results, recovered }) => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+            jest.spyOn(api, 'query')
+                .mockRejectedValueOnce(shortCapacityWait())
+                .mockResolvedValueOnce({ query_status: { id: 'retry-query', complete: false } } as any)
+            jest.spyOn(api.queryStatus, 'get').mockResolvedValueOnce({
+                query_status: { id: 'retry-query', complete: true, error, results },
+            } as any)
+
+            const promise = performQuery(query, undefined, 'async', 'retry-query')
+            await jest.advanceTimersByTimeAsync(5000)
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'query completed')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(300)
+            await expect(promise).resolves.toEqual(results)
+
+            const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+            expect(completed).toHaveLength(1)
+            expect(completed[0][1]).toMatchObject({
+                client_query_id: 'retry-query',
+                submit_attempts: 2,
+                retry_wait_ms: 5000,
+                retry_status: 503,
+                retry_recovered: recovered,
+            })
+        })
+
+        it.each([
+            ['the gateway refuses every attempt', badGateway, 1800, 502],
+            ['every attempt gets a short capacity wait', shortCapacityWait, 10000, 503],
+            [
+                'both capacity waits fit the total budget exactly',
+                () => new ApiError('', 503, new Headers({ 'Retry-After': '10' })),
+                20000,
+                503,
+            ],
+        ])('reports the failure once %s', async (_name, makeError, elapsedMs, status) => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValue(makeError())
+
+            const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
+            await jest.advanceTimersByTimeAsync(elapsedMs - 1)
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(1)
+
+            await expect(outcome).resolves.toMatchObject([{ status: 'rejected', reason: { status } }])
+            expect(querySpy).toHaveBeenCalledTimes(3)
+            const failed = captureSpy.mock.calls.filter(([event]) => event === 'query failed')
+            expect(failed).toHaveLength(1)
+            expect(failed[0][1]).toMatchObject({
+                client_query_id: querySpy.mock.calls[0][1]?.clientQueryId,
+                submit_attempts: 3,
+                retry_wait_ms: elapsedMs,
+                retry_status: status,
+                error_status: status,
+            })
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'query completed')).toHaveLength(0)
+        })
+
+        it.each([
+            ['the two hints exceed the budget', 15, 10, 0],
+            ['the failed retry uses the remaining budget', 5, 10, 6000],
+        ])('surfaces the full next cooldown when %s', async (_name, firstWait, nextWait, requestTimeMs) => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+            let lastError: ApiError | undefined
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(new ApiError('', 503, new Headers({ 'Retry-After': String(firstWait) })))
+                .mockImplementationOnce(async () => {
+                    await new Promise((resolve) => setTimeout(resolve, requestTimeMs))
+                    lastError = new ApiError('', 503, new Headers({ 'Retry-After': String(nextWait) }))
+                    throw lastError
+                })
+                .mockResolvedValue({ results: ['ok'] } as any)
+
+            let receivedError: unknown
+            const outcome = performQuery(query, undefined, 'blocking').catch((error) => {
+                receivedError = error
+            })
+            await jest.advanceTimersByTimeAsync(firstWait * 1000 + requestTimeMs + 1)
+
+            expect(receivedError).toBeInstanceOf(ApiError)
+            expect(receivedError).toBe(lastError)
+            expect(lastError?.retryAfterSeconds).toBe(nextWait)
+            await jest.advanceTimersByTimeAsync(60_000)
+            await outcome
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            expect(captureSpy.mock.calls.find(([event]) => event === 'query failed')?.[1]).toMatchObject({
+                submit_attempts: 2,
+                retry_wait_ms: firstWait * 1000,
+                retry_status: 503,
+            })
+        })
+
+        it.each([
+            { waitSeconds: 20, resumedAt: 20_050, retries: true },
+            { waitSeconds: 20, resumedAt: 21_000, retries: false },
+            { waitSeconds: 5, resumedAt: 21_000, retries: false },
+        ])(
+            'bounds timer lateness after a $waitSeconds second hint (resumed at $resumedAt ms)',
+            async ({ waitSeconds, resumedAt, retries }) => {
+                jest.useFakeTimers()
+                const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+                const clock = jest.spyOn(performance, 'now').mockReturnValue(0)
+                const error = new ApiError('', 503, new Headers({ 'Retry-After': String(waitSeconds) }))
+                const querySpy = jest
+                    .spyOn(api, 'query')
+                    .mockRejectedValueOnce(error)
+                    .mockResolvedValue({ results: ['ok'] } as any)
+
+                const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
+                await jest.advanceTimersByTimeAsync(0)
+                await jest.advanceTimersByTimeAsync(waitSeconds * 1000 - 1)
+                expect(querySpy).toHaveBeenCalledTimes(1)
+                clock.mockReturnValue(resumedAt)
+                await jest.advanceTimersByTimeAsync(1)
+
+                await expect(outcome).resolves.toEqual([
+                    retries
+                        ? { status: 'fulfilled', value: { results: ['ok'] } }
+                        : { status: 'rejected', reason: error },
+                ])
+                expect(querySpy).toHaveBeenCalledTimes(retries ? 2 : 1)
+                const eventName = retries ? 'query completed' : 'query failed'
+                expect(captureSpy.mock.calls.find(([event]) => event === eventName)?.[1]).toMatchObject({
+                    submit_attempts: retries ? 2 : 1,
+                    retry_wait_ms: resumedAt,
+                    retry_status: retries ? 503 : null,
+                })
+            }
+        )
+
+        it.each(
+            (['force_blocking', 'force_async'] as RefreshType[]).flatMap((refresh) =>
+                [502, 503].map((status) => ({ refresh, status }))
+            )
+        )(
+            'retries $refresh only with a capacity hint, not an ambiguous gateway failure (status=$status)',
+            async ({ refresh, status }) => {
+                jest.useFakeTimers()
+                const error = status === 502 ? badGateway() : shortCapacityWait()
+                const querySpy = jest
+                    .spyOn(api, 'query')
+                    .mockRejectedValueOnce(error)
+                    .mockResolvedValue({ results: ['ok'] } as any)
+
+                const outcome = Promise.allSettled([performQuery(query, undefined, refresh)])
+                await jest.advanceTimersByTimeAsync(4999)
+                expect(querySpy).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(1)
+
+                await expect(outcome).resolves.toEqual([
+                    status === 502
+                        ? { status: 'rejected', reason: error }
+                        : { status: 'fulfilled', value: { results: ['ok'] } },
+                ])
+                expect(querySpy).toHaveBeenCalledTimes(status === 502 ? 1 : 2)
+            }
+        )
+
+        it.each([
+            ['a 503 without Retry-After', refused()],
+            ['a 503 above the total retry budget', new ApiError('', 503, new Headers({ 'Retry-After': '21' }), {})],
+            ['a 503 with an invalid Retry-After', new ApiError('', 503, new Headers({ 'Retry-After': '1.5' }), {})],
+            [
+                'a 503 with a date-form Retry-After',
+                new ApiError('', 503, new Headers({ 'Retry-After': 'Mon, 05 Oct 2026 12:00:05 GMT' }), {}),
+            ],
+            ['a capacity 503 with Retry-After', new ApiError('', 503, new Headers({ 'Retry-After': '45' }), {})],
+            ['a 504, where the backend can still be running the query', new ApiError('', 504, undefined, {})],
+        ])('does not submit again after %s', async (_name, error) => {
+            jest.useFakeTimers()
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValue(error)
+
+            const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
+            await jest.advanceTimersByTimeAsync(60_000)
+
+            await expect(outcome).resolves.toEqual([{ status: 'rejected', reason: error }])
+            expect(querySpy).toHaveBeenCalledTimes(1)
         })
     })
 

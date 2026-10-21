@@ -64,7 +64,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
-from posthog.api.services.query import _run_query_runner
+from posthog.api.services.query import _run_query_runner, process_query_model
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -902,6 +902,8 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
+        self.team.modifiers = {"useNewEventsSchema": True}
+        self.team.save()
         with (
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
@@ -909,11 +911,11 @@ class TestQueryRunner(BaseTest):
             mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
             runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
             )
             fresh_props = report.call_args.args[1]
             runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
             )
             hit_props = report.call_args.args[1]
 
@@ -927,6 +929,11 @@ class TestQueryRunner(BaseTest):
         assert hit_props["direct_connection_source_ids"] is None
         assert fresh_props["query_hash"] == hit_props["query_hash"]
         assert fresh_props["runtime_hash"] == hit_props["runtime_hash"]
+        assert fresh_props["query"] == hit_props["query"] == {"kind": "TestQuery", "some_attr": "bla"}
+        assert fresh_props["modifiers"]["useNewEventsSchema"] is True
+        assert hit_props["modifiers"]["useNewEventsSchema"] is True
+        assert fresh_props["modifiers"]["typeAwareCastSimplification"] is True
+        assert "typeAwareCastSimplification" not in hit_props["modifiers"]
 
     def test_fresh_event_carries_clickhouse_counters_with_the_scan_flag_off(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -974,7 +981,7 @@ class TestQueryRunner(BaseTest):
             )
         elif where == "limiter":
             failing = mock.patch(
-                "posthog.hogql_queries.query_runner.get_app_org_rate_limiter", side_effect=error_class("over the limit")
+                "posthog.clickhouse.client.limit.get_app_org_rate_limiter", side_effect=error_class("over the limit")
             )
         elif where == "store":
             failing = mock.patch.object(QueryCache, "store_result", side_effect=error_class("cache store failed"))
@@ -991,6 +998,7 @@ class TestQueryRunner(BaseTest):
         assert props["error_type"] == error_class.__name__
         assert props["cache_key"] == runner.get_cache_key()
         assert props["query_hash"] == runner.get_query_identity().query_hash
+        assert props["query"]["some_attr"] == "bla"
         assert props["failed_after_ms"] >= 0
         if failed_in == "calculate":
             assert (props["clickhouse_rows_read"], props["clickhouse_workload"]) == (90, "ONLINE")
@@ -1977,6 +1985,49 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac.access_level = access_level
         ac.save()
         return ac
+
+    @parameterized.expand(RUNNER_BASES)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_bypass_rebuilds_the_database_and_changes_the_cache_key(self, _name, base, _flag):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self._ac(resource="warehouse_view", resource_id=str(view.id), organization_member=self.organization_membership)
+        runner = self._runner(self.user, base, queried_resources=set())
+        runner.query = HogQLQuery(query="SELECT id FROM denied_view")
+        # Built before the bypass, so a stale copy would be the one reused.
+        assert "denied_view" in runner.shared_database._denied_tables
+        denied_cache_key = runner.get_cache_key()
+
+        runner.bypass_warehouse_access_control()
+
+        # A bypass result must never be served from the denied user's cache entry, or the other way round.
+        assert "denied_view" not in runner.shared_database._denied_tables
+        assert runner.get_cache_key() != denied_cache_key
+        if base is QueryRunnerWithHogQLContext:
+            assert "denied_view" not in runner.database._denied_tables
+        # A runner built for part of the result stays trusted too.
+        child = runner._with_own_bypass(self._runner(self.user, base, queried_resources=set()))
+        assert "denied_view" not in child.shared_database._denied_tables
+
+    @parameterized.expand([("covered", True), ("not_covered", False)])
+    def test_delivery_bypass_only_reaches_a_runner_the_save_check_covers(self, _name, covered: bool):
+        runner = self._runner(self.user, queried_resources=set())
+        runner.save_check_covers_execution = covered
+
+        with mock.patch("posthog.api.services.query.get_query_runner_or_none", return_value=runner):
+            process_query_model(
+                self.team,
+                runner.query,
+                user=self.user,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                bypass_warehouse_access_control=True,
+            )
+
+        assert runner._bypass_warehouse_access_control is covered
 
     @parameterized.expand(RUNNER_BASES)
     def test_resource_grant_changes_cache_key(self, _name, base):

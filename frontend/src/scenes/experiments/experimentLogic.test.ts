@@ -22,11 +22,20 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, MultivariateFlagVariant } from '~/types'
+import {
+    BreakdownAttributionType,
+    Experiment,
+    ExperimentStatus,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    MultivariateFlagVariant,
+} from '~/types'
 
+import type { ExperimentHealthFindingApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import { ExperimentWarning, experimentLogic } from './experimentLogic'
+import { experimentMetricsLogic } from './experimentMetricsLogic'
 import type { ExperimentSavedMetric } from './utils'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -448,6 +457,123 @@ describe('experimentLogic', () => {
 
             expect(logic.values.primaryMetricsResults).toEqual([existingResult])
             expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+        })
+
+        it('reloads cached results for the server metric list after a save conflict', async () => {
+            const staleResult = experimentMetricResultsSuccessJson.query_status
+                .results as unknown as CachedNewExperimentQueryResponse
+
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment(experiment)
+            logic.actions.setPrimaryMetricsResults([staleResult])
+            jest.spyOn(api, 'update').mockRejectedValueOnce({
+                status: 409,
+                data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
+            })
+            // Another editor removed every metric, so the stale result pairs with nothing on the server.
+            jest.spyOn(api, 'get').mockResolvedValueOnce({ ...experiment, version: 5, metrics: [], saved_metrics: [] })
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.refreshExperimentResults &&
+                        action.payload.forceRefresh === false,
+                ])
+                .toFinishAllListeners()
+
+            expect(logic.values.primaryMetricsResults).toEqual([])
+        })
+    })
+
+    describe('date changes', () => {
+        it.each([
+            ['start', 'start_date', (date: string) => logic.asyncActions.changeExperimentStartDate(date)],
+            ['end', 'end_date', (date: string) => logic.asyncActions.changeExperimentEndDate(date)],
+        ] as const)('report the %s date that the change replaced', async (boundary, field, change) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const oldDate = '2025-01-01T00:00:00Z'
+            const newDate = '2025-02-01T00:00:00Z'
+            logic.actions.setExperiment({ ...experiment, [field]: oldDate })
+            jest.spyOn(api, 'update').mockResolvedValueOnce({ ...experiment, [field]: newDate })
+
+            await change(newDate)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                `experiment ${boundary} date changed`,
+                expect.objectContaining({ [`old_${field}`]: oldDate, [`new_${field}`]: newDate })
+            )
+        })
+    })
+
+    describe('after a failed save', () => {
+        const secondaryUuid = experiment.metrics_secondary[0].uuid as string
+
+        it.each([
+            ['the start date change', (): void => logic.actions.changeExperimentStartDate('2026-01-01T00:00:00Z')],
+            ['the end date change', (): void => logic.actions.changeExperimentEndDate('2026-02-01T00:00:00Z')],
+            ['the exposure criteria save', (): void => logic.actions.updateExposureCriteria()],
+            [
+                'the settings save',
+                (): void => logic.actions.updateExperimentSettings({ only_count_matured_users: true }),
+            ],
+            ['the variant exclusion', (): void => logic.actions.setVariantExcluded('test', true)],
+            [
+                'the variant exclusion with recalculation on',
+                (): void => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                        [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                    })
+                    logic.actions.setVariantExcluded('test', true)
+                },
+            ],
+            [
+                'a metric move while results load',
+                (): void => {
+                    logic.actions.setPrimaryMetricsResultsLoading(true)
+                    logic.actions.moveMetricsBetweenSections(true, [secondaryUuid], [], [secondaryUuid])
+                },
+            ],
+        ])('%s skips the follow-up work', async (_name, dispatch) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            logic.actions.setExperiment(experiment)
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+
+            // The follow-ups are checked before the failure is matched, because the matcher searches only
+            // the history after the last matched action, and some follow-ups fire before the save settles.
+            await expectLogic(logic, dispatch)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'refreshExperimentResults',
+                    'loadPrimaryMetricsResults',
+                    'loadSecondaryMetricsResults',
+                    'loadExposures',
+                    experimentMetricsLogic({ experiment }).actionTypes.triggerRecalculation,
+                ])
+                .toDispatchActions(['updateExperimentFailure'])
+
+            expect(lemonToast.success).not.toHaveBeenCalled()
+            // The error carries no HTTP status, so the global loader handler stays silent and the save toasts once.
+            expect(lemonToast.error).toHaveBeenCalledTimes(1)
+            expect(captureSpy).toHaveBeenCalledWith('experiment save failed', expect.objectContaining({ status: null }))
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.stringMatching(/^experiment (start|end) date changed$/),
+                expect.anything()
+            )
+        })
+
+        it('puts back the saved exposure criteria', async () => {
+            const saved = { ...experiment, exposure_criteria: { filterTestAccounts: true } } as Experiment
+            logic.actions.setUnmodifiedExperiment(saved)
+            logic.actions.setExperiment(saved)
+            logic.actions.setExposureCriteria({ filterTestAccounts: false })
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => logic.actions.updateExposureCriteria())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.experiment.exposure_criteria).toEqual({ filterTestAccounts: true })
         })
     })
 
@@ -1174,14 +1300,17 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.moveMetricsBetweenSections(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
             })
-                .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
+                .toDispatchActionsInAnyOrder(['updateExperimentSuccess', 'retryPrimaryMetric'])
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
 
             expect(logic.values.primaryMetricsResults).toEqual([expect.objectContaining(fetchedResult)])
         })
 
-        it('falls back to a full refresh when results are already loading', async () => {
+        it.each([
+            ['are already loading', true],
+            ['start loading while the save waits in the queue', false],
+        ])('falls back to a full refresh when results %s', async (_name, loadingBeforeMove) => {
             useMocks({
                 post: {
                     '/api/environments/:team/query/:kind': () => [
@@ -1203,17 +1332,28 @@ describe('experimentLogic', () => {
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
-            logic.actions.setPrimaryMetricsResultsLoading(true)
-            api.update.mockResolvedValue({
+            if (loadingBeforeMove) {
+                logic.actions.setPrimaryMetricsResultsLoading(true)
+            }
+            let finishSave: (saved: Experiment) => void = () => {}
+            api.update.mockReturnValueOnce(
+                new Promise<Experiment>((resolve) => {
+                    finishSave = resolve
+                })
+            )
+
+            logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
+            if (!loadingBeforeMove) {
+                logic.actions.setPrimaryMetricsResultsLoading(true)
+            }
+            finishSave({
                 ...testExperiment,
                 metrics: [],
                 metrics_secondary: [primaryMetric],
                 primary_metrics_ordered_uuids: [],
-            })
+            } as unknown as Experiment)
 
-            await expectLogic(logic, () => {
-                logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
-            })
+            await expectLogic(logic)
                 .toDispatchActions([
                     'updateExperiment',
                     // Moving a metric is metric-scoped: reuse the window so unchanged metrics stay cached.
@@ -1222,6 +1362,46 @@ describe('experimentLogic', () => {
                         action.payload.triggeredBy === 'metric_config_change',
                 ])
                 .toFinishAllListeners()
+        })
+
+        it('realigns results to the server metric lists after a save conflict', async () => {
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric],
+                metrics_secondary: [secondaryMetric],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setUnmodifiedExperiment(testExperiment)
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
+            logic.actions.setSecondaryMetricsResults([secondaryMetricResult])
+            api.update.mockRejectedValueOnce({
+                status: 409,
+                data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
+            })
+            // Another editor swapped the two primary metrics, so each result now belongs at the other position.
+            jest.spyOn(api, 'get').mockResolvedValueOnce({
+                ...testExperiment,
+                version: 5,
+                metrics: [otherPrimaryMetric, primaryMetric],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetricsBetweenSections(
+                    false,
+                    ['primary-metric-uuid', 'other-primary-uuid'],
+                    [],
+                    ['primary-metric-uuid']
+                )
+            })
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.experiment.metrics).toEqual([otherPrimaryMetric, primaryMetric])
+            expect(logic.values.primaryMetricsResults).toEqual([otherPrimaryMetricResult, primaryMetricResult])
+            expect(logic.values.secondaryMetricsResults).toEqual([secondaryMetricResult])
         })
     })
     describe('tags refresh', () => {
@@ -1319,84 +1499,41 @@ describe('experimentLogic', () => {
         })
     })
     describe('breakdown management', () => {
-        it('should add breakdown to inline metric', () => {
-            const breakdown: Breakdown = { property: '$browser', type: 'event' }
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
-                    {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: { breakdowns: [] },
-                    },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdown('test-metric-uuid', breakdown)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([breakdown])
-        })
-
-        it('should add breakdown to shared metric metadata', () => {
-            const breakdown: Breakdown = { property: '$browser', type: 'event' }
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary' },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdown('shared-metric-uuid', breakdown)
-
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
-        })
-
-        it('should remove breakdown from inline metric', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
-                    {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: {
-                            breakdowns: [
-                                { property: '$browser', type: 'event' },
-                                { property: '$os', type: 'event' },
-                            ],
-                        },
-                    },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
-            logic.actions.removeMetricBreakdown('test-metric-uuid', 0, breakdownToRemove)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([{ property: '$os', type: 'event' }])
-        })
-
         const browserBreakdown: Breakdown = { property: '$browser', type: 'event' }
         const osBreakdown: Breakdown = { property: '$os', type: 'event' }
+        const deviceBreakdown: Breakdown = { property: '$device_type', type: 'event' }
+
+        const configMetric = (uuid: string): ExperimentMetric => ({
+            kind: NodeKind.ExperimentMetric,
+            uuid,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
+        })
+        const configLink = (
+            savedMetricId: number,
+            uuid: string,
+            type: 'primary' | 'secondary'
+        ): ExperimentSavedMetric => ({
+            id: savedMetricId,
+            experiment: experiment.id as number,
+            saved_metric: savedMetricId,
+            name: 'Shared Metric',
+            query: {
+                uuid,
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            },
+            metadata: { type, breakdowns: [browserBreakdown, osBreakdown] },
+            created_at: '2024-01-01T00:00:00Z',
+        })
+        const metricConfigExperiment: Experiment = {
+            ...experiment,
+            metrics: [configMetric('inline-primary')],
+            metrics_secondary: [configMetric('inline-secondary')],
+            saved_metrics: [configLink(1, 'shared-primary', 'primary'), configLink(2, 'shared-secondary', 'secondary')],
+        }
 
         it.each([
             ['the shown breakdown', [browserBreakdown, osBreakdown], 0, browserBreakdown, [osBreakdown]],
@@ -1517,44 +1654,6 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
         })
 
-        it('should remove breakdown from secondary shared metric metadata', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Secondary Shared Metric',
-                        query: {
-                            uuid: 'secondary-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: {
-                            type: 'secondary',
-                            breakdowns: [
-                                { property: '$browser', type: 'event' } satisfies Breakdown,
-                                { property: '$os', type: 'event' } satisfies Breakdown,
-                            ],
-                        },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-                metrics_secondary: [],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
-            logic.actions.removeMetricBreakdown('secondary-metric-uuid', 0, breakdownToRemove)
-
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
-                { property: '$os', type: 'event' },
-            ])
-        })
-
         it('should include breakdowns when preparing secondary shared metrics for loading', () => {
             const testExperiment: Experiment = {
                 ...experiment,
@@ -1605,103 +1704,208 @@ describe('experimentLogic', () => {
             ])
         })
 
-        it('should update breakdown limit on inline metric', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                metrics: [
+        describe.each([
+            {
+                name: 'adding a breakdown',
+                action: 'updateMetricBreakdown',
+                change: (uuid: string) => logic.actions.updateMetricBreakdown(uuid, deviceBreakdown),
+                inlineEdit: { breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown, deviceBreakdown] } },
+                sharedEdit: { breakdowns: [browserBreakdown, osBreakdown, deviceBreakdown] },
+                event: ['experiment metric breakdown added', { breakdown_property: '$device_type' }] as const,
+                noOpEdits: [],
+            },
+            {
+                name: 'removing a breakdown',
+                action: 'removeMetricBreakdown',
+                change: (uuid: string) => logic.actions.removeMetricBreakdown(uuid, 0, browserBreakdown),
+                inlineEdit: { breakdownFilter: { breakdowns: [osBreakdown] } },
+                sharedEdit: { breakdowns: [osBreakdown] },
+                event: [
+                    'experiment metric breakdown removed',
+                    { breakdown_property: '$browser', breakdown_index: 0 },
+                ] as const,
+                noOpEdits: [
                     {
-                        uuid: 'test-metric-uuid',
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                        edit: 'a shown breakdown that the link metadata does not hold',
+                        run: () => logic.actions.removeMetricBreakdown('shared-primary', 2, deviceBreakdown),
                     },
-                ] as unknown as ExperimentMetric[],
-            }
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdownLimit('test-metric-uuid', 10)
-
-            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
-            expect(updatedMetric.breakdownFilter?.breakdown_limit).toEqual(10)
-        })
-
-        it('should update breakdown limit on shared metric metadata', () => {
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
                 ],
-                metrics: [],
-            }
+            },
+            {
+                name: 'changing the breakdown limit',
+                action: 'updateMetricBreakdownLimit',
+                change: (uuid: string) => logic.actions.updateMetricBreakdownLimit(uuid, 10),
+                inlineEdit: { breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown], breakdown_limit: 10 } },
+                sharedEdit: { breakdown_limit: 10 },
+                event: null,
+                noOpEdits: [],
+            },
+            {
+                name: 'changing the breakdown attribution',
+                action: 'updateMetricBreakdownAttribution',
+                change: (uuid: string) =>
+                    logic.actions.updateMetricBreakdownAttribution(uuid, BreakdownAttributionType.Step, 1),
+                inlineEdit: { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 1 },
+                sharedEdit: { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 1 },
+                event: null,
+                noOpEdits: [],
+            },
+        ])('$name', ({ action, change, inlineEdit, sharedEdit, event, noOpEdits }) => {
+            const legacyReloads = ['loadPrimaryMetricsResults', 'loadSecondaryMetricsResults']
+            let captureSpy: jest.SpyInstance
+            let updateSpy: jest.SpyInstance
 
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
+            const breakdownEvents = (): any[] =>
+                captureSpy.mock.calls
+                    .filter(([name]) => String(name).startsWith('experiment metric breakdown'))
+                    .map(([name, properties]) => [name, properties])
 
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
-        })
+            const expectedBreakdownEvents = (uuid: string, isPrimary: boolean): any[] =>
+                event
+                    ? [
+                          [
+                              event[0],
+                              expect.objectContaining({ ...event[1], metric_uuid: uuid, is_primary_metric: isPrimary }),
+                          ],
+                      ]
+                    : []
 
-        it.each([
-            ['reloads the section of a shared primary metric', true, ['loadPrimaryMetricsResults']],
-            ['skips the reload when the save fails', false, []],
-        ])('adding a breakdown %s', async (_name, saveSucceeds, reloaded) => {
-            useMocks({
-                post: {
-                    '/api/environments/:team/query': () => [
-                        200,
-                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                    ],
-                },
-                get: {
-                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
-                },
+            beforeEach(() => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team/query': () => [
+                            200,
+                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                        ],
+                    },
+                    get: {
+                        '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                    },
+                })
+                captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                updateSpy = jest.spyOn(api, 'update').mockResolvedValue(metricConfigExperiment)
+                logic.actions.setExperiment(metricConfigExperiment)
             })
-            const testExperiment: Experiment = {
-                ...experiment,
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary' },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
-                metrics: [],
-            }
-            logic.actions.setExperiment(testExperiment)
-            if (saveSucceeds) {
-                jest.spyOn(api, 'update').mockResolvedValue(testExperiment)
-            } else {
-                jest.spyOn(api, 'update').mockRejectedValue(new Error('network down'))
-            }
-            const reloads = ['loadPrimaryMetricsResults', 'loadSecondaryMetricsResults', 'refreshExperimentResults']
 
-            await expectLogic(logic, () => {
-                logic.actions.updateMetricBreakdown('shared-metric-uuid', browserBreakdown)
+            afterEach(() => {
+                // clearMocks resets the calls but keeps the implementations, so a spy left in place would answer
+                // every later test in this file.
+                updateSpy.mockRestore()
+                captureSpy.mockRestore()
             })
-                .toDispatchActions(reloaded)
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(reloads.filter((action) => !reloaded.includes(action)))
+
+            it.each([
+                { location: 'an inline primary metric', uuid: 'inline-primary', isPrimary: true },
+                { location: 'an inline secondary metric', uuid: 'inline-secondary', isPrimary: false },
+                { location: 'a shared primary metric', uuid: 'shared-primary', isPrimary: true },
+                { location: 'a shared secondary metric', uuid: 'shared-secondary', isPrimary: false },
+            ])('on $location saves the edit and reloads its section', async ({ uuid, isPrimary }) => {
+                const reload = isPrimary ? 'loadPrimaryMetricsResults' : 'loadSecondaryMetricsResults'
+
+                // toNotHaveDispatchedActions searches only the history after the last match. The earlier tests in
+                // this block do not wait for their saves, so a late save can dispatch a reload into this test.
+                // Match the change first to skip that, and check the absent actions before matching the reload.
+                await expectLogic(logic, () => {
+                    change(uuid)
+                })
+                    .toDispatchActions([action])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions([
+                        ...legacyReloads.filter((reloadAction) => reloadAction !== reload),
+                        'refreshExperimentResults',
+                    ])
+                    .toDispatchActions([reload])
+
+                const editInline = (metric: ExperimentMetric): ExperimentMetric =>
+                    metric.uuid === uuid ? ({ ...metric, ...inlineEdit } as ExperimentMetric) : metric
+                const isShared = uuid.startsWith('shared')
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+                expect(updateSpy).toHaveBeenCalledWith(expect.any(String), {
+                    metrics: (metricConfigExperiment.metrics as ExperimentMetric[]).map(editInline),
+                    metrics_secondary: (metricConfigExperiment.metrics_secondary as ExperimentMetric[]).map(editInline),
+                    update_feature_flag_params: false,
+                    ...(isShared && {
+                        saved_metrics_ids: (metricConfigExperiment.saved_metrics as ExperimentSavedMetric[]).map(
+                            ({ saved_metric, query, metadata }) => ({
+                                id: saved_metric,
+                                metadata: query.uuid === uuid ? { ...metadata, ...sharedEdit } : metadata,
+                            })
+                        ),
+                    }),
+                })
+                expect(breakdownEvents()).toEqual(expectedBreakdownEvents(uuid, isPrimary))
+            })
+
+            it.each([
+                { edit: 'a metric the experiment does not have', run: () => change('missing-metric') },
+                ...noOpEdits,
+            ])('skips the save, the reload and the event for $edit', async ({ run }) => {
+                await expectLogic(logic, () => {
+                    run()
+                })
+                    .toDispatchActions([action])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['updateExperiment', ...legacyReloads, 'refreshExperimentResults'])
+
+                expect(breakdownEvents()).toEqual([])
+            })
+
+            it('refreshes results on the recalculation flow', async () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+
+                await expectLogic(logic, () => {
+                    change('inline-secondary')
+                })
+                    .toDispatchActions([action])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(legacyReloads)
+                    .toDispatchActions([
+                        (dispatched) =>
+                            dispatched.type === logic.actionTypes.refreshExperimentResults &&
+                            dispatched.payload.forceRefresh === true &&
+                            dispatched.payload.triggeredBy === 'metric_config_change',
+                    ])
+            })
+
+            it('skips the reload when the save fails', async () => {
+                updateSpy.mockRejectedValue(new Error('network down'))
+
+                await expectLogic(logic, () => {
+                    change('shared-primary')
+                })
+                    .toDispatchActions([action])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions([...legacyReloads, 'refreshExperimentResults'])
+                    .toDispatchActions(['updateExperimentFailure'])
+
+                // The event reports the user action, so it fires before the save and does not wait for it.
+                expect(breakdownEvents()).toEqual(expectedBreakdownEvents('shared-primary', true))
+            })
+
+            it('finishes a save that outlives the page', async () => {
+                let saveStarted: () => void = () => {}
+                const started = new Promise<void>((resolve) => {
+                    saveStarted = resolve
+                })
+                let finishSave: () => void = () => {}
+                updateSpy.mockImplementation(
+                    () =>
+                        new Promise((resolve) => {
+                            finishSave = () => resolve(metricConfigExperiment)
+                            saveStarted()
+                        })
+                )
+
+                change('inline-primary')
+                await started
+                logic.unmount()
+                finishSave()
+
+                // A `values` read after the save would throw "[KEA] Can not find path" into the listener.
+                await expectLogic(logic).toFinishAllListeners()
+            })
         })
     })
 
@@ -2527,13 +2731,46 @@ describe('experimentLogic', () => {
                 ...overrides,
             }) as Experiment
 
+        const healthFinding = (
+            code: ExperimentHealthFindingApi['code'],
+            subcode: string | null,
+            evidence: ExperimentHealthFindingApi['evidence'] = {}
+        ): ExperimentHealthFindingApi => ({
+            code,
+            subcode,
+            severity: 'warning',
+            title: '',
+            detail: '',
+            evidence,
+            actions: [],
+            diagnostic_ref: null,
+        })
+
+        const flag = (
+            active: boolean,
+            filters: FeatureFlagFilters,
+            overrides: Partial<FeatureFlagBasicType> = {}
+        ): FeatureFlagBasicType => ({
+            id: 1,
+            team_id: 1,
+            key: 'flag',
+            name: '',
+            filters,
+            deleted: false,
+            active,
+            ensure_experience_continuity: null,
+            ...overrides,
+        })
+
+        const running = { start_date: '2020-01-01', end_date: undefined }
+
         it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
             {
                 desc: 'running experiment with active flag and normal rollout',
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2542,7 +2779,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: { key: 'running_but_flag_disabled' },
             },
@@ -2551,7 +2788,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
             },
@@ -2560,7 +2797,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2569,12 +2806,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag',
-                        active: true,
-                        filters: zeroRolloutShippedVariantFilters,
-                    } as any,
+                    feature_flag: flag(true, zeroRolloutShippedVariantFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2583,7 +2815,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2592,7 +2824,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2601,7 +2833,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2610,7 +2842,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: null,
             },
@@ -2620,7 +2852,7 @@ describe('experimentLogic', () => {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
                     archived: true,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2629,7 +2861,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'not_started_but_multiple_variants_rolled_out' },
             },
@@ -2638,7 +2870,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2647,7 +2879,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2656,13 +2888,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
                 },
                 expected: null,
             },
@@ -2671,19 +2897,81 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
+                },
+                expected: null,
+            },
+            {
+                desc: 'server finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                },
+                expected: { key: 'running_but_flag_disabled' },
+            },
+            {
+                desc: 'server without a finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [] },
+                },
+                expected: null,
+            },
+            {
+                desc: 'server shipped-variant finding carries the variant key',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, shippedVariantFilters),
+                    health: {
+                        findings: [
+                            healthFinding('no_metric', null),
+                            healthFinding('variant_shipped_while_running', 'running_but_single_variant_shipped', {
+                                variant_key: 'test',
+                            }),
+                        ],
+                    },
+                },
+                expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
+            },
+            {
+                desc: 'server finding of another code is no flag-state warning',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [healthFinding('no_metric', null)] },
                 },
                 expected: null,
             },
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+
+        it('applies the local rules after a local flag write makes the server findings stale', () => {
+            logic.actions.setExperiment(
+                createExperiment({
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [] },
+                })
+            )
+            expect(logic.values.experimentWarning).toBeNull()
+
+            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+
+            expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
+        })
+
+        it('keeps null health after a local flag write, so a reader without the flag still has no findings', () => {
+            logic.actions.setExperiment(
+                createExperiment({ ...running, feature_flag: flag(true, multivariantFilters), health: null })
+            )
+
+            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+
+            expect(logic.values.experiment.health).toBeNull()
         })
     })
 
@@ -2831,6 +3119,28 @@ describe('experimentLogic', () => {
             expect(sentBody.parameters).toBeUndefined()
             expect(sentBody.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
             expect(sentBody.excluded_variants).toHaveLength(2)
+        })
+
+        it('builds a toggle sent while another one is unsaved on top of that change', async () => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            const existingExperiment = { ...experiment, excluded_variants: ['test-1'] } as Experiment
+            const echoExclusions = async (_url: string, body: unknown): Promise<Experiment> => ({
+                ...existingExperiment,
+                excluded_variants: (body as Partial<Experiment>).excluded_variants,
+            })
+            api.update.mockImplementationOnce(echoExclusions).mockImplementationOnce(echoExclusions)
+            logic.actions.setExperiment(existingExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.setVariantExcluded('test-2', true)
+                logic.actions.setVariantExcluded('test-3', true)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(2)
+            const secondBody = api.update.mock.calls[1][1] as Partial<Experiment>
+            expect(secondBody.excluded_variants).toEqual(['test-1', 'test-2', 'test-3'])
+            expect(logic.values.excludedVariants).toEqual(['test-1', 'test-2', 'test-3'])
         })
 
         it('setVariantExcluded(key, false) removes the key from the exclusion list', async () => {

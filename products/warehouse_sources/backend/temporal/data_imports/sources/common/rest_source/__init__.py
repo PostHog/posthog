@@ -284,6 +284,15 @@ def _make_paginate_dependent_resource(
     return paginate_dependent_resource
 
 
+def _retry_limit_overrides(client_config: ClientConfig) -> dict[str, float]:
+    # Passed only when a source sets them, so a client built with neither keeps the settings.
+    return {
+        key: client_config[key]  # type: ignore[literal-required]
+        for key in ("retry_budget_seconds", "retry_after_max_seconds")
+        if key in client_config
+    }
+
+
 def create_resources(
     client_config: ClientConfig,
     dependency_graph: graphlib.TopologicalSorter,
@@ -343,6 +352,7 @@ def create_resources(
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
             capture=client_config.get("capture", True),
+            **_retry_limit_overrides(client_config),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)

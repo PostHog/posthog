@@ -497,6 +497,12 @@ def _write_leaf(item: dict, path: tuple[str, ...], value: Any) -> None:
     item[path[-1]] = value
 
 
+def apply_approved_proposals_for_flow(hog_flow: HogFlow) -> None:
+    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
+        status=WorkflowProposal.Status.APPLIED, applied_version=hog_flow.version
+    )
+
+
 def unstage_proposals_for_flow(hog_flow: HogFlow) -> None:
     """Put back in the queue any approved suggestion whose change the draft no longer carries.
 

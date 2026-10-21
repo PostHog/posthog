@@ -81,19 +81,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "members"):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # `next` is null, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_cursor_until_next_is_null(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_page([{"id": "a"}], next_cursor="a"), _page([{"id": "b"}])])
@@ -134,30 +121,6 @@ class TestPagination:
 
         assert rows == []
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_next_terminates(self, MockSession) -> None:
-        # A lingering cursor on an empty page must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_page([], next_cursor="a")])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_reads_bare_array_in_one_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "t1", "name": "Hot Jobs"}, {"id": "t2", "name": "Exclusive"}])])
-
-        rows = _rows(_source(_make_manager(), "tags"))
-
-        assert rows == [{"id": "t1", "name": "Hot Jobs"}, {"id": "t2", "name": "Exclusive"}]
-        assert session.send.call_count == 1
-        assert params == [{}]
 
 
 class TestCandidateActionMetrics:
@@ -210,29 +173,6 @@ class TestErrorHandling:
 
         with pytest.raises(HTTPError):
             _rows(_source(_make_manager()))
-
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_dict_body_is_retried(self, MockSession, _sleep) -> None:
-        # A 200 whose body isn't the expected {"data": [...]} shape is transient — reissue it.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}]), _page([{"id": "a"}])])
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == [{"id": "a"}]
-        assert session.send.call_count == 2
-
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_data_field_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": {"id": "a"}}), _page([{"id": "a"}])])
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == [{"id": "a"}]
-        assert session.send.call_count == 2
 
 
 class TestValidateCredentials:

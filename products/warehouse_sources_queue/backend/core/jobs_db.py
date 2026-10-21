@@ -1741,6 +1741,29 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def release_queue_gauges_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        slot_key: str = QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX,
+    ) -> bool:
+        """Delete the gauge slot row if ``owner_token`` still holds it; True means a row was deleted.
+
+        One statement, so a pod that lost the slot to another pod cannot delete the
+        new holder's row. After the delete, the next acquire inserts a fresh row at once.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                DELETE FROM {LEASE_TABLE}
+                WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                RETURNING 1
+                """,
+                {"team_id": RECONCILE_SWEEP_LEASE_TEAM_ID, "schema_id": slot_key, "owner": owner_token},
+            )
+            return (await cur.fetchone()) is not None
+
+    @staticmethod
     async def renew_lease(
         conn: psycopg.AsyncConnection[Any],
         *,

@@ -43,6 +43,29 @@ PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=s
 # source loading.
 PREWARM_WAREHOUSE_SOURCE_REGISTRY = get_from_env("PREWARM_WAREHOUSE_SOURCE_REGISTRY", False, type_cast=str_to_bool)
 
+# Default (connect, read) timeout in seconds for an HTTP request that an import source sends with no
+# timeout of its own. The read value is the longest silence between two socket reads, not a limit on
+# the whole response. A source that needs more passes its own timeout, which always wins.
+DATA_WAREHOUSE_SOURCE_CONNECT_TIMEOUT_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_SOURCE_CONNECT_TIMEOUT_SECONDS", 30.0, type_cast=float
+)
+DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS", 300.0, type_cast=float
+)
+
+# Longest time in seconds that one source request may spend on retries, from its first failure. No
+# new try starts after it. A client can pass its own value when a vendor's rate limit window is longer.
+DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 600.0, type_cast=float
+)
+
+# Longest server-provided retry delay (`Retry-After` or a rate limit reset header) in seconds that
+# the shared REST client and the request pacer wait for. The REST client fails the request with a
+# retryable error when the server asks for more, and the pacer holds for this long at most.
+DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS", 300.0, type_cast=float
+)
+
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
 # egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
 # own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass

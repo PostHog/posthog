@@ -1,7 +1,7 @@
 """
 Conflicting states of an experiment and its feature flag. Pure functions, no I/O.
 
-A port of the page's `experimentWarning` selector (frontend/src/scenes/experiments/experimentLogic.tsx)
+A port of the page's `browserExperimentWarning` selector (frontend/src/scenes/experiments/experimentLogic.tsx)
 and the flag helpers it calls (`hasZeroRollout`, `hasMultipleVariantsActive`, `isSingleVariantShipped`).
 Change both sides together until the page reads these findings.
 """

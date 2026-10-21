@@ -428,6 +428,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ExportAssetActivityInputs(
                         exported_asset_id=asset_id,
                         source=EventSource.SUBSCRIPTION,
+                        bypass_warehouse_access_control=True,
                     ),
                     start_to_close_timeout=dt.timedelta(hours=1),
                     heartbeat_timeout=dt.timedelta(minutes=2),

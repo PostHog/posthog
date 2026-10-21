@@ -4,10 +4,12 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 
@@ -82,3 +84,33 @@ class TestTaskCaptureEvent(TestCase):
         events = {call.kwargs["event"] for call in capture.call_args_list}
         expected = set() if suppressed else {"task_created", "task_run_created", "task_updated", "task_run_completed"}
         self.assertEqual(events, expected)
+
+    @parameterized.expand(
+        [
+            ("slack_task_reports_its_thread", Task.OriginProduct.SLACK, "T1:C1:1700000000.000100"),
+            ("other_origin_reports_none", Task.OriginProduct.USER_CREATED, None),
+        ]
+    )
+    def test_run_events_carry_the_slack_thread_they_answer(
+        self, _name: str, origin_product: str, expected: str | None
+    ) -> None:
+        task = self._task()
+        task.origin_product = origin_product
+        task.save(update_fields=["origin_product"])
+        run = TaskRun.objects.create(task=task, team=self.team)
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T1",
+            channel="C1",
+            thread_ts="1700000000.000100",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U1",
+        )
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+            run.capture_event("task_run_completed")
+
+        self.assertEqual(capture.call_args.kwargs["properties"]["slack_session_id"], expected)

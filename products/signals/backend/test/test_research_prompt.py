@@ -574,6 +574,28 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+class TestReportPresentationOutputSourceSuggestion:
+    @pytest.mark.parametrize(
+        "suggestion",
+        [
+            {"product": "feature_flags", "reason": "Not a product the inbox can suggest."},
+            {"product": "logs", "reason": ""},
+            {"product": "logs"},
+        ],
+    )
+    def test_a_malformed_suggestion_is_dropped_and_the_prose_survives(self, suggestion):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(checkout): Handle the timeout",
+                "summary": "Checkout times out for 4% of users.",
+                "source_suggestion": suggestion,
+            }
+        )
+
+        assert parsed.source_suggestion is None
+        assert parsed.summary == "Checkout times out for 4% of users."
+
+
 _WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_window_days": 7}
 
 

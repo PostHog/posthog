@@ -4,6 +4,9 @@ from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
+from products.experiments.backend.models.experiment import Experiment
+
 
 @frozen
 class FlagVariant:
@@ -48,12 +51,7 @@ class HealthContext:
         return self.is_launched and not self.has_ended
 
 
-def parse_flag_state(*, active: bool, deleted: bool, filters: object) -> FlagState:
-    if not isinstance(filters, dict):
-        filters = {}
-    groups = filters.get("groups")
-    multivariate = filters.get("multivariate")
-    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
+def parse_flag_state(*, active: bool, deleted: bool, groups: object, variants: object) -> FlagState:
     return FlagState(
         active=active,
         deleted=deleted,
@@ -88,3 +86,27 @@ def _percentage(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
+
+
+def _load_flag_state(experiment: Experiment) -> FlagState | None:
+    # django-stubs types the id as int, but an unsaved instance can carry None.
+    feature_flag_id: int | None = experiment.feature_flag_id
+    if feature_flag_id is None:
+        return None
+    flag = experiment.feature_flag
+    return parse_flag_state(
+        active=bool(flag.active), deleted=bool(flag.deleted), groups=flag.conditions, variants=flag.variants
+    )
+
+
+def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
+    shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
+    return HealthContext(
+        is_launched=experiment.is_launched,
+        has_ended=experiment.is_stopped,
+        archived=experiment.archived,
+        flag=_load_flag_state(experiment),
+        primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
+        secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
+        exposures=exposures,
+    )

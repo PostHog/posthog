@@ -1,7 +1,9 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
+    eventsWithMoveNotice,
     hiddenEventMatchingSearch,
     hiddenEventNames,
+    moveAnnouncementUrl,
     withHiddenEventsExcluded,
 } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 
@@ -24,6 +26,30 @@ describe('events hidden from query builders', () => {
         ['the picker opts out', FlagEvaluationsModeEnumApi.Number1, true],
     ])('hides nothing when %s', (_label, mode, includeHiddenEvents) => {
         expect(hiddenEventNames(mode, includeHiddenEvents)).toEqual([])
+    })
+
+    it.each([
+        ['mode 0 with the notices on', FlagEvaluationsModeEnumApi.Number0, true, ['$feature_flag_called']],
+        ['no mode with the notices on', undefined, true, ['$feature_flag_called']],
+        ['mode 0 with the notices off', FlagEvaluationsModeEnumApi.Number0, false, []],
+        ['mode 1 with the notices on', FlagEvaluationsModeEnumApi.Number1, true, []],
+    ])('warns about moving events on %s', (_label, mode, moveNoticesEnabled, expected) => {
+        expect(eventsWithMoveNotice(mode, moveNoticesEnabled)).toEqual(expected)
+    })
+
+    it.each([
+        [
+            'an https link',
+            { url: 'https://posthog.com/changelog/flag-calls' },
+            'https://posthog.com/changelog/flag-calls',
+        ],
+        ['no link yet', { url: null }, null],
+        ['no payload', undefined, null],
+        ['text that is not a URL', { url: 'soon' }, null],
+        ['an http link', { url: 'http://posthog.com/changelog/flag-calls' }, null],
+        ['a javascript link', { url: 'javascript:alert(1)' }, null],
+    ])('links the announcement for %s', (_label, payload, expected) => {
+        expect(moveAnnouncementUrl(payload)).toEqual(expected)
     })
 
     describe('withHiddenEventsExcluded', () => {

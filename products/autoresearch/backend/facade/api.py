@@ -19,9 +19,10 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Prefetch, Q
+from django.db.models import Count, F, Prefetch, Q
 from django.utils import timezone as django_timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
@@ -38,7 +39,7 @@ from ..dataset.validation import (
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
-from ..evaluation.history import latest_validation_runs
+from ..evaluation.history import latest_validation_runs, realized_auc_trends
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -68,6 +69,7 @@ from .contracts import (
     InvalidTarget,
     Iteration,
     IterationTrailEntry,
+    LiveTrainingRun,
     MaterializedFeatures,
     Model,
     OnlinePerformance,
@@ -76,6 +78,7 @@ from .contracts import (
     PipelineNotFound,
     PipelineValidation,
     PipelineWrite,
+    RealizedAucPoint,
     ResolvedTemplate,
     Run,
     StoredArtifact,
@@ -105,6 +108,8 @@ _AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
 MAX_BUNDLE_FILES = 32
 
 HISTORY_LIMIT_MAX = 20
+
+REALIZED_AUC_TREND_DATES = 14
 
 ONLINE_PERFORMANCE_DATES_DEFAULT = 60
 ONLINE_PERFORMANCE_DATES_MAX = 180
@@ -142,10 +147,105 @@ def _champion_lift_at_10(champion: AutoresearchModel | None) -> float | None:
     return float(lift) if isinstance(lift, int | float) else None
 
 
+@frozen
+class _PipelineActivity:
+    champion_realized_auc_trend: list[RealizedAucPoint]
+    people_scored: int | None
+    training_run_count: int
+    experiment_count: int
+    live_training_run: LiveTrainingRun | None
+
+
+def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
+    # The run's own counters land only at completion, so progress comes from the live iteration rows.
+    scores = [i.holdout_score for i in iterations if i.holdout_score is not None]
+    return LiveTrainingRun(
+        id=run.id,
+        iteration_budget=run.iteration_budget,
+        experiment_count=len(iterations),
+        best_holdout_score=max(scores) if scores else None,
+        latest_agent_description=iterations[-1].agent_description if iterations else "",
+    )
+
+
+def _pipeline_activity(
+    team_id: int, pipeline_ids: list[UUID], champions: dict[UUID, AutoresearchModel]
+) -> dict[UUID, _PipelineActivity]:
+    """Counts, live training progress and realized AUC trend per pipeline, in a fixed number of queries."""
+    if not pipeline_ids:
+        return {}
+    training_run_counts = dict(
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(pipeline_id__in=pipeline_ids)
+        .values("pipeline_id")
+        .annotate(n=Count("id"))
+        .values_list("pipeline_id", "n")
+    )
+    experiment_counts = dict(
+        AutoresearchIteration.objects.for_team(team_id)
+        .filter(pipeline_id__in=pipeline_ids)
+        .values("pipeline_id")
+        .annotate(n=Count("id"))
+        .values_list("pipeline_id", "n")
+    )
+    people_scored = dict(
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            pipeline_id__in=pipeline_ids,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.COMPLETED,
+            rows_scored__isnull=False,
+        )
+        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
+        .distinct("pipeline_id")
+        .values_list("pipeline_id", "rows_scored")
+    )
+    live_runs = {
+        run.pipeline_id: run
+        for run in AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(
+            pipeline_id__in=pipeline_ids,
+            status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
+        )
+        .order_by("pipeline_id", "-created_at")
+        .distinct("pipeline_id")
+    }
+    live_iterations: dict[UUID, list[AutoresearchIteration]] = {}
+    for iteration in (
+        AutoresearchIteration.objects.for_team(team_id)
+        .filter(training_run_id__in=[run.id for run in live_runs.values()])
+        .only("training_run_id", "holdout_score", "agent_description")
+        .order_by("training_run_id", "iteration_number")
+    ):
+        live_iterations.setdefault(iteration.training_run_id, []).append(iteration)
+    trends = realized_auc_trends(
+        team_id,
+        {pipeline_id: champion.id for pipeline_id, champion in champions.items()},
+        dates=REALIZED_AUC_TREND_DATES,
+    )
+    return {
+        pipeline_id: _PipelineActivity(
+            champion_realized_auc_trend=[
+                RealizedAucPoint(prediction_date=d, realized_auc=auc) for d, auc in trends.get(pipeline_id, [])
+            ],
+            people_scored=people_scored.get(pipeline_id),
+            training_run_count=training_run_counts.get(pipeline_id, 0),
+            experiment_count=experiment_counts.get(pipeline_id, 0),
+            live_training_run=(
+                _live_training_run(live_runs[pipeline_id], live_iterations.get(live_runs[pipeline_id].id, []))
+                if pipeline_id in live_runs
+                else None
+            ),
+        )
+        for pipeline_id in pipeline_ids
+    }
+
+
 def _pipeline_to_contract(
     row: AutoresearchPipeline,
     *,
     champion: AutoresearchModel | None = None,
+    activity: _PipelineActivity,
 ) -> Pipeline:
     return Pipeline(
         id=row.id,
@@ -176,12 +276,18 @@ def _pipeline_to_contract(
         champion_realized_auc=champion.realized_score if champion else None,
         champion_lift_at_10=_champion_lift_at_10(champion),
         champion_is_preliminary=champion.is_preliminary if champion else None,
+        champion_realized_auc_trend=activity.champion_realized_auc_trend,
+        people_scored=activity.people_scored,
+        training_run_count=activity.training_run_count,
+        experiment_count=activity.experiment_count,
+        live_training_run=activity.live_training_run,
     )
 
 
 def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     champion = row.models.filter(role=AutoresearchModel.Role.CHAMPION).order_by("-created_at").first()
-    return _pipeline_to_contract(row, champion=champion)
+    activity = _pipeline_activity(row.team_id, [row.id], {row.id: champion} if champion else {})
+    return _pipeline_to_contract(row, champion=champion, activity=activity[row.id])
 
 
 def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
@@ -355,19 +461,22 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         .order_by("-created_at")
     )
     count = qs.count()
-    rows = qs[offset : offset + limit].prefetch_related(
-        Prefetch(
-            "models",
-            queryset=AutoresearchModel.objects.for_team(team_id)
-            .filter(role=AutoresearchModel.Role.CHAMPION)
-            .order_by("-created_at"),
-            to_attr="prefetched_champions",
+    rows = list(
+        qs[offset : offset + limit].prefetch_related(
+            Prefetch(
+                "models",
+                queryset=AutoresearchModel.objects.for_team(team_id)
+                .filter(role=AutoresearchModel.Role.CHAMPION)
+                .order_by("-created_at"),
+                to_attr="prefetched_champions",
+            )
         )
     )
-    pipelines = []
-    for row in rows:
-        champions: list[AutoresearchModel] = row.prefetched_champions
-        pipelines.append(_pipeline_to_contract(row, champion=champions[0] if champions else None))
+    champions: dict[UUID, AutoresearchModel] = {
+        row.id: row.prefetched_champions[0] for row in rows if row.prefetched_champions
+    }
+    activity = _pipeline_activity(team_id, [row.id for row in rows], champions)
+    pipelines = [_pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]) for row in rows]
     return pipelines, count
 
 

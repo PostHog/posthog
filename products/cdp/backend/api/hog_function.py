@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -28,7 +29,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
-from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
+from posthog.cdp.internal_events import (
+    generic_api_editable_alert_scope,
+    is_managed_alert_internal_event,
+    is_reserved_internal_event,
+)
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -54,6 +59,7 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
+from posthog.scopes import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
@@ -339,6 +345,31 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
+
+
+_AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]
+
+
+def _managed_alert_markers(filters: Optional[dict]) -> Optional[_AlertMarkers]:
+    """The parts of a filter set that make a destination alert-owned: the managed alert events it
+    follows and the alert_id properties that pin it to an alert. None when it follows no managed
+    alert event. The alert layer finds a destination by its event ids and alert_id values, so a
+    change to those strands the row; the rest of the alert_id entry counts too, since another
+    operator or property type would make the row fire for other alerts."""
+    filters = filters or {}
+    events = frozenset(
+        (event_filter.get("id"), event_filter.get("type"))
+        for event_filter in filters.get("events") or []
+        if isinstance(event_filter, dict) and is_managed_alert_internal_event(event_filter.get("id"))
+    )
+    if not events:
+        return None
+    alert_ids = frozenset(
+        json.dumps(property_filter, sort_keys=True)
+        for property_filter in filters.get("properties") or []
+        if isinstance(property_filter, dict) and property_filter.get("key") == "alert_id"
+    )
+    return events, alert_ids
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
@@ -630,25 +661,41 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        current_filters = instance.filters if isinstance(instance, HogFunction) else {}
+        proposed_filters = attrs.get("filters", current_filters)
+
         if not self.context.get("allow_managed_alert_destination"):
-            current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
-            proposed_filters = attrs.get("filters", current_filters)
-            current_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (current_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            proposed_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (proposed_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            if current_is_managed or proposed_is_managed:
+            # The alert API owns which alert a destination belongs to and removes a destination group
+            # as a whole; a removed one is added back there, not restored here. Everything else about
+            # the function stays editable here.
+            current_markers = _managed_alert_markers(current_filters)
+            if current_markers is not None and not all(
+                generic_api_editable_alert_scope(event_id) for event_id, _ in current_markers[0]
+            ):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+            if _managed_alert_markers(proposed_filters) != current_markers:
+                message = (
+                    "Alert notification destinations are managed through the alert API."
+                    if current_markers is None
+                    else "The alert this destination belongs to cannot be changed. "
+                    "Manage it from the alert's notification settings."
+                )
+                raise serializers.ValidationError({"filters": message})
+            if (
+                isinstance(instance, HogFunction)
+                and current_markers is not None
+                and attrs.get("deleted", instance.deleted) != instance.deleted
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "deleted": "Remove this destination from the alert's notification settings instead. "
+                        "A removed destination is added back from there, not restored here."
+                    }
+                )
 
-        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
         reserved = sorted(
             {
                 event_filter["id"]
@@ -1024,7 +1071,46 @@ class HogFunctionViewSet(
     log_source = "hog_function"
     app_source = "hog_function"
 
+    def _editable_alert_scope(self) -> Optional[str]:
+        """The owning product's scope object when this request writes to an alert destination."""
+        # The draft actions (restore_revision, then publish) and rerun also change or replay what the
+        # destination delivers, so every write action needs the scope.
+        hog_function_id = self.kwargs.get("pk")
+        if self.action not in self.scope_object_write_actions or not hog_function_id:
+            return None
+        if not hasattr(self, "_cached_editable_alert_scope"):
+            try:
+                filters = (
+                    HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
+                    .values_list("filters", flat=True)
+                    .first()
+                )
+            except (ValueError, DjangoValidationError):
+                filters = None
+            scopes = {
+                generic_api_editable_alert_scope(event_filter.get("id"))
+                for event_filter in (filters or {}).get("events") or []
+                if isinstance(event_filter, dict)
+            }
+            scopes.discard(None)
+            self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
+        return self._cached_editable_alert_scope
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        alert_scope = self._editable_alert_scope()
+        if alert_scope and not self.user_access_control.check_access_level_for_resource(
+            cast(APIScopeObject, alert_scope), required_level="editor"
+        ):
+            raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # A managed alert destination is also gated by the owning product's write scope, so a
+        # token that cannot configure the alert cannot redirect its notifications either.
+        required_scopes = ["hog_function:write"]
+        alert_scope = self._editable_alert_scope()
+        if alert_scope:
+            required_scopes.append(f"{alert_scope}:write")
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use
@@ -1033,8 +1119,8 @@ class HogFunctionViewSet(
         # — the same data-read scopes the invocation-inspection paths require.
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
-            return ["hog_function:write", "person:read", "group:read"]
-        return None
+            required_scopes += ["person:read", "group:read"]
+        return required_scopes if len(required_scopes) > 1 else None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":

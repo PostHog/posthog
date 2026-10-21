@@ -628,6 +628,13 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            team = user.team
+            if team and not user_access_control.has_project_access:
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
@@ -974,7 +981,7 @@ async def initialize_self_capture_api_token():
     if local_api_key is not None:
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
-        posthoganalytics.host = settings.SITE_URL
+        posthoganalytics.host = settings.SELF_CAPTURE_HOST or settings.SITE_URL
 
         # ready() wires the flag-definition provider only when posthoganalytics is enabled at
         # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.

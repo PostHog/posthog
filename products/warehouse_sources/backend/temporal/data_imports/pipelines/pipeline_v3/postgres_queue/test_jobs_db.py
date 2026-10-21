@@ -160,6 +160,33 @@ class TestQueueGaugesSlot:
         assert acquired is expected
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "releaser,released,next_pod_acquires",
+        [
+            # The holder frees the slot, so the next pod samples at once, not after the TTL.
+            ("pod-a", True, True),
+            # A pod that lost the slot must not delete the new holder's row.
+            ("pod-b", False, False),
+        ],
+    )
+    async def test_release_only_frees_the_holders_slot(self, conn, conn_b, releaser, released, next_pod_acquires):
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
+
+        assert await BatchQueue.release_queue_gauges_slot(conn, owner_token=releaser) is released
+
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn_b, owner_token="pod-c") is next_pod_acquires
+
+    @pytest.mark.asyncio
+    async def test_release_leaves_other_fleets_slots(self, conn, conn_b):
+        other_key = "__queue-gauges__:only:cdc"
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a", slot_key=other_key)
+
+        await BatchQueue.release_queue_gauges_slot(conn, owner_token="pod-a")
+
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn_b, owner_token="pod-b", slot_key=other_key) is False
+
+    @pytest.mark.asyncio
     async def test_gauge_slot_does_not_take_the_sweep_slot(self, conn, conn_b):
         assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
         assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True

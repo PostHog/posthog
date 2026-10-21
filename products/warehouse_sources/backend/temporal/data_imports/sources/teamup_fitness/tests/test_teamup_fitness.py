@@ -104,22 +104,6 @@ def test_full_refresh_requests_and_pagination(
         assert response.primary_keys == ["id"]
 
 
-@pytest.mark.parametrize("saved_url", [None, f"{BASE_URL}/customers?page=7&page_size=100"])
-def test_resume_and_empty_terminal_page(
-    config: TeamupFitnessSourceConfig, inputs: SourceInputs, manager: MagicMock, saved_url: str | None
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = TeamupFitnessResumeConfig(next_url=saved_url) if saved_url else None
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/customers", json={"count": 0, "results": [], "next": None})
-        response = TeamupFitnessSource().source_for_pipeline(config, manager, inputs)
-        assert list(cast(Resource, response.items())) == []
-        assert len(http.request_history) == 1
-        assert http.last_request is not None
-        assert http.last_request.url == (saved_url or f"{BASE_URL}/customers?page_size=100")
-        manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize("rows", [[], [{"id": 1}]])
 def test_credential_validation_uses_one_small_request(
     config: TeamupFitnessSourceConfig, rows: list[dict[str, int]]

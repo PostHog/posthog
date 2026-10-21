@@ -72,7 +72,7 @@ class _DigestNotificationTestBase(APIBaseTest):
 
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.weekly_digest.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **_kwargs: _make_team_digest(team),
         )
         self.mock_build_digest = self.build_digest_patcher.start()
 
@@ -144,7 +144,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         self.mock_create_notification.assert_not_called()
 
     def test_org_with_no_wa_data_is_skipped(self):
-        self.mock_build_digest.side_effect = lambda team: _make_team_digest(team, visitors=0)
+        self.mock_build_digest.side_effect = lambda team, **_kwargs: _make_team_digest(team, visitors=0)
 
         counts = _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
 
@@ -154,7 +154,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_a_failing_team_is_left_out_and_counted(self):
         broken_team = Team.objects.create(organization=self.organization, name="Broken team")
 
-        def build(team):
+        def build(team, **_kwargs):
             if team.id == broken_team.id:
                 raise TimeoutError("Query timed out")
             return _make_team_digest(team)
@@ -178,7 +178,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_raises_when_the_only_teams_with_data_may_be_the_failed_ones(self):
         broken_team = Team.objects.create(organization=self.organization, name="Broken team")
 
-        def build(team):
+        def build(team, **_kwargs):
             if team.id == broken_team.id:
                 raise TimeoutError("Query timed out")
             return _make_team_digest(team, visitors=0)
@@ -193,7 +193,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_busiest_team_is_selected_when_user_has_multiple(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
-        def digest_by_team(team):
+        def digest_by_team(team, **_kwargs):
             visitors = 500 if team.id == team_b.id else 10
             return _make_team_digest(team, visitors=visitors)
 

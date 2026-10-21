@@ -270,6 +270,25 @@ def _names_person(team_id: int, user: User) -> Q:
     )
 
 
+def report_ids_naming_user(*, team_id: int, user: User, report_ids: Sequence[str]) -> set[str]:
+    """Which of these reports still name the person as a suggested reviewer.
+
+    A briefing is a saved list, so an item it picked because the report named the person can outlive
+    that fact. Reading membership live is what lets a reader tell a report they stepped off from one
+    that is still theirs.
+    """
+    if not report_ids:
+        return set()
+    github_login = user.get_github_login()
+    naming = report_ids_naming_reviewers(
+        team_id=team_id,
+        user_uuids=[str(user.uuid)],
+        github_logins=[github_login.lower()] if github_login else [],
+        logins_match_unidentified_only=False,
+    ).filter(report_id__in=list(report_ids))
+    return {str(row["report_id"]) for row in naming}
+
+
 def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[str]]:
     """Per report, the products its signals came from. A ClickHouse failure costs the colors, not the reports."""
     if not report_ids:

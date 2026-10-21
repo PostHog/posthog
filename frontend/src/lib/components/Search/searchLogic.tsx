@@ -552,6 +552,9 @@ export const searchLogic = kea<searchLogicType>([
                             {
                                 search: trimmed,
                                 limit: SEARCH_LIMIT,
+                                include_churned: true,
+                                include_ignored: true,
+                                inactive_last: true,
                             },
                             { signal: cache.searchAbortController?.signal }
                         )

@@ -151,11 +151,10 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
-    get_app_org_rate_limiter,
     get_materialized_endpoints_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
@@ -330,6 +329,9 @@ class QueryRun:
 
     cache_key: str
     query_identity: QueryIdentity
+    # The query as the runner received it, serialized as the cache key serializes it (defaults
+    # and None dropped, tags removed), so the events can be queried by what was asked.
+    query: dict[str, Any]
     query_id: Optional[str]
     execution_mode: ExecutionMode
     query_type: str
@@ -343,7 +345,7 @@ class QueryRun:
     def elapsed_ms(self) -> float:
         return round((perf_counter() - self.start_time) * 1000, 2)
 
-    def event_properties(self) -> dict[str, Any]:
+    def event_properties(self, modifiers: HogQLQueryModifiers) -> dict[str, Any]:
         return {
             "query_hash": self.query_identity.query_hash,
             "runtime_hash": self.query_identity.runtime_hash,
@@ -356,6 +358,11 @@ class QueryRun:
             "query_type": self.query_type,
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
+            "query": self.query,
+            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
+            # comment carries. Passed in rather than stored, because the fresh path adds the user's
+            # modifiers after the cache key, and the event has to say what the run actually used.
+            "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
 
@@ -1797,6 +1804,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+ChildRunner = TypeVar("ChildRunner", bound="QueryRunner")
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1840,6 +1848,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # The save-time access check compiles to_query() as the saving user. A trusted delivery may
+    # skip warehouse access control only when that check saw everything the runner executes. A
+    # runner that executes a different query, or narrows the schema to the user's tables instead
+    # of failing, sets this to False and runs the delivery as the creator.
+    save_check_covers_execution: bool = True
 
     def __init__(
         self,
@@ -1863,6 +1876,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._bypass_warehouse_access_control = False
         self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
@@ -1899,6 +1913,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
 
+    def bypass_warehouse_access_control(self) -> None:
+        """Run without warehouse access control, as a trusted job does (see Database.create_for).
+
+        The user stays in place for everything else: system tables, property access control and
+        query attribution. Call this only when the queries were checked against a real user when
+        they were saved, such as a subscription delivery, and never for a client-supplied query.
+        """
+        self._bypass_warehouse_access_control = True
+        # Dropped directly, not through _on_user_changed: a subclass hook may return early when
+        # the user is unchanged, and a database built before this call must not be reused.
+        self._shared_database = None
+
+    def _with_own_bypass(self, child: ChildRunner) -> ChildRunner:
+        """Give a runner this one builds for part of its result the same warehouse access bypass,
+        so a trusted run stays trusted in the queries it delegates."""
+        if self._bypass_warehouse_access_control:
+            child.bypass_warehouse_access_control()
+        return child
+
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -1922,6 +1955,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 user=self.user,
                 user_access_control=self.user_access_control,
                 modifiers=self.modifiers,
+                bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                 trigger="shared_kill_switch",
             )
         if self._shared_database is None:
@@ -1937,6 +1971,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                             trigger="shared",
                         )
         return self._shared_database
@@ -2294,15 +2329,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(
-                    get_app_org_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
-                        limit=get_org_app_concurrency_limit(self.team.organization_id),
-                    )
-                )
+                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
                 limiter_stack.enter_context(
                     get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
@@ -2411,6 +2438,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_run = QueryRun(
                 cache_key=cache_key,
                 query_identity=self._query_identity,
+                query=self._query_for_events,
                 query_id=self.query_id,
                 execution_mode=execution_mode,
                 query_type=query_type,
@@ -2660,7 +2688,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
-            **query_run.event_properties(),
+            **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             "response_time_ms": query_run.elapsed_ms(),
@@ -2693,7 +2721,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             stats = phase.stats
             refused = getattr(error, "served_from_query_failure_cache", False)
             query_failed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -2912,7 +2940,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self._serve_query_scan(response, query_run.user)
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -3189,6 +3217,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
         # fresh run agree, and the payload is built once per run.
         self._query_identity = self._query_identity_for(payload, variant)
+        self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"
 
     def get_cache_key_variant(self) -> str:
@@ -3543,8 +3572,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     @property
     def _bypassed_access_scopes(self) -> frozenset[str]:
-        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
-        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        """Scopes whose access control the principal skips. Service tokens, shared-link viewers and a
+        run that called bypass_warehouse_access_control() skip warehouse access control (see
+        Database.create_for); real users and userless runs bypass nothing."""
+        if self._bypass_warehouse_access_control:
+            return WAREHOUSE_ACCESS_SCOPES
         # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
         user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
         if user is None or isinstance(user, User):
@@ -3560,6 +3592,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         queried_resources = queried_access_controlled_resources(
             self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
         )
+        if queried_resources and self._bypass_warehouse_access_control:
+            # The run reads warehouse tables and views whatever the user's rules say, so those rules
+            # must not partition the key. Otherwise the result would land in the denied user's
+            # entry and be served to them.
+            queried_resources = queried_resources - WAREHOUSE_ACCESS_SCOPES
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
@@ -3670,13 +3707,22 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
+        self.database = Database.create_for(
+            team=self.team,
+            user=user,
+            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
+            trigger="runner_context",
+        )
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
         super()._on_user_changed()
+        self._build_hogql_context_for_user(self.user)
+
+    def bypass_warehouse_access_control(self) -> None:
+        super().bypass_warehouse_access_control()
         self._build_hogql_context_for_user(self.user)
 
     @property

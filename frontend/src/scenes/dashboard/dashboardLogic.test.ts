@@ -13,6 +13,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -2310,6 +2311,62 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
+            {
+                trigger: 'a request succeeds again',
+                recover: () => apiStatusLogic.actions.setInternetConnectionIssue(false),
+            },
+            {
+                trigger: 'the browser goes back online',
+                recover: () => window.dispatchEvent(new Event('online')),
+            },
+        ])('keeps the error state during a retry and retries when $trigger', async ({ recover }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, recover)
+                .toDispatchActions(['retryDashboardLoad', 'loadDashboard'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: true })
+                .toDispatchActions(['loadDashboardFailure'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: false })
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+            }).toNotHaveDispatchedActions(['retryDashboardLoad'])
+        })
+
+        it.each(
+            ['request', 'online'].flatMap((trigger) => [true, false].map((initialLoad) => ({ trigger, initialLoad })))
+        )(
+            'retries once when $trigger signals recovery during a failed load (initial=$initialLoad)',
+            async ({ trigger, initialLoad }) => {
+                if (!initialLoad) {
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+                await expectLogic(logic, () => {
+                    if (!initialLoad) {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }
+                    if (trigger === 'online') {
+                        window.dispatchEvent(new Event('online'))
+                        apiStatusLogic.actions.setInternetConnectionIssue(true)
+                    } else {
+                        apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    }
+                })
+                    .toDispatchActions([
+                        'loadDashboardFailure',
+                        'retryDashboardLoad',
+                        'loadDashboard',
+                        'loadDashboardFailure',
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['retryDashboardLoad'])
+            }
+        )
+
+        it.each([
             { id: 14, accessDenied: false },
             { id: 15, accessDenied: true },
             { id: 16, accessDenied: false },
@@ -2405,7 +2462,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' }, true)
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
@@ -2548,6 +2605,111 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
+        })
+
+        it.each(['request', 'online'].flatMap((trigger) => [false, true].map((metadata) => ({ trigger, metadata }))))(
+            'keeps an auto-retrying stream on $trigger recovery but replaces an ended one (metadata=$metadata)',
+            async ({ trigger, metadata }) => {
+                const globals = globalThis as { EventSource?: unknown }
+                const originalEventSource = globals.EventSource
+                globals.EventSource = class {}
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.dashboardNotFound()
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                        [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                    })
+                    const disposeStream = jest.fn()
+                    const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(disposeStream)
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                    }).toFinishAllListeners()
+                    const recover = (): void => {
+                        if (trigger === 'online') {
+                            window.dispatchEvent(new Event('online'))
+                        } else {
+                            apiStatusLogic.actions.setInternetConnectionIssue(false)
+                        }
+                    }
+                    if (metadata) {
+                        streamTilesSpy.mock.calls[0][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: TEXT_TILE })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 99 } })
+                    }
+                    const onError = streamTilesSpy.mock.calls[0][4]
+                    await expectLogic(logic, () =>
+                        onError(new TypeError('Failed to fetch'), true)
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(!metadata)
+
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(1)
+                    expect(disposeStream).not.toHaveBeenCalled()
+
+                    await expectLogic(logic, () =>
+                        onError(new SyntaxError('Unreadable dashboard message'))
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(2)
+                    expect(disposeStream).toHaveBeenCalledTimes(1)
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: TEXT_TILE })
+                    }).toFinishAllListeners()
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                        expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 6 } })
+                        streamTilesSpy.mock.calls[1][3]()
+                    }).toFinishAllListeners()
+                    expect(logic.values.dashboard?.id).toBe(5)
+                    expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 6])
+                    expect(logic.values.dashboardFailedToLoad).toBe(false)
+                } finally {
+                    globals.EventSource = originalEventSource
+                }
+            }
+        )
+
+        it('keeps the stream that recovered while a connection retry waited', async () => {
+            const globals = globalThis as { EventSource?: unknown }
+            const originalEventSource = globals.EventSource
+            globals.EventSource = class {}
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.dashboardNotFound()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                    [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                })
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                expect(logic.values.dashboardFailedToLoad).toBe(true)
+                const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+
+                await expectLogic(logic, () => {
+                    apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+                })
+                    .toDispatchActions([
+                        'retryDashboardLoad',
+                        'loadDashboardStreaming',
+                        'loadDashboardStreamingSuccess',
+                    ])
+                    .toFinishAllListeners()
+
+                expect(streamTilesSpy).not.toHaveBeenCalled()
+                expect(logic.values.dashboard).not.toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+            } finally {
+                globals.EventSource = originalEventSource
+            }
         })
     })
 

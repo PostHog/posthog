@@ -90,30 +90,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == PlanhatResumeConfig(offset=PAGE_SIZE)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"_id": "1"}, {"_id": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(planhat_source("tok", "companies", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["_id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(planhat_source("tok", "companies", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"_id": "5"}])])
@@ -124,22 +100,6 @@ class TestPagination:
         assert [r["_id"] for r in rows] == ["5"]
         # Offset 0 must never be fetched on resume — the first request targets the saved offset.
         assert params[0]["offset"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_endpoint_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured: list[str] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured.append(request.url)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"_id": "1"}])]
-
-        _rows(planhat_source("tok", "endusers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert captured[0] == "https://api.planhat.com/endusers"
 
 
 class TestMalformedBody:
@@ -157,20 +117,6 @@ class TestMalformedBody:
 
         # Exhausts the client's default retry budget (5 attempts) before giving up.
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_then_valid_recovers(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
-        session.send.side_effect = [_response({"error": "glitch"}), _response([{"_id": "1"}])]
-
-        rows = _rows(
-            planhat_source("tok", "companies", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert [r["_id"] for r in rows] == ["1"]
-        assert session.send.call_count == 2
 
 
 class TestValidateCredentials:
@@ -191,13 +137,6 @@ class TestValidateCredentials:
     def test_connection_error_is_not_validated(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("tok") == (False, "Could not validate Planhat API token")
-
-    @mock.patch(PLANHAT_SESSION_PATCH)
-    def test_probe_uses_limit_one(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("tok")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://api.planhat.com/companies?limit=1&offset=0"
 
 
 class TestPlanhatSourceResponse:

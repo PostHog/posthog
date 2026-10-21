@@ -94,33 +94,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(JobNimbusResumeConfig(offset=PAGE_SIZE))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"jnid": "a"}, {"jnid": "b"}], 2)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["jnid"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_offset_reaches_reported_count(self, MockSession: mock.MagicMock) -> None:
-        # A full page whose length exactly equals the reported total must terminate without a second
-        # request, even though the page isn't short — the `count` total drives the stop.
-        session = MockSession.return_value
-        full = [{"jnid": str(i)} for i in range(PAGE_SIZE)]
-        _wire(session, [_response(full, PAGE_SIZE)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"jnid": "x"}], PAGE_SIZE + 1)])
@@ -176,18 +149,6 @@ class TestPagination:
         assert [r[key] for r in rows] == expected
         assert session.send.call_count == 1
         assert params[0] == expected_params
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], 0)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
 

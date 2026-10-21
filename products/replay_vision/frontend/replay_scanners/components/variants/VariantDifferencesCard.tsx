@@ -5,6 +5,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { ExperimentVariantsReadoutApi } from '../../../generated/api.schemas'
 import type { VariantComparisonState } from '../../scannerVariantsLogic'
 
+export interface VariantAnalysisRunNow {
+    onClick: () => void
+    /** The request to start a run is in flight. */
+    loading: boolean
+    running: boolean
+    disabledReason: string | null
+}
+
 export interface VariantDifferencesCardProps {
     readout: ExperimentVariantsReadoutApi
     comparisonState: VariantComparisonState
@@ -13,6 +21,8 @@ export interface VariantDifferencesCardProps {
     onSetUp: () => void
     /** Opens the existing variant analysis scout; undefined when it isn't loaded. */
     onOpenScout?: () => void
+    /** Starts the variant analysis scout now; undefined when there is no scout. */
+    runNow?: VariantAnalysisRunNow
 }
 
 /** The comparison between variants, which the variant analysis scout records once a day. */
@@ -22,11 +32,25 @@ export function VariantDifferencesCard({
     setupDisabledReason,
     onSetUp,
     onOpenScout,
+    runNow,
 }: VariantDifferencesCardProps): JSX.Element {
     const scoutPaused = readout.analysis?.scout_enabled === false
     const openScoutButton = onOpenScout ? (
         <LemonButton type="secondary" size="small" onClick={onOpenScout} data-attr="vision-variants-open-scout">
             Open scout
+        </LemonButton>
+    ) : null
+    const runNowButton = runNow ? (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={runNow.onClick}
+            loading={runNow.loading}
+            disabledReason={runNow.disabledReason ?? undefined}
+            tooltip="Run variant analysis now instead of waiting for its next scheduled run. You can run it once an hour."
+            data-attr="vision-variants-run-analysis"
+        >
+            {runNow.running ? 'Running…' : 'Run now'}
         </LemonButton>
     ) : null
 
@@ -63,7 +87,10 @@ export function VariantDifferencesCard({
                             : 'The scanner changed since the last analysis, so the comparison updates after the next run.'}
                     </p>
                 </div>
-                {openScoutButton}
+                <div className="flex items-center gap-2">
+                    {runNowButton}
+                    {openScoutButton}
+                </div>
             </LemonCard>
         )
     }
@@ -82,13 +109,16 @@ export function VariantDifferencesCard({
                     Variant analysis is paused, so this comparison doesn't update.
                 </LemonBanner>
             )}
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="m-0 text-base font-semibold">What differs between variants</h3>
-                {readout.analysis?.recorded_at && (
-                    <span className="text-xs text-muted">
-                        Updated <TZLabel time={readout.analysis.recorded_at} />
-                    </span>
-                )}
+                <div className="flex items-center gap-2">
+                    {readout.analysis?.recorded_at && (
+                        <span className="text-xs text-muted">
+                            Updated <TZLabel time={readout.analysis.recorded_at} />
+                        </span>
+                    )}
+                    {runNowButton}
+                </div>
             </div>
             <div className="flex flex-col gap-4 @3xl:flex-row">
                 {differences.length > 0 ? (

@@ -1146,6 +1146,18 @@ class ProjectBackwardCompatSerializer(
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
+        if "tags" in attrs:
+            project_tags.validate_group_change(
+                attrs["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(self.instance))
+                if self.instance
+                else set(),
+                user=cast(User, self.context["request"].user),
+                organization_id=self.instance.organization_id
+                if self.instance
+                else self.context["view"].organization_id,
+            )
+
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
             user_access_control = self.user_access_control
@@ -1165,6 +1177,23 @@ class ProjectBackwardCompatSerializer(
                             {field_name: f"You need {required_level} access to {display_name} to modify this field."}
                         )
         return super().validate(attrs)
+
+    def save(self, **kwargs: Any) -> Project:
+        if self.instance is None or "tags" not in self.validated_data:
+            return super().save(**kwargs)
+        with transaction.atomic():
+            project = get_object_or_404(
+                Project.objects.select_for_update(),
+                pk=self.instance.pk,
+                organization_id=self.instance.organization_id,
+            )
+            project_tags.validate_group_change(
+                self.validated_data["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(project)),
+                user=cast(User, self.context["request"].user),
+                organization_id=project.organization_id,
+            )
+            return super().save(**kwargs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;
@@ -1526,12 +1555,15 @@ class ProjectViewSet(
         tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
         super().perform_update(serializer)
         if tags_before is not None:
+            tags_after = project_tags.current_names(project)
             project_tags.report_change(
                 user=cast(User, self.request.user),
                 project=project,
                 tags_before=tags_before,
-                tags_after=project_tags.current_names(project),
+                tags_after=tags_after,
             )
+            if tags_before != tags_after:
+                transaction.on_commit(lambda: _bump_org_serializer_cache_version(str(project.organization_id)))
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""

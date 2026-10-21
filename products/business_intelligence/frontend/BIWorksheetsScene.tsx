@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { BIStarters } from './BIStarters'
 import { biWorksheetsLogic } from './biWorksheetsLogic'
 
 export const scene: SceneExport = { component: BIWorksheetsScene, logic: biWorksheetsLogic }
@@ -36,6 +37,7 @@ export function BIWorksheetsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <BIStarters />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput type="search" placeholder="Search worksheets" value={search} onChange={setSearch} />
                 <LemonSegmentedButton

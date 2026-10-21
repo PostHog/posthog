@@ -41,6 +41,7 @@ export function HogFlowTreeEditor(): JSX.Element {
     const tree = useMemo(() => buildWorkflowTree(workflow), [workflow])
     const focusedPath = useMemo(() => findWorkflowTreePath(tree, focusedEdges), [tree, focusedEdges])
     const focused = focusedPath.at(-1)
+    const focusedContinuation = focused ? (focused.branch.sequence.continueTo ?? focused.node.joinAction) : null
     const activeDropzones = !!nodeToBeAdded
 
     const updateViewState = (key: string, state: WorkflowTreeNodeViewState): void => {
@@ -103,10 +104,10 @@ export function HogFlowTreeEditor(): JSX.Element {
         }
     }
 
-    const selectContinuation = (actionId: string, path: HogFlowEdge[]): void => {
+    const selectContinuation = (actionId: string): void => {
         setSelectedBranch(null)
         setSelectedNodeId(actionId)
-        const destinationPath = getWorkflowTreeContinuationPath(tree, path, actionId)
+        const destinationPath = getWorkflowTreeContinuationPath(tree, actionId)
         revealPath(destinationPath)
         // A path inside the focused view can join at a step that the focused view also shows, so leave
         // focus only for a join that the user cannot already see.
@@ -295,15 +296,15 @@ export function HogFlowTreeEditor(): JSX.Element {
                             insertionLabel={`Add step to ${focused.branch.label}`}
                         />
                     )}
-                    {focused?.node.joinAction && (
+                    {focusedContinuation && (
                         <LemonButton
                             type="secondary"
                             size="small"
                             className="self-start max-w-full mt-3"
-                            onClick={() => selectContinuation(focused.node.joinAction!.id, focusedEdges.slice(0, -1))}
+                            onClick={() => selectContinuation(focusedContinuation.id)}
                             data-attr="workflow-tree-focus-continuation"
                         >
-                            <span className="break-words whitespace-normal">{`Continue to: ${focused.node.joinAction.name}`}</span>
+                            <span className="break-words whitespace-normal">{`Continue to: ${focusedContinuation.name}`}</span>
                         </LemonButton>
                     )}
                 </div>

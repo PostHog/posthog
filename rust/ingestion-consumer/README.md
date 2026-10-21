@@ -42,6 +42,33 @@ The ledger emits its own metrics, so any consumer built on the crate reports the
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger and the consumer keeps running; the consumer logs the rejected slice with the batch and ledger generations and the window depth before the reset.
 
+## Schedulers
+
+`INGESTION_SCHEDULER` selects how runs are ordered and placed on workers.
+
+- `pin_stash` (default) pins each key to a worker and stashes a batch's groups while a pinned worker drains. It is the fallback.
+- `key_table` runs the batcher state machine in `src/batcher/`.
+
+Under `key_table`:
+
+- One task owns the state machine and applies polls, worker responses, revokes and retry wakeups one at a time.
+- Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
+- Each claimed key run is a request of its own. A run never mixes assignment epochs or fresh and replayed messages.
+- A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
+- A failed send returns its messages to the front of their keys' queues. They go out again as replay after the retry delay.
+- A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
+- Pending work with nothing in flight and nothing accepted for `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` fails the consumer, which restarts and replays.
+
+| Setting | Default | Effect under `key_table` |
+| --- | --- | --- |
+| `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
+
+Metrics:
+
+- `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent.
+- `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited.
+- The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
+
 ## Debug API
 
 Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.

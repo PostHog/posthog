@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -283,6 +283,10 @@ class WorkflowTemplate:
     variables: list[dict[str, Any]] | None
 
 
+class WorkflowTemplateNotFound(Exception):
+    pass
+
+
 @frozen
 class FunctionTemplateSchema:
     """The parts of a cdp function template that a workflow step validates its inputs against."""
@@ -372,6 +376,213 @@ class WorkflowDraftExists(Exception):
 
 class WorkflowDraftChanged(Exception):
     """The staged draft changed since the caller confirmed the overwrite."""
+
+
+class WorkflowStale(Exception):
+    """The workflow was written elsewhere after the caller loaded the version it edits."""
+
+
+class WorkflowHasNoDraft(Exception):
+    """Publish found no staged draft."""
+
+
+@frozen
+class Workflow:
+    """A workflow as the API reads it.
+
+    Each set secret input in ``actions``, ``trigger`` and ``draft`` is already replaced by the
+    ``{"secret": True}`` presence marker, so the contract never carries a secret value.
+    ``created_by`` carries the core ``User`` row, so the presentation layer keeps serializing it
+    through core's ``UserBasicSerializer``. ``user_access_level`` is the reader's access level, or
+    None when the reader is a service credential.
+
+    ``edges`` and ``actions`` hold lists, but a row saved without them keeps the model default
+    ``{}``, so both fields can also be a dict.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    description: str
+    version: int
+    status: str
+    origin_product: str | None
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: str
+    email_sending_rate_limit: dict[str, Any] | None
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+    billable_action_types: list[str] | None
+    schedules: tuple[WorkflowSchedule, ...]
+    draft: dict[str, Any] | None
+    draft_updated_at: datetime | None
+    action_redirects: dict[str, str] | None
+    email_sending_paused_at: datetime | None
+    email_sending_paused_reason: str
+    email_sending_paused_by: str
+    email_sending_resumed_at: datetime | None
+    user_access_level: str | None
+    # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
+    pending_suggestions: int | None = None
+    suggestions_enabled: bool | None = None
+
+
+@frozen
+class WorkflowRef:
+    """A workflow's identity and dispatch settings, for an action that does not return the workflow.
+
+    It carries no step configuration, so it holds no secret input. ``trigger_type`` and
+    ``trigger_filters`` come from the stored trigger.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    status: str
+    version: int
+    trigger_type: str | None
+    trigger_filters: dict[str, Any]
+    variables: list[dict[str, Any]] | None
+
+
+class WorkflowNotFound(Exception):
+    pass
+
+
+class WorkflowArchived(Exception):
+    """An archived workflow cannot be enabled or disabled."""
+
+
+@frozen
+class WorkflowListQuery:
+    """What a workflow list asks for. The view validates each value before it builds one.
+
+    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    service validates them and raises WorkflowListFiltersInvalid when one does not parse.
+    """
+
+    search: str = ""
+    created_by_uuid: UUID | None = None
+    types: frozenset[str] = frozenset()
+    origin_product: str | None = None
+    trigger: Any = None
+    broadcast_eligible: bool = False
+    broadcast_statuses: frozenset[str] = frozenset()
+    suggestions_first: bool = False
+    field_filters: Mapping[str, str] = field(default_factory=dict)
+
+
+@frozen
+class WorkflowPage:
+    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
+
+    count: int
+    results: list[Workflow]
+
+
+@frozen
+class WorkflowListFilterError:
+    message: str
+    code: str | None
+
+
+class WorkflowListFiltersInvalid(Exception):
+    """A field filter did not parse. ``errors`` maps each parameter to its errors."""
+
+    def __init__(self, errors: dict[str, list[WorkflowListFilterError]]) -> None:
+        super().__init__(errors)
+        self.errors = errors
+
+
+class WorkflowAccessDenied(Exception):
+    """The caller's access level for the workflow is below `required_level`."""
+
+    def __init__(self, required_level: str) -> None:
+        super().__init__(required_level)
+        self.required_level = required_level
+
+
+@frozen
+class WorkflowEditState:
+    """A workflow's stored fields, as the serializer validates an edit against them.
+
+    Unlike ``Workflow``, it carries the encrypted secret inputs: validation recovers a secret the
+    editor sent back masked from these maps. Both stay out of ``repr``. Presentation reads it only
+    to validate an edit and never returns it.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    status: str
+    version: int
+    origin_product: str | None
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: str
+    email_sending_rate_limit: dict[str, Any] | None
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+    draft: dict[str, Any] | None
+    draft_updated_at: datetime | None
+    encrypted_inputs: dict[str, Any] | None = field(default=None, repr=False)
+    draft_encrypted_inputs: dict[str, Any] | None = field(default=None, repr=False)
+
+
+@frozen
+class WorkflowActor:
+    """Who made a workflow change, for its activity log entry. ``team_id`` is the project the request
+    came through. ``user`` carries the core ``User`` row, as ``log_activity`` takes it."""
+
+    organization_id: UUID
+    team_id: int
+    user: "User | None"
+    was_impersonated: bool
+
+
+@frozen
+class WorkflowWriteResult:
+    previous: Mapping[str, object]
+    current: Mapping[str, object]
+    routed_to_draft: bool = False
+    schedules_paused: int = 0
+
+
+class WorkflowProposalNotFound(Exception):
+    pass
+
+
+class WorkflowProposalResolved(Exception):
+    """The suggestion was approved or rejected already."""
+
+
+class WorkflowProposalConflicts(Exception):
+    """Someone changed the steps or fields the suggestion is about since it was written."""
+
+    def __init__(self, conflicts: list[str]) -> None:
+        super().__init__(conflicts)
+        self.conflicts = conflicts
+
+
+@frozen
+class ProposalApproval:
+    """The approved suggestion, and the workflow's fields from before and after its draft was staged."""
+
+    proposal: "WorkflowProposalRecord"
+    previous: Mapping[str, object]
+    current: Mapping[str, object]
 
 
 @frozen

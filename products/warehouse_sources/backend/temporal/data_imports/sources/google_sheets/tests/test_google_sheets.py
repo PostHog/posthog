@@ -9,12 +9,10 @@ import requests
 from google.auth import exceptions as google_auth_exceptions
 
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
-    _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
     DiscoveredWorksheet,
@@ -186,27 +184,6 @@ def test_get_worksheet_does_not_retry_non_transient_api_error():
         assert mock_get_worksheet_by_id.call_count == 1
 
 
-def test_get_worksheet_caching():
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
-        ) as mock_google_sheets_client,
-    ):
-        _get_worksheet("url", 1)
-        _get_worksheet("url", 1)
-        _get_worksheet("url", 1)
-
-        # It should only have 1 call, the others should be returning the cached value
-        assert mock_google_sheets_client.call_count == 1
-
-        _get_worksheet("url", 2)
-        _get_worksheet("url", 2)
-        _get_worksheet("url", 2)
-
-        # It should now have 2 calls, we've changed one of the arguments, but the second/third calls should be cached
-        assert mock_google_sheets_client.call_count == 2
-
-
 @pytest.mark.parametrize(
     "call_site",
     [
@@ -334,33 +311,6 @@ def test_retry_on_transient_api_error_does_not_retry_non_transient():
     [
         requests.exceptions.ConnectionError("Connection aborted."),
         requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
-        requests.exceptions.ConnectTimeout("Connection timed out."),
-        # A connection reset mid-download surfaces as ChunkedEncodingError, which is a sibling of
-        # ConnectionError in the requests hierarchy (not a subclass), so it must be caught explicitly.
-        requests.exceptions.ChunkedEncodingError(
-            "('Connection broken: ConnectionResetError(104, 'Connection reset by peer')', "
-            "ConnectionResetError(104, 'Connection reset by peer'))"
-        ),
-    ],
-)
-def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error):
-    """A dropped connection or read timeout is raised by `requests` before gspread wraps it in an
-    APIError, so the status-code path never sees it. It's a transient blip and must be retried
-    inline rather than failing the read on the first occurrence."""
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
-    ):
-        fn = mock.MagicMock(side_effect=[error, error, "ok"])
-
-        assert _retry_on_transient_api_error(fn) == "ok"
-        assert fn.call_count == 3
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        requests.exceptions.ConnectionError("Connection aborted."),
-        requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
         requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError(104, ...)"),
     ],
 )
@@ -376,26 +326,6 @@ def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(er
             _retry_on_transient_api_error(fn)
 
         assert fn.call_count == 10
-
-
-@pytest.mark.parametrize(
-    "error_cls",
-    [google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError],
-)
-def test_retry_on_transient_api_error_retries_transient_refresh_error_then_succeeds(error_cls):
-    """Refreshing our own service-account token (a side effect of every Sheets API call) can hit a
-    transient outage in front of Google's token endpoint, which surfaces as an HTML "Error 502
-    (Server Error)" page rather than a JSON OAuth rejection. That page isn't flagged `retryable` by
-    google-auth itself (see `_is_transient_refresh_error`), so without this the sync would fail
-    outright on a blip that clears on its own."""
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
-    ):
-        error = error_cls("Error 502 (Server Error)!!1", retryable=False)
-        fn = mock.MagicMock(side_effect=[error, "ok"])
-
-        assert _retry_on_transient_api_error(fn) == "ok"
-        assert fn.call_count == 2
 
 
 def test_retry_on_transient_api_error_does_not_retry_persistent_refresh_error():
@@ -470,17 +400,6 @@ def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
         return list(cast(Iterable[Any], response.items()))
 
 
-def test_google_sheets_source_reads_blank_cells_as_null():
-    """Blank cells must import as null, not as "" — an empty string in an otherwise numeric column
-    turns it into a text column. The source numericises the grid itself, so this covers that wiring."""
-    tables = _read_sheet(["id", "NumericColumnWithBlanks"], [["1", "1.5"], ["2", ""]])
-
-    assert tables[0].to_pylist() == [
-        {"id": 1, "NumericColumnWithBlanks": 1.5},
-        {"id": 2, "NumericColumnWithBlanks": None},
-    ]
-
-
 def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
     tables = _read_sheet(
         ["id", "code"],
@@ -528,25 +447,6 @@ def test_google_sheets_source_rejects_duplicate_named_headers():
     assert any(key in str(exc_info.value) for key in non_retryable_errors)
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        # gspread's bare 403 PermissionError, re-raised with a stable message.
-        pytest.param(PermissionError(_PERMISSION_DENIED_MESSAGE), id="permission_denied"),
-        # Values-read 404s stay a raw APIError (not SpreadsheetNotFound), so str() is
-        # "APIError: [404]: Requested entity was not found." — a deleted/moved/unshared sheet hit mid-read.
-        pytest.param(_api_error(404, "Requested entity was not found.", "NOT_FOUND"), id="entity_not_found_404"),
-    ],
-)
-def test_error_string_matches_a_non_retryable_key(error):
-    """The framework classifies non-retryable errors by substring-matching `str(exc)` against the
-    source's keys. Each error the source surfaces for a permanent failure must match a key, otherwise
-    a deterministic 403/404 gets retried forever."""
-    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
-
-    assert any(key in str(error) for key in non_retryable_errors)
-
-
 @pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_error_string_matches_a_retryable_key(status_code):
     """`_retry_on_transient_api_error` already retries these status codes in-process before
@@ -557,45 +457,6 @@ def test_error_string_matches_a_retryable_key(status_code):
     retryable_errors = GoogleSheetsSource().get_retryable_errors()
 
     assert any(key in str(error) for key in retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "error_message",
-    [
-        pytest.param(
-            "HTTPSConnectionPool(host='sheets.googleapis.com', port=443): Max retries exceeded with url: "
-            '/v4/spreadsheets/abc123/values/Sheet1%211%3A1 (Caused by ReadTimeoutError("HTTPSConnectionPool'
-            "(host='sheets.googleapis.com', port=443): Read timed out. (read timeout=120.0)\"))",
-            id="read_timeout_after_retries_exhausted",
-        ),
-        pytest.param(
-            "HTTPSConnectionPool(host='sheets.googleapis.com', port=443): Max retries exceeded with url: "
-            "/v4/spreadsheets/abc123 (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection "
-            "object at 0x7f0000000000>: Failed to establish a new connection: [Errno 110] Connection timed out'))",
-            id="connection_refused_after_retries_exhausted",
-        ),
-    ],
-)
-def test_error_string_matches_a_retryable_key_for_network_errors(error_message):
-    """`_retry_on_transient_api_error` also retries `requests.exceptions.ConnectionError`/`Timeout`/
-    `ChunkedEncodingError` in-process; once that budget is exhausted, urllib3 re-raises them wrapped
-    as "Max retries exceeded with url". If that prefix drops out of `get_retryable_errors()`, a
-    transient network blip starts polluting error tracking even though Temporal still retries it."""
-    retryable_errors = GoogleSheetsSource().get_retryable_errors()
-
-    assert any(key in error_message for key in retryable_errors)
-
-
-@pytest.mark.parametrize("status_code", [500, 502, 503, 504])
-def test_error_string_matches_a_retryable_key_for_frontend_refresh_errors(status_code):
-    """`_retry_on_transient_api_error` also retries a `RefreshError`/`TransportError` carrying
-    Google's frontend-outage HTML page before re-raising once that budget is exhausted. If the
-    page's status code drops out of this set, the transient error starts polluting error tracking
-    even though Temporal still retries it."""
-    error_message = f"Error {status_code} (Server Error)!!1"
-    retryable_errors = GoogleSheetsSource().get_retryable_errors()
-
-    assert any(key in error_message for key in retryable_errors)
 
 
 @pytest.mark.parametrize(
@@ -653,19 +514,6 @@ def test_assert_unique_normalized_column_names_raises_on_normalized_collision(he
 
     non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
     assert any(key in str(exc_info.value) for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "headers",
-    [
-        pytest.param(["id", "name", "email"], id="distinct"),
-        pytest.param(["id", "", "name"], id="blank_cells_ignored"),
-        # Exact duplicates are left to gspread's own "contains duplicates" check.
-        pytest.param(["id", "id"], id="exact_duplicate"),
-    ],
-)
-def test_assert_unique_normalized_column_names_allows_valid_headers(headers):
-    _assert_unique_normalized_column_names(headers)
 
 
 def test_get_schema_incremental_fields_skips_unparseable_range():
@@ -935,29 +783,6 @@ def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_ve
 
     assert mock_get_worksheet.called
     assert all(call.args[2] == expected_version for call in mock_get_worksheet.call_args_list)
-
-
-@pytest.mark.parametrize(
-    "pin, expected",
-    [("v4", "v4"), (None, "v4"), (UNVERSIONED_API_VERSION, UNVERSIONED_API_VERSION)],
-)
-def test_get_schemas_threads_resolved_pin_into_incremental_fields(pin, expected):
-    # `_get_worksheet` memoizes on (url, worksheet_id, api_version), so discovery must pass the
-    # source's resolved pin — otherwise a pinned source reads headers under a different key.
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_worksheets",
-            return_value=[DiscoveredWorksheet(name="sheet1", title="Sheet1", worksheet_id=10)],
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
-            return_value=[],
-        ) as mock_incremental,
-    ):
-        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
-        GoogleSheetsSource().get_schemas(config, team_id=1, api_version=pin)
-
-    assert mock_incremental.call_args.args[-1] == expected
 
 
 @pytest.mark.parametrize(

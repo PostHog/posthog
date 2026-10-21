@@ -8,6 +8,7 @@ import {
     IconCopy,
     IconExpand,
     IconInfo,
+    IconLetter,
     IconRefresh,
     IconSend,
     IconTrash,
@@ -26,6 +27,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -64,12 +67,18 @@ import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
+import {
+    cohortBroadcastDisabledReason,
+    createCohortDataNodeLogicKey,
+    urlForCohortBroadcast,
+    urlForCohortWorkflow,
+} from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -240,6 +249,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -300,6 +310,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             menuItem
                         >
                             <IconSend /> Message this cohort
+                        </ButtonPrimitive>
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                if (typeof cohort.id !== 'number') {
+                                    return
+                                }
+                                captureMessageAudienceClicked('cohort', 'broadcast')
+                                router.actions.push(urlForCohortBroadcast({ id: cohort.id, name: cohort.name }))
+                            }}
+                            disabledReasons={broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}}
+                            data-attr={`${RESOURCE_TYPE}-send-broadcast`}
+                            tooltip="Send a one-time email to everyone in this cohort"
+                            menuItem
+                        >
+                            <IconLetter /> Send a broadcast
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu
@@ -822,6 +848,17 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             ) : (
                                 <>
                                     <SceneDivider />
+                                    {!isNewCohort && (
+                                        <FlagCalledRebuildBanner
+                                            artifactType="cohort"
+                                            readsFlagCalls={cohortReadsFlagCalls(cohort)}
+                                        >
+                                            This cohort has a criterion on Feature flag called, directly or through an
+                                            action. That criterion won't see flag calls made after your organization's
+                                            flag calls move out of the events table, so the cohort can include or leave
+                                            out the wrong people. Remove that criterion.
+                                        </FlagCalledRebuildBanner>
+                                    )}
                                     {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
                                         <LemonBanner type="info">
                                             This cohort manages exposure for an experiment. Editing this cohort may

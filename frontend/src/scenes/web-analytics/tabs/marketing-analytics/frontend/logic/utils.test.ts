@@ -412,6 +412,36 @@ describe('marketing analytics utils', () => {
             }
         }
 
+        it.each([
+            ['googleads_campaign_overview_stats', undefined],
+            ['analytics_googleads_campaign_stats', undefined],
+            ['prefix.campaign_stats', undefined],
+            ['renamed_stats', 'campaign_stats'],
+        ])('builds a Google Ads cost series from %s', (tableName, schemaName) => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            source.tables[0].name = tableName
+            if (schemaName) {
+                source.tables[0].schema = { name: schemaName } as DatabaseSchemaDataWarehouseTable['schema']
+            }
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')).toMatchObject({
+                kind: 'DataWarehouseNode',
+                table_name: tableName,
+                timestamp_field: 'segments_date',
+                math: 'hogql',
+            })
+        })
+
+        it('prefers the current Google Ads stats schema over the legacy schema', () => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            const currentTable = source.tables[0]
+            source.tables = [{ ...currentTable, name: 'googleads_campaign_stats' }, currentTable]
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.table_name).toBe(
+                currentTable.name
+            )
+        })
+
         it.each(['GBP', 'AUD'])('uses stored Rokt currency after the source setting changes to %s', (currency) => {
             const source = makeMockSource('RoktAds', sourceFields.RoktAds)
             source.source.job_inputs = { currency_code: currency }

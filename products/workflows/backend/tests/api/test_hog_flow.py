@@ -37,6 +37,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -584,6 +585,16 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_filter_by_broadcast_status_rejects_unknown_values(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
         assert response.status_code == 400
+
+    def test_list_field_filter_rejection_keeps_the_validation_code(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": "Select a valid choice. invalid-status is not one of the available choices.",
+            "attr": "status",
+        }
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -4307,6 +4318,153 @@ class TestHogFlowAPI(APIBaseTest):
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
 
+    def test_metadata_update_derives_trigger_and_billable_types_from_the_locked_graph(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        webhook_action = {
+            "id": "a1",
+            "name": "webhook",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Locked graph", "actions": [trigger_action, webhook_action]},
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        concurrent_trigger = {
+            "type": "event",
+            "filters": {"events": [{"id": "$autocapture", "name": "$autocapture", "type": "events", "order": 0}]},
+        }
+
+        def update_after_concurrent_graph_write(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": concurrent_trigger}],
+                trigger=concurrent_trigger,
+                billable_action_types=[],
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_graph_write,
+        ):
+            rename = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+
+        assert rename.status_code == 200, rename.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.name == "Renamed"
+        assert flow.trigger == concurrent_trigger
+        assert flow.billable_action_types == []
+
+    @parameterized.expand(
+        [
+            (
+                "locked_trigger_becomes_row_scoped",
+                "event",
+                "data-warehouse-table",
+                "exit_only_at_end",
+                {"exit_condition": "exit_on_conversion"},
+                "exit_only_at_end",
+            ),
+            (
+                "locked_trigger_stops_being_row_scoped",
+                "data-warehouse-table",
+                "event",
+                "exit_on_conversion",
+                {"name": "Renamed"},
+                "exit_on_conversion",
+            ),
+        ]
+    )
+    def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
+        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+    ):
+        trigger_configs = {
+            "event": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+            "data-warehouse-table": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Locked trigger",
+                "actions": [{**trigger_action, "config": trigger_configs[initial_trigger_type]}],
+            },
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        def update_after_concurrent_trigger_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": trigger_configs[concurrent_trigger_type]}],
+                trigger=trigger_configs[concurrent_trigger_type],
+                exit_condition=concurrent_exit_condition,
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_trigger_change,
+        ):
+            update = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+
+        assert update.status_code == 200, update.json()
+        assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
+
+    def test_draft_content_save_that_races_an_activation_is_rejected(self):
+        event_trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Racing draft", "status": "draft", "actions": [event_trigger]},
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        def update_after_concurrent_activation(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(status=HogFlow.State.ACTIVE)
+            return update_workflow(**kwargs)
+
+        # A Slack trigger with no channel passes draft validation but must never run live.
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_activation,
+        ):
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": [self._slack_trigger_action([])]},
+            )
+
+        assert update.status_code == 409, update.json()
+        assert update.json()["code"] == "stale_update"
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.status == HogFlow.State.ACTIVE
+        assert flow.actions[0]["config"]["type"] == "event"
+
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
@@ -4841,6 +4999,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert name_change["before"] == original_name
         assert name_change["after"] == new_name
 
+    def test_update_activity_excludes_a_write_committed_after_the_lock_releases(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow_id = response.json()["id"]
+        original_name = response.json()["name"]
+
+        def update_then_concurrent_rename(**kwargs):
+            result = update_workflow(**kwargs)
+            HogFlow.objects.filter(pk=flow_id).update(name="Renamed elsewhere")
+            return result
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_then_concurrent_rename,
+        ):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"description": "New description"}
+            )
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["name"] == original_name
+
+        latest = self._get_hog_flow_activity(flow_id)[0]
+        assert latest["detail"]["name"] == original_name
+        assert {change["field"] for change in latest["detail"]["changes"]} == {"description"}
+
     def test_hog_flow_draft_allows_incomplete_actions(self):
         trigger_action = {
             "id": "trigger_node",
@@ -4918,6 +5107,20 @@ class TestHogFlowAPI(APIBaseTest):
         self.client.force_login(self.user)
         response = self.client.get(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("another_projects_workflow",), ("sibling_environment_workflow",), ("malformed_id",)])
+    def test_hog_flow_retrieve_404s_for_an_id_outside_the_team(self, case: str):
+        if case == "malformed_id":
+            workflow_id = "not-a-uuid"
+        else:
+            project = self.project if case == "sibling_environment_workflow" else None
+            other_team = Team.objects.create(organization=self.organization, project=project)
+            workflow_id = str(HogFlow.objects.create(team=other_team, name="Other team's flow").id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.json()["detail"] == "Not found."
 
     def test_hog_flow_create_does_not_leak_between_teams(self):
         another_org = Organization.objects.create(name="other org")
@@ -5148,12 +5351,16 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400
 
-    def test_bulk_delete_does_not_leak_between_teams(self):
-        another_org = Organization.objects.create(name="other org")
-        another_team = Team.objects.create(organization=another_org)
-        another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+    @parameterized.expand([("other_organization",), ("sibling_environment_in_same_project",)])
+    def test_bulk_delete_does_not_leak_between_teams(self, other_team_kind):
+        if other_team_kind == "other_organization":
+            another_org = Organization.objects.create(name="other org")
+            another_team = Team.objects.create(organization=another_org)
+            another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+            self.client.force_login(another_user)
+        else:
+            another_team = Team.objects.create(organization=self.organization, project=self.project)
 
-        self.client.force_login(another_user)
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
         )

@@ -43,6 +43,8 @@ export const INBOX_EVENTS = {
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
+    REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
@@ -542,6 +544,22 @@ export function captureInboxReportFeedback(params: {
         has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
+    })
+}
+
+/** A report's product suggestion rendered under its evidence. */
+export function captureInboxReportSourceSuggestionShown(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_SHOWN, {
+        ...baseReportProperties(params.report),
+        product: params.product,
+    })
+}
+
+/** The suggestion's link to the product was followed. */
+export function captureInboxReportSourceSuggestionClicked(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_CLICKED, {
+        ...baseReportProperties(params.report),
+        product: params.product,
     })
 }
 

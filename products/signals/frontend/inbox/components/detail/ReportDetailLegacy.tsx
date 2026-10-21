@@ -56,6 +56,7 @@ import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 import { TrackerIssueNote } from './TrackerIssueNote'
@@ -405,6 +406,9 @@ function InboxDetailFrameLegacy({
                                         >
                                             {evidenceExpanded ? 'Show less' : 'Show more'}
                                         </LemonButton>
+                                    )}
+                                    {report.source_suggestion && (
+                                        <ReportSourceSuggestion report={report} suggestion={report.source_suggestion} />
                                     )}
                                 </div>
                             )}

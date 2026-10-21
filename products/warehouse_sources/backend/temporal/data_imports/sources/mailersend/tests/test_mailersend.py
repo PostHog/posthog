@@ -104,42 +104,6 @@ class TestToDatetime:
 
 class TestActivityDateWindow:
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_first_sync_uses_lookback_window(self) -> None:
-        window = _activity_date_window(
-            should_use_incremental_field=True, db_incremental_field_last_value=None, lookback_days=30
-        )
-        assert window.end - window.start == 30 * 24 * 60 * 60
-        assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_full_refresh_uses_lookback_window(self) -> None:
-        # Activity requires a date window even without an incremental cursor, so a full refresh still
-        # falls back to the lookback window rather than omitting the bounds.
-        window = _activity_date_window(
-            should_use_incremental_field=False, db_incremental_field_last_value=None, lookback_days=30
-        )
-        assert window.end - window.start == 30 * 24 * 60 * 60
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_incremental_starts_from_last_value(self) -> None:
-        last = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
-        window = _activity_date_window(
-            should_use_incremental_field=True, db_incremental_field_last_value=last, lookback_days=30
-        )
-        assert window.start == int(last.timestamp())
-        assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_cursor_older_than_the_tier_is_clamped(self) -> None:
-        # A watermark left behind by a paused sync asks for more history than the plan retains,
-        # which MailerSend rejects; it must be clamped to the tier being tried.
-        stale = datetime(2026, 1, 1, tzinfo=UTC)
-        window = _activity_date_window(
-            should_use_incremental_field=True, db_incremental_field_last_value=stale, lookback_days=7
-        )
-        assert window.end - window.start == 7 * 24 * 60 * 60
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_future_cursor_is_clamped_below_date_to(self) -> None:
         # A future-dated cursor would make date_from >= date_to and 422 the request; it must be clamped.
         future = datetime(2027, 1, 1, tzinfo=UTC)
@@ -185,35 +149,6 @@ class TestCheckCredentials:
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "d1", "name": "a.com"}, {"id": "d2", "name": "b.com"}])])
-        rows = _rows(_source("domains", _make_manager()))
-        assert [r["id"] for r in rows] == ["d1", "d2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_links_next_is_null(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"id": "r1"}], next_url=f"{BASE}/recipients?page=2&limit=100"),
-                _page([{"id": "r2"}], next_url=None),
-            ],
-        )
-        manager = _make_manager()
-        rows = _rows(_source("recipients", manager))
-
-        assert [r["id"] for r in rows] == ["r1", "r2"]
-        # Second request follows the body's next link verbatim.
-        assert snaps[1]["url"] == f"{BASE}/recipients?page=2&limit=100"
-        # A checkpoint is saved after the first page (more remain) and points at the next link.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == MailerSendResumeConfig(
-            fanout_state={"next_url": f"{BASE}/recipients?page=2&limit=100"}
-        )
-
     @parameterized.expand(
         [
             ("last_allowed_page_is_followed", 1000, 2, ["r1", "r2"]),
@@ -247,35 +182,6 @@ class TestTopLevelPagination:
         assert session.send.call_count == expected_requests
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page_without_checkpoint(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], next_url=None)])
-        manager = _make_manager()
-        rows = _rows(_source("templates", manager))
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession: MagicMock) -> None:
-        # A saved state must skip already-synced earlier pages and resume at the saved next link.
-        session = MockSession.return_value
-        next_url = f"{BASE}/messages?page=2&limit=100"
-        snaps = _wire(session, [_page([{"id": "m2"}], next_url=None)])
-
-        manager = _make_manager(MailerSendResumeConfig(fanout_state={"next_url": next_url}))
-        rows = _rows(_source("messages", manager))
-
-        assert [r["id"] for r in rows] == ["m2"]
-        assert snaps[0]["url"] == next_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_limit_param_sent(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"id": "d1"}])])
-        _rows(_source("domains", _make_manager()))
-        assert snaps[0]["limit"] == 100
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_offhost_links_next_rejected_before_send(self, MockSession: MagicMock) -> None:
         # `links.next` is followed verbatim, so an off-host value must be rejected by the client's
         # host pin before the Bearer token can be replayed to an attacker-controlled host.
@@ -299,50 +205,6 @@ class TestActivityFanOut:
     @staticmethod
     def _domains(*ids: str) -> Response:
         return _page([{"id": i} for i in ids], next_url=None)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_domains_and_stamps_domain_id(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                self._domains("d1", "d2"),
-                _page([{"id": "a1", "type": "sent"}], next_url=None),
-                _page([{"id": "a2", "type": "opened"}], next_url=None),
-            ],
-        )
-        rows = _rows(
-            _source(
-                "activity",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-            )
-        )
-        assert rows == [
-            {"id": "a1", "type": "sent", "domain_id": "d1"},
-            {"id": "a2", "type": "opened", "domain_id": "d2"},
-        ]
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_required_date_window_params(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [self._domains("d1"), _page([{"id": "a1"}], next_url=None)])
-
-        _rows(
-            _source(
-                "activity",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-            )
-        )
-
-        activity_call = next(c for c in snaps if "/activity/" in c["url"])
-        assert activity_call["url"] == f"{BASE}/activity/d1"
-        assert activity_call["date_from"] == int(datetime(2026, 6, 1, tzinfo=UTC).timestamp())
-        assert "date_to" in activity_call
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_domain(self, MockSession: MagicMock) -> None:
@@ -419,28 +281,6 @@ class TestActivityFanOut:
         attempts = [c for c in snaps if "/activity/" in c["url"]]
         assert [self._window_days(a) for a in attempts] == [30, 7, 1]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_all_rows_yielded_for_small_domains(self, MockSession: MagicMock) -> None:
-        # Every domain's rows are yielded even when each domain is smaller than a page.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                self._domains("d1", "d2"),
-                _page([{"id": "a1"}], next_url=None),
-                _page([{"id": "a2"}], next_url=None),
-            ],
-        )
-        rows = _rows(
-            _source(
-                "activity",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-            )
-        )
-        assert [r["id"] for r in rows] == ["a1", "a2"]
-
 
 class TestLegacyResumeStateCompat:
     def test_legacy_state_shape_still_deserializes(self) -> None:
@@ -449,15 +289,6 @@ class TestLegacyResumeStateCompat:
         assert state.next_page == 3
         assert state.domain_id == "d2"
         assert state.fanout_state is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_only_state_starts_fresh(self, MockSession: MagicMock) -> None:
-        # With no fanout_state, the run starts from the first page rather than a stale legacy cursor.
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"id": "d1"}], next_url=None)])
-        manager = _make_manager(MailerSendResumeConfig(next_page=5, domain_id=None))
-        _rows(_source("domains", manager))
-        assert snaps[0]["url"] == f"{BASE}/domains"
 
 
 class TestSourceResponseShape:

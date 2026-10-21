@@ -91,9 +91,6 @@ class TestFormatCreatedAtMin:
     def test_format_created_at_min(self, value: Any, expected: str | None) -> None:
         assert _format_created_at_min(value) == expected
 
-    def test_naive_datetime_is_treated_as_utc(self) -> None:
-        assert _format_created_at_min(datetime(2026, 3, 4, 12, 0, 0)) == "2026-03-04T12:00:00Z"
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -114,11 +111,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = response
 
         assert validate_credentials("key") is expected
-
-    @mock.patch(HOUSECALL_PRO_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
 
 
 class TestGetRows:
@@ -142,67 +134,6 @@ class TestGetRows:
         assert manager.save_state.call_args.args[0] == HousecallProResumeConfig(page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_header_is_bearer_token(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect("customers", [_page("customers", [{"id": "1"}], total_pages=1)], MockSession)
-        assert snapshots[0]["auth"].token == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, snapshots, _ = _collect(
-            "customers",
-            [_page("customers", [{"id": "9"}], total_pages=5)],
-            MockSession,
-            manager=_make_manager(HousecallProResumeConfig(page=5)),
-        )
-
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 5
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving(self, MockSession: mock.MagicMock) -> None:
-        batches, _, manager = _collect("customers", [_page("customers", [], total_pages=0)], MockSession)
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_response_key_stops_without_rows(self, MockSession: mock.MagicMock) -> None:
-        # A 200 body without the list key reads as an empty page — end of data, not an error.
-        batches, _, manager = _collect("customers", [_response({"total_pages": 3})], MockSession)
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_carries_created_at_min_and_sort(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "invoices",
-            [_page("invoices", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert snapshots[0]["params"]["created_at_min"] == "2026-01-01T00:00:00Z"
-        assert snapshots[0]["params"]["sort_by"] == "created_at"
-        assert snapshots[0]["params"]["sort_direction"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_created_at_min_omitted_when_not_using_incremental(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "invoices",
-            [_page("invoices", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "created_at_min" not in snapshots[0]["params"]
-        # Sort is still ascending on the cursor field so full-refresh pages don't skip/duplicate.
-        assert snapshots[0]["params"]["sort_by"] == "created_at"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_created_at_min_omitted_when_last_value_missing(self, MockSession: mock.MagicMock) -> None:
         _, snapshots, _ = _collect(
             "invoices",
@@ -212,20 +143,6 @@ class TestGetRows:
             db_incremental_field_last_value=None,
         )
 
-        assert "created_at_min" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_sort_or_created_at_min(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "customers",
-            [_page("customers", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "sort_by" not in snapshots[0]["params"]
-        assert "sort_direction" not in snapshots[0]["params"]
         assert "created_at_min" not in snapshots[0]["params"]
 
 

@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
 import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { Button, Kbd, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
@@ -56,17 +55,10 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
+            className="flex shrink-0 flex-col items-center gap-3 pt-2.5 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {/* h-12 matches QuillSceneHeader, so the line under the logo meets the pane header's bottom border. */}
-            <div className="-mb-1 flex h-12 w-full shrink-0 flex-col items-center" aria-hidden>
-                <div className="flex flex-1 items-center">
-                    <Logomark className="h-auto w-6" />
-                </div>
-                <Separator />
-            </div>
             {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
                     key={pane}

@@ -31,8 +31,6 @@ export interface searchPerformanceLogicValues extends Pick<
     metrics: SearchMetrics
     hasPaidSources: boolean
     displayMetrics: SearchMetrics
-    showPosition: boolean
-    canShowPosition: boolean
     breakdown: SearchBreakdown
     channel: SearchChannel
     selectedRow: MarketingAnalyticsSearchRow | null
@@ -57,7 +55,6 @@ export interface searchPerformanceLogicActions extends Pick<
     'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
 > {
     clearFilters: () => { value: true }
-    setShowPosition: (showPosition: boolean) => { showPosition: boolean }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
     setBreakdown: (breakdown: SearchBreakdown) => { breakdown: SearchBreakdown }
     setChannel: (channel: SearchChannel) => { channel: SearchChannel }
@@ -83,7 +80,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     actions({
         clearFilters: true,
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
-        setShowPosition: (showPosition: boolean) => ({ showPosition }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
         setChannel: (channel: SearchChannel) => ({ channel }),
         selectRow: (row: MarketingAnalyticsSearchRow | null) => ({ row }),
@@ -97,7 +93,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             null as MarketingAnalyticsSearchRow | null,
             { selectRow: (_, { row }) => row, setBreakdown: () => null, setChannel: () => null },
         ],
-        showPosition: [false, { setShowPosition: (_, { showPosition }) => showPosition }],
         metrics: ['traffic' as SearchMetrics, { setMetrics: (_, { metrics }) => metrics }],
         search: ['', { setSearch: (_, { search }) => search }],
         querySearch: ['', { setQuerySearch: (_, { search }) => search }],
@@ -170,13 +165,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         displayMetrics: [
             (s) => [s.hasPaidSources, s.metrics],
             (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
-        ],
-        canShowPosition: [
-            (s) => [s.readySources, s.metrics],
-            (sources: MarketingAnalyticsSearchSource[], metrics: SearchMetrics): boolean =>
-                metrics === 'traffic' &&
-                sources.some((source) => source.sourceType === 'GoogleSearchConsole') &&
-                sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
         query: [
             (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],

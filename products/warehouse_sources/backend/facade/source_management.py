@@ -47,6 +47,7 @@ _LAZY = {
     "CredentialAccountsMixin": "sources.common.mixins",
     "DATABASE_HOST_NOT_ALLOWED_GUIDANCE": "sources.common.mixins",
     "HostNotAllowedError": "sources.common.mixins",
+    "is_team_allowlisted_for_internal_hosts": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
     "pinned_host_kwargs": "sources.common.mixins",
     "TemporaryHostResolutionError": "sources.common.mixins",

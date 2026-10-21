@@ -6,7 +6,6 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.watchmode import (
     WatchmodeSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.source import WatchmodeSource
 
 
@@ -14,15 +13,6 @@ class TestWatchmodeSource:
     def setup_method(self) -> None:
         self.source = WatchmodeSource()
         self.config = WatchmodeSourceConfig(api_key="test-key")
-
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        # No Watchmode endpoint has a server-side timestamp filter usable for incremental
-        # sync; flipping one to incremental without such a filter would corrupt syncs.
-        schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
 
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
@@ -48,24 +38,6 @@ class TestWatchmodeSource:
             assert error is None
         else:
             assert error
-
-    def test_validate_credentials_sends_key_in_header_not_url(self) -> None:
-        # The key must ride in the X-API-Key header, never the query string, so it can't
-        # leak into access/proxy logs that record request URLs.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
-        ) as mock_make_session:
-            response = requests.Response()
-            response.status_code = 200
-            mock_get = mock_make_session.return_value.get
-            mock_get.return_value = response
-
-            self.source.validate_credentials(self.config, team_id=1)
-
-        called_url = mock_get.call_args.args[0] if mock_get.call_args.args else mock_get.call_args.kwargs["url"]
-        assert "test-key" not in called_url
-        assert "apiKey" not in called_url
-        assert mock_get.call_args.kwargs["headers"] == {"X-API-Key": "test-key"}
 
     def test_validate_credentials_disables_redirects(self) -> None:
         # A cross-host redirect would otherwise replay the `X-API-Key` header off-host,

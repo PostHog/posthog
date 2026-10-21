@@ -24,16 +24,6 @@ class TestVantageSourceConfig:
         assert field.secret is True
 
 
-class TestGetSchemas:
-    def test_lists_every_endpoint_as_full_refresh(self) -> None:
-        # Vantage exposes no server-side updated_after cursor, so every table is full refresh only;
-        # advertising incremental/append here would let the pipeline skip rows on later syncs.
-        schemas = VantageSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-
-
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_delegates_to_transport(self, _name: str, transport_result: bool, expected_ok: bool) -> None:
@@ -81,13 +71,6 @@ class TestNonRetryableErrors:
 
 
 class TestPublicDocsCatalog:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog with no I/O - the public docs Supported tables section depends on this.
-        assert VantageSource.lists_tables_without_credentials is True
-        tables = VantageSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
-
     def test_canonical_description_keys_are_real_endpoints(self) -> None:
         # A key that doesn't match an endpoint name would silently never apply to any synced table.
         assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))

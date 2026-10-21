@@ -1257,6 +1257,12 @@ class TestProductYamlCheck:
         result = yaml_check.run(ctx)
         assert any("missing 'name'" in i for i in result.issues)
 
+    @pytest.mark.parametrize("value,valid", [("true", True), ("false", True), ("'true'", False), ("yes please", False)])
+    def test_sensitive_must_be_boolean(self, tmp_path: Path, value: str, valid: bool) -> None:
+        ctx = _make_yaml_ctx(tmp_path, f"name: My product\nowners:\n  - team-foo\nsensitive: {value}\n")
+        result = yaml_check.run(ctx)
+        assert (not result.issues) is valid, result.issues
+
 
 class TestProductYamlOwnersCheck:
     def test_skip_when_no_owners(self, tmp_path: Path) -> None:

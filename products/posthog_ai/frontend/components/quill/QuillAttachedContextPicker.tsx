@@ -89,12 +89,12 @@ export function QuillAttachedContextPicker(): JSX.Element {
                             render={
                                 <Button
                                     variant="default"
-                                    size={hasContext ? 'icon-sm' : 'sm'}
+                                    size="sm"
                                     aria-label="Add context"
                                     data-attr="posthog-ai-context-picker"
                                 >
                                     <IconAtSign />
-                                    {!hasContext && 'Add context'}
+                                    <span>Add context</span>
                                 </Button>
                             }
                         />

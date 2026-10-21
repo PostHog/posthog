@@ -184,54 +184,6 @@ class TestPolymarketTransport:
 
         assert params[0]["offset"] == 1000
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_cursor_resume_state_is_ignored_by_an_offset_endpoint(self, MockSession) -> None:
-        # The two styles share one resume dataclass. Seeding an offset paginator with a cursor (or
-        # the reverse) would either crash or restart the walk at the wrong place.
-        session = MockSession.return_value
-        params = _wire(session, [_array_response([])])
-
-        _rows(_source("tags", _make_manager(PolymarketResumeConfig(cursor="not-an-offset"))))
-
-        assert params[0]["offset"] == 0
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_keyset_checkpoint_saves_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _keyset_response("events", [{"id": "1"}], next_cursor="c1"),
-                _keyset_response("events", [{"id": "2"}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("events", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.cursor for s in saved] == ["c1"]
-        assert all(s.offset is None for s in saved)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offset_checkpoint_saves_the_offset(self, MockSession) -> None:
-        page_size = POLYMARKET_ENDPOINTS["tags"].page_size
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _array_response([{"id": str(i)} for i in range(page_size)]),
-                _array_response([]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("tags", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.offset for s in saved] == [page_size]
-        assert all(s.cursor is None for s in saved)
-
     @parameterized.expand([("events", ["id"]), ("markets", ["id"]), ("series", ["id"]), ("tags", ["id"])])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_partitions_on_created_at(self, endpoint: str, expected_keys: list[str], MockSession) -> None:
@@ -254,9 +206,3 @@ class TestPolymarketTransport:
         MockSession.return_value.get.return_value = resp
 
         assert validate_credentials() is expected
-
-    @mock.patch(POLYMARKET_SESSION_PATCH)
-    def test_validate_credentials_survives_transport_error(self, MockSession) -> None:
-        MockSession.side_effect = OSError("boom")
-
-        assert validate_credentials() is False

@@ -3197,6 +3197,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
+                    const prefilledProperties = router.values.searchParams.properties
+                    if (Array.isArray(prefilledProperties) && prefilledProperties.length > 0) {
+                        baseFlagConfig = {
+                            ...baseFlagConfig,
+                            filters: {
+                                ...baseFlagConfig.filters,
+                                groups: [{ properties: prefilledProperties, rollout_percentage: 100, variant: null }],
+                                aggregation_group_type_index: null,
+                            },
+                        }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
                         baseFlagConfig = {
@@ -5377,6 +5389,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
+                    // When there are properties, we load the feature flag (for prefilling a release condition)
+                    if (props.id === 'new' && searchParams.properties != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
                     // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
                     if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
@@ -5414,7 +5431,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (router.values.searchParams.sourceId ||
                 router.values.searchParams.type ||
                 router.values.searchParams.template ||
-                router.values.searchParams.intent)
+                router.values.searchParams.intent ||
+                router.values.searchParams.properties)
         ) {
             actions.loadFeatureFlag()
             return

@@ -123,6 +123,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -186,6 +188,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
@@ -456,7 +460,7 @@ services:
         environment:
             - ENABLE_ES=false
         ports:
-            - 7233:7233
+            - '127.0.0.1:7233:7233'
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     elasticsearch:
@@ -477,7 +481,7 @@ services:
             service: temporal-ui
         logging: *default-logging
         ports:
-            - 8081:8080
+            - '127.0.0.1:8081:8080'
         depends_on:
             temporal:
                 condition: service_started
@@ -505,6 +509,8 @@ services:
             # recording-api rejects them with a 401.
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -520,6 +526,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
@@ -529,6 +537,7 @@ services:
             - seaweedfs
             - temporal
             - browserless
+            - personhog-router
 
     capture:
         build:

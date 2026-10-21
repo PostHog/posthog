@@ -442,6 +442,64 @@ async def _purge_stale_temp_tables(s3: Any, live_uri: str) -> None:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
 
 
+# A temp table sits beside its live table: the live URI, the suffix, then at most the 8 characters of
+# a claim token (see `_temp_uri_for`). No path separator can follow, so a match is never the live
+# table, a path inside it, or a path above it.
+_TEMP_URI_CLAIM_PART = re.compile(r"(_[0-9a-f]{1,8})?")
+
+
+def is_temp_uri_of(live_uri: str, temp_uri: str) -> bool:
+    """Whether `temp_uri` is a repartition temp table of the table at `live_uri`, and nothing else."""
+    live = live_uri.rstrip("/")
+    prefix = f"{live}{TEMP_URI_SUFFIX}"
+    # The live URI must name a table directory below a bucket, not a bucket or an empty path.
+    if "/" not in live.rpartition("://")[2].strip("/"):
+        return False
+    if not temp_uri.startswith(prefix):
+        return False
+    return _TEMP_URI_CLAIM_PART.fullmatch(temp_uri[len(prefix) :]) is not None
+
+
+async def purge_abandoned_rewrite_temp(
+    table_ref: DeltaTableRef,
+    schema: ExternalDataSchema,
+    temp_uri: str | None,
+    logger: FilteringBoundLogger,
+    *,
+    claim_token: str | None,
+) -> bool:
+    """Delete the temp table of a rewrite that will not continue. Returns whether it deleted.
+
+    Deletes one exact prefix, not every temp variant of the table. A wildcard sweep can remove the
+    temp table of a newer attempt, and the database claim cannot fence a delete that is in progress.
+    A newer attempt builds under its own claim token, so it never writes to this prefix again.
+
+    The caller clears the checkpoint that names `temp_uri` after this returns, not before. If the
+    delete fails, the checkpoint still records the temp table, and a later run deletes it.
+    """
+    if not temp_uri:
+        return False
+    live_uri = await table_ref.get_table_uri()
+    if not is_temp_uri_of(live_uri, temp_uri):
+        await logger.awarning(
+            f"repartition: refusing to delete a path that is not a temp table of this table schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return False
+    await _ensure_claim(schema, claim_token)
+    swap = schema.repartition_swap
+    if swap is not None and swap.get("temp_uri") == temp_uri:
+        # A staged swap makes temp the only intact copy.
+        return False
+    async with aget_s3_client(fresh_instance=True) as s3:
+        await _purge_s3_prefix(s3, temp_uri)
+    await logger.ainfo(
+        f"repartition: deleted the temp table of an abandoned rewrite schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+    return True
+
+
 def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
     suffix = f"{TEMP_URI_SUFFIX}_{claim_token[:8]}" if claim_token else TEMP_URI_SUFFIX
     return f"{live_uri}{suffix}"

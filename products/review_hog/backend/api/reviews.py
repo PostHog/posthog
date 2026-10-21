@@ -109,7 +109,9 @@ class ReviewProgressSerializer(serializers.Serializer):
         choices=REVIEW_STAGES,
         help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
         "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
-        "or finalizing (building and publishing the review).",
+        "or finalizing (building and publishing the review). A single-agent Flash turn reports its "
+        "own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and "
+        "finalizing (merging, capping, and publishing the findings).",
     )
     done = serializers.IntegerField(
         allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."

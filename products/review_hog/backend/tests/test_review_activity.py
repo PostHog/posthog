@@ -1,10 +1,12 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import replace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
@@ -17,6 +19,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_ARM,
     REVIEW_MODE_FLASH,
     ReviewArm,
+    review_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -24,18 +27,24 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
     PerspectiveSelection,
 )
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
 )
 from products.review_hog.backend.temporal.heartbeat import REPORT_HEARTBEAT_INTERVAL, ReviewActivityHeartbeater
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -302,6 +311,38 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "category,expected_type",
+    [
+        ("upstream_request_rejected", ApplicationError),
+        ("agent_error", AgentTurnFailed),
+        ("upstream_provider_failure", AgentTurnFailed),
+        (None, AgentTurnFailed),
+    ],
+)
+async def test_review_chunk_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
+    category: str | None, expected_type: type[Exception]
+) -> None:
+    failure = AgentTurnFailed("agent failed", category=category, agent_message="agent failed")
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}._prepare_review_prompt", MagicMock(return_value="review-prompt")),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}.persist_perspective_results"),
+        patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
+    ):
+        with pytest.raises(expected_type) as excinfo:
+            await ActivityEnvironment().run(review_chunk_activity, _review_input())
+
+    if isinstance(excinfo.value, ApplicationError):
+        assert excinfo.value.non_retryable is True
+        assert excinfo.value.type == category
+        assert excinfo.value.__cause__ is failure
+    else:
+        assert excinfo.value is failure
+
+
+@pytest.mark.asyncio
 async def test_blind_spot_unit_scopes_wave_findings_to_its_chunk_and_steps_as_blind_spots() -> None:
     # A broken (pass, chunk) filter feeds the sweep another chunk's findings or nothing at all.
     # Also pins the blind-spots step name and the lens-list threading.
@@ -440,3 +481,96 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert result is None
     assert mock_oneshot.called is False
     assert mock_load.called is False
+
+
+def _single_agent_stage(**extra: object) -> dict:
+    return {
+        "team_id": 1,
+        "user_id": 2,
+        "report_id": "rep-1",
+        "head_sha": "sha1",
+        "repository": "o/r",
+        "branch": "feat",
+        "run_index": 1,
+        "review_mode": REVIEW_MODE_FLASH,
+        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
+        **extra,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,activity_input,expected_key,expected_source",
+    [
+        pytest.param(
+            single_agent_review_activity,
+            SandboxStageInput(**_single_agent_stage()),
+            (2000, 1),
+            "flash-single-agent",
+            id="main_session",
+        ),
+        pytest.param(
+            lens_review_activity,
+            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            (2002, 2),
+            "flash-lens-contracts-security",
+            id="lens_session",
+        ),
+    ],
+)
+async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup_reads(
+    activity_fn: Callable[..., Awaitable[None]],
+    activity_input: SandboxStageInput,
+    expected_key: tuple[int, int],
+    expected_source: str,
+) -> None:
+    # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
+    # dedup asks for drops every finding of that session without an error.
+    review = SingleAgentReview(
+        findings=[
+            SingleAgentFinding(
+                title="Rename the counter", priority="P3", file="a.py", line_start=9, line_end=9, body="b"
+            ),
+            SingleAgentFinding(
+                title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b", suggestion_code="x"
+            ),
+            SingleAgentFinding(
+                title="Close the file",
+                priority="P2",
+                file="a.py",
+                line_start=12,
+                line_end=7,
+                body="b",
+                suggestion_code="y",
+            ),
+        ]
+    )
+    mock_review = AsyncMock(return_value=review)
+    mock_persist = MagicMock()
+    env = ActivityEnvironment()
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        await env.run(activity_fn, activity_input)
+
+    dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+    assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
+    assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
+        "gpt-6.1-sol",
+        ReasoningEffort.MEDIUM,
+    )
+    [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
+    assert key == expected_key
+    # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost. GitHub
+    # rejects a reversed line range, so that finding keeps its start line and loses its suggestion.
+    assert [
+        (i.priority, i.reported_priority, i.lines, i.suggestion_code, i.source_perspective) for i in persisted.issues
+    ] == [
+        (IssuePriority.MUST_FIX, "P1", [LineRange(start=4)], "x", expected_source),
+        (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
+        (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
+    ]

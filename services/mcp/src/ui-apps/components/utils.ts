@@ -1,4 +1,6 @@
-import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
+import type { Series } from '@posthog/quill-charts'
+
+import type { ChartDisplayType, FunnelResult, TrendsQuery, TrendsResultItem } from './types'
 
 export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
     return query?.trendsFilter?.display || 'ActionsLineGraph'
@@ -86,6 +88,18 @@ export function formatTooltipDate(dateStr: string): string {
 
 export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
     return item.label || item.action?.name || `Series ${index + 1}`
+}
+
+export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {
+    // One bar has one total, so a previous period saved with compare on is left out.
+    return results
+        .filter((item) => item.compare_label !== 'previous')
+        .map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: getColor(i),
+        }))
 }
 
 export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: string; count: number; order: number }> {

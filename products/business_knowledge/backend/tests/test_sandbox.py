@@ -403,6 +403,19 @@ class TestSandboxAPI(APIBaseTest):
         assert first["searches"] == second["searches"]
         assert len(second["searches"]) == 1
 
+    def test_a_finished_run_starts_a_new_sandbox(self, _ff, _workflow) -> None:
+        started = self.client.post(self.url, {"question": "Can I get a refund?"}, format="json")
+        assert started.status_code == status.HTTP_201_CREATED, started.content
+        TaskRun.objects.filter(id=started.json()["run_id"]).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Yes, within 30 days.", "sources": []}
+        )
+        again = self.client.post(self.url, {"question": "And after 30 days?"}, format="json")
+        assert again.status_code == status.HTTP_201_CREATED, again.content
+        assert again.json()["task_id"] != started.json()["task_id"]
+        second = TaskRun.objects.get(id=again.json()["run_id"])
+        assert "resume_from_run_id" not in second.state
+        assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 2
+
     def test_blank_question_is_rejected(self, _ff, _workflow) -> None:
         response = self.client.post(self.url, {"question": "   "}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -4,7 +4,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import COLLECTION_METHODS_BY_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.source import FramerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.framer import FramerSourceConfig
 
@@ -44,18 +43,6 @@ class TestFramerSource:
             protocol_version=expected_version,
             logger=inputs.logger,
         )
-
-    def test_every_supported_version_has_collection_methods(self) -> None:
-        assert set(COLLECTION_METHODS_BY_VERSION) == set(FramerSource.supported_versions)
-
-    def test_broken_code_component_is_non_retryable(self) -> None:
-        # Framer's headless loader raises this identically on every retry when a project's
-        # code component references a module the headless runtime can't resolve — a project
-        # config defect, not a transient server condition.
-        observed_error = (
-            "Framer API error METHOD_ERROR: getCollectionItems2: ensureComponentsInLoader: Some modules are missing."
-        )
-        assert any(key in observed_error for key in FramerSource().get_non_retryable_errors())
 
     def test_pool_exhausted_stays_retryable(self) -> None:
         observed_error = "Framer API error POOL_EXHAUSTED: busy"

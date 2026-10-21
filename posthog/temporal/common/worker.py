@@ -391,6 +391,22 @@ async def create_worker(
             "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
             "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
         }
+        # Recorded in seconds, from a hand-off at once to a run that holds the worker for hours.
+        histogram_bucket_overrides["warehouse_import_shutdown_handoff_delay_seconds"] = [
+            1.0,
+            5.0,
+            15.0,
+            30.0,
+            60.0,
+            90.0,
+            120.0,
+            300.0,
+            900.0,
+            1800.0,
+            3600.0,
+            7200.0,
+            21600.0,
+        ]
     if task_queue == settings.TASKS_TASK_QUEUE:
         histogram_bucket_overrides |= dict(
             zip(

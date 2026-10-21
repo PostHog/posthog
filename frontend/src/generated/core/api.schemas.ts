@@ -5396,6 +5396,61 @@ export interface EventMatchResponseApi {
     matches: EventMatchApi[]
 }
 
+/**
+ * * `offer` - offer
+ * * `answer` - answer
+ */
+export type TerminalNetplayDescriptionTypeEnumApi =
+    (typeof TerminalNetplayDescriptionTypeEnumApi)[keyof typeof TerminalNetplayDescriptionTypeEnumApi]
+
+export const TerminalNetplayDescriptionTypeEnumApi = {
+    Offer: 'offer',
+    Answer: 'answer',
+} as const
+
+export interface TerminalNetplayDescriptionApi {
+    /** WebRTC session description type.
+     *
+     * * `offer` - offer
+     * * `answer` - answer */
+    type: TerminalNetplayDescriptionTypeEnumApi
+    /**
+     * WebRTC session description with ICE candidates.
+     * @maxLength 16384
+     */
+    sdp: string
+}
+
+export interface TerminalNetplayReceivedSignalApi {
+    /** Peer that sent the description. */
+    sender: string
+    description: TerminalNetplayDescriptionApi
+}
+
+export interface TerminalNetplayMailboxApi {
+    /** Descriptions received since the last read. */
+    signals: TerminalNetplayReceivedSignalApi[]
+}
+
+export interface TerminalNetplaySignalApi {
+    /**
+     * Room code shown by the game host.
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string
+    /**
+     * Peer that sent the description.
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    sender: string
+    /**
+     * Peer that receives the description.
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    recipient: string
+    description: TerminalNetplayDescriptionApi
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -5553,6 +5608,34 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
+ */
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
+
 export interface OrganizationMemberNoticeActionApi {
     /**
      * Text on the button shown next to the notice.
@@ -5576,8 +5659,6 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -5599,7 +5680,7 @@ export interface OrganizationApi {
      */
     readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
@@ -6822,6 +6903,21 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type TerminalNetplayMailboxRetrieveParams = {
+    /**
+     * Peer whose mailbox to read. The host reads 'host'.
+     * @minLength 1
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    peer: string
+    /**
+     * Room code shown by the game host.
+     * @minLength 1
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string
+}
 
 export type UploadedMediaListParams = {
     /**

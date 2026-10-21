@@ -589,6 +589,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("customer_analytics", "TeamCustomerAnalyticsConfig"),
         ("tasks", "Task"),
+        ("workflows", "TeamWorkflowsConfig"),
     }
 )
 
@@ -617,6 +618,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
         ("warehouse_sources", "PendingSourceCredential"),
         ("warehouse_sources", "WarehouseColumnAnnotation"),
         ("warehouse_sources", "WarehouseColumnStatistics"),
+        ("workflows", "HogFlow"),
     }
 )
 

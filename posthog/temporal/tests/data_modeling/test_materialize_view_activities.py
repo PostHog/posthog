@@ -50,14 +50,23 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowEligibilityInputs,
     ManagedWarehouseShadowInputs,
+    check_managed_warehouse_shadow_eligibility_activity,
     materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.api import compute_enrichment_hash
+from products.data_modeling.backend.facade.api import (
+    TRINO_INCREMENTAL_SCOPE,
+    compute_enrichment_hash,
+    definition_fingerprint,
+    get_incremental_config,
+    get_incremental_state,
+    set_incremental_state,
+)
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -77,7 +86,7 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
+from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoIncrementalWrite
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
@@ -115,11 +124,38 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
+    @pytest.mark.parametrize("flag_enabled,target_ready", [(False, True), (True, False), (True, True)])
+    async def test_shadow_eligibility_does_not_require_translation(
+        self, activity_environment, ateam, anode, adag, flag_enabled: bool, target_ready: bool
+    ) -> None:
+        inputs = ManagedWarehouseShadowEligibilityInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse._is_managed_warehouse_shadow_flag_enabled",
+                return_value=flag_enabled,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.is_data_modeling_shadow_ready",
+                return_value=target_ready,
+            ) as is_ready,
+        ):
+            assert await activity_environment.run(check_managed_warehouse_shadow_eligibility_activity, inputs) is (
+                flag_enabled and target_ready
+            )
+        if flag_enabled:
+            is_ready.assert_called_once_with(organization_id=ateam.organization_id)
+        else:
+            is_ready.assert_not_called()
+
     @pytest.mark.parametrize(
-        "stale,alias_dispatch_fails",
+        "compile_fails,alias_dispatch_fails",
         [(False, False), (True, False), (False, True)],
     )
-    async def test_trino_shadow_records_result_without_recompiling(
+    async def test_trino_shadow_records_execution_or_compilation_result(
         self,
         activity_environment,
         ateam,
@@ -127,7 +163,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         ajob,
         adag,
         asaved_query,
-        stale: bool,
+        compile_fails: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -149,7 +185,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_model",
                 return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
-                side_effect=ValueError("No current Trino conversion") if stale else None,
+                side_effect=ValueError("Trino compilation failed") if compile_fails else None,
             ) as execute,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
@@ -166,12 +202,13 @@ class TestMaterializeViewManagedWarehouseActivity:
             team_id=ateam.pk,
             saved_query_id=asaved_query.id,
             source_query=executable_query,
+            incremental=None,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
-        if stale:
+        if compile_fails:
             reconcile_aliases.assert_not_awaited()
-            assert result.error == "No current Trino conversion"
+            assert result.error == "Trino compilation failed"
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
@@ -179,6 +216,57 @@ class TestMaterializeViewManagedWarehouseActivity:
             assert result.error is None
             assert ajob.status == DataModelingJobStatus.COMPLETED
             assert ajob.rows_materialized == 12
+
+    @pytest.mark.parametrize("merge_fails", [False, True])
+    async def test_trino_shadow_keeps_its_own_incremental_watermark(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, merge_fails: bool
+    ) -> None:
+        clickhouse_mark = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        trino_mark = dt.datetime(2026, 10, 3, tzinfo=dt.UTC)
+        written_mark = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+
+        def seed() -> None:
+            asaved_query.incremental_config = {"enabled": True, "incremental_key": "ts", "unique_key": ["id"]}
+            asaved_query.save(update_fields=["incremental_config"])
+            fingerprint = definition_fingerprint(asaved_query.query, get_incremental_config(asaved_query))
+            set_incremental_state(asaved_query, watermark=clickhouse_mark, fingerprint=fingerprint, mode="incremental")
+            set_incremental_state(
+                asaved_query,
+                watermark=trino_mark,
+                fingerprint=fingerprint,
+                mode="incremental",
+                scope=TRINO_INCREMENTAL_SCOPE,
+            )
+
+        await database_sync_to_async(seed)()
+        inputs = ManagedWarehouseShadowInputs(
+            team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id), job_id=str(ajob.id), use_trino=True
+        )
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
+            ),
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
+            ),
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_trino_model",
+                return_value=DuckLakeTableResult(
+                    schema_name="s", table_name="t", row_count=4, watermark=written_mark, merged=True
+                ),
+                side_effect=RuntimeError("MERGE failed") if merge_fails else None,
+            ) as execute,
+        ):
+            await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
+
+        assert execute.call_args.kwargs["incremental"] == TrinoIncrementalWrite(
+            incremental_key="ts", unique_key=("id",), since=trino_mark
+        )
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        trino_state = get_incremental_state(asaved_query, scope=TRINO_INCREMENTAL_SCOPE)
+        assert trino_state.watermark == (None if merge_fails else written_mark.isoformat())
+        # ClickHouse progress is never moved by the shadow.
+        assert get_incremental_state(asaved_query).watermark == clickhouse_mark.isoformat()
 
     async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
         ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES

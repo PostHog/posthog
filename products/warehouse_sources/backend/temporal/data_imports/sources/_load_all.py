@@ -243,6 +243,7 @@ from .chatwoot.source import ChatwootSource
 from .checkly.source import ChecklySource
 from .checkmarx.source import CheckmarxSource
 from .checkout_com.source import CheckoutComSource
+from .chess_com.source import ChessComSource
 from .chift.source import ChiftSource
 from .chorus.source import ChorusSource
 from .churnkey.source import ChurnkeySource
@@ -1163,6 +1164,7 @@ from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
+from .steam.source import SteamSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
