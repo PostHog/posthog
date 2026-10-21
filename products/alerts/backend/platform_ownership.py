@@ -16,7 +16,13 @@ from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
-from products.alerts.backend.platform_cutover import can_move, hand_over, has_begun_cutover, in_an_environment
+from products.alerts.backend.platform_cutover import (
+    can_move,
+    delivers_as_it_does_today,
+    hand_over,
+    has_begun_cutover,
+    in_an_environment,
+)
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
@@ -35,7 +41,11 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
     so the team never has to be cut over again for it. False when the alert stays with insight."""
     return (
-        not in_an_environment(alert) and can_move(alert) and has_begun_cutover(alert.team_id) and hand_over(alert, at)
+        not in_an_environment(alert)
+        and can_move(alert)
+        and has_begun_cutover(alert.team_id)
+        and delivers_as_it_does_today(alert)
+        and hand_over(alert, at)
     )
 
 
