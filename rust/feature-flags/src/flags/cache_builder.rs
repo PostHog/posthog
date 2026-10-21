@@ -88,7 +88,8 @@ async fn load_supported_flags(
 
 /// The flags the service evaluates when the hypercache has no entry for the team. It omits
 /// the same rows as the cache. Its metadata sets `has_unparseable_flags` when it omitted a row
-/// that Python's builder publishes, so the response reports the missing flag.
+/// that Python's builder publishes, so the response sets `errorsWhileComputingFlags` and an
+/// SDK keeps that flag's stored value.
 pub(crate) async fn build_fallback_wrapper(
     pg_reader: PostgresReader,
     team_id: TeamId,

@@ -339,11 +339,11 @@ impl FeatureFlagList {
                         // Serde fails the whole `filters` struct when a required field is
                         // absent, so one bad property filter costs the entire flag. A property
                         // filter with no `"type"` key does that, because
-                        // PropertyFilter::prop_type has no default. Python reads only the
-                        // conditions, so it keeps such a flag when the flag is active. Those
-                        // drops are real builder divergences, which `UnreadableV1Object` marks.
-                        // Either way the team keeps the rest of its flags, rather than failing
-                        // the read.
+                        // PropertyFilter::prop_type has no default. Python reads only the cohort
+                        // and flag references. It reads a property's `type` with `.get`, so it
+                        // keeps such a flag when the flag is active. Those drops are real
+                        // builder divergences, which `UnreadableV1Object` marks. Either way the
+                        // team keeps the rest of its flags, rather than failing the read.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,
