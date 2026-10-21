@@ -23,6 +23,12 @@ CLAUSE_LABEL = "clause"
 # builderToPromql sets the label with `label_replace(<series>, "clause", "<alias>", "", "")`. Without
 # that call, a `clause` label belongs to the user's data.
 _SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.DOTALL)
+# builderToPromql writes quantiles of the same buckets as `histogram_quantiles("clause", 0.5, 0.9, <buckets>)`,
+# so Snuffle reads the buckets one time. The label holds the quantile. The quantiles belong to the
+# clauses a, b, c, ... in order.
+_SHARED_HISTOGRAM_QUANTILES = re.compile(
+    r'^\s*histogram_quantiles\s*\(\s*"clause"\s*((?:,\s*[0-9.eE+-]+\s*)+),', re.DOTALL
+)
 
 
 class PromQLQueryError(ValueError):
@@ -43,6 +49,27 @@ def _error_message(response: requests.Response) -> str:
     except ValueError:
         return f"The PromQL query failed with status {response.status_code}."
     return str(payload.get("error") or f"The PromQL query failed with status {response.status_code}.")
+
+
+def _quantile_clauses(expr: str) -> dict[float, str]:
+    """The clause alias of each quantile in a `histogram_quantiles("clause", ...)` query."""
+    match = _SHARED_HISTOGRAM_QUANTILES.match(expr)
+    if not match:
+        return {}
+    try:
+        quantiles = [float(value) for value in match.group(1).split(",")[1:]]
+    except ValueError:
+        return {}
+    return {quantile: chr(ord("a") + index) for index, quantile in enumerate(quantiles)}
+
+
+def _clause_alias(value: str | None, quantile_clauses: dict[float, str]) -> str | None:
+    if value is None or not quantile_clauses:
+        return value
+    try:
+        return quantile_clauses.get(float(value), value)
+    except ValueError:
+        return value
 
 
 def snuffle_payload(
@@ -104,12 +131,13 @@ def run_promql_range(
         raise PromQLQueryError(f"A PromQL range query cannot return a {result_type} result.")
 
     tzinfo = team.timezone_info
-    marks_clauses = bool(_SETS_CLAUSE_LABEL.search(expr))
+    quantile_clauses = _quantile_clauses(expr)
+    marks_clauses = bool(quantile_clauses) or bool(_SETS_CLAUSE_LABEL.search(expr))
     rows: list[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]] = []
     for result in results:
         labels = {str(key): str(value) for key, value in (result.get("metric") or {}).items()}
         metric_name = labels.pop("__name__", None)
-        clause = labels.pop(CLAUSE_LABEL, None) if marks_clauses else None
+        clause = _clause_alias(labels.pop(CLAUSE_LABEL, None), quantile_clauses) if marks_clauses else None
         points = [
             MetricPoint(
                 time=dt.datetime.fromtimestamp(float(timestamp), tz=tzinfo).isoformat(),
