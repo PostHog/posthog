@@ -225,7 +225,8 @@ impl ProbeCache {
         }
         hashes.sort_unstable();
         hashes.dedup();
-        let bytes = hashes.len() * 8 + key.len() + ENTRY_OVERHEAD_BYTES;
+        // The key is held twice: once in `map` and once in `order`.
+        let bytes = hashes.len() * 8 + 2 * key.len() + ENTRY_OVERHEAD_BYTES;
         let mut inner = self.lock();
         // Read the cap under the lock: `set_max_bytes` evicts under it too, so a cap lowered
         // concurrently is never missed by this insertion.
@@ -459,7 +460,7 @@ mod tests {
     use super::*;
 
     fn entry_bytes(n_hashes: usize, key: &str) -> usize {
-        n_hashes * 8 + key.len() + ENTRY_OVERHEAD_BYTES
+        n_hashes * 8 + 2 * key.len() + ENTRY_OVERHEAD_BYTES
     }
 
     #[test]
