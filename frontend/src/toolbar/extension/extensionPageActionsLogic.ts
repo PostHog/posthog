@@ -22,7 +22,6 @@ export interface extensionPageActionsLogicValues {
     actionFormElementsChains: Record<number, ElementType[]> // actionsTabLogic
     inspectingElement: number | null // actionsTabLogic
     isActionFormSubmitting: boolean // actionsTabLogic
-    selectedActionId: number | 'new' | null // actionsTabLogic
     actionsList: PageToolbarActionsState['actions']
     formRevision: number
     pageState: PageToolbarActionsState
@@ -97,13 +96,7 @@ export const extensionPageActionsLogic = kea<extensionPageActionsLogicType>([
             actionsLogic,
             ['sortedActions', 'allActionsLoading'],
             actionsTabLogic,
-            [
-                'selectedActionId',
-                'actionForm',
-                'actionFormElementsChains',
-                'inspectingElement',
-                'isActionFormSubmitting',
-            ],
+            ['actionForm', 'actionFormElementsChains', 'inspectingElement', 'isActionFormSubmitting'],
         ],
         actions: [
             actionsTabLogic,
@@ -152,7 +145,8 @@ export const extensionPageActionsLogic = kea<extensionPageActionsLogicType>([
             (s) => [
                 s.allActionsLoading,
                 s.actionsList,
-                s.selectedActionId,
+                // kea-typegen drops the 'new' literal when it copies a connected value's type, so read the selector.
+                actionsTabLogic.selectors.selectedActionId,
                 s.actionForm,
                 s.formRevision,
                 s.actionFormElementsChains,
