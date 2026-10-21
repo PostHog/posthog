@@ -77,7 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
 def _raise_translated(error: Exception, location: str) -> NoReturn:
@@ -116,7 +116,9 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     sync with `REPLACE_ROWS_BY_FILE_FLAG` on also deletes the rows of a deleted file, and a changed file
     replaces its rows. Without the flag it merges on the file and row number and keeps the rows of
     deleted files. An append sync of a Delta table reads only the data files committed since the
-    version of the last sync.
+    version of the last sync. An incremental sync of a Delta table also replaces the rows of each data
+    file that a commit removed, so deletes, updates, merges and compactions reach the table. Without
+    the flag it rebuilds the table on every run.
     """
 
     @abstractmethod
@@ -305,21 +307,26 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     def _delta_response(self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs) -> SourceResponse:
         cursor_manager = self.get_cursor_manager(inputs)
         appends = inputs.should_use_incremental_field
+        by_file = appends and inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+        # Without the flag the loader can't delete by file, so an incremental sync rebuilds the
+        # table from the snapshot on every run.
+        stored = cursor_manager.load() if appends and (not by_file or _mirrors_files(inputs)) else None
         # The plan is made here and not in `items`, because the response has to say up front
         # whether the destination must be rebuilt.
         read = plan_delta_read(
             store.delta_uri(table.path),
             store.delta_storage_options,
             table.name,
-            stored=cursor_manager.load() if appends else None,
+            stored=stored,
             logger=inputs.logger,
+            by_file=by_file,
         )
 
         def items() -> Iterator[pa.Table]:
             # A full refresh stages the cursor too. A later switch to append then continues from
             # the version the table holds, and not from the cursor of an earlier append.
             cursor_manager.stage(read.cursor)
-            yield from read.iter_tables(with_version=appends)
+            yield from read.iter_tables(with_version=appends, with_file_names=by_file)
 
         return SourceResponse(
             name=inputs.schema_name,
@@ -328,6 +335,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             chunk_size_bytes=CHUNK_SIZE_BYTES,
             destination_reset_required=read.reset_required,
             preserve_column_names=table.preserve_column_names,
+            replace_scope=read.replace_scope,
         )
 
     def _find_table(
@@ -347,8 +355,8 @@ def _source_schema(table: TableDefinition) -> SourceSchema:
     is_files = table.kind == "files"
     return SourceSchema(
         name=table.name,
-        # Delta rows have no key to merge on, so a Delta table can only append.
-        supports_incremental=is_files,
+        # Delta rows have no key to merge on, so an incremental sync of a Delta table replaces rows by data file.
+        supports_incremental=True,
         supports_append=True,
         incremental_fields=[
             incremental_field(FILE_MODIFIED_AT_COLUMN)
