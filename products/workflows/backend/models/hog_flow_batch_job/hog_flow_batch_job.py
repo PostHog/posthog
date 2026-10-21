@@ -38,6 +38,14 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
                 name="hogflowbatchjob_waiting_idx",
                 condition=models.Q(status="waiting"),
             ),
+            # Ordering workflows by their latest send reads each one's newest completed run.
+            models.Index(
+                "team",
+                "hog_flow",
+                models.F("updated_at").desc(),
+                name="hogflowbatchjob_latest_send",
+                condition=models.Q(status="completed"),
+            ),
         ]
 
     State = HogFlowBatchJobState
