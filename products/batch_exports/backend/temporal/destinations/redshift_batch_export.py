@@ -70,7 +70,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
-from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError, UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -137,6 +137,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
     # These (read access, region, manifest) don't self-heal, so retrying is pointless.
     "RedshiftS3CopyError",
+    # A column of the exported data has no Redshift type, so no run of this query can load.
+    "UnsupportedColumnTypeError",
 )
 
 
@@ -656,7 +658,7 @@ def get_redshift_fields_from_record_schema(
             pg_type = "SUPER"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise UnsupportedColumnTypeError("Redshift", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
