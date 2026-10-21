@@ -95,6 +95,7 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     MovedAlertCheck,
+    PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -106,7 +107,15 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
-from products.alerts.backend.facade.platform import follow_insight_alert, moved_alert_check_page, moved_alert_statuses
+from products.alerts.backend.facade.platform import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    follow_insight_alert,
+    hand_over_new_alert,
+    moved_alert_check_page,
+    moved_alert_statuses,
+    write_moved_alert_edit,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -126,6 +135,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    InvalidPlatformAlertEdit,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -896,6 +906,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
+            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+                instance.refresh_from_db(fields=["owner", "owner_changed_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -906,7 +918,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
-        if instance.enabled:
+        # A handed-over copy is the platform's now, and a revived copy would lose its state.
+        if instance.enabled and not instance.platform_owned:
             transaction.on_commit(
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
@@ -1029,12 +1042,23 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
+        if instance.platform_owned:
+            try:
+                write_moved_alert_edit(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    snooze_changed=snoozed_until_param is not serializers.empty,
+                )
+            except PlatformCannotOwn as error:
+                raise ValidationError(str(error)) from error
+            except InvalidPlatformAlertEdit as error:
+                raise ValidationError({error.field_name: str(error)}) from error
 
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
-        if enable_now:
+        if enable_now and not instance.platform_owned:
             transaction.on_commit(
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
@@ -1691,6 +1715,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def perform_destroy(self, instance: AlertConfiguration) -> None:
+        # Before the delete, while the destinations a firing's resolve goes to still exist.
+        if instance.platform_owned:
+            close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
+        # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
+        with transaction.atomic():
+            if instance.platform_owned:
+                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
