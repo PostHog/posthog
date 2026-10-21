@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+    validate_via_probe,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     PAGE_SIZE,
@@ -168,7 +171,9 @@ def validate_credentials(
         return False, status, "Invalid xMatters credentials"
     if status == 403:
         return False, status, "Your xMatters account does not have access to this resource"
-    return False, status, None
+    if status is None or status >= 500:
+        return False, status, unreachable_vendor_message("xMatters")
+    return False, status, f"xMatters API returned status {status}"
 
 
 def _fanout_source(

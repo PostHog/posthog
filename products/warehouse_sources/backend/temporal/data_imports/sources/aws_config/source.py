@@ -119,7 +119,7 @@ The aggregated resources table reads every configuration aggregator in the selec
 Add a session token if you use temporary credentials. Replace temporary credentials when they expire.""",
             iconPath="/static/services/aws_config.png",
             docsUrl="https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "config", "compliance", "inventory"],
             fields=cast(
                 list[FieldType],
