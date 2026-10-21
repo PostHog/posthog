@@ -191,6 +191,16 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_take_does_not_start_the_interval() {
+        let mut pacer = CommitPacer::every(Duration::from_millis(500));
+        let start = Instant::now();
+        assert!(pacer.take_due(start).is_none());
+
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        assert!(pacer.take_due(start + Duration::from_millis(100)).is_some());
+    }
+
+    #[test]
     fn take_all_ignores_the_interval() {
         let mut pacer = CommitPacer::every(Duration::from_secs(3600));
         let start = Instant::now();
