@@ -1426,8 +1426,9 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
+            health_context = load_health_context(experiment)
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
-            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS).findings
+            findings = evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1440,6 +1441,9 @@ class ExperimentService:
                     and experiment.start_date is not None
                     and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
                     "flag_age_seconds": int(flag_age.total_seconds()),
+                    # The launch doesn't move `last_called_at`, so this is the state before the launch, and the only
+                    # time it is recorded: a later call overwrites it. None when the organization's calls can't be read.
+                    "flag_called_before_launch": health_context.flag_called,
                     "health_finding_codes": [finding.code.value for finding in findings],
                     # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
                     # unambiguous when two codes use the same subcode.
