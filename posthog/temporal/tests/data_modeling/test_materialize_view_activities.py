@@ -24,7 +24,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -1792,17 +1792,29 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
-        "clickhouse_message,expects_delayed_retry",
+        "clickhouse_error,expects_delayed_retry",
         [
             (
-                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
-                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                ClickHouseError(
+                    "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                    "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)"
+                ),
                 True,
             ),
-            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+            (
+                ClickHouseTooManySimultaneousQueriesError(
+                    "Code: 202. DB::Exception: Too many simultaneous queries. Maximum: 100. "
+                    "(TOO_MANY_SIMULTANEOUS_QUERIES)"
+                ),
+                True,
+            ),
+            (
+                ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
+                False,
+            ),
         ],
     )
-    async def test_delta_kernel_read_error_retries_after_a_delay(
+    async def test_transient_clickhouse_errors_retry_after_a_delay(
         self,
         activity_environment,
         ateam,
@@ -1810,11 +1822,11 @@ class TestMaterializeViewActivity:
         ajob,
         bucket_name,
         adag,
-        clickhouse_message,
+        clickhouse_error,
         expects_delayed_retry,
     ):
         def mock_hogql_table(*args, **kwargs):
-            raise ClickHouseError(clickhouse_message)
+            raise clickhouse_error
 
         with (
             override_settings(
@@ -1837,15 +1849,15 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
         error = raised.value
-        assert clickhouse_message in str(error)
+        assert str(clickhouse_error) in str(error)
         if expects_delayed_retry:
             assert isinstance(error, ApplicationError)
-            assert error.type == "ClickHouseError"
+            assert error.type == type(clickhouse_error).__name__
             assert not error.non_retryable
             assert error.next_retry_delay is not None
             assert error.next_retry_delay >= dt.timedelta(minutes=1)
         else:
-            assert type(error) is ClickHouseError
+            assert type(error) is type(clickhouse_error)
 
 
 class _EmptyArrowClient:
