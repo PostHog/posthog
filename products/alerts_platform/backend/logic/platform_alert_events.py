@@ -495,9 +495,10 @@ def check_page(
     )
 
 
-# Deduplication does not matter here, because two copies of one check are identical rows.
+# Deduplication does not matter here, because two copies of one check are identical rows. The tuple
+# keeps a NULL value, which `argMax` would otherwise skip in favor of an older check's.
 _LAST_CHECKS_SQL = f"""
-SELECT configuration_id, max(occurred_at), argMax(value, (occurred_at, evaluation_key))
+SELECT configuration_id, max(occurred_at), argMax(tuple(value), (occurred_at, evaluation_key)).1
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s

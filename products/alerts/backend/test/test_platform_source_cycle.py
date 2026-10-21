@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
@@ -65,6 +66,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         super().setUp()
         get_client().delete(INFLIGHT_KEY)
         self.addCleanup(get_client().delete, INFLIGHT_KEY)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
         return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
@@ -313,6 +319,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             CAPACITY_REJECTED,
             False,
         )
+
+    def test_a_cadence_the_plan_no_longer_includes_errors_and_is_disabled(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        outcome, query = self._evaluate(
+            self._copy(self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)),
+            result=AlertEvaluationResult(value=1.0, breaches=[]),
+        )
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.disable, query.called) == (AlertEventKind.ERRORED, True, False)
 
     @parameterized.expand(
         [

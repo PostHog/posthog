@@ -107,18 +107,28 @@ class TestInsightPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("quiet", {}, None, AlertState.NOT_FIRING),
-            ("errored", {"state": AlertState.ERRORED}, None, AlertState.ERRORED),
+            ("quiet", {}, None, False, AlertState.NOT_FIRING),
+            ("errored", {"state": AlertState.ERRORED}, None, False, AlertState.ERRORED),
             # A snooze lives on the insight alert, so one set after the move survives the handback.
-            ("snoozed_since", {}, NOW + timedelta(days=30), AlertState.SNOOZED),
+            ("snoozed_since", {}, NOW + timedelta(days=30), False, AlertState.SNOOZED),
+            # The insight stack must not resume an alert the platform stopped.
+            ("switched_off_by_the_platform", {"state": AlertState.ERRORED}, None, True, AlertState.ERRORED),
         ]
     )
     def test_rolling_back_after_the_shadow_carries_the_platform_state_back(
-        self, _name: str, overrides: dict[str, Any], snoozed_until: datetime | None, state: AlertState
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        snoozed_until: datetime | None,
+        switched_off: bool,
+        state: AlertState,
     ) -> None:
         alert = self._moved(**overrides)
         if snoozed_until is not None:
             AlertConfiguration.objects.filter(id=alert.id).update(snoozed_until=snoozed_until)
+        if switched_off:
+            with team_scope(self.team.id):
+                platform_testing.set_enabled(platform_testing.copy_of(alert.id).id, False)
         later = NOW + timedelta(days=8)
         with team_scope(self.team.id):
             platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, later + timedelta(minutes=2))
@@ -127,11 +137,12 @@ class TestInsightPlatformCutover(APIBaseTest):
 
         assert result.skipped is None
         alert.refresh_from_db()
-        assert (alert.owner, alert.owner_changed_at, alert.state, alert.next_check_at) == (
+        assert (alert.owner, alert.owner_changed_at, alert.state, alert.next_check_at, alert.enabled) == (
             "source",
             later,
             state,
             later + timedelta(minutes=2),
+            not switched_off,
         )
         with team_scope(self.team.id):
             assert platform_testing.copy_of(alert.id).owner == "source"

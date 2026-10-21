@@ -100,6 +100,12 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
 
 
+def set_enabled(configuration_id: UUID, enabled: bool) -> None:
+    """Switch a configuration on or off, as a broken check the platform owns leaves it."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(enabled=enabled)
+
+
 def record_check(
     configuration_id: UUID,
     *,

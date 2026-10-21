@@ -12,6 +12,7 @@ from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema_enums import AlertState
 from posthog.utils import ensure_utc
 
 from products.alerts.backend.facade.contracts import (
@@ -29,7 +30,7 @@ from products.alerts_platform.backend.facade.api import (
     runtime_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
 _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
@@ -113,6 +114,9 @@ def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
         id=uuid5(NAMESPACE_URL, f"{alert_id}|{check.evaluation_key}"),
         checked_at=ensure_utc(check.occurred_at),
         value=check.value,
-        state=insight_state_of_platform(check.state, snoozed_until=None, at=check.occurred_at),
+        # A snoozed check evaluated nothing, so it shows as snoozed rather than as a clear outcome.
+        state=AlertState.SNOOZED
+        if check.state == PlatformAlertState.SNOOZED
+        else insight_state_of_platform(check.state, snoozed_until=None, at=check.occurred_at),
         error_message=check.error_message or None,
     )
