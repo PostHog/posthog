@@ -6370,6 +6370,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "prost 0.13.5",
  "rand 0.8.5",
  "rdkafka",

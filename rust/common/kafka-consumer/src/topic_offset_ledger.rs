@@ -2,19 +2,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use metrics::{counter, gauge};
+use metrics::counter;
 use tracing::warn;
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
 use crate::types::Offset;
 
-/// Offsets a partition holds uncommitted.
-const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
-/// Events those offsets carry.
-const UNCOMMITTED_EVENTS: &str = "kafka_consumer_ledger_uncommitted_events";
-/// Bytes those offsets carry.
-const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 /// Charges and settlements dropped because their partition was reassigned
 /// while they were in flight.
 const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
@@ -66,9 +60,7 @@ pub enum Rejection {
 /// generation is stale. Generations are independent per partition, so one
 /// partition's reassignment never affects another's in-flight work.
 ///
-/// The ledger publishes its own metrics under the `kafka_consumer_ledger_`
-/// prefix, so every consumer built on this crate reports the same series and
-/// no caller can forget a gauge.
+/// The ledger counts its rejections and the gap offsets a take walks over.
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
@@ -105,7 +97,7 @@ impl TopicOffsetLedger {
     /// Record one slice of delivered offsets on the partition's ledger,
     /// founding the ledger when the slice is the partition's first delivery.
     /// Returns what the partition's window holds after the charge, or why
-    /// the slice was rejected. Publishes the outcome either way.
+    /// the slice was rejected.
     pub fn charge(
         &self,
         topic_partition: &TopicPartition,
@@ -137,10 +129,8 @@ impl TopicOffsetLedger {
                 }
             }
         };
-        // Outside the lock, and on every path, so no caller has to remember.
-        match result {
-            Ok(held) => publish_held(topic_partition, held),
-            Err(rejection) => count_rejection("charge", rejection),
+        if let Err(rejection) = result {
+            count_rejection("charge", rejection);
         }
         result
     }
@@ -187,8 +177,6 @@ impl TopicOffsetLedger {
                 }
             }
         };
-        // The window only changes depth at a charge or a take, so a
-        // settlement reports rejections and leaves the gauges alone.
         if let Err(rejection) = result {
             count_rejection("settle", rejection);
         }
@@ -198,16 +186,14 @@ impl TopicOffsetLedger {
     /// Drain the completed prefix and return the span it covers: the window
     /// base it started from and the frontier it reached. `None` when the
     /// partition has no ledger or nothing has completed at the front of its
-    /// window. The drained offsets leave the window, so the gauges follow
-    /// them down.
+    /// window.
     pub fn take_frontier(&self, topic_partition: &TopicPartition) -> Option<TakenFrontier> {
-        let (taken, held) = {
-            let mut partitions = self.partitions.lock().unwrap();
-            let ledger = partitions.get_mut(topic_partition)?;
-            let taken = ledger.take_frontier()?;
-            (taken, ledger.held())
-        };
-        publish_held(topic_partition, held);
+        let taken = self
+            .partitions
+            .lock()
+            .unwrap()
+            .get_mut(topic_partition)?
+            .take_frontier()?;
         report_gap_offsets(topic_partition, &taken);
         Some(taken)
     }
@@ -226,54 +212,25 @@ impl TopicOffsetLedger {
     /// when a partition is revoked or assigned: Kafka redelivers it from the
     /// committed offset, which a kept ledger would reject as duplicate
     /// delivery, and work still in flight from the old assignment must not
-    /// land on the new one. The dropped offsets leave the window, so the
-    /// partition's gauges go to zero.
+    /// land on the new one.
     pub fn forget_partitions<'a>(
         &self,
         topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
     ) {
-        let mut forgotten = Vec::new();
-        {
-            let mut partitions = self.partitions.lock().unwrap();
-            for (topic, partition) in topic_partitions {
-                let key = TopicPartition::new(topic, partition);
-                let generation = partitions
-                    .get(&key)
-                    .map(PartitionOffsetLedger::generation)
-                    .unwrap_or_default();
-                partitions.insert(key.clone(), PartitionOffsetLedger::new(generation + 1));
-                forgotten.push(key);
-            }
-            self.generations_version
-                .fetch_add(forgotten.len() as u64, Ordering::Relaxed);
+        let mut partitions = self.partitions.lock().unwrap();
+        let mut forgotten = 0;
+        for (topic, partition) in topic_partitions {
+            let key = TopicPartition::new(topic, partition);
+            let generation = partitions
+                .get(&key)
+                .map(PartitionOffsetLedger::generation)
+                .unwrap_or_default();
+            partitions.insert(key, PartitionOffsetLedger::new(generation + 1));
+            forgotten += 1;
         }
-        for topic_partition in forgotten {
-            publish_held(&topic_partition, Held::default());
-        }
+        self.generations_version
+            .fetch_add(forgotten, Ordering::Relaxed);
     }
-}
-
-/// Publish what a partition's window holds.
-fn publish_held(topic_partition: &TopicPartition, held: Held) {
-    let (topic, partition) = labels(topic_partition);
-    gauge!(
-        UNCOMMITTED_OFFSETS,
-        "topic" => topic.clone(),
-        "partition" => partition.clone()
-    )
-    .set(held.offsets as f64);
-    gauge!(
-        UNCOMMITTED_EVENTS,
-        "topic" => topic.clone(),
-        "partition" => partition.clone()
-    )
-    .set(held.charge.events as f64);
-    gauge!(
-        UNCOMMITTED_BYTES,
-        "topic" => topic,
-        "partition" => partition
-    )
-    .set(held.charge.bytes as f64);
 }
 
 fn report_gap_offsets(topic_partition: &TopicPartition, taken: &TakenFrontier) {
