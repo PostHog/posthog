@@ -1961,7 +1961,7 @@ class TestModalSandboxCreateImageFallback:
         ):
             sandbox = ModalSandbox.create(config)
 
-        assert cpu_requests == [(4.0, 8.0), (0.5, 8.0)]
+        assert cpu_requests == [(2.0, 8.0), (0.5, 8.0)]
         assert sandbox.config.image_fallback is not None
         assert sandbox.config.effective_cpu_request_cores == 0.5
 
@@ -2661,7 +2661,7 @@ class TestResourceCreateKwargs:
     @pytest.mark.parametrize(
         "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (65536, 65536)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (2.0, 8.0), (65536, 65536)),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
@@ -2676,17 +2676,17 @@ class TestResourceCreateKwargs:
             ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
             (
                 {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 80},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (81920, 81920),
             ),
             (
