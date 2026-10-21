@@ -56,7 +56,7 @@ class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
             name=ExternalDataSourceType.UBIDOTS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Ubidots",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["iot", "sensors", "telemetry"],
             caption="""Enter your Ubidots API token to pull your IoT devices, variables, and sensor values into the PostHog Data warehouse.
 

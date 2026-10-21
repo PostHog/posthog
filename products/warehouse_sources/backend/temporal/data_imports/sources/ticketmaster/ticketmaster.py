@@ -1,7 +1,7 @@
 from typing import Any
 
 from requests import Response
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import RequestException
 
 from posthog.dataclasses import frozen
 
@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ticketmaster import (
     TicketmasterSourceConfig,
@@ -63,6 +66,9 @@ def validate_credentials(config: TicketmasterSourceConfig, endpoint: str, api_ve
     if not config.keyword.strip():
         return False, KEYWORD_ERROR
     params: dict[str, str | int] = {"size": 1, "keyword": config.keyword.strip()}
+    # The API key travels in the query string, and a `requests` error repeats the full URL, so the
+    # probe returns a message instead of the error.
+    response: Response | None = None
     try:
         with make_tracked_session(redact_values=(config.api_key,)) as session:
             response = session.get(
@@ -72,12 +78,14 @@ def validate_credentials(config: TicketmasterSourceConfig, endpoint: str, api_ve
                 timeout=30,
                 allow_redirects=False,
             )
-    except RequestException as error:
-        raise RequestException(f"Ticketmaster connection failed ({type(error).__name__}). Try again.") from None
+    except RequestException:
+        pass
+    if response is None or response.status_code == 429 or response.status_code >= 500:
+        return False, unreachable_vendor_message("Ticketmaster")
     if response.status_code in AUTH_ERRORS:
         return False, AUTH_ERRORS[response.status_code]
     if response.status_code != 200:
-        raise HTTPError(f"Ticketmaster request failed (HTTP {response.status_code}). Try again.", response=response)
+        return False, f"Ticketmaster request failed (HTTP {response.status_code})."
     return True, None
 
 

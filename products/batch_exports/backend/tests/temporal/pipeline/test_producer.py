@@ -20,7 +20,7 @@ import pyarrow as pa
 from posthog.temporal.common import asyncpa
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportEventsModel
 from products.batch_exports.backend.temporal.pipeline import producer as producer_module
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
@@ -304,7 +304,7 @@ async def _drain_stage_via_producer(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_producer_resumes_from_offset_after_mid_file_failure(
     interval,
     activity_environment,
@@ -313,7 +313,7 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     object_storage_client,
     ateam,
     clickhouse_client,
-    model: BatchExportModel,
+    model: BatchExportEventsModel,
 ):
     """A mid-file read failure resumes from the last batch boundary instead of re-delivering rows."""
 

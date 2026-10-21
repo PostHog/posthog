@@ -29,6 +29,7 @@ from products.data_modeling.backend.logic.incremental import parse_incremental_c
 from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -84,11 +85,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Materializes views by default.
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
-        from products.data_modeling.backend.logic.saved_query_dag_sync import (  # noqa: PLC0415
-            ManagedNodeMaterializingError,
-            move_node_out_of_managed_dag,
-            sync_saved_query_to_dag,
-        )
+        from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
         from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
         provider = get_expected_views_provider(self.kind)
@@ -157,7 +154,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
         # Keep this transaction short: persist DB changes only. The post-commit work
-        # (schedule_materialization → Temporal RPCs + DataWarehouseModelPath updates,
+        # (schedule_materialization → Temporal RPCs,
         # and orphan revert_materialization) runs outside the atomic block so row
         # locks on posthog_datawarehousesavedquery aren't held across synchronous
         # Temporal RPCs.
@@ -234,7 +231,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # can therefore race on node/edge placement; that is tolerated for now, pending a pooling-safe
         # guard. The transaction-scoped lock above still serializes the saved-query writes.
         dag = DAG.get_or_create_default(self.team)
-        left_managed_dags: set[DAG] = set()
         if saved_queries_to_sync:
             dag_database = Database.create_for(
                 team=self.team,
@@ -243,17 +239,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             )
             for saved_query in saved_queries_to_sync:
                 try:
-                    left_dag = move_node_out_of_managed_dag(saved_query, dag)
-                    if left_dag is not None:
-                        left_managed_dags.add(left_dag)
                     # reconcile once after both loops, not once per view
-                    sync_saved_query_to_dag(saved_query, dag=dag, reconcile=False, database=dag_database)
-                except ManagedNodeMaterializingError:
-                    logger.info(
-                        "deferred_moving_managed_view_while_materializing",
-                        team_id=self.team_id,
-                        view_name=saved_query.name,
-                    )
+                    sync_saved_query_to_dag(saved_query, reconcile=False, database=dag_database)
                 except Exception as e:
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                     logger.warning(
@@ -288,9 +275,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
+            Node.objects.filter(
+                team_id=self.team_id,
+                saved_query_id__in=[view.id for view in saved_queries_to_schedule if not view.is_materialized],
+            ).update(type=NodeType.VIEW)
             maybe_reconcile_dag(dag)
-        for left_dag in left_managed_dags:
-            maybe_reconcile_dag(left_dag)
 
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:

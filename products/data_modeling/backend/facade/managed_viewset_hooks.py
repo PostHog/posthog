@@ -40,8 +40,7 @@ class ProvidedView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
-    # Materialized views get a sync schedule and a managed DAG node. A non-materialized view
-    # (e.g. engineering analytics) is computed at query time — no schedule, no DAG, no S3 table.
+    # Non-materialized views are computed at query time, without a schedule or S3 table.
     materialized: bool = True
     # One of the schedulable cadence buckets. A cadence the view's sources cannot feed leaves the
     # view computed at query time.

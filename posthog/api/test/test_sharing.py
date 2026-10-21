@@ -13,7 +13,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
@@ -29,7 +29,7 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -39,6 +39,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -46,9 +47,9 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
-from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 
 def mock_exporter_template(test_func):
@@ -158,7 +159,68 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
+
+    @parameterized.expand(
+        [
+            param("dashboard", resource="dashboard"),
+            param("notebook", resource="notebook", shared_resource="notebook"),
+            param("insight", resource="insight", shared_resource="insight"),
+            param("project", resource="project"),
+            param("source", resource="external_data_source"),
+            param("warehouse_objects", resource="warehouse_objects"),
+            param("table", resource="warehouse_table"),
+            param("table_object", resource="warehouse_table", resource_id="example-object"),
+            param("view", resource="warehouse_view"),
+            param("property", resource="property_definition"),
+            param("no_rules", expected=False),
+            param("unrelated_rules", resource="feature_flag", expected=False),
+            param("unavailable_feature", resource="dashboard", entitled=False, expected=False),
+            param("other_team", resource="dashboard", other_team=True, expected=False),
+            param("other_team_property", resource="property_definition", other_team=True, expected=False),
+        ]
+    )
+    def test_sharing_config_reports_relevant_access_controls(
+        self,
+        _name: str,
+        *,
+        resource: str | None = None,
+        resource_id: str | None = None,
+        shared_resource: str = "dashboard",
+        entitled: bool = True,
+        other_team: bool = False,
+        expected: bool = True,
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}] if entitled else []
+        )
+        self.organization.save()
+        rule_team = Team.objects.create(organization=self.organization) if other_team else self.team
+        if resource == "property_definition":
+            definition = PropertyDefinition.objects.create(
+                team=rule_team, name="example_property", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=rule_team, property_definition=definition, access_level="none")
+        elif resource:
+            AccessControl.objects.create(
+                team=rule_team,
+                resource=resource,
+                resource_id=resource_id,
+                access_level="viewer",
+            )
+
+        if shared_resource == "notebook":
+            notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        elif shared_resource == "insight":
+            url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
+        else:
+            url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["has_relevant_access_controls"] is expected
 
     @parameterized.expand(
         [
@@ -233,6 +295,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
         response = self.client.patch(
@@ -247,6 +310,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -380,7 +444,6 @@ class TestSharing(APIBaseTest):
             team=self.team,
             name="example dashboard",
             created_by=other_user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(
@@ -2689,15 +2752,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         if exposure == "shared":
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif exposure == "subscription":
-            Subscription.objects.create(
-                team=self.team,
-                dashboard=dashboard,
-                target_type="email",
-                target_value="recipient@example.com",
-                frequency="daily",
-                start_date=timezone.now(),
-                created_by=self.user,
-            )
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
         filters = {"properties": [denied_filter]}
         sent_filters: dict[str, Any] = filters
         if target.startswith("grouped"):

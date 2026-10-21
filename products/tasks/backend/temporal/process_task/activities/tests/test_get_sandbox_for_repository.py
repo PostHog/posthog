@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
+@pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestGetSandboxForRepositoryActivity:
     def _create_context(self, github_integration, test_task, test_task_run) -> TaskProcessingContext:
         return TaskProcessingContext(

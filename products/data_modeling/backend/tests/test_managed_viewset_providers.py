@@ -30,7 +30,6 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import (
 )
 from products.data_modeling.backend.facade.models import (
     DAG,
-    REVENUE_ANALYTICS_DAG_NAME,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Node,
@@ -105,9 +104,9 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertIsNone(view.sync_frequency_interval)
         self.assertIsNone(view.incremental_config)
         # A non-materialized view is computed at query time — it must never be scheduled for
-        # materialization, nor get a managed (revenue-analytics) DAG.
+        # materialization.
         mock_schedule.assert_not_called()
-        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
+        self.assertEqual(DAG.objects.filter(team=self.team).count(), 1)
         self.assertEqual(
             list(Node.objects.filter(saved_query=view).values_list("dag", "type")),
             [(DAG.get_or_create_default(self.team).id, NodeType.VIEW)],
@@ -194,6 +193,7 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
         self.assertEqual(view.sync_frequency_interval, timedelta(minutes=15))
         self.assertEqual(view.incremental_config, INCREMENTAL_CONFIG)
+        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.MAT_VIEW)
         mock_schedule.assert_called_once()
 
     @patch(SCHEDULE_MATERIALIZATION, side_effect=UnsatisfiableFrequencyError("sources sync every 6 hours"))
@@ -208,6 +208,7 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
+        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.VIEW)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):
@@ -268,7 +269,6 @@ class TestManagedViewSetProviders(BaseTest):
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
             patch(f"{RECONCILE}.a_create_schedule", new=AsyncMock()) as create,
             patch(f"{NODE_MAT}.sync_connect"),

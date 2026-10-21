@@ -44,7 +44,7 @@ interface TrendsTooltipProps {
     renderCount?: (value: number) => string
     // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
     // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
-    // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
+    // is the lifecycle status itself (e.g. "New") and InsightLabel's series name
     // would otherwise mask it.
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
@@ -73,7 +73,7 @@ export function TrendsTooltip({
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(() => {
         const data = context.seriesData.map((entry, idx) => {
-            const meta = entry.series.meta ?? {}
+            const meta: Partial<TrendsSeriesMeta> = entry.series.meta ?? {}
             return {
                 id: idx,
                 dataIndex: context.dataIndex,
@@ -82,7 +82,7 @@ export function TrendsTooltip({
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: meta.action,
+                series: meta.series,
                 breakdown_value: meta.breakdown_value,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
@@ -138,7 +138,7 @@ export function TrendsTooltip({
                         <SeriesLetter
                             className="mr-2"
                             hasBreakdown={hasBreakdown}
-                            seriesIndex={datum.action?.order ?? datum.id}
+                            seriesIndex={datum.series?.order ?? datum.id}
                             // Previous-period series arrive pre-dimmed (rgba); the ribbon keeps the dim to
                             // mark the period, but the identifier glyph must stay legible — give it the
                             // opaque color.

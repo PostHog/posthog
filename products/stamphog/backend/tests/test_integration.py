@@ -416,6 +416,12 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
         assert reviewer_commands
         # A PR can add a .stamphog/ between the checkout root and the engine, so the root is named, not found.
         assert all("STAMPHOG_REPO_ROOT=" in command for command in reviewer_commands)
+        # uv must not discover its interpreter from the checkout, so it gets one resolved before the cd.
+        assert all(
+            command.index('STAMPHOG_PYTHON="$(command -v python3)" && ') < command.index("cd ")
+            and 'uv run --no-config --no-project --python "$STAMPHOG_PYTHON" ' in command
+            for command in reviewer_commands
+        )
         assert "fast_path" not in run.output
         return
 

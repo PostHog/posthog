@@ -194,7 +194,7 @@ export function InsightTooltip({
                 render: function renderSingleSeriesValue(_, datum) {
                     const seriesColumnData = datum.seriesData[0]
                     return renderDatumToTableCell(
-                        seriesColumnData?.action?.math_property,
+                        seriesColumnData?.series?.math?.math_property,
                         seriesColumnData?.count,
                         formatPropertyValueForDisplay,
                         renderCount,
@@ -227,7 +227,7 @@ export function InsightTooltip({
                         (!concreteTooltipTitle &&
                             renderSeries(
                                 <InsightLabel
-                                    action={seriesColumn.action}
+                                    series={seriesColumn.series}
                                     fallbackName={seriesColumn.label}
                                     showSingleName
                                     hideBreakdown
@@ -242,7 +242,7 @@ export function InsightTooltip({
                             (s) => s.order === colIdx
                         )
                         const cell = renderDatumToTableCell(
-                            seriesColumnData?.action?.math_property,
+                            seriesColumnData?.series?.math?.math_property,
                             seriesColumnData?.count,
                             formatPropertyValueForDisplay,
                             renderCount,
@@ -317,7 +317,7 @@ export function InsightTooltip({
         render: function renderDatum(_, datum, rowIdx) {
             return renderSeries(
                 <InsightLabel
-                    action={datum.action}
+                    series={datum.series}
                     fallbackName={datum.label}
                     showSingleName
                     hideBreakdown
@@ -340,7 +340,7 @@ export function InsightTooltip({
             return (
                 <div>
                     {renderDatumToTableCell(
-                        datum.action?.math_property,
+                        datum.series?.math?.math_property,
                         datum.count,
                         formatPropertyValueForDisplay,
                         renderCount
