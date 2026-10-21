@@ -11624,6 +11624,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11668,6 +11669,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11721,6 +11723,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
