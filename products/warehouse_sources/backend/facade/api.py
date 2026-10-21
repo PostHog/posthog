@@ -699,7 +699,10 @@ def list_jobs_for_source(
 def import_started_before(
     team_id: int, table_names: Collection[str], finished_by: datetime
 ) -> dict[str, datetime | None]:
-    """Start time of the newest import that finished by `finished_by`, per synced table name. None when there is none."""
+    """Start time of the newest import that finished by `finished_by`, per synced table name. None when there is none.
+
+    Ordered on `created_at` so each probe walks `idx_extdatajob_latest_run` and stops at the first match.
+    """
     consumed = (
         _ExternalDataJob.objects.filter(
             team_id=team_id,
@@ -708,7 +711,7 @@ def import_started_before(
             status=_ExternalDataJob.Status.COMPLETED,
             finished_at__lte=finished_by,
         )
-        .order_by("-finished_at")
+        .order_by("-created_at")
         .values("created_at")[:1]
     )
     schemas = _ExternalDataSchema.objects.filter(
