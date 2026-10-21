@@ -51,6 +51,10 @@ def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str) -> None:
 @activity.defn
 @asyncify
 def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) -> MaterializeContextLayerOutput:
+    return materialize_context_layer(input)
+
+
+def materialize_context_layer(input: MaterializeContextLayerInput) -> MaterializeContextLayerOutput:
     ctx = input.context
 
     with log_activity_execution(

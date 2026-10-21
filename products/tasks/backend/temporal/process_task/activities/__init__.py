@@ -36,6 +36,11 @@ from .provision_sandbox import (
     prepare_sandbox_for_repository,
     restore_sandbox_connection_state,
 )
+from .provision_sandbox_and_start_agent import (
+    ProvisionSandboxAndStartAgentInput,
+    ProvisionSandboxAndStartAgentOutput,
+    provision_sandbox_and_start_agent,
+)
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .record_peer_message_outcome import (
     RecordPeerMessageOutcomeInput,
@@ -86,6 +91,8 @@ from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, complete_signal_spend, update_task_run_status
 
 __all__ = [
+    "ProvisionSandboxAndStartAgentInput",
+    "ProvisionSandboxAndStartAgentOutput",
     "CleanupSandboxInput",
     "CollectAgentShadowResultInput",
     "CompleteRunStreamInput",
@@ -131,6 +138,7 @@ __all__ = [
     "RecordPeerMessageOutcomeInput",
     "peer_message_id_from_context",
     "record_peer_message_outcome",
+    "provision_sandbox_and_start_agent",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",

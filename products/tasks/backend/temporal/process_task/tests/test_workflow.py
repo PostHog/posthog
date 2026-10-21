@@ -47,6 +47,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     GetSandboxForRepositoryOutput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryOutput,
+    ProvisionSandboxAndStartAgentOutput,
     SendPermissionDenialGuidanceInput,
     SendPermissionResponseToSandboxInput,
     StartAgentServerInput,
@@ -66,6 +67,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     mark_repo_ready,
     post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
+    provision_sandbox_and_start_agent,
     read_sandbox_logs,
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
@@ -3086,6 +3088,56 @@ class TestProcessTaskWorkflowUnit:
         assert create_activity_kwargs["start_to_close_timeout"] == timedelta(minutes=30)
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
+
+    @pytest.mark.parametrize(
+        ("repository", "state", "expected"),
+        [
+            (None, {}, True),
+            ("posthog/posthog-js", {}, False),
+            (None, {"wizard_config": {}}, False),
+            (None, {"snapshot_external_id": "im-abc123", "resume_from_run_id": "previous-run-id"}, False),
+        ],
+    )
+    def test_only_runs_without_a_clone_wizard_or_resume_boot_in_one_activity(
+        self, repository: str | None, state: dict, expected: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda patch_id: True)
+        process_workflow = ProcessTaskWorkflow()
+        process_workflow._context = _build_context(github_integration_id=None, repository=repository, state=state)
+
+        assert process_workflow._boots_in_one_activity() is expected
+
+    async def test_one_activity_boot_records_the_sandbox_for_cleanup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        process_workflow = ProcessTaskWorkflow()
+        process_workflow._context = _build_context(github_integration_id=None, repository=None)
+        agent_server = StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="connect-token")
+        booted = ProvisionSandboxAndStartAgentOutput(
+            created=CreateSandboxForRepositoryOutput(
+                sandbox_id="sandbox-123",
+                sandbox_url="https://sandbox.example",
+                connect_token="connect-token",
+                used_snapshot=False,
+            ),
+            agent_server=agent_server,
+            image_source="base_image",
+            sandbox_creation_cancellable=False,
+        )
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            if activity_fn is provision_sandbox_and_start_agent:
+                return booted
+            assert activity_fn is emit_progress_activity
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        sandbox_output, agent_server_output = await process_workflow._boot_in_one_activity()
+
+        assert (process_workflow._sandbox_id_for_cleanup, sandbox_output.sandbox_id, agent_server_output) == (
+            "sandbox-123",
+            "sandbox-123",
+            agent_server,
+        )
 
     async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         process_workflow = ProcessTaskWorkflow()

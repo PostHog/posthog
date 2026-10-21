@@ -98,6 +98,10 @@ from .activities.provision_sandbox import (
     prepare_sandbox_for_repository,
     restore_sandbox_connection_state,
 )
+from .activities.provision_sandbox_and_start_agent import (
+    ProvisionSandboxAndStartAgentInput,
+    provision_sandbox_and_start_agent,
+)
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.record_peer_message_outcome import (
     RecordPeerMessageOutcomeInput,
@@ -155,6 +159,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
+_PATCH_ID_SINGLE_ACTIVITY_BOOT = "tasks-single-activity-boot"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -1713,7 +1718,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             self._early_slack_relay_open = True
 
-        sandbox_output = await self._get_sandbox_for_repository()
+        booted_agent_server: StartAgentServerOutput | None = None
+        if self._boots_in_one_activity():
+            sandbox_output, booted_agent_server = await self._boot_in_one_activity()
+        else:
+            sandbox_output = await self._get_sandbox_for_repository()
         sandbox_id = sandbox_output.sandbox_id
         self._boot_path = sandbox_output.boot_path
         self._image_source = sandbox_output.image_source
@@ -1728,7 +1737,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         wizard_ms = await self._run_wizard_if_configured(sandbox_output)
 
         # Start agent-server for direct connection from PostHog Desktop
-        if sandbox_output.agent_server_launched:
+        if booted_agent_server is not None:
+            agent_server_output = booted_agent_server
+        elif sandbox_output.agent_server_launched:
             agent_server_output = await self._await_agent_server_ready(sandbox_output, boot_excluded_ms=wizard_ms)
         else:
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup", wait=False)
@@ -1949,6 +1960,50 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return context
+
+    def _boots_in_one_activity(self) -> bool:
+        return (
+            not self.context.repositories
+            and self.context.wizard_config is None
+            and not self.context.is_snapshot_resume
+            and workflow.patched(_PATCH_ID_SINGLE_ACTIVITY_BOOT)
+        )
+
+    async def _boot_in_one_activity(self) -> tuple[GetSandboxForRepositoryOutput, StartAgentServerOutput]:
+        booted = await workflow.execute_activity(
+            provision_sandbox_and_start_agent,
+            ProvisionSandboxAndStartAgentInput(
+                context=self.context,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+                workflow_start_at=self._workflow_start_at_iso(),
+            ),
+            start_to_close_timeout=timedelta(minutes=50),
+            heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        created = booted.created
+        self._sandbox_id_for_cleanup = created.sandbox_id
+        self._sandbox_jwt_kid = created.jwt_kid
+        self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
+        self._record_sandbox_deadline(created)
+        if self._task_completed and booted.sandbox_creation_cancellable:
+            raise _TaskCompletedDuringSandboxCreation
+        await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
+        used_snapshot = bool(created.used_snapshot)
+        sandbox_output = GetSandboxForRepositoryOutput(
+            sandbox_id=created.sandbox_id,
+            sandbox_url=created.sandbox_url,
+            connect_token=created.connect_token,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
+            jwt_kid=created.jwt_kid,
+            agent_server_launched=False,
+            boot_path="classic",
+            image_source=booted.image_source,
+            create_ms=created.create_ms,
+            dev_stack_preview_sized=created.dev_stack_preview_sized,
+        )
+        return sandbox_output, booted.agent_server
 
     async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
         prepared = await workflow.execute_activity(

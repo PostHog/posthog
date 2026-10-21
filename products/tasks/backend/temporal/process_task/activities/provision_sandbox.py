@@ -688,6 +688,10 @@ def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTempl
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
+    return prepare_repository_sandbox(input)
+
+
+def prepare_repository_sandbox(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -883,6 +887,13 @@ def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+    created, _ = create_repository_sandbox(input)
+    return created
+
+
+def create_repository_sandbox(
+    input: CreateSandboxForRepositoryInput,
+) -> tuple[CreateSandboxForRepositoryOutput, SandboxBase]:
     ctx = input.context
     prepared = input.prepared
 
@@ -1087,7 +1098,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
-        )
+        ), sandbox
 
 
 @activity.defn
