@@ -270,6 +270,24 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_1_delay", "action_2_email", "continue", None),
         ]
 
+    @parameterized.expand([("quiet trigger", 50_000, None), ("busy trigger", 1_000_000, 5), ("flood", 9_000_000, 1)])
+    def test_build_workflow_starts_a_busy_trigger_on_a_sample(
+        self, _name: str, weekly_count: int, share: int | None
+    ) -> None:
+        built = build_workflow(IDEA, plan(step("welcome")), context(weekly_count=weekly_count))
+        assert built is not None
+        if share is None:
+            assert edges(built)[0] == ("trigger_node", "action_0_email", "continue", None)
+            return
+        assert edges(built)[:4] == [
+            ("trigger_node", "action_sample", "continue", None),
+            ("action_sample", "action_0_email", "branch", 0),
+            ("action_sample", "exit_node", "branch", 1),
+            ("action_sample", "exit_node", "continue", None),
+        ]
+        sample = next(action for action in built.workflow["actions"] if action["id"] == "action_sample")
+        assert [cohort["percentage"] for cohort in sample["config"]["cohorts"]] == [share, 100 - share]
+
     @parameterized.expand(
         [
             (
