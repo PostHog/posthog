@@ -48,6 +48,7 @@ import {
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
+import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
@@ -1167,7 +1168,7 @@ export class CdpApi {
 
             const event: HogFunctionInvocationGlobals['event'] = {
                 uuid: new UUIDT().toString(),
-                event: '$transactional_email',
+                event: TRANSACTIONAL_EMAIL_EVENT,
                 distinct_id: distinctId,
                 timestamp: DateTime.now().toISO(),
                 url: '',
