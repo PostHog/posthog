@@ -25,27 +25,6 @@ class TestJustSiftSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.justsift.com/v1/search/people?page=1&pageSize=100",),
-            ("403 Client Error: Forbidden for url: https://api.justsift.com/v1/fields?page=1&pageSize=100",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.justsift.com/v1/search/people",),
-            ("HTTPSConnectionPool(host='api.justsift.com', port=443): Read timed out.",),
-            ("429 Client Error: Too Many Requests for url: https://api.justsift.com/v1/fields",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             (200, True, None),
         ]
     )

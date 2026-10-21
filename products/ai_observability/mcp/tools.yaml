@@ -1831,6 +1831,7 @@ wrappers:
             - response
             - modifiers
         url_prefix: /ai-observability/traces
+        reads_ingested_data: events
     query-llm-trace:
         schema_ref: AssistantTraceQuery
         enabled: true
@@ -1847,3 +1848,4 @@ wrappers:
             - response
             - modifiers
         url_prefix: /ai-observability/traces/{traceId}
+        reads_ingested_data: events

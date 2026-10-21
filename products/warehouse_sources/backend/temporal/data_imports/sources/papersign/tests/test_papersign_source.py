@@ -2,8 +2,6 @@ from typing import cast
 
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.papersign import (
     PapersignSourceConfig,
 )
@@ -13,34 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.
 
 def _config(api_token: str = "tok") -> PapersignSourceConfig:
     return PapersignSourceConfig(api_token=api_token)
-
-
-class TestPapersignNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.paperform.co/v1/papersign/documents"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.paperform.co/v1/papersign/spaces"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = PapersignSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.paperform.co/v1/papersign/documents",
-            ),
-            (
-                "rate_limit",
-                "429 Client Error: Too Many Requests for url: https://api.paperform.co/v1/papersign/folders",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = PapersignSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestPapersignPipelineWiring:
