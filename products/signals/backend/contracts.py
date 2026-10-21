@@ -1221,6 +1221,33 @@ class BetterstackIncidentSignalInput(SignalInputBase):
     extra: BetterstackIncidentSignalExtra
 
 
+class MonteCarloAlertSignalExtra(SignalExtraBase):
+    type: str | None
+    status: str | None
+    severity: str | None
+    priority: str | None
+    url: str | None
+    created_time: str | None
+
+
+class MonteCarloAlertSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.MONTE_CARLO]
+    extra: MonteCarloAlertSignalExtra
+
+
+class BigeyeIssueSignalExtra(SignalExtraBase):
+    current_status: str | None
+    priority: str | None
+    opened_time_seconds: str | None
+
+
+class BigeyeIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.BIGEYE]
+    extra: BigeyeIssueSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1291,7 +1318,9 @@ SignalInput = Annotated[
     | SolarwindsServiceDeskIncidentSignalInput
     | GrafanaIrmIncidentSignalInput
     | XmattersIncidentSignalInput
-    | BetterstackIncidentSignalInput,
+    | BetterstackIncidentSignalInput
+    | MonteCarloAlertSignalInput
+    | BigeyeIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1359,6 +1388,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GrafanaIrmIncidentSignalInput,
     XmattersIncidentSignalInput,
     BetterstackIncidentSignalInput,
+    MonteCarloAlertSignalInput,
+    BigeyeIssueSignalInput,
     CheckFailedSignalInput,
 )
 
