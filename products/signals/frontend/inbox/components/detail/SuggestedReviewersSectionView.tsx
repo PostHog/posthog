@@ -12,13 +12,11 @@ export function SuggestedReviewersSectionView({
     disabled,
     onRemove,
     addControl,
-    confirmControl,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[]) => void
     addControl: ReactNode
-    confirmControl?: ReactNode
 }): JSX.Element {
     return (
         <DetailSection icon={<IconPeople />} title="Suggested reviewers" collapsible>
@@ -27,15 +25,14 @@ export function SuggestedReviewersSectionView({
             ) : (
                 <SuggestedReviewersList reviewers={reviewers} disabled={disabled} onRemove={onRemove} />
             )}
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="mt-3 flex items-center justify-between gap-2">
                 <Tooltip title="PostHog uses these suggestions to route the report. Add reviewers on the pull request to request a GitHub review.">
                     <span className="flex cursor-help items-center text-base text-tertiary">
                         <IconInfo />
                     </span>
                 </Tooltip>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2">
                     {disabled && <Spinner className="size-3" />}
-                    {confirmControl}
                     {addControl}
                 </div>
             </div>

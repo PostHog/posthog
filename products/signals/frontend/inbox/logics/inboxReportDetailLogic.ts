@@ -48,7 +48,6 @@ import {
 import type {
     CommitDiffResponseApi,
     SignalReportArtefactListResponseApi,
-    ReviewerControlResponseApi,
     ReviewerEditActionEnumApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
@@ -356,7 +355,6 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
-    reviewerAssignment: ReviewerControlResponseApi | null
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -627,9 +625,6 @@ export interface inboxReportDetailLogicActions {
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
-    setReviewerAssignment: (assignment: ReviewerControlResponseApi | null) => {
-        assignment: ReviewerControlResponseApi | null
-    }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
@@ -656,9 +651,9 @@ export interface inboxReportDetailLogicActions {
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: ReviewerEditActionEnumApi
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
     ) => {
-        action: ReviewerEditActionEnumApi
+        action: 'add' | 'remove'
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
     }
@@ -785,13 +780,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         updateReviewers: (
             content: Record<string, string>[],
             optimistic: EnrichedReviewer[],
-            action: ReviewerEditActionEnumApi
+            action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
         ) => ({
             content,
             optimistic,
             action,
         }),
-        setReviewerAssignment: (assignment: ReviewerControlResponseApi | null) => ({ assignment }),
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
         // Debounced server-side org-member search for the add-reviewer picker.
         searchAvailableReviewers: (query: string) => ({ query }),
@@ -828,7 +822,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -848,7 +842,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         }
                     )
                     await breakpoint()
-                    actions.setReviewerAssignment(response.reviewer_assignment ?? null)
                     const artefacts = [...response.results]
                     while (response.next) {
                         // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
@@ -1055,10 +1048,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // While a reviewer update is in flight, this overrides the artefact-derived list so the UI
         // reflects the change immediately. Cleared once the reload lands (or the update fails).
-        reviewerAssignment: [
-            null as ReviewerControlResponseApi | null,
-            { setReviewerAssignment: (_, { assignment }) => assignment },
-        ],
         optimisticReviewers: [
             null as EnrichedReviewer[] | null,
             {
@@ -1664,16 +1653,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             cache.reviewerWriteInFlight = true
             let saved = false
             try {
-                const result = await signalsReportsReviewersUpdate(
-                    String(teamLogic.values.currentTeamId),
-                    props.reportId,
-                    {
-                        content,
-                        action,
-                        expected_reviewers: values.reviewerAssignment?.state,
-                    }
-                )
-                actions.setReviewerAssignment(result.reviewer_assignment ?? null)
+                await signalsReportsReviewersUpdate(String(teamLogic.values.currentTeamId), props.reportId, {
+                    content,
+                    action,
+                })
                 saved = true
                 await asyncActions.loadReportArtefacts()
             } catch (error: any) {

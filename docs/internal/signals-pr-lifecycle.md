@@ -167,7 +167,8 @@ There is no separate assignment table, operation ledger, or writer service.
 An add pins that person. A removal excludes that person.
 Agents can still change people the user did not edit.
 Adding an excluded person reverses that exclusion; removing a pinned person reverses that pin.
-Only **Confirm list** protects the complete list, including an empty list.
+Only an explicit API `confirm` action protects the complete list, including an empty list.
+The existing Inbox controls only add or remove people; they have no confirmation control.
 Removing the last person does not confirm an empty list.
 A person can still edit a confirmed list; agents cannot.
 Current project access always applies, including to pins and confirmed lists.
@@ -177,12 +178,13 @@ The same artefact table stores `reviewer_corrections`, with pins, exclusions, co
 Corrections and membership are saved atomically with the existing actor and process attribution.
 Old corrections are recovered only from reviewer deltas matched to activity records.
 A human-authored snapshot alone does not prove approval of the complete list.
-Incomplete history stops automatic changes until a person confirms the current list.
+Incomplete history stops automatic changes until a person confirms the current list through the API.
 
 ### Write contract
 
 Automatic callers read `reviewer_assignment.state` before selection.
-The existing artefact-list response supplies it to the web app, without another request.
+The report and artefact-list responses include this state for API callers.
+The web app does not need it for targeted add/remove requests.
 `GET /signals/reports/{id}/reviewer_state/` remains available to other callers.
 Send both `reviewers_id` and `corrections_id` as `expected_reviewers`.
 The write rejects an old state under the report lock.
