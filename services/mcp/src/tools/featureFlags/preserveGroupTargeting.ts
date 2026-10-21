@@ -564,7 +564,7 @@ function staleConditionIdMessage(stale: number[]): string {
     return (
         `The condition_id on ${paths} matches no condition on the flag. ` +
         'A condition_id only matches conditions on the flag you read it from. If you copied this condition ' +
-        'from another flag or an experiment, remove its condition_id and send it as a new condition. ' +
+        'from a different flag, remove its condition_id and send it as a new condition. ' +
         'Otherwise the flag may have changed after you read it. Read the flag again, then build the update ' +
         'from its current conditions and their condition_id values.'
     )

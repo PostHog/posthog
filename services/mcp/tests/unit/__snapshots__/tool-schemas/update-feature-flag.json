@@ -54,7 +54,7 @@
             "description": "Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`."
         },
         "filters": {
-            "description": "Full release-condition object. It replaces the stored filters, so read the flag first and send every condition you want to keep. Each condition you read has a `condition_id`. Send it unchanged on every condition you keep, edit, or move, and leave it off a new condition or one copied from a different flag. A condition without one is treated as new when any condition has one. The tool uses the ID to restore each condition's property types and targeting. For group flags set aggregation_group_type_index and property type \"group\" + group_type_index. Omitted type, group_type_index, and aggregation_group_type_index are filled from the existing flag, so group targeting does not become person targeting. When conditions don't all target the same thing (persons and a group type, or different group types), set aggregation_group_type_index on each new condition (null for persons). If you send no `condition_id` values, set aggregation_group_type_index on every condition whenever you add, remove, reorder, or change the properties of conditions. Otherwise the update is refused.",
+            "description": "Full release-condition object. It replaces the stored filters, so read the flag first and send every condition you want to keep. The tool description covers condition_id and group targeting.",
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [

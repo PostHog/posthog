@@ -489,7 +489,7 @@ describe('condition ids', () => {
             expect.objectContaining({
                 fields: ['filters.groups.N.condition_id:stale_condition_id'],
                 message: expect.stringMatching(
-                    /on filters\.groups\[1\] matches no condition.*copied this condition from another flag .* remove its condition_id/
+                    /on filters\.groups\[1\] matches no condition.*copied this condition from a different flag, remove its condition_id/
                 ),
             })
         )
