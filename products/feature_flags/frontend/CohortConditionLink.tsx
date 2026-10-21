@@ -26,11 +26,9 @@ export function CohortConditionLink({ property }: { property: CohortPropertyFilt
         // A missing cohort has no page to open. A soft-deleted cohort's page has a restore action.
         const restorable = cohortCanBeRestored(property)
         const name = cohortFilterName(property)
-        const explanation = `This cohort was deleted, so the flag can't evaluate this condition. ${
-            restorable
-                ? 'Restore the cohort, choose another cohort, or remove the condition.'
-                : 'Choose another cohort or remove the condition.'
-        }`
+        const explanation = restorable
+            ? "This cohort was deleted, so the flag can't evaluate this condition. Restore the cohort, choose another cohort, or remove the condition."
+            : "This cohort does not exist in this project, so the flag can't evaluate this condition. Choose another cohort or remove the condition."
         return (
             <LemonButton
                 type="secondary"

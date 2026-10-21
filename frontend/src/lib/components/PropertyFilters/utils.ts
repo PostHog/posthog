@@ -260,6 +260,9 @@ export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is
 
 export function cohortFilterName(filter: CohortPropertyFilter, fallbackName?: string | null): string {
     const name = filter.cohort_name || fallbackName
+    if (filter.cohort_missing) {
+        return name ? `${name} (missing)` : `Missing cohort (ID ${filter.value})`
+    }
     if (filter.cohort_deleted) {
         return name ? `${name} (deleted)` : `Deleted cohort (ID ${filter.value})`
     }

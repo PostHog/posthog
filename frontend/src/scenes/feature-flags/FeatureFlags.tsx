@@ -56,7 +56,11 @@ import {
     FeatureFlagType,
 } from '~/types'
 
-import { deletedCohortDisabledReason, deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
+import {
+    cohortCanBeRestored,
+    deletedCohortDisabledReason,
+    deletedCohortFilters,
+} from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
@@ -111,6 +115,8 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
     const { featureFlagsUpdating } = useValues(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
+    const deletedCohorts = deletedCohortFilters(featureFlag.filters)
+    const cohortMissing = !deletedCohorts.every(cohortCanBeRestored)
 
     return (
         <div className="flex flex-wrap justify-start gap-1">
@@ -138,10 +144,14 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                     Disabled
                 </LemonTag>
             )}
-            {deletedCohortFilters(featureFlag.filters).length > 0 && (
+            {deletedCohorts.length > 0 && (
                 <WarningStatusTag
-                    label="Deleted cohort"
-                    heading="A release condition targets a deleted cohort"
+                    label={cohortMissing ? 'Missing cohort' : 'Deleted cohort'}
+                    heading={
+                        cohortMissing
+                            ? 'A release condition targets a cohort that does not exist in this project'
+                            : 'A release condition targets a deleted cohort'
+                    }
                     detail="The flag can't evaluate that condition. Open the flag to update its release conditions."
                 />
             )}

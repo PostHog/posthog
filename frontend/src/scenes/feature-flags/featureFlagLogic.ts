@@ -30,7 +30,6 @@ import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { COHORT_ANNOTATION_KEYS, isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -92,7 +91,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
+import { deletedCohortFilters, withCohortAnnotationsFrom } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
@@ -946,41 +945,6 @@ function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<stri
 // working copy — or an unsaved edit would be folded into the baseline and read as clean.
 function toFeatureFlagBaseline(flag: FeatureFlagType | null): FeatureFlagType | null {
     return flag ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(flag)) as FeatureFlagType) : null
-}
-
-/** Copies `source`'s cohort annotations onto `flag`'s cohort conditions that name the same cohort. */
-function withCohortAnnotationsFrom(flag: FeatureFlagType, source: FeatureFlagType): FeatureFlagType {
-    if (!isV1FeatureFlagConfig(flag.filters) || !isV1FeatureFlagConfig(source.filters)) {
-        return flag
-    }
-    const annotatedByCohort = new Map<string, CohortPropertyFilter>()
-    for (const property of source.filters.groups?.flatMap((group) => group.properties ?? []) ?? []) {
-        if (isCohortPropertyFilter(property)) {
-            annotatedByCohort.set(String(property.value), property)
-        }
-    }
-    const reannotate = (property: AnyPropertyFilter): AnyPropertyFilter => {
-        const annotated = isCohortPropertyFilter(property) ? annotatedByCohort.get(String(property.value)) : undefined
-        if (!annotated) {
-            return property
-        }
-        const updated: Record<string, unknown> = { ...property }
-        for (const key of COHORT_ANNOTATION_KEYS) {
-            if (annotated[key] === undefined) {
-                delete updated[key]
-            } else {
-                updated[key] = annotated[key]
-            }
-        }
-        return updated as AnyPropertyFilter
-    }
-    return {
-        ...flag,
-        filters: {
-            ...flag.filters,
-            groups: flag.filters.groups?.map((group) => ({ ...group, properties: group.properties?.map(reannotate) })),
-        },
-    }
 }
 
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to

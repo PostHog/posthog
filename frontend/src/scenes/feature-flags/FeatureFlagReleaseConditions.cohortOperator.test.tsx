@@ -107,9 +107,13 @@ describe('feature flag release conditions cohort operator', () => {
     })
 
     it.each([
-        { state: 'a deleted cohort', markers: { cohort_deleted: true } },
-        { state: 'a missing cohort', markers: { cohort_deleted: true, cohort_missing: true } },
-    ])('keeps $state marked when the operator changes', async ({ markers }) => {
+        { state: 'a deleted cohort', markers: { cohort_deleted: true }, label: 'Power Users (deleted)' },
+        {
+            state: 'a missing cohort',
+            markers: { cohort_deleted: true, cohort_missing: true },
+            label: 'Power Users (missing)',
+        },
+    ])('keeps $state marked when the operator changes', async ({ markers, label }) => {
         const onChange = jest.fn()
         render(
             <Provider>
@@ -122,8 +126,9 @@ describe('feature flag release conditions cohort operator', () => {
         )
 
         await waitFor(() => {
-            expect(screen.getByText('Power Users (deleted)')).toBeInTheDocument()
+            expect(screen.getByText(label)).toBeInTheDocument()
         })
+        expect(document.querySelector('[data-attr="property-filter-deleted-cohort-icon"]')).toBeInTheDocument()
         await userEvent.click(document.querySelector('[data-attr="taxonomic-operator"] button')!)
         await userEvent.click(await screen.findByText('user in'))
 

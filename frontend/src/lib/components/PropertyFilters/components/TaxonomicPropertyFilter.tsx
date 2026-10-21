@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
@@ -286,6 +286,10 @@ export function TaxonomicPropertyFilter({
         <span className="truncate">{nestedGroupLabel || 'Grouped filters'}</span>
     ) : filter?.type === 'cohort' ? (
         <span className="flex items-center gap-2 min-w-0">
+            {/* The label truncates from the end and can hide its "(deleted)" or "(missing)" suffix. The icon stays visible. */}
+            {isCohortPropertyFilter(filter) && filter.cohort_deleted && (
+                <IconWarning className="shrink-0 text-danger" data-attr="property-filter-deleted-cohort-icon" />
+            )}
             <span className="truncate">{cohortLabel}</span>
             {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
         </span>

@@ -168,7 +168,8 @@ describe('formatPropertyLabel() for cohort filters', () => {
             { cohort_name: 'Beta testers', cohort_deleted: true },
             'User in Beta testers (deleted)',
         ],
-        ['missing cohort', { value: 7, cohort_deleted: true }, 'User in Deleted cohort (ID 7)'],
+        ['deleted cohort without a name', { value: 7, cohort_deleted: true }, 'User in Deleted cohort (ID 7)'],
+        ['missing cohort', { value: 7, cohort_deleted: true, cohort_missing: true }, 'User in Missing cohort (ID 7)'],
     ])('formats a %s', (_, overrides, expected) => {
         const filter: CohortPropertyFilter = {
             key: 'id',

@@ -78,7 +78,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { deletedCohortDisabledReason } from 'products/feature_flags/frontend/deletedCohortFilters'
+import { deletedCohortDisabledReason, restoreChecksCohorts } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
     RESTORE_UNAVAILABLE_DISABLED_REASON,
@@ -159,6 +159,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const canRestore = canRestoreFeatureFlag(featureFlag.filters)
     const restoreUnavailable = !!featureFlag.deleted && !canRestore
     const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters)
+    const restoreBlockedReason = restoreChecksCohorts(featureFlag) ? deletedCohortReason : undefined
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -508,9 +509,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
                                             [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
-                                            ...(featureFlag.deleted && deletedCohortReason
-                                                ? { [deletedCohortReason]: true }
-                                                : {}),
+                                            ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
                                             'Restoring…': featureFlagRestoreLoading,
                                         }}
                                     >
@@ -536,7 +535,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                           children: 'Restore',
                                           onClick: () => restoreFeatureFlag(featureFlag),
                                           loading: featureFlagRestoreLoading,
-                                          disabledReason: deletedCohortReason,
+                                          disabledReason: restoreBlockedReason,
                                           'data-attr': 'restore-feature-flag-banner',
                                       }
                                     : undefined
@@ -631,14 +630,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         !!disabledReason ||
                                                         featureFlagRestoreLoading ||
                                                         restoreUnavailable ||
-                                                        (featureFlag.deleted && !!deletedCohortReason)
+                                                        !!restoreBlockedReason
                                                     }
                                                     tooltip={
                                                         restoreUnavailable
                                                             ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                            : featureFlag.deleted
-                                                              ? deletedCohortReason
-                                                              : undefined
+                                                            : restoreBlockedReason
                                                     }
                                                     data-attr={
                                                         featureFlag.deleted

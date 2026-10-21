@@ -119,6 +119,13 @@ describe('FeatureFlagDeletedCohortBanner', () => {
             showsEdit: true,
         },
         {
+            // Restoring leaves the flag archived, so the flag API skips the cohort check until the flag is unarchived.
+            state: 'a deleted and archived flag',
+            flag: buildFlag({ active: false, deleted: true, archived: true }),
+            says: /You can't unarchive the flag until you restore the cohort or update the release conditions to remove it\.$/,
+            showsEdit: true,
+        },
+        {
             state: 'a flag the user cannot edit',
             flag: buildFlag({ active: true, can_edit: false }),
             says: /Restore the cohort or update the release conditions to remove it\.$/,
@@ -133,7 +140,7 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         {
             state: 'a flag whose cohort no longer exists',
             flag: buildFlag({ active: true }, { cohort_name: undefined, cohort_missing: true }),
-            says: /^Cohort ID 5 was deleted\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
+            says: /^Cohort ID 5 does not exist in this project\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
             showsEdit: true,
         },
         {
@@ -162,14 +169,14 @@ describe('FeatureFlagDeletedCohortBanner', () => {
                     ],
                 },
             }),
-            says: /^Cohorts 'Frequent buyers' and ID 6 were deleted\. .* Update the release conditions to remove them\.$/,
+            says: /^Cohort 'Frequent buyers' was deleted\. Cohort ID 6 does not exist in this project\. .* Update the release conditions to remove them\.$/,
             showsEdit: true,
         },
     ])('gives the next step for $state', async ({ flag, says, showsEdit }) => {
         useMocks(endpointMocks(flag))
         await renderBanner()
 
-        expect(screen.getByText(/(was|were) deleted\./)).toHaveTextContent(says)
+        expect(screen.getByText(/^Cohorts? /)).toHaveTextContent(says)
         expect(document.querySelectorAll(EDIT_SELECTOR).length > 0).toBe(showsEdit)
     })
 
@@ -190,22 +197,33 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         expect(loadedCaptures).toHaveLength(1)
     })
 
+    const deletedCohort = (value: number | string): AnyPropertyFilter => cohortProperty(value, { cohort_deleted: true })
+    const missingCohort = (value: number): AnyPropertyFilter =>
+        cohortProperty(value, { cohort_deleted: true, cohort_missing: true, cohort_name: undefined })
+
     it.each([
         {
             name: 'one cohort stored as a number and as a string',
-            values: [5, '5'],
+            properties: [deletedCohort(5), deletedCohort('5')],
             heading: 'This flag targets a deleted cohort',
         },
-        { name: 'two different cohorts', values: [5, 6], heading: 'This flag targets deleted cohorts' },
-    ])('counts $name once per cohort', async ({ values, heading }) => {
+        {
+            name: 'two deleted cohorts',
+            properties: [deletedCohort(5), deletedCohort(6)],
+            heading: 'This flag targets deleted cohorts',
+        },
+        { name: 'a missing cohort', properties: [missingCohort(5)], heading: 'This flag targets a missing cohort' },
+        {
+            name: 'a deleted and a missing cohort',
+            properties: [deletedCohort(5), missingCohort(6)],
+            heading: 'This flag targets deleted and missing cohorts',
+        },
+    ])('gives the heading for $name', async ({ properties, heading }) => {
         useMocks(
             endpointMocks(
                 buildFlag({
                     filters: {
-                        groups: values.map((value) => ({
-                            properties: [cohortProperty(value, { cohort_deleted: true })],
-                            rollout_percentage: 100,
-                        })),
+                        groups: properties.map((property) => ({ properties: [property], rollout_percentage: 100 })),
                     },
                 })
             )
