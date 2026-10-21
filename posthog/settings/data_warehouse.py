@@ -173,6 +173,12 @@ DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COM
 DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES = get_from_env(
     "DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES", 16 * 1024 * 1024, type_cast=int
 )
+# Size each deltalite reader by the largest row group of its file instead of by the whole file. The
+# writer reads the footers of the candidate files only when the whole-file sizes keep the governor's plan
+# narrow. A footer that cannot be read keeps the whole-file size. False turns the footer reads off.
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING", True, type_cast=str_to_bool
+)
 # A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
 # this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
