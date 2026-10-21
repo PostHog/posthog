@@ -44,6 +44,7 @@ tools:
             destructive: false
             idempotent: true
         title: CI failure logs for a PR
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         description: >
             The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer "why did
             this PR's CI fail". Each failed job returns its failure region (the error lines plus surrounding context,
@@ -145,6 +146,7 @@ tools:
             destructive: false
             idempotent: true
         title: CI failure logs for a run
+        hooks: engineeringAnalytics/redactFailureLogsHooks
         description: >
             The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of
             ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests

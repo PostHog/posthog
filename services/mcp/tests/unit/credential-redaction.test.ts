@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { redactCredentials, redactCredentialsInText } from '@/lib/credential-redaction'
+import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
 import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
 import type { Context } from '@/tools/types'
@@ -123,6 +124,12 @@ describe('credential redaction', () => {
             expected: 'Authorization: [REDACTED]\n/?password=[REDACTED]&safe=1',
         },
         {
+            name: 'a private key block in one string',
+            input: '{"key":"x","pem":"-----BEGIN RSA PRIVATE KEY-----\\nINVENTEDkeyBODY\\n-----END RSA PRIVATE KEY-----"}',
+            expected:
+                '{"key":"[REDACTED]","pem":"-----BEGIN RSA PRIVATE KEY-----[REDACTED]-----END RSA PRIVATE KEY-----"}',
+        },
+        {
             name: 'excessively nested encoding',
             input: Array.from({ length: 10 }).reduce<string>((value) => encodeURIComponent(value), '/?token=secret'),
             expected: '[REDACTED]',
@@ -211,4 +218,59 @@ describe('credential redaction', () => {
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
     })
+
+    it.each(['engineering-analytics-ci-failure-logs', 'engineering-analytics-run-failure-logs'])(
+        'redacts environment values and multiline private keys through the generated %s handler',
+        async (tool) => {
+            const line = (original_line: number | null, text: string): Record<string, unknown> => ({
+                original_line,
+                text,
+            })
+            const response = {
+                logs_available: true,
+                jobs: [
+                    {
+                        job_id: 1,
+                        lines: [
+                            line(10, `  AWS_SECRET_ACCESS_KEY: ${OTHER_SECRET}`),
+                            line(11, '  GITHUB_TOKEN: ***'),
+                            line(12, `+ export DATABASE_PASSWORD=${OTHER_SECRET}`),
+                            line(13, '  NODE_ENV: production'),
+                            line(14, '-----BEGIN OPENSSH PRIVATE KEY-----'),
+                            line(15, 'INVENTEDkeyLINEone'),
+                            line(null, '... 3 lines omitted ...'),
+                            line(19, 'INVENTEDkeyLINEtwo-----END OPENSSH PRIVATE KEY-----'),
+                            line(20, 'FAILED tests/test_deploy.py::test_key'),
+                        ],
+                    },
+                    { job_id: 2, lines: [line(1, 'INVENTEDnotAkey')] },
+                ],
+            }
+            const context = {
+                stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+                api: { request: vi.fn().mockResolvedValue(response) },
+            } as unknown as Context
+
+            expect(await ENGINEERING_ANALYTICS_TOOLS[tool]!().handler(context, {})).toEqual({
+                logs_available: true,
+                jobs: [
+                    {
+                        job_id: 1,
+                        lines: [
+                            line(10, '  AWS_SECRET_ACCESS_KEY: [REDACTED]'),
+                            line(11, '  GITHUB_TOKEN: [REDACTED]'),
+                            line(12, '+ export DATABASE_PASSWORD=[REDACTED]'),
+                            line(13, '  NODE_ENV: production'),
+                            line(14, '-----BEGIN OPENSSH PRIVATE KEY-----'),
+                            line(15, '[REDACTED]'),
+                            line(null, '... 3 lines omitted ...'),
+                            line(19, '[REDACTED]-----END OPENSSH PRIVATE KEY-----'),
+                            line(20, 'FAILED tests/test_deploy.py::test_key'),
+                        ],
+                    },
+                    { job_id: 2, lines: [line(1, 'INVENTEDnotAkey')] },
+                ],
+            })
+        }
+    )
 })
