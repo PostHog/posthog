@@ -8,6 +8,7 @@ from django.db import DatabaseError
 from products.wizard.backend.facade.contracts import WizardRunArtifactDTO, WizardRunDTO, WizardRunPullRequestArtifactDTO
 from products.wizard.backend.facade.enums import WizardRunStatus
 from products.wizard.backend.logic.workers.contracts import WizardWorkerTelemetry
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.observability import events, metrics
 from products.wizard.backend.observability.contracts import WizardRunDispatchOutcome, WizardWorkerCleanupOutcome
 from products.wizard.backend.observability.worker_usage import worker_usage_observation
@@ -140,6 +141,18 @@ class WizardObservability:
             event=partial(events.enqueue_worker_usage, run, usage),
             metric_error="wizard_worker_usage_metric_failed",
             event_error="wizard_worker_usage_event_failed",
+        )
+
+    def wizard_execution_failed(self, run: WizardRunDTO, exit_code: int, wizard_error: WizardErrorLine | None) -> None:
+        self._observe(
+            name="wizard_execution_failed",
+            context={
+                **self._run_context(run),
+                "exit_code": exit_code,
+                "wizard_error_code": wizard_error.code if wizard_error is not None else None,
+                "wizard_error_message": wizard_error.message if wizard_error is not None else None,
+            },
+            level=logging.WARNING,
         )
 
     def git_diff_omitted(self, run: WizardRunDTO, size_bytes: int) -> None:

@@ -55,7 +55,7 @@ from products.wizard.backend.logic.workers.contracts import (
     WizardWorkerUsageMeasurement,
 )
 from products.wizard.backend.logic.workers.local_package import build_local_wizard_source_archive
-from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine, stderr_to_wizard_error
 from products.wizard.backend.observability.service import wizard_observability
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
@@ -117,12 +117,12 @@ class WizardWorkerExecutionError(Exception):
         stage: str,
         exit_code: int,
         detail: str | None = None,
-        wizard_error_code: str | None = None,
+        wizard_error: WizardErrorLine | None = None,
     ) -> None:
         self.stage = stage
         self.exit_code = exit_code
         self.detail = detail
-        self.wizard_error_code = wizard_error_code
+        self.wizard_error = wizard_error
 
         message = f"Wizard Worker {stage} failed with exit code {exit_code}."
         if detail:
@@ -384,7 +384,7 @@ def _raise_for_failure(
             stage,
             exit_code,
             _failure_detail(stdout, stderr, sensitive_values),
-            stderr_to_wizard_error_code(stderr),
+            stderr_to_wizard_error(stderr),
         )
 
 

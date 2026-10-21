@@ -1,3 +1,4 @@
+import logging
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -46,6 +47,7 @@ from products.wizard.backend.logic.workers.service import (
     WizardWorkerResult,
     WizardWorkerTimeoutError,
 )
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_REPOSITORY_ACCESS_ERROR_TYPE,
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
@@ -298,7 +300,11 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
             True,
         ),
         (
-            WizardWorkerExecutionError("execution", 1, wizard_error_code="PHW_DETECT_NO_POSTHOG_SDK"),
+            WizardWorkerExecutionError(
+                "execution",
+                1,
+                wizard_error=WizardErrorLine(code="PHW_DETECT_NO_POSTHOG_SDK", message="Missing SDK"),
+            ),
             "PHW_DETECT_NO_POSTHOG_SDK",
             True,
         ),
@@ -316,7 +322,9 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
         ),
     ),
 )
-def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: str, non_retryable: bool) -> None:
+def test_execute_wizard_maps_worker_error(
+    worker_error: Exception, error_type: str, non_retryable: bool, caplog: pytest.LogCaptureFixture
+) -> None:
     workspace = PreparedGitRepositoryWorkspace(
         team_id=7,
         run_id=uuid4(),
@@ -342,6 +350,7 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
+        caplog.set_level(logging.WARNING, logger="products.wizard.backend.observability.service")
         async_to_sync(_run_traced_execute_wizard)(workspace)
 
     provider.shutdown()
@@ -361,6 +370,15 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     assert error.value.__cause__ is None
     assert error.value.__context__ is None
     assert not error.value.details
+    failure_logs = [record for record in caplog.records if record.getMessage() == "wizard_execution_failed"]
+    if isinstance(worker_error, WizardWorkerExecutionError):
+        assert len(failure_logs) == 1
+        expected_error = worker_error.wizard_error
+        assert failure_logs[0].__dict__["wizard_error_code"] == (expected_error.code if expected_error else None)
+        assert failure_logs[0].__dict__["wizard_error_message"] == (expected_error.message if expected_error else None)
+    else:
+        assert not failure_logs
+    assert "fake-wizard-api-key-for-test" not in caplog.text
     if isinstance(worker_error, ApplicationError):
         assert error.value.next_retry_delay == worker_error.next_retry_delay
         assert error.value.category == worker_error.category
