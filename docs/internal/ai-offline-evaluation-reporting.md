@@ -558,7 +558,9 @@ with `tab=datasets` in the query string. Existing `/ai-evals/datasets` and `/llm
 links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
 `/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
 detail routes redirect there, preserving item deep links, revisions, tabs, filters, and hashes.
-Creating a dataset preserves the list filters used by Back to datasets.
+The Evaluations heading and navigation stay in place on dataset creation and detail pages. Dataset items appear
+directly in the detail view; **Details** opens the dataset metadata without replacing the items table.
+The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
 Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
 including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers

@@ -7,13 +7,11 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AIObservabilityDatasetsScene } from '../datasets/AIObservabilityDatasetsScene'
-import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { offlineEvaluationsLogic } from './offlineEvaluationsLogic'
+import { OfflineEvaluationsScene } from './OfflineEvaluationsScene'
 import { OfflineEvaluationsTabs } from './OfflineEvaluationsTabs'
 import { OfflineExperimentsOverview } from './OfflineExperimentsOverview'
 
@@ -40,33 +38,26 @@ export function OfflineExperimentsScene(): JSX.Element {
               (!currentTeam || !user ? 'Offline evaluations are not available in this project.' : undefined)
     const navigation = <OfflineEvaluationsTabs activeTab={activeTab} />
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Evaluations"
-                description="Manage datasets, follow score trends, and inspect offline experiment results."
-                resourceType={{ type: 'llm_evaluations' }}
-            />
-            <EvaluationsTabs activeTab="offline-evals">
-                {activeTabDisabledReason ? (
-                    <>
-                        {navigation}
-                        <LemonBanner type="info">{activeTabDisabledReason}</LemonBanner>
-                    </>
-                ) : activeTab === 'datasets' ? (
-                    <AIObservabilityDatasetsScene navigation={navigation} />
-                ) : (
-                    currentTeam &&
-                    user && (
-                        <OfflineExperimentsOverview
-                            key={`${currentTeam.id}:${user.id}`}
-                            teamId={currentTeam.id}
-                            userId={user.id}
-                            timezone={currentTeam.timezone}
-                            navigation={navigation}
-                        />
-                    )
-                )}
-            </EvaluationsTabs>
-        </SceneContent>
+        <OfflineEvaluationsScene>
+            {activeTabDisabledReason ? (
+                <>
+                    {navigation}
+                    <LemonBanner type="info">{activeTabDisabledReason}</LemonBanner>
+                </>
+            ) : activeTab === 'datasets' ? (
+                <AIObservabilityDatasetsScene navigation={navigation} />
+            ) : (
+                currentTeam &&
+                user && (
+                    <OfflineExperimentsOverview
+                        key={`${currentTeam.id}:${user.id}`}
+                        teamId={currentTeam.id}
+                        userId={user.id}
+                        timezone={currentTeam.timezone}
+                        navigation={navigation}
+                    />
+                )
+            )}
+        </OfflineEvaluationsScene>
     )
 }

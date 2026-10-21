@@ -15,7 +15,12 @@ import type {
     DatasetItemReadApi as DatasetItem,
     DatasetReadApi as Dataset,
 } from '../generated/api.schemas'
-import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
+import {
+    DatasetFormValues,
+    DatasetLogicProps,
+    DatasetTab,
+    aiObservabilityDatasetLogic,
+} from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON } from './utils'
@@ -1199,15 +1204,36 @@ describe('aiObservabilityDatasetLogic', () => {
                 })
             })
 
-            it('sets active tab from URL parameters via urlToAction', async () => {
+            it('opens and closes dataset details through URL state without reloading items or losing filters', async () => {
                 const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { tab: 'metadata', page: '1' })
+                    router.actions.push(datasetUrl, { tab: 'metadata', search: 'quality' }, { section: 'items' })
                 }).toFinishAllListeners()
 
-                // Verify tab is set from URL
                 expect(logic.values.activeTab).toBe('metadata')
+                mockDatasetsApi.listItems.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setActiveTab(DatasetTab.Items)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams).toEqual({ search: 'quality' })
+                expect(router.values.hashParams).toEqual({ section: 'items' })
+                expect(logic.values.activeTab).toBe('items')
+
+                await expectLogic(logic, () => {
+                    logic.actions.setActiveTab(DatasetTab.Metadata)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams).toEqual({ search: 'quality', tab: 'metadata' })
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { search: 'quality' })
+                }).toFinishAllListeners()
+
+                expect(logic.values.activeTab).toBe('items')
+                expect(mockDatasetsApi.listItems).not.toHaveBeenCalled()
             })
 
             it('closes modal and clears state when closeModalAndRefetchDatasetItems is called', async () => {
