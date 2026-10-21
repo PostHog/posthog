@@ -1808,3 +1808,16 @@ expose = [
 from = [
     "products.account_audits",
 ]
+
+[[modules]]
+path = "products.authorization"
+depends_on = []
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.authorization",
+]

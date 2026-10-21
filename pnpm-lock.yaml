@@ -677,6 +677,9 @@ importers:
       '@posthog/products-apm':
         specifier: workspace:*
         version: link:../products/apm
+      '@posthog/products-authorization':
+        specifier: workspace:*
+        version: link:../products/authorization
       '@posthog/products-autoresearch':
         specifier: workspace:*
         version: link:../products/autoresearch
@@ -2634,6 +2637,8 @@ importers:
   products/apm: {}
 
   products/approvals: {}
+
+  products/authorization: {}
 
   products/autoresearch:
     dependencies:

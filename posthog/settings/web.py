@@ -136,6 +136,7 @@ PRODUCTS_APPS = [
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
     "products.subscriptions.backend.apps.SubscriptionsConfig",
+    "products.authorization.backend.apps.AuthorizationConfig",
 ]
 
 INSTALLED_APPS = [
