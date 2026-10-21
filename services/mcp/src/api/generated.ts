@@ -4888,30 +4888,12 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
     }
 
-    export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
+    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
 
 
-    export const ActivityEventsListWidgetAddRequestOpenApiWidgetType = {
+    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
       ActivityEventsList: 'activity_events_list',
     } as const;
-
-    export interface _TileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface _TileLayoutsOpenApi {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _TileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
-      xs?: _TileLayoutBoxOpenApi;
-    }
 
     export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
 
@@ -4981,38 +4963,13 @@ export namespace Schemas {
       properties?: ActivityEventsPropertyFilter[] | null;
     }
 
-    export interface ActivityEventsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent events widget. */
-      config: ActivityEventsListWidgetConfig;
-    }
-
-    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
-
-
-    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
-      ActivityEventsList: 'activity_events_list',
-    } as const;
-
     export interface ActivityEventsListWidgetCatalogEntryOpenApi {
       widget_type: ActivityEventsListWidgetCatalogEntryOpenApiWidgetType;
       group_id: string;
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ActivityEventsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -5029,29 +4986,6 @@ export namespace Schemas {
     export const ActivityEventsListWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
     } as const;
-
-    export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = {
-      ActivityEventsList: 'activity_events_list',
-    } as const;
-
-    export interface ActivityEventsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent events widget. Omit to leave unchanged. */
-      config?: ActivityEventsListWidgetConfig;
-    }
 
     /**
      * * `awaiting_input` - awaiting_input
@@ -7651,340 +7585,58 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
-    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+    /**
+     * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field.
+     */
+    export type AddDashboardWidgetRequestConfig = { [key: string]: unknown };
 
-
-    export const NotebookWidgetAddRequestOpenApiWidgetType = {
-      NotebookWidget: 'notebook_widget',
-    } as const;
-
-    export interface NotebookWidgetConfig {
-      /** Source notebook short ID. */
-      notebookShortId?: string | null;
-      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
-      snapshotId?: string | null;
+    export interface _TileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
     }
 
-    export interface NotebookWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the notebook widget widget. */
-      config: NotebookWidgetConfig;
+    export interface _TileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _TileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+      xs?: _TileLayoutBoxOpenApi;
     }
 
-    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
+    /**
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
+     */
+    export type DashboardWidgetTypeEnum = typeof DashboardWidgetTypeEnum[keyof typeof DashboardWidgetTypeEnum];
 
 
-    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
+    export const DashboardWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
+      CanvasApp: 'canvas_app',
+      ConversationsRecentTickets: 'conversations_recent_tickets',
       ErrorTrackingList: 'error_tracking_list',
-    } as const;
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-      Severity: 'severity',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
-
-
-    export const ErrorTrackingListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
-     * Issue status filter.
-     */
-    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
-
-
-    export const ErrorTrackingListWidgetConfigStatus = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-      All: 'all',
-    } as const;
-
-    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
-
-
-    export const WidgetAssigneeFilterType = {
-      User: 'user',
-      Role: 'role',
-    } as const;
-
-    export interface WidgetAssigneeFilter {
-      id: string | number;
-      type: WidgetAssigneeFilterType;
-    }
-
-    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
-
-    export interface ErrorTrackingListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      filterTestAccounts?: boolean | null;
-      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
-      /**
-         * Maximum number of issues to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Issue ranking column. */
-      orderBy?: ErrorTrackingOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
-      /** Issue status filter. */
-      status?: ErrorTrackingListWidgetConfigStatus;
-      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
-      assignee?: WidgetAssigneeFilter | null;
-    }
-
-    export interface ErrorTrackingListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the top issues widget. */
-      config: ErrorTrackingListWidgetConfig;
-    }
-
-    export type SessionReplayListWidgetAddRequestOpenApiWidgetType = typeof SessionReplayListWidgetAddRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const SessionReplayListWidgetAddRequestOpenApiWidgetType = {
-      SessionReplayList: 'session_replay_list',
-    } as const;
-
-    /**
-     * Recording ranking column.
-     */
-    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
-
-
-    export const SessionReplayListWidgetConfigOrderBy = {
-      StartTime: 'start_time',
-      ActivityScore: 'activity_score',
-      RecordingDuration: 'recording_duration',
-      Duration: 'duration',
-      ClickCount: 'click_count',
-      ConsoleErrorCount: 'console_error_count',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
-
-
-    export const SessionReplayListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
-
-    export interface SessionReplayListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      filterTestAccounts?: boolean | null;
-      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
-      /**
-         * Maximum number of recordings to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Recording ranking column. */
-      orderBy?: SessionReplayListWidgetConfigOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
-      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
-      savedFilterId?: string | null;
-      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
-      collectionId?: string | null;
-    }
-
-    export interface SessionReplayListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent recordings widget. */
-      config: SessionReplayListWidgetConfig;
-    }
-
-    export type ExperimentsListWidgetAddRequestOpenApiWidgetType = typeof ExperimentsListWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ExperimentsListWidgetAddRequestOpenApiWidgetType = {
-      ExperimentsList: 'experiments_list',
-    } as const;
-
-    /**
-     * Experiment list sort column.
-     */
-    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
-
-
-    export const ExperimentsListWidgetConfigOrderBy = {
-      CreatedAt: 'created_at',
-      Name: 'name',
-      StartDate: 'start_date',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
-
-
-    export const ExperimentsListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
-     * Experiment status filter.
-     */
-    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
-
-
-    export const ExperimentsListWidgetConfigStatus = {
-      Draft: 'draft',
-      Running: 'running',
-      Paused: 'paused',
-      ExposureFrozen: 'exposure_frozen',
-      Stopped: 'stopped',
-      All: 'all',
-    } as const;
-
-    export interface ExperimentsListWidgetConfig {
-      /**
-         * Maximum number of experiments to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Experiment list sort column. */
-      orderBy?: ExperimentsListWidgetConfigOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
-      /** Experiment status filter. */
-      status?: ExperimentsListWidgetConfigStatus;
-      /** Filter by creator (user id). Omit for any creator. */
-      createdBy?: number | null;
-    }
-
-    export interface ExperimentsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the experiments list widget. */
-      config: ExperimentsListWidgetConfig;
-    }
-
-    export type ExperimentResultsWidgetAddRequestOpenApiWidgetType = typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ExperimentResultsWidgetAddRequestOpenApiWidgetType = {
       ExperimentResults: 'experiment_results',
-    } as const;
-
-    export interface ExperimentResultsWidgetConfig {
-      /** Experiment to show results for. Null until the user picks one in the widget settings. */
-      experimentId?: number | null;
-    }
-
-    export interface ExperimentResultsWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the experiment results widget. */
-      config: ExperimentResultsWidgetConfig;
-    }
-
-    export type SurveyResultsWidgetAddRequestOpenApiWidgetType = typeof SurveyResultsWidgetAddRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const SurveyResultsWidgetAddRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
+      SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
 
-    export interface SurveyResultsWidgetConfig {
-      /** Null or omitted means all time (the survey's full lifetime). */
-      dateRange?: WidgetDateRange | null;
-      /** Survey to show performance stats and recent responses for. Null until the user picks one. */
-      surveyId?: string | null;
-      /**
-         * Maximum number of recent responses to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-    }
-
-    export interface SurveyResultsWidgetAddRequestOpenApi {
+    export interface AddDashboardWidgetRequest {
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -7997,215 +7649,22 @@ export namespace Schemas {
       layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
-      widget_type: SurveyResultsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the survey results widget. */
-      config: SurveyResultsWidgetConfig;
+      /** Widget type to add. Use dashboard-widget-catalog-list to pick one.
+       *
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type: DashboardWidgetTypeEnum;
+      /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. */
+      config: AddDashboardWidgetRequestConfig;
     }
-
-    export type LogsListWidgetAddRequestOpenApiWidgetType = typeof LogsListWidgetAddRequestOpenApiWidgetType[keyof typeof LogsListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const LogsListWidgetAddRequestOpenApiWidgetType = {
-      LogsList: 'logs_list',
-    } as const;
-
-    /**
-     * Sort by newest (latest) or oldest (earliest) first.
-     */
-    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
-
-
-    export const LogsListWidgetConfigOrderBy = {
-      Latest: 'latest',
-      Earliest: 'earliest',
-    } as const;
-
-    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
-
-
-    export const LogsListWidgetConfigSeverityLevelsItem = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
-    /**
-     * Render log timestamps in UTC or in each viewer's local timezone.
-     */
-    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
-
-
-    export const LogsListWidgetConfigTimezone = {
-      Utc: 'UTC',
-      Local: 'local',
-    } as const;
-
-    export interface LogsListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      /**
-         * Maximum number of log lines to return.
-         * @minimum 1
-         * @maximum 100
-         */
-      limit?: number;
-      /** Sort by newest (latest) or oldest (earliest) first. */
-      orderBy?: LogsListWidgetConfigOrderBy;
-      /** Only show logs at these severity levels. Empty shows all levels. */
-      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
-      /** Only show logs from these services. Empty shows all services. */
-      serviceNames?: string[];
-      /** Wrap long log lines instead of truncating them to a single row. */
-      wrapLines?: boolean;
-      /** Render log timestamps in UTC or in each viewer's local timezone. */
-      timezone?: LogsListWidgetConfigTimezone;
-      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
-      savedViewId?: string | null;
-    }
-
-    export interface LogsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: LogsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent logs widget. */
-      config: LogsListWidgetConfig;
-    }
-
-    export type ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = {
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-    } as const;
-
-    /**
-     * Ticket status filter.
-     */
-    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
-
-
-    export const ConversationsRecentTicketsWidgetConfigStatus = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-      All: 'all',
-    } as const;
-
-    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
-
-
-    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
-
-    /**
-     * Ticket channel filter.
-     */
-    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
-
-
-    export const ConversationsRecentTicketsWidgetConfigChannel = {
-      Widget: 'widget',
-      Email: 'email',
-      Slack: 'slack',
-      Teams: 'teams',
-      Github: 'github',
-      All: 'all',
-    } as const;
-
-    export interface ConversationsRecentTicketsWidgetConfig {
-      /**
-         * Maximum number of tickets to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Ticket status filter. */
-      status?: ConversationsRecentTicketsWidgetConfigStatus;
-      /** Only show tickets with these priorities. Empty shows all priorities. */
-      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
-      /** Ticket channel filter. */
-      channel?: ConversationsRecentTicketsWidgetConfigChannel;
-      /**
-         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
-         * @maxItems 100
-         */
-      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
-      /**
-         * Search requester name or email, ticket subject, message text, or ticket number.
-         * @maxLength 200
-         */
-      search?: string;
-      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
-      savedViewId?: string | null;
-    }
-
-    export interface ConversationsRecentTicketsWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent tickets widget. */
-      config: ConversationsRecentTicketsWidgetConfig;
-    }
-
-    export type CanvasAppWidgetAddRequestOpenApiWidgetType = typeof CanvasAppWidgetAddRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetAddRequestOpenApiWidgetType];
-
-
-    export const CanvasAppWidgetAddRequestOpenApiWidgetType = {
-      CanvasApp: 'canvas_app',
-    } as const;
-
-    export interface CanvasAppWidgetConfig {
-      /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
-      canvasId?: string | null;
-    }
-
-    export interface CanvasAppWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: CanvasAppWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the canvas app widget. */
-      config: CanvasAppWidgetConfig;
-    }
-
-    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | CanvasAppWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
@@ -10062,6 +9521,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
+
+
+    export const ErrorTrackingOrderBy = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+      Severity: 'severity',
+    } as const;
+
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
 
@@ -11388,6 +10859,323 @@ export namespace Schemas {
       style?: StyleEnum;
       readonly last_modified_at: string;
       team: number;
+    }
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
+
+
+    export const ErrorTrackingListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Issue status filter.
+     */
+    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
+
+
+    export const ErrorTrackingListWidgetConfigStatus = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
+
+
+    export const WidgetAssigneeFilterType = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface WidgetAssigneeFilter {
+      id: string | number;
+      type: WidgetAssigneeFilterType;
+    }
+
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface ErrorTrackingListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of issues to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Issue ranking column. */
+      orderBy?: ErrorTrackingOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
+      /** Issue status filter. */
+      status?: ErrorTrackingListWidgetConfigStatus;
+      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+      assignee?: WidgetAssigneeFilter | null;
+    }
+
+    /**
+     * Recording ranking column.
+     */
+    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
+
+
+    export const SessionReplayListWidgetConfigOrderBy = {
+      StartTime: 'start_time',
+      ActivityScore: 'activity_score',
+      RecordingDuration: 'recording_duration',
+      Duration: 'duration',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
+
+
+    export const SessionReplayListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface SessionReplayListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column. */
+      orderBy?: SessionReplayListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
+      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
+      savedFilterId?: string | null;
+      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+      collectionId?: string | null;
+    }
+
+    /**
+     * Experiment list sort column.
+     */
+    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
+
+
+    export const ExperimentsListWidgetConfigOrderBy = {
+      CreatedAt: 'created_at',
+      Name: 'name',
+      StartDate: 'start_date',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
+
+
+    export const ExperimentsListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Experiment status filter.
+     */
+    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
+
+
+    export const ExperimentsListWidgetConfigStatus = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      ExposureFrozen: 'exposure_frozen',
+      Stopped: 'stopped',
+      All: 'all',
+    } as const;
+
+    export interface ExperimentsListWidgetConfig {
+      /**
+         * Maximum number of experiments to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Experiment list sort column. */
+      orderBy?: ExperimentsListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
+      /** Experiment status filter. */
+      status?: ExperimentsListWidgetConfigStatus;
+      /** Filter by creator (user id). Omit for any creator. */
+      createdBy?: number | null;
+    }
+
+    export interface ExperimentResultsWidgetConfig {
+      /** Experiment to show results for. Null until the user picks one in the widget settings. */
+      experimentId?: number | null;
+    }
+
+    export interface SurveyResultsWidgetConfig {
+      /** Null or omitted means all time (the survey's full lifetime). */
+      dateRange?: WidgetDateRange | null;
+      /** Survey to show performance stats and recent responses for. Null until the user picks one. */
+      surveyId?: string | null;
+      /**
+         * Maximum number of recent responses to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+    }
+
+    /**
+     * Sort by newest (latest) or oldest (earliest) first.
+     */
+    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
+
+
+    export const LogsListWidgetConfigOrderBy = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
+    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
+
+
+    export const LogsListWidgetConfigSeverityLevelsItem = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    /**
+     * Render log timestamps in UTC or in each viewer's local timezone.
+     */
+    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
+
+
+    export const LogsListWidgetConfigTimezone = {
+      Utc: 'UTC',
+      Local: 'local',
+    } as const;
+
+    export interface LogsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /**
+         * Maximum number of log lines to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+      /** Sort by newest (latest) or oldest (earliest) first. */
+      orderBy?: LogsListWidgetConfigOrderBy;
+      /** Only show logs at these severity levels. Empty shows all levels. */
+      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
+      /** Only show logs from these services. Empty shows all services. */
+      serviceNames?: string[];
+      /** Wrap long log lines instead of truncating them to a single row. */
+      wrapLines?: boolean;
+      /** Render log timestamps in UTC or in each viewer's local timezone. */
+      timezone?: LogsListWidgetConfigTimezone;
+      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+      savedViewId?: string | null;
+    }
+
+    /**
+     * Ticket status filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
+
+
+    export const ConversationsRecentTicketsWidgetConfigStatus = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+      All: 'all',
+    } as const;
+
+    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
+
+
+    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * Ticket channel filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
+
+
+    export const ConversationsRecentTicketsWidgetConfigChannel = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
+    export interface ConversationsRecentTicketsWidgetConfig {
+      /**
+         * Maximum number of tickets to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Ticket status filter. */
+      status?: ConversationsRecentTicketsWidgetConfigStatus;
+      /** Only show tickets with these priorities. Empty shows all priorities. */
+      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
+      /** Ticket channel filter. */
+      channel?: ConversationsRecentTicketsWidgetConfigChannel;
+      /**
+         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+         * @maxItems 100
+         */
+      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
+      /**
+         * Search requester name or email, ticket subject, message text, or ticket number.
+         * @maxLength 200
+         */
+      search?: string;
+      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
+      savedViewId?: string | null;
+    }
+
+    export interface CanvasAppWidgetConfig {
+      /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
+      canvasId?: string | null;
     }
 
     export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig;
@@ -17672,6 +17460,11 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BetterstackIncidentSignalExtra {
+      url: string | null;
+      started_at: string | null;
+    }
+
     export interface BiasRisk {
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
@@ -20653,7 +20446,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: CanvasAppWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -20670,29 +20463,6 @@ export namespace Schemas {
     export const CanvasAppWidgetTypeEnum = {
       CanvasApp: 'canvas_app',
     } as const;
-
-    export type CanvasAppWidgetUpdateRequestOpenApiWidgetType = typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const CanvasAppWidgetUpdateRequestOpenApiWidgetType = {
-      CanvasApp: 'canvas_app',
-    } as const;
-
-    export interface CanvasAppWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: CanvasAppWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the canvas app widget. Omit to leave unchanged. */
-      config?: CanvasAppWidgetConfig;
-    }
 
     /**
      * One emitted file of a built canvas artifact.
@@ -24140,9 +23910,27 @@ export namespace Schemas {
     export interface CohortUsedInCohortsBlock {
       /** Cohorts that include this cohort as a criterion, capped at 100 results */
       results: CohortUsedInCohort[];
-      /** Total number of cohorts referencing this cohort, before truncation */
+      /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more cohorts exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInEnvironment {
+      /** Environment (team) database ID */
+      id: number;
+      /** Environment display name */
+      name: string;
+    }
+
+    export interface CohortUsedInEnvironmentsBlock {
+      /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+      results: CohortUsedInEnvironment[];
+      /** Total number of environments using this cohort in their test account filters, before truncation */
+      total: number;
+      /** True when more environments exist beyond the truncation cap */
       has_more: boolean;
     }
 
@@ -24156,13 +23944,17 @@ export namespace Schemas {
          * @nullable
          */
       name: string | null;
+      /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+      archived: boolean;
     }
 
     export interface CohortUsedInFlagsBlock {
       /** Feature flags referencing this cohort, capped at 100 results */
       results: CohortUsedInFlag[];
-      /** Total number of feature flags referencing this cohort, before truncation */
+      /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more feature flags exist beyond the truncation cap */
       has_more: boolean;
     }
@@ -24179,8 +23971,10 @@ export namespace Schemas {
     export interface CohortUsedInInsightsBlock {
       /** Insights referencing this cohort, capped at 100 results */
       results: CohortUsedInInsight[];
-      /** Total number of insights referencing this cohort, before truncation */
+      /** Total number of insights referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more insights exist beyond the truncation cap */
       has_more: boolean;
     }
@@ -24212,6 +24006,8 @@ export namespace Schemas {
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
+      /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+      test_account_filters: CohortUsedInEnvironmentsBlock;
       /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
       workflows: CohortUsedInWorkflowsBlock;
     }
@@ -25771,7 +25567,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ConversationsRecentTicketsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -25788,29 +25584,6 @@ export namespace Schemas {
     export const ConversationsRecentTicketsWidgetTypeEnum = {
       ConversationsRecentTickets: 'conversations_recent_tickets',
     } as const;
-
-    export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = {
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-    } as const;
-
-    export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent tickets widget. Omit to leave unchanged. */
-      config?: ConversationsRecentTicketsWidgetConfig;
-    }
 
     export interface ConversationsTicketImage {
       url: string;
@@ -28475,50 +28248,22 @@ export namespace Schemas {
       xs?: _DashboardPatchTileLayoutBoxOpenApi;
     }
 
-    /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
-     */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
-
-
-    export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
-      ActivityEventsList: 'activity_events_list',
-      CanvasApp: 'canvas_app',
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-      ErrorTrackingList: 'error_tracking_list',
-      ExperimentResults: 'experiment_results',
-      ExperimentsList: 'experiments_list',
-      LogsList: 'logs_list',
-      NotebookWidget: 'notebook_widget',
-      SessionReplayList: 'session_replay_list',
-      SurveyResults: 'survey_results',
-    } as const;
-
     export interface DashboardPatchWidgetOpenApi {
       /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
       id?: string;
       /** Widget type identifier (cannot be changed on update).
        *
-       * * `activity_events_list` - activity_events_list
-       * * `canvas_app` - canvas_app
-       * * `conversations_recent_tickets` - conversations_recent_tickets
-       * * `error_tracking_list` - error_tracking_list
-       * * `experiment_results` - experiment_results
-       * * `experiments_list` - experiments_list
-       * * `logs_list` - logs_list
-       * * `notebook_widget` - notebook_widget
-       * * `session_replay_list` - session_replay_list
-       * * `survey_results` - survey_results */
-      widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type?: DashboardWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
       config?: DashboardWidgetConfig;
       /**
@@ -32537,6 +32282,7 @@ export namespace Schemas {
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33945,6 +33691,7 @@ export namespace Schemas {
       Klar: 'Klar',
       ConectoCRM: 'ConectoCRM',
       CloudflareR2: 'CloudflareR2',
+      Particle: 'Particle',
     } as const;
 
     /**
@@ -35366,7 +35113,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -38123,7 +37871,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -41542,10 +41291,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
 
 
-    export const IncludeEnum = {
+    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -41587,7 +41336,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: IncludeEnum[];
+      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -41940,7 +41689,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ErrorTrackingListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -41957,29 +41706,6 @@ export namespace Schemas {
     export const ErrorTrackingListWidgetTypeEnum = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
-
-    export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = {
-      ErrorTrackingList: 'error_tracking_list',
-    } as const;
-
-    export interface ErrorTrackingListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the top issues widget. Omit to leave unchanged. */
-      config?: ErrorTrackingListWidgetConfig;
-    }
 
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
@@ -46451,7 +46177,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ExperimentResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -46468,29 +46194,6 @@ export namespace Schemas {
     export const ExperimentResultsWidgetTypeEnum = {
       ExperimentResults: 'experiment_results',
     } as const;
-
-    export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = {
-      ExperimentResults: 'experiment_results',
-    } as const;
-
-    export interface ExperimentResultsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the experiment results widget. Omit to leave unchanged. */
-      config?: ExperimentResultsWidgetConfig;
-    }
 
     export interface ExperimentSavedMetricLinkedExperiment {
       /** Experiment ID. */
@@ -48058,7 +47761,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: ExperimentsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -48075,29 +47778,6 @@ export namespace Schemas {
     export const ExperimentsListWidgetTypeEnum = {
       ExperimentsList: 'experiments_list',
     } as const;
-
-    export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ExperimentsListWidgetUpdateRequestOpenApiWidgetType = {
-      ExperimentsList: 'experiments_list',
-    } as const;
-
-    export interface ExperimentsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the experiments list widget. Omit to leave unchanged. */
-      config?: ExperimentsListWidgetConfig;
-    }
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -50443,7 +50123,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -51885,7 +51566,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -53790,6 +53472,14 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantIncidentSignalExtra {
+      severity: string | null;
+      priority: string | null;
+      current_milestone: string | null;
+      incident_url: string | null;
+      created_at: string | null;
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -55002,6 +54692,12 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmIncidentSignalExtra {
+      status: string | null;
+      severity_label: string | null;
+      created_time: string | null;
     }
 
     /**
@@ -61026,6 +60722,67 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
+     * * `dynatrace` - Dynatrace
+     * * `statuspage` - Statuspage
+     * * `cronitor` - Cronitor
+     * * `instatus` - Instatus
+     * * `asana` - Asana
+     * * `monday` - monday.com
+     * * `plane` - Plane
+     * * `azure_devops` - Azure DevOps
+     * * `helpscout` - Help Scout
+     * * `decagon` - Decagon
+     * * `vitally` - Vitally
+     * * `usersnap` - Usersnap
+     * * `typeform` - Typeform
+     * * `qualtrics` - Qualtrics
+     * * `surveymonkey` - SurveyMonkey
+     * * `formbricks` - Formbricks
+     * * `survicate` - Survicate
+     * * `surveysparrow` - SurveySparrow
+     * * `lacework` - Lacework
+     * * `orca_security` - Orca Security
+     * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+     * * `google_play_console` - Google Play Console
+     * * `azure_application_insights` - Azure Application Insights
+     * * `appsignal` - AppSignal
+     * * `cursor` - Cursor
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -61082,6 +60839,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -61105,6 +60923,7 @@ export namespace Schemas {
      * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
      * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -61130,6 +60949,7 @@ export namespace Schemas {
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
+      Incident: 'incident',
     } as const;
 
     export interface InboxOnboardingSource {
@@ -61185,7 +61005,68 @@ export namespace Schemas {
        * * `intercom` - Intercom
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
-       * * `google_search_console` - Google Search Console */
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX
+       * * `dynatrace` - Dynatrace
+       * * `statuspage` - Statuspage
+       * * `cronitor` - Cronitor
+       * * `instatus` - Instatus
+       * * `asana` - Asana
+       * * `monday` - monday.com
+       * * `plane` - Plane
+       * * `azure_devops` - Azure DevOps
+       * * `helpscout` - Help Scout
+       * * `decagon` - Decagon
+       * * `vitally` - Vitally
+       * * `usersnap` - Usersnap
+       * * `typeform` - Typeform
+       * * `qualtrics` - Qualtrics
+       * * `surveymonkey` - SurveyMonkey
+       * * `formbricks` - Formbricks
+       * * `survicate` - Survicate
+       * * `surveysparrow` - SurveySparrow
+       * * `lacework` - Lacework
+       * * `orca_security` - Orca Security
+       * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+       * * `google_play_console` - Google Play Console
+       * * `azure_application_insights` - Azure Application Insights
+       * * `appsignal` - AppSignal
+       * * `cursor` - Cursor */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -61208,7 +61089,8 @@ export namespace Schemas {
        * * `ci_flaky_check` - CI flaky check
        * * `ci_broken_default_branch` - CI broken default branch
        * * `ci_duration_regression` - CI duration regression
-       * * `search_opportunity` - Search opportunity */
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
       source_type: SignalSourceConfigSourceTypeEnum;
       /** Whether this source should be enabled at activation. */
       enabled: boolean;
@@ -61416,6 +61298,14 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoIncidentSignalExtra {
+      severity_name: string | null;
+      status_name: string | null;
+      mode: string | null;
+      permalink: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -65340,6 +65230,211 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute
+     */
+    export type LogsContextAnchorTypeEnum = typeof LogsContextAnchorTypeEnum[keyof typeof LogsContextAnchorTypeEnum];
+
+
+    export const LogsContextAnchorTypeEnum = {
+      Trace: 'trace',
+      Log: 'log',
+      Attribute: 'attribute',
+    } as const;
+
+    /**
+     * * `spans` - Spans
+     */
+    export type LogsContextIncludeEnum = typeof LogsContextIncludeEnum[keyof typeof LogsContextIncludeEnum];
+
+
+    export const LogsContextIncludeEnum = {
+      Spans: 'spans',
+    } as const;
+
+    export interface _LogsContextAttributeAnchor {
+      /** Log attribute key, e.g. "workflow_run_id". */
+      key: string;
+      /** Exact attribute value to follow. */
+      value: string;
+    }
+
+    export interface _LogsContextAnchor {
+      /** uuid of one log line. Needs `timestamp`. */
+      logUuid?: string;
+      /** ISO 8601 timestamp of the `logUuid` log line. */
+      timestamp?: string;
+      /** Trace id, 32 hex characters or base64. */
+      traceId?: string;
+      /** Follow every log with this attribute value. */
+      attribute?: _LogsContextAttributeAnchor;
+      /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+      around?: string;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type LogsSeverityLevelEnum = typeof LogsSeverityLevelEnum[keyof typeof LogsSeverityLevelEnum];
+
+
+    export const LogsSeverityLevelEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsContextBody {
+      /** Exactly one anchor: a log line, a trace, or an attribute value. */
+      anchor: _LogsContextAnchor;
+      /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+      padding?: string;
+      /** Keep only these severities in the timeline. */
+      severityLevels?: LogsSeverityLevelEnum[];
+      /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+      serviceNames?: string[];
+      /** "spans" adds spans_summary for a trace anchor. */
+      include?: LogsContextIncludeEnum[];
+      /**
+         * Maximum timeline rows.
+         * @minimum 1
+         * @maximum 500
+         */
+      limit?: number;
+      /** `next_cursor` of a previous call with the same anchor. */
+      after?: string;
+    }
+
+    export interface LogsContextRequest {
+      /** The context query. */
+      query: _LogsContextBody;
+    }
+
+    export interface _LogsContextAnchorSummary {
+      /** The anchor kind.
+       *
+       * * `trace` - Trace
+       * * `log` - Log
+       * * `attribute` - Attribute */
+      type: LogsContextAnchorTypeEnum;
+      /**
+         * Trace id (hex) of the anchor, when there is one.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Reference time (UTC) that `t_offset_ms` counts from. */
+      timestamp: string;
+      /**
+         * Trace start or first matching log (UTC).
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * Trace end or last matching log (UTC).
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * end - start in milliseconds.
+         * @nullable
+         */
+      duration_ms: number | null;
+      /** Services of the anchor. */
+      services: string[];
+    }
+
+    export interface _LogsContextCorrelationKey {
+      /** Id-like attribute of the anchor log. */
+      key: string;
+      /** Its value on the anchor log. */
+      value: string;
+      /** Logs in the window, any service, with this value. */
+      log_count: number;
+    }
+
+    export interface _LogsContextTimelineRow {
+      /** Milliseconds from the anchor reference time. */
+      t_offset_ms: number;
+      /** Log timestamp (UTC). */
+      timestamp: string;
+      /** Service that emitted the line. */
+      service: string;
+      /** Severity of the line. */
+      severity: string;
+      /** Log body, cut to 300 characters. */
+      body: string;
+      /** k=v attributes that differ from the anchor log, without noise keys. */
+      attrs: string;
+      /** Log uuid, usable with `timestamp` as a log anchor. */
+      uuid: string;
+    }
+
+    export interface _LogsContextSpan {
+      /** Span id (hex). */
+      span_id: string;
+      /** Span name. */
+      name: string;
+      /** Service of the span. */
+      service: string;
+      /** Milliseconds from the trace start. */
+      start_offset_ms: number;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans. */
+      self_time_ms: number;
+      /** "error" or "ok". */
+      status: string;
+    }
+
+    export interface _LogsContextSpansSummary {
+      /** Spans read. */
+      span_count: number;
+      /** True when the trace has more spans than were read. */
+      truncated: boolean;
+      /** Services with spans in the trace. */
+      services: string[];
+      /** The root span, null when it never arrived. */
+      root: _LogsContextSpan | null;
+      /** Up to 10 spans with an error status. */
+      error_spans: _LogsContextSpan[];
+      /** The 5 longest spans. */
+      slowest: _LogsContextSpan[];
+    }
+
+    export interface LogsContextResponse {
+      /** Absolute UTC bounds the logs were read from. */
+      window: LogsAgentWindow;
+      /** The resolved anchor. */
+      anchor: _LogsContextAnchorSummary;
+      /** Id-like attributes of the anchor log, with counts. */
+      correlation_keys: _LogsContextCorrelationKey[];
+      /** Log lines, earliest first. */
+      timeline: _LogsContextTimelineRow[];
+      /** Set for a trace anchor with include ["spans"]. */
+      spans_summary: _LogsContextSpansSummary | null;
+      /** True when more rows exist past `limit`. */
+      truncated: boolean;
+      /**
+         * Pass as `after` for the next page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Prefilled follow-up calls. */
+      next: LogsAgentNextCall[];
+      /** Caveats about the window. */
+      notes: string[];
+    }
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -65491,7 +65586,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: LogsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -65508,29 +65603,6 @@ export namespace Schemas {
     export const LogsListWidgetTypeEnum = {
       LogsList: 'logs_list',
     } as const;
-
-    export type LogsListWidgetUpdateRequestOpenApiWidgetType = typeof LogsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof LogsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const LogsListWidgetUpdateRequestOpenApiWidgetType = {
-      LogsList: 'logs_list',
-    } as const;
-
-    export interface LogsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: LogsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent logs widget. Omit to leave unchanged. */
-      config?: LogsListWidgetConfig;
-    }
 
     /**
      * * `logs` - Logs
@@ -65622,26 +65694,6 @@ export namespace Schemas {
       dateRange?: _LogsNaturalLanguageDateRange;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface _LogsNaturalLanguageCandidateFilter {
       /** Attribute key, or "message" for the log body text. */
       key: string;
@@ -65661,7 +65713,7 @@ export namespace Schemas {
       /** Date range of this reading. */
       dateRange: _LogsNaturalLanguageDateRange;
       /** Severity levels to keep. Empty means all levels. */
-      severityLevels: SeverityLevelsEnum[];
+      severityLevels: LogsSeverityLevelEnum[];
       /** Services to keep. Empty means all services. */
       serviceNames: string[];
       /** Attribute and message filters, combined with AND. */
@@ -69988,7 +70040,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: NotebookWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -70005,29 +70057,6 @@ export namespace Schemas {
     export const NotebookWidgetTypeEnum = {
       NotebookWidget: 'notebook_widget',
     } as const;
-
-    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
-      NotebookWidget: 'notebook_widget',
-    } as const;
-
-    export interface NotebookWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
-      config?: NotebookWidgetConfig;
-    }
 
     /**
      * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
@@ -71392,6 +71421,14 @@ export namespace Schemas {
       iteration_budget?: number;
     }
 
+    export interface OpsgenieAlertSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `latest` - latest
      * * `earliest` - earliest
@@ -72271,6 +72308,13 @@ export namespace Schemas {
       kind: PRTimelineSegmentKindEnum;
       /** Average seconds per merged pull request attributed to this cause. */
       seconds_per_merged_pr: number;
+    }
+
+    export interface PagerdutyIncidentSignalExtra {
+      status: string | null;
+      urgency: string | null;
+      html_url: string | null;
+      created_at: string | null;
     }
 
     export interface PaginatedAEOPromptList {
@@ -89231,14 +89275,12 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
-    export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
+    /**
+     * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged.
+     */
+    export type UpdateDashboardWidgetRequestConfig = { [key: string]: unknown };
 
-
-    export const SessionReplayListWidgetUpdateRequestOpenApiWidgetType = {
-      SessionReplayList: 'session_replay_list',
-    } as const;
-
-    export interface SessionReplayListWidgetUpdateRequestOpenApi {
+    export interface UpdateDashboardWidgetRequest {
       /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
       tile_id: number;
       /**
@@ -89249,35 +89291,22 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent recordings widget. Omit to leave unchanged. */
-      config?: SessionReplayListWidgetConfig;
+      /** The tile's widget type. It cannot be changed, so omit it or pass the current type.
+       *
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type?: DashboardWidgetTypeEnum;
+      /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged. */
+      config?: UpdateDashboardWidgetRequestConfig;
     }
-
-    export type SurveyResultsWidgetUpdateRequestOpenApiWidgetType = typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const SurveyResultsWidgetUpdateRequestOpenApiWidgetType = {
-      SurveyResults: 'survey_results',
-    } as const;
-
-    export interface SurveyResultsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: SurveyResultsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the survey results widget. Omit to leave unchanged. */
-      config?: SurveyResultsWidgetConfig;
-    }
-
-    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | CanvasAppWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -93258,6 +93287,36 @@ export namespace Schemas {
       billing_period: BillingPeriod | null;
       /** One entry per usage counter the project reported. */
       results: ProjectUsageItem[];
+    }
+
+    /**
+     * The person's properties as that event recorded them.
+     */
+    export type PropertiesTimelinePointProperties = { [key: string]: unknown };
+
+    export interface PropertiesTimelinePoint {
+      /** The time of the first event in the window that has this combination of key property values. */
+      timestamp: string;
+      /** The person's properties as that event recorded them. */
+      properties: PropertiesTimelinePointProperties;
+      /** The number of the person's events in the window from this point until the next point. */
+      relevant_event_count: number;
+    }
+
+    export interface PropertiesTimelineRequest {
+      /** The actors query of the insight data point, as the persons modal sends it. The timeline reads the person's events in the data point's time window, and tracks the person properties that the series, the insight's filters and its breakdown use. The source must be a Trends query, and the selected series must be an events or actions series. */
+      query: InsightActorsQuery;
+    }
+
+    export interface PropertiesTimelineResponse {
+      /** One point for each change of the key property values, oldest first. */
+      points: PropertiesTimelinePoint[];
+      /** The key person properties: those the insight's query uses. Empty when it uses none. */
+      crucial_property_keys: string[];
+      /** The start of the window, in the project's time zone. */
+      effective_date_from: string;
+      /** The end of the window, in the project's time zone. */
+      effective_date_to: string;
     }
 
     export interface Property {
@@ -98230,6 +98289,67 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
+     * * `dynatrace` - dynatrace
+     * * `statuspage` - statuspage
+     * * `cronitor` - cronitor
+     * * `instatus` - instatus
+     * * `asana` - asana
+     * * `monday` - monday
+     * * `plane` - plane
+     * * `azure_devops` - azure_devops
+     * * `helpscout` - helpscout
+     * * `decagon` - decagon
+     * * `vitally` - vitally
+     * * `usersnap` - usersnap
+     * * `typeform` - typeform
+     * * `qualtrics` - qualtrics
+     * * `surveymonkey` - surveymonkey
+     * * `formbricks` - formbricks
+     * * `survicate` - survicate
+     * * `surveysparrow` - surveysparrow
+     * * `lacework` - lacework
+     * * `orca_security` - orca_security
+     * * `tenable_vulnerability_management` - tenable_vulnerability_management
+     * * `google_play_console` - google_play_console
+     * * `azure_application_insights` - azure_application_insights
+     * * `appsignal` - appsignal
+     * * `cursor` - cursor
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -98286,6 +98406,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -98312,6 +98493,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -98340,6 +98522,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      Incident: 'incident',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -98463,7 +98646,39 @@ export namespace Schemas {
       created_date: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
+    export interface SquadcastIncidentSignalExtra {
+      status: string | null;
+      priority: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ServicenowIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      urgency: string | null;
+      impact: string | null;
+      category: string | null;
+      sys_created_on: string | null;
+    }
+
+    export interface SolarwindsServiceDeskIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface XmattersIncidentSignalExtra {
+      incident_identifier: string | null;
+      severity: string | null;
+      status: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -98531,7 +98746,68 @@ export namespace Schemas {
        * * `intercom` - intercom
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
-       * * `google_search_console` - google_search_console */
+       * * `google_search_console` - google_search_console
+       * * `pagerduty` - pagerduty
+       * * `opsgenie` - opsgenie
+       * * `incident_io` - incident_io
+       * * `firehydrant` - firehydrant
+       * * `squadcast` - squadcast
+       * * `servicenow` - servicenow
+       * * `solarwinds_service_desk` - solarwinds_service_desk
+       * * `grafana_irm` - grafana_irm
+       * * `xmatters` - xmatters
+       * * `betterstack` - betterstack
+       * * `newrelic` - newrelic
+       * * `trigger_dev` - trigger_dev
+       * * `checkly` - checkly
+       * * `roark` - roark
+       * * `monte_carlo` - monte_carlo
+       * * `bigeye` - bigeye
+       * * `aws_security_hub` - aws_security_hub
+       * * `aws_guardduty` - aws_guardduty
+       * * `aws_inspector` - aws_inspector
+       * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+       * * `clickup` - clickup
+       * * `wrike` - wrike
+       * * `trello` - trello
+       * * `bugherd` - bugherd
+       * * `dynamics365` - dynamics365
+       * * `zoho_crm` - zoho_crm
+       * * `planhat` - planhat
+       * * `trustpilot` - trustpilot
+       * * `okendo` - okendo
+       * * `sleekplan` - sleekplan
+       * * `bettermode` - bettermode
+       * * `discourse` - discourse
+       * * `mintlify` - mintlify
+       * * `langsmith` - langsmith
+       * * `sprig` - sprig
+       * * `gainsight_px` - gainsight_px
+       * * `dynatrace` - dynatrace
+       * * `statuspage` - statuspage
+       * * `cronitor` - cronitor
+       * * `instatus` - instatus
+       * * `asana` - asana
+       * * `monday` - monday
+       * * `plane` - plane
+       * * `azure_devops` - azure_devops
+       * * `helpscout` - helpscout
+       * * `decagon` - decagon
+       * * `vitally` - vitally
+       * * `usersnap` - usersnap
+       * * `typeform` - typeform
+       * * `qualtrics` - qualtrics
+       * * `surveymonkey` - surveymonkey
+       * * `formbricks` - formbricks
+       * * `survicate` - survicate
+       * * `surveysparrow` - surveysparrow
+       * * `lacework` - lacework
+       * * `orca_security` - orca_security
+       * * `tenable_vulnerability_management` - tenable_vulnerability_management
+       * * `google_play_console` - google_play_console
+       * * `azure_application_insights` - azure_application_insights
+       * * `appsignal` - appsignal
+       * * `cursor` - cursor */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -98557,7 +98833,8 @@ export namespace Schemas {
        * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
-       * * `check_failed` - check_failed */
+       * * `check_failed` - check_failed
+       * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -104039,7 +104316,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: SessionReplayListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -107366,7 +107643,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -108839,7 +109117,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -110279,7 +110558,8 @@ export namespace Schemas {
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
        * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2 */
+       * * `CloudflareR2` - CloudflareR2
+       * * `Particle` - Particle */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -111402,7 +111682,7 @@ export namespace Schemas {
       group_label: string;
       label: string;
       description: string;
-      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
       readonly config_schema: SurveyResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
@@ -118843,7 +119123,7 @@ export namespace Schemas {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -118871,7 +119151,7 @@ export namespace Schemas {
          */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. Applied before bucketing. */
       serviceNames?: string[];
       /** Full-text search across log bodies. Applied before bucketing. */
@@ -118921,7 +119201,7 @@ export namespace Schemas {
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names (ignored when faceting on service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -118961,7 +119241,7 @@ export namespace Schemas {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before grouping. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict grouping to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before grouping. */
@@ -119105,7 +119385,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -119122,7 +119402,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -119288,7 +119568,7 @@ export namespace Schemas {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Order results by timestamp.
@@ -119413,7 +119693,7 @@ export namespace Schemas {
       /** Date range for the services aggregation. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict the aggregation to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -119513,7 +119793,7 @@ export namespace Schemas {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -132208,6 +132488,18 @@ export namespace Schemas {
 
 
     export const PersonsPropertiesTimelineRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsPropertiesTimelineCreateParams = {
+    format?: PersonsPropertiesTimelineCreateFormat;
+    };
+
+    export type PersonsPropertiesTimelineCreateFormat = typeof PersonsPropertiesTimelineCreateFormat[keyof typeof PersonsPropertiesTimelineCreateFormat];
+
+
+    export const PersonsPropertiesTimelineCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
