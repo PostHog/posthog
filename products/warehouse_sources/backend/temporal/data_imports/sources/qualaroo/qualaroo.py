@@ -108,7 +108,8 @@ def _fanout_source(
         endpoint_configs=QUALAROO_ENDPOINTS,
         child_endpoint=endpoint,
         fanout=config.fanout,
-        client_config=_client_config(api_key, api_secret),
+        # Survey answers are free text that the sample scrubbers cannot reliably redact.
+        client_config={**_client_config(api_key, api_secret), "capture": False},
         path_format_values={},
         team_id=team_id,
         job_id=job_id,
