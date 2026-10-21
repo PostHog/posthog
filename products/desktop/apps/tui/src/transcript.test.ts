@@ -495,6 +495,28 @@ describe("transcriptFrom turn state", () => {
     expect(transcriptFrom("acp", woke).turnOpen).toBe(false);
   });
 
+  it("keeps the done line of the last real turn under a monitor's tool calls after it", () => {
+    // A Monitor's polls run as children of its own call, after the turn that scheduled it finished.
+    const monitored = [
+      ...ACP_LOG,
+      update(30, {
+        _meta: { claudeCode: { toolName: "Bash", parentToolCallId: "t1" } },
+        sessionUpdate: "tool_call",
+        toolCallId: "t9",
+        title: "Check the merge queue",
+        kind: "execute",
+        status: "completed",
+      }),
+    ];
+    const transcript = transcriptFrom("acp", monitored);
+    expect(transcript.turnOpen).toBe(false);
+    expect(transcript.lastTurn).toEqual({
+      durationMs: 5_000,
+      endedAt: new Date(at(6)).getTime(),
+      stopReason: "end_turn",
+    });
+  });
+
   it("does not take a reopened chat's start-up chatter for a running turn", () => {
     const reopened = [
       ...ACP_LOG,
@@ -502,7 +524,8 @@ describe("transcriptFrom turn state", () => {
     ];
     const transcript = transcriptFrom("acp", reopened);
     expect(transcript.turnOpen).toBe(false);
-    expect(transcript.lastTurn).toBeNull();
+    // The turn before the reopen did finish, so its done line stays.
+    expect(transcript.lastTurn).toMatchObject({ stopReason: "end_turn" });
   });
 });
 

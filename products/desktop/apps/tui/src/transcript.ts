@@ -180,6 +180,41 @@ function acpEvents(
     : events;
 }
 
+// The latest turn a prompt closed, from the log itself: its completion, and the prompt before it.
+function lastCompletion(entries: StoredLogEntry[]): Transcript["lastTurn"] {
+  let endedAt: number | null = null;
+  let stopReason: string | undefined;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index] as {
+      timestamp?: string;
+      notification?: {
+        method?: string;
+        params?: { stopReason?: string };
+        result?: { stopReason?: string };
+      };
+    };
+    const at = Date.parse(entry.timestamp ?? "");
+    if (Number.isNaN(at)) continue;
+    const { notification } = entry;
+    if (endedAt === null) {
+      const completion =
+        notification?.method === "_posthog/turn_complete" ||
+        notification?.method === "_posthog/background_turn_complete"
+          ? notification.params
+          : notification?.result?.stopReason
+            ? notification.result
+            : null;
+      if (completion) {
+        endedAt = at;
+        stopReason = completion.stopReason;
+      }
+    } else if (notification?.method === "session/prompt") {
+      return { durationMs: endedAt - at, endedAt, stopReason };
+    }
+  }
+  return null;
+}
+
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
 export function transcriptFrom(
   runtime: AgentRuntime | undefined,
@@ -215,6 +250,9 @@ export function transcriptFrom(
   const turnOpen = info?.isComplete === false || lost;
   // An open turn holds its negated start time until it completes.
   const turnStartedAt = turnOpen && info ? -info.durationMs : null;
+  // Background tool calls after a finished turn (a monitor firing) open an implicit turn the builder closes with its
+  // negated start, so the done line comes from the real completion before them.
+  const finished = runtime === "pi" ? null : lastCompletion(entries);
   const lastTurn =
     info?.isComplete && info.durationMs >= 0 && built.lastActivityAt !== null
       ? {
@@ -222,7 +260,9 @@ export function transcriptFrom(
           endedAt: built.lastActivityAt,
           stopReason: info.stopReason,
         }
-      : null;
+      : info?.isComplete && info.durationMs < 0 && !lost && finished
+        ? finished
+        : null;
   const wake = lastTurn ? wakeOf(built.items) : null;
   const shells = lastTurn && runtime !== "pi" ? shellsOf(built.items) : 0;
   const modes = runtime === "pi" ? null : modesOf(entries);
