@@ -27,7 +27,7 @@ export interface ReferenceLineProps {
     style?: ReferenceLineStyle
     /** Optional filled half-plane on one side of the line. */
     fillSide?: ReferenceLineFillSide
-    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, axis label color). Defaults to `goal`. */
+    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string

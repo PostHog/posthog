@@ -1,7 +1,7 @@
 // Types that 3 or more quill-charts components share.
 // Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelsProps, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelContext, RadialSlicePayload, ResolvedSeries.
+// Importable from '@posthog/quill-charts': Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelContext, RadialSlicePayload, ResolvedSeries.
 // Other declarations here are shapes to match, not names to import.
 
 export interface Series<Meta = unknown> {
@@ -259,7 +259,7 @@ export interface YAxisConfig extends YFormatterConfig {
     max?: number
 }
 
-export interface ValueLabelsConfig extends Pick<ValueLabelsProps, 'position' | 'background' | 'fontSize' | 'rotation'> {
+export interface ValueLabelsConfig {
     seriesKeys?: string[]
     /** Per-segment label text — see `ValueLabelFormatter` for the context and empty-string contract. */
     formatter?: ValueLabelFormatter
@@ -424,9 +424,7 @@ export interface ChartConfig {
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
-     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
-     *  render labels untruncated. */
+     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
@@ -471,24 +469,6 @@ export interface YFormatterConfig {
     minDecimalPlaces?: number
     /** Currency code (e.g. `'USD'`). Used when `format === 'currency'`. */
     currency?: string
-}
-
-export interface ValueLabelsProps {
-    valueFormatter?: ValueLabelFormatter
-    minGap?: number
-    mode?: ValueLabelsMode
-    /** Per-segment labels only: place labels at the bar end (default) or inside the segment's center. */
-    position?: 'end' | 'center'
-    /** Draw a series-colored badge behind the text. Defaults to true. */
-    background?: boolean
-    /** Label size in pixels, clamped to 8..32. */
-    fontSize?: number
-    /** Label rotation in degrees, clamped to -90..90. */
-    rotation?: number
-    /** Gap in px between the bar tip and the label, applied along the value axis in the outward
-     *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
-     *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
-    offset?: number
 }
 
 /** Returning an empty string skips the label entirely. */
@@ -571,8 +551,6 @@ export type YAxisFormat =
     | 'duration_ms'
     | 'duration_ns'
     | 'short'
-
-export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
 /** Per-segment context handed to a value formatter so callers can compute labels that depend on
  *  the band (e.g. each segment's share of its band). Keeps band/stacking knowledge in the library

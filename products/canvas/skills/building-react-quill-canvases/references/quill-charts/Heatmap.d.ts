@@ -34,7 +34,7 @@ export interface HeatmapProps {
 export interface HeatmapConfig {
     /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
     xTickFormatter?: (label: string, index: number) => string | null
-    /** How counts map to color intensity. Defaults to 'auto', which picks 'log' or 'linear' from the data. */
+    /** How counts map to color intensity. Defaults to 'log' — right for long-tailed count grids. */
     colorScale?: HeatmapColorScale
     /** Accent color for the density ramp (hex, rgb, or var(--…)). Defaults to the first theme
      *  palette color. */
@@ -91,9 +91,9 @@ export interface HeatmapBrushData {
     }
 }
 
-/** How cell counts map to color intensity: `log` (log1p) for a long-tailed grid such as latency, `linear` for an
- *  even grid such as activity by day and hour, and `auto` (default) to pick one from the data. */
-export type HeatmapColorScale = 'auto' | 'log' | 'linear'
+/** How cell counts map to color intensity. `log` (default) uses log1p normalization —
+ *  latency/count grids are long-tailed, and a linear ramp washes out everything but the mode. */
+export type HeatmapColorScale = 'log' | 'linear'
 
 /** Returning null or an empty string leaves the cell unlabelled. */
 export type HeatmapCellLabelFormatter = (cell: HeatmapCellDatum) => string | null
