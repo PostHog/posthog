@@ -29,7 +29,6 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
-FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
 
 
 class TestDataQualityRunAPI(APIBaseTest):
@@ -39,10 +38,6 @@ class TestDataQualityRunAPI(APIBaseTest):
         self.customers = self._make_view("customers")
         self.url = f"/api/projects/{self.team.id}/data_quality_runs/"
         self.checks_url = f"/api/projects/{self.team.id}/data_quality_checks/"
-
-        flag = patch(FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def _make_view(self, name: str) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(
@@ -586,10 +581,6 @@ class TestDataQualityRunAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["status"] == "empty"
         connect.assert_not_called()
-
-    def test_the_sweep_is_gated_on_the_feature_flag(self) -> None:
-        with patch(FLAG, return_value=False):
-            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
 
     def test_query_denied_members_cannot_sweep_or_read_runs(self) -> None:
         AccessControl.objects.create(team=self.team, resource="query", access_level="none")
