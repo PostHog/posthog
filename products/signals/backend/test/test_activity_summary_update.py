@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.models import ActivityLog
 
 from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
@@ -55,6 +55,14 @@ class TestUpdateActivitySummary(BaseTest):
     def _stored(self) -> UserActivitySummary | None:
         return UserActivitySummary.objects.for_team(self.team.id).filter(user_id=self.user.id).first()
 
+    def _versions(self) -> list[int]:
+        return list(
+            UserActivitySummaryVersion.objects.for_team(self.team.id)
+            .filter(summary_row__user_id=self.user.id)
+            .order_by("version")
+            .values_list("version", flat=True)
+        )
+
     def test_a_successful_update_stores_the_summary_and_advances_the_watermark(self) -> None:
         self._changes(2, days_ago=2)
         self._change("Signup funnel", days_ago=1, intent=f"Post the funnel to {PATH_SECRET}")
@@ -82,6 +90,11 @@ class TestUpdateActivitySummary(BaseTest):
         next_sent = json.dumps(next_llm.requests[0]["messages"])
         assert "Signup funnel" not in next_sent.split("Recent activity")[1]
         assert "Builds the signup funnel." in next_sent
+        latest = self._stored()
+        assert latest is not None and latest.version == 2
+        assert self._versions() == [1, 2]
+        first = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=1)
+        assert (first.summary_text, first.input_watermark) == (stored.summary_text, stored.input_watermark)
 
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)
@@ -100,6 +113,19 @@ class TestUpdateActivitySummary(BaseTest):
         assert (after.summary, after.input_watermark) == (before.summary, before.input_watermark)
         assert (after.tokens_in, after.tokens_out, after.cost_usd) == (None, None, None)
         assert after.next_eligible_at == NOW + datetime.timedelta(hours=6)
+        assert after.version == before.version == 1
+        assert self._versions() == [1]
+
+    def test_keeps_the_latest_max_versions_and_deletes_them_with_the_summary(self) -> None:
+        for update in range(3):
+            self._changes(3, days_ago=2 - update / 2)
+            assert self._update(FakeLLM([ANSWER]), force=True, max_versions=2).status == UpdateStatus.OK
+
+        assert self._versions() == [2, 3]
+        stored = self._stored()
+        assert stored is not None and stored.version == 3
+        stored.delete()
+        assert self._versions() == []
 
     @parameterized.expand(
         [
