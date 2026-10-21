@@ -9,6 +9,9 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
     },
+    "devDependencies": {
+        "@testing-library/react": "*"
+    },
     "peerDependencies": {
         "@posthog/lemon-ui": "*",
         "@types/react": "*",

@@ -1,8 +1,8 @@
-import uuid
-
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+
+import posthog.models.utils
 
 
 class Migration(migrations.Migration):
@@ -17,7 +17,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="DevGatewayToken",
             fields=[
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("client", models.CharField(choices=[("web", "Web"), ("cli", "CLI")], max_length=16)),
                 ("cap_usd", models.DecimalField(decimal_places=2, max_digits=10)),
                 ("token_hash", models.CharField(blank=True, max_length=64, null=True, unique=True)),
