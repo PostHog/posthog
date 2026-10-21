@@ -17,7 +17,6 @@ import {
   StarIcon,
   TicketIcon,
   VideoIcon,
-  WarningIcon,
 } from "@phosphor-icons/react";
 import { JiraIcon } from "@posthog/ui/features/inbox/components/utils/JiraIcon";
 import { PgAnalyzeIcon } from "@posthog/ui/features/inbox/components/utils/PgAnalyzeIcon";
@@ -217,42 +216,4 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     color: "var(--sky-9)",
     label: "Google Search Console",
   },
-  betterstack: {
-    Icon: WarningIcon,
-    color: "var(--green-9)",
-    label: "Better Stack",
-  },
-  firehydrant: {
-    Icon: WarningIcon,
-    color: "var(--red-9)",
-    label: "FireHydrant",
-  },
-  grafana_irm: {
-    Icon: WarningIcon,
-    color: "var(--orange-9)",
-    label: "Grafana IRM",
-  },
-  incident_io: {
-    Icon: WarningIcon,
-    color: "var(--crimson-9)",
-    label: "incident.io",
-  },
-  opsgenie: { Icon: WarningIcon, color: "var(--blue-9)", label: "Opsgenie" },
-  pagerduty: { Icon: WarningIcon, color: "var(--grass-9)", label: "PagerDuty" },
-  servicenow: {
-    Icon: WarningIcon,
-    color: "var(--teal-9)",
-    label: "ServiceNow",
-  },
-  solarwinds_service_desk: {
-    Icon: WarningIcon,
-    color: "var(--amber-9)",
-    label: "SolarWinds Service Desk",
-  },
-  squadcast: {
-    Icon: WarningIcon,
-    color: "var(--indigo-9)",
-    label: "Squadcast",
-  },
-  xmatters: { Icon: WarningIcon, color: "var(--purple-9)", label: "xMatters" },
 };
