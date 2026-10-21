@@ -40,12 +40,17 @@ class WebhookUrlTransport(ABC):
         if not url:
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
-        post_json(self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers)
+        post_json(
+            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)
+        )
         return None
 
     def check_url(self, url: str) -> None:
         """Refuses a URL this provider never issues. The SSRF check runs on every send regardless."""
         return None
+
+    def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
+        return self.headers
 
     def send_url(self, url: str) -> str:
         """The URL to post to, which a provider can extend with its own query parameters."""

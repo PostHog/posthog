@@ -21,6 +21,12 @@ import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    cleanTagFilters,
+    restoreTagFilters,
+    saveTagFilters,
+    type ResourceTagFilters,
+} from '../components/resourceTagFilters'
 import * as api from '../generated/api'
 import type {
     AiObservabilityOfflineScorersHistoryListParams,
@@ -31,7 +37,7 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
 } from '../generated/api.schemas'
-import { OFFLINE_ALL_UPLOAD_STATES } from './offlineOverviewState'
+import { OFFLINE_ALL_UPLOAD_STATES, offlineFiltersFromUrl } from './offlineOverviewState'
 import {
     previousOfflinePeriod,
     resolveOfflineDateRange,
@@ -43,7 +49,10 @@ export interface OfflineScorerHistoryProps {
     scorerId: string
     teamId: number
 }
-export interface OfflineHistoryFilters {
+export interface OfflineHistoryFilters
+    extends
+        ResourceTagFilters,
+        Pick<AiObservabilityOfflineScorersHistoryListParams, 'created_by' | 'created_by_is_null'> {
     version: string
     date_from: string
     date_to: string | null
@@ -63,10 +72,13 @@ const DEFAULT_FILTERS: OfflineHistoryFilters = {
     compare_to: '-30d',
     statuses: 'completed',
     run_source: '',
+    tags: [],
+    tag_match: 'any',
 }
 
 function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     const filters = { ...DEFAULT_FILTERS }
+    const { created_by, created_by_is_null } = offlineFiltersFromUrl(search)
     for (const key of Object.keys(filters) as (keyof OfflineHistoryFilters)[]) {
         if (typeof search[key] === 'string' || ((key === 'date_to' || key === 'compare_to') && search[key] === null)) {
             Object.assign(filters, { [key]: search[key] })
@@ -81,7 +93,7 @@ function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     if (filters.date_from === 'all' && filters.compare === 'previous') {
         filters.compare = 'none'
     }
-    return filters
+    return { ...filters, ...cleanTagFilters(search), created_by, created_by_is_null }
 }
 
 export function offlineScorerHistoryUrl(
@@ -93,6 +105,7 @@ export function offlineScorerHistoryUrl(
     if (!experiment) {
         return combineUrl(urls.aiObservabilityOfflineScorerHistory(scorer.definition_id), search).url
     }
+    search.tags = []
     if (experiment.status !== DEFAULT_FILTERS.statuses) {
         search.statuses = OFFLINE_ALL_UPLOAD_STATES
     }
@@ -516,6 +529,10 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
                 limit: 50,
                 statuses: filters.statuses,
                 run_source: filters.run_source || undefined,
+                created_by: filters.created_by,
+                created_by_is_null: filters.created_by_is_null,
+                tags: JSON.stringify(filters.tags),
+                tag_match: filters.tag_match,
             }),
         ],
         trendPeriods: [
@@ -574,8 +591,9 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
                 ].map((version) => ({ value: version.id, label: `Version ${version.version}` })),
         ],
     }),
-    sharedListeners(({ actions, values }) => ({
+    sharedListeners(({ actions, values, props }) => ({
         loadFilteredHistory: () => {
+            saveTagFilters('experiments', cleanTagFilters(values.filters), props.teamId)
             if (values.filters.version) {
                 if (values.selectedVersion?.id !== values.filters.version) {
                     actions.loadOfflineHistoryVersion()
@@ -609,8 +627,8 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
             actions.loadOfflineHistoryVersions({})
         },
     })),
-    actionToUrl(({ props, values }) => ({
-        setFilters: () => [
+    actionToUrl(({ props, values }) => {
+        const location = (): [string, Record<string, unknown>, Record<string, never>, { replace: boolean }] => [
             urls.aiObservabilityOfflineScorerHistory(props.scorerId),
             Object.fromEntries(
                 Object.entries({ ...values.filters, compare_to: values.filters.compare_to ?? 'now' }).filter(
@@ -619,12 +637,13 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
             ),
             {},
             { replace: true },
-        ],
-    })),
+        ]
+        return { setFilters: location, replaceFilters: location }
+    }),
     urlToAction(({ actions, values, props }) => ({
         [urls.aiObservabilityOfflineScorerHistory(':scorerId', false)]: ({ scorerId }, search) => {
             if (scorerId === props.scorerId) {
-                const filters = readFilters(search)
+                const filters = readFilters({ ...search, ...restoreTagFilters('experiments', search, props.teamId) })
                 if (!filters.version && values.definition?.current_version_id) {
                     filters.version = values.definition.current_version_id
                 }
@@ -634,8 +653,9 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.replaceFilters(readFilters(router.values.searchParams))
+    afterMount(({ actions, props }) => {
+        const search = router.values.searchParams
+        actions.replaceFilters(readFilters({ ...search, ...restoreTagFilters('experiments', search, props.teamId) }))
         actions.loadOfflineHistoryDefinition()
         actions.loadOfflineHistoryVersions({})
     }),

@@ -20,11 +20,11 @@ export function SettingRow({
                 <span className="text-xs text-secondary">{description}</span>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="text-xs text-secondary @min-[48rem]:hidden">Project:</span>
+                <span className="text-xs text-secondary @min-[48rem]:hidden">Project default:</span>
                 {project}
             </div>
-            <div className="flex min-w-0 items-center gap-1">
-                <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
+            <div className="flex min-w-0 items-center gap-2">
+                <span className="text-xs text-secondary @min-[48rem]:hidden">My preference:</span>
                 {mine}
             </div>
         </div>

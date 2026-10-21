@@ -3,17 +3,22 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
+PR-driven resolutions emit `signal_report_status_changed` with `resolution_reason=pr_merged`, including when attaching an already-merged PR completes a report. `dismissal_reason` remains reserved for feedback supplied with the transition. Outcome queries should prefer `resolution_reason` and fall back to `dismissal_reason`; a missing reason alone does not imply that no PR merged.
+
+A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
+The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
+
 Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
 
 A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
 
-Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent.
-
-Enabled organizations can manually mark ready, pending-input, or failed reports as Monitoring through the single or bulk state API. The inbox offers Mark as monitoring on those reports. The server records that manual declaration as the implementation trigger and leaves linked pull requests unchanged. Monitoring reports remain in Needs decision with a Monitoring badge; Finish monitoring resolves them after manual verification. Reopen returns them to potential and clears the start time. Archive remembers Monitoring, and restore preserves the original implementation-complete time. Repeated entry does not reset it. Refunded or merged-away archived reports cannot use Monitoring to bypass restore restrictions.
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs recognize the Monitoring target. New entry is refused until the implementation-completion service is integrated. The gated entry control is disabled. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
-This lifecycle does not automatically enter Monitoring after a PR merge or complete it from checks. PR merges still resolve reports. A plan already in Monitoring waits for manual verification even after its steps close. Existing checks stay pending while Monitoring is enabled and start when a person finishes the report. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring outcome checks ship separately.
+Background check processing discovers rollout decisions only for Monitoring reports with candidate checks and reuses them through each coordinator tick, including pending-check arming. Arming still rechecks the report's stored status under its row lock. Reopened-check batches and briefing details share one decision per team. Plan rollups reuse one decision across their child statuses and ancestor walk.
+
+PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Entering Monitoring with the rollout enabled arms existing, unexpired pending checks from the recorded implementation-complete timestamp. Archive pauses active checks; restoring Monitoring re-arms them from the same period. A delayed callback cannot arm checks after reopening, archiving, or entering a newer period. Coordinator ticks retry missed arming from the stored Monitoring start, including after a failed flag lookup, and preserve armed Monitoring checks. Their execution and result handling are not enabled by this arming change. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, check execution, and automatic completion ship separately.
 
 Attaching a new open, draft, or unknown PR to a resolved or Monitoring report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
@@ -35,6 +40,15 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
+
+## Manual implementation-completion integration
+
+Manual entry is a landing dependency of the implementation-attempt service. The integration point is `SignalReportViewSet._transition_report_state`, shared by single and bulk writes, after the report is locked and refund and merge-survivor restrictions have passed. Replace the entry refusal with the service call; do not add a second eligibility selector or snapshot schema. Enable the entry control only after this is wired and validated.
+
+The service must record stale expiries before selecting this report's pending or active, unexpired checks, independently of kind and approval. Historical terminal checks, standalone metrics, and related reports' checks do not qualify. No applicable checks resolve directly without a verified-success claim. Applicable checks enter Monitoring with the current attempt's durable membership and version snapshot. Missing Monitoring configuration or soak blocks verification; zero soak is valid. Carried-over active checks require fresh evidence.
+
+Archive and restore must preserve the attempt and original start, including expiry recovery and saved interim observations. Reopening implementation clears the period; completing implementation again creates a fresh attempt. The service must retain organization gates, parent-plan behavior, child-environment scope, transaction safety, and idempotency under concurrent single and bulk requests. Disabled or unavailable evaluations refuse new entry and use the existing Resolved fallback. Final evaluation, automatic completion, amendments, and PR-merge entry remain separate work.
+
 ## Follow-up checks
 
 Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
@@ -54,6 +68,55 @@ Approval advances the check's update timestamp so older list responses cannot un
 Custom HogQL aggregations are parsed before a metric or check is authored. Invalid syntax returns a validation error; a rejected replacement keeps the original check and its activity history intact.
 
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
+
+## Monitoring metric definitions
+
+Open checks on Monitoring reports expose a server-derived `monitoring_timing` field when `signals-report-monitoring` is enabled. The field separates a scheduled or due interim measurement from the end of that check's soak window, and identifies paused, archived, unarmed, expired, or incomplete timing. It is omitted for other checks and when the flag is disabled or unavailable. Timing reads do not arm checks, change their schedules, or decide outcomes.
+
+The Follow-up checks rail and Expected impact details show the next interim measurement separately from the check's observation-window end. A closed window reads as awaiting verification, without advertising its deadline as another run. Interim measurements do not spend remaining verification runs. Agent checks and metric checks without a Monitoring definition remain paused during Monitoring. Final evaluation and automatic report completion remain separate work.
+
+Open report details refresh check timing every minute and reload checks immediately when the report status changes, so resolution or archiving replaces cached Monitoring timing before polling stops.
+
+Research should make every effort to complete `config.monitoring` for each metric check using the research evidence. If required facts remain unknown, explain what is missing in the rationale instead of inventing values. The definition records the target's `reference_period_minutes`, an explicit `threshold_scaling` policy, and `baseline_period_minutes` when a baseline is supplied. These reference periods are independent of the soak, which defines the Monitoring window, and of the run interval and safety expiry. No existing check receives an inferred definition.
+
+The definition describes a measurement from Monitoring start through the observation time. A `linear` target scales by elapsed minutes divided by reference minutes and requires a single additive event count or property sum without a formula. Session-level sums are excluded because a session can contribute to more than one chart bucket. A `fixed` target keeps its bound as the observation period grows, including for percentages, averages, distinct counts, or explicitly fixed custom targets. Rolling weekly and monthly active-user queries are refused because their lookback overrides the Monitoring bounds; use a distinct user count instead. Display format alone never selects the policy. The baseline retains its own measured period and is not presented as an observation from Monitoring.
+
+Expected impact keeps the activity chart visible and collapses the target period, scaling policy, baseline, and check timing under measurement details. Dynamic chart boundaries refresh at minute intervals so repeated views can reuse cached results. Bucket granularity follows the full displayed range and stays within the 1,000-point budget. The chart preserves date-range filters and spans one reference period on each side of Monitoring start, or now before Monitoring starts, extending through now if necessary. Start and now markers separate the surrounding activity from future dates, whose values remain empty. Compatible charts show target reference lines: additive linear targets scale to a full chart bucket, and fixed rates or property averages/quantiles retain their level. Fixed totals, distinct counts, unknown aggregations, linear calendar intervals longer than a day, and linear day buckets with unequal daylight-saving durations receive no reference line. These references do not impose per-bucket pass/fail rules. This read-time chart does not evaluate the Monitoring target or save a check result. The stored bounded query and whole-window comparison retain their existing Resolved execution meaning. Final Monitoring outcomes remain separate work.
+
+During Monitoring, checks with an explicit Monitoring definition sample at their configured run interval, or every 24 hours when none is set. The first observation is due one interval after Monitoring starts. Interim observations run only before Monitoring start plus the check's `soak_minutes`. The full trailing query window does not delay them. Interim queries explicitly use the offline ClickHouse workload; interactive metric refreshes retain their default workload. The next due time is capped at that soak deadline, but this PR does not execute a final check or conclude a report there. A missing or zero soak, or a soak no longer than the sampling interval, produces no interim observations. Each query pins both bounds to Monitoring start and one captured observation cutoff, preserving the population filters. Pinned ranges include partial periods so their bounds match the scaled target. Linear comparisons scale both bounds by elapsed time divided by the reference period, without rounding; fixed comparisons stay unchanged.
+
+Each completed attempt appends a protected `check_observation` log entry with its exact bounds, soak deadline, display format, unit, effective comparison, value, and match result, or a sanitized query error. The log labels it as an interim measurement, shows whether the goal is on track, and displays time remaining when the measurement was taken. It does not assign a terminal outcome. Observations do not spend `runs_remaining`, change the report status, or emit recurrence signals. The next sample is due one interval after the cutoff; missed intervals do not create catch-up runs. Restoring Monitoring schedules from the latest attempt in that period, preserving a failed attempt's error streak and six-hour retry across suppression. Re-enabling the flag restores the measurement origin, the next attempt from the latest run, and the expiry from the original Monitoring start. This repair precedes the expiry sweep so a fallback expiry cannot shorten or extend the Monitoring horizon. A check that cannot fit its source queries into the remaining coordinator budget stays due without an observation or an error-budget change. Query failures retain the existing six-hour retry and consecutive-error limit, and the 90-day check horizon still applies. Writes reject a changed check, Monitoring period, report state, or flag, and duplicate workers cannot save the same attempt twice. Expiry sweeps and schedule repairs retain their check-row concurrency guards after database lock waits, so they cannot overwrite a concurrent cancellation, expiry extension, or saved observation.
+
+With Monitoring disabled, observations disappear from the artefact API and counts. The existing Resolved executor uses the stored full-window query, comparison, and minimum soak. Observation values require the same query permissions as terminal check results. The inbox follows all artefact pages within the current project before deriving task runs, reviewers, and activity so observations cannot displace older report state. Polling waits for an in-flight paginated load to finish. With the Monitoring flag enabled, scouts see metric checks with an explicit definition as scheduled or due inside their Monitoring window; agent checks and metric checks without a definition remain paused until resolution. The soak deadline bounds interim execution; no final verdict, reopening, or follow-up report is added here.
+
+Disabling Monitoring restores the legacy expiry for armed Monitoring metric checks from their existing measurement start and remaining schedule. The check saves this fallback deadline so further flag changes cannot shorten it after runs have been consumed or extend it after retries. Repair batches remember checks whose legacy expiry is also 90 days, allowing later checks to progress. Re-enabling restores the original horizon for active checks and leaves terminal checks unchanged. Archive and restore preserve the saved fallback deadline; reopening implementation clears it for the next period.
+
+With `signals-report-metrics` enabled, research gathers short-window baselines before verification and prefers metric-based follow-up checks. It aims for practical 70-80% confidence in improvement, without claiming a calculated confidence score. Observed volume, recurrence, ingestion delay, and deployment timing justify the shortest useful query and wait. Frequent or high-volume checks can use 4-8 hours, allowing for several hours of deployment delay before the fix reaches users. Around 24 hours or several days require the corresponding activity or rollout evidence. Agent checks remain available when interpretation or unsupported measurements prevent a useful metric check. Missing activity is not success. These prompt preferences do not change execution, schema defaults, or final outcomes.
+
+The server refuses new Monitoring definitions when `signals-report-monitoring` is disabled or unavailable and omits the definition from check responses. Stored definitions remain intact. Research carries its definition-visibility decision into reconciliation, so flag recovery during a run does not replace an unchanged check or reset its approval and schedule. Existing definitions, charts, check schedules, and Resolved outcomes otherwise follow their current behavior.
+
+Enabled research can author `run_interval_minutes` for a metric check with a Monitoring definition. The interval must be at least six hours and strictly shorter than the check's observation window. A new check without an interval defaults to a quarter of that window, bounded to six hours through one day. A 24-hour window therefore stores a six-hour cadence, allowing interim measurements at hours 6, 12, and 18 when interim execution is available. Windows of six hours or less retain their evidence-backed duration and have no interim samples. Cadence is independent of query bucket size and the target reference period. Omitted intervals preserve existing checks' schedules; explicit cadence revisions replace the check and clear approval. Revised windows must still accommodate inherited intervals. This authoring policy does not change existing null-interval checks, execution, or final outcomes.
+
+## Inbox value summary
+
+The `signals-inbox-value-summary` flag shows project-wide counts above the web
+inbox in both layouts. It is disabled by default. The rolling seven-day window
+uses GitHub merge time and includes only PRs verified as output from Self-driving
+implementation tasks. Manual attachments and research or discussion tasks do not
+count. Personal inbox filters do not change the totals.
+
+The people count deduplicates human GitHub IDs across mergers and non-dismissed
+approvals submitted before merge. Approvals can predate the seven-day window.
+Bots do not count. A missing participant snapshot leaves the people count unknown,
+not zero. The response includes the merged PR links and the GitHub logins stored in
+the participant snapshot. GitHub reads run in a background task; opening the inbox
+only reads the database.
+
+The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
+days and is stored per user and project in that browser. On return, the client
+refreshes a result older than five minutes. Before rollout, apply the migrations,
+run `backfill_inbox_summary --team-id <id>` in bounded batches, and check the counts
+against the linked GitHub PRs. The flag does not enable this backfill itself.
 
 ## Follow-up measurement timing
 
@@ -202,6 +265,8 @@ If current evidence shows the issue is gone, it records that result and stops; i
 Missing data, failed checks, and inconclusive results do not establish that the issue is fixed.
 
 ## Opening a report task
+
+The web report's Runs section lists linked tasks newest first, regardless of their purpose, using each task's first association with the report. Repository-selection tasks remain hidden.
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.

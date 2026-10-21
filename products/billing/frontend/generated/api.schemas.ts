@@ -66,6 +66,65 @@ export interface BillingOverviewResponseApi {
     billing_managed_by_partner: BillingManagedByPartnerApi | null
 }
 
+export interface BillingActivationRequestApi {
+    /** Organization selected when this payment flow started. */
+    organization_id: string
+    /** Product and plan keys to activate. */
+    products?: string
+    /** Product that prompted the subscription upgrade. */
+    intent_product?: string
+    /** JSON-encoded custom product limits to apply on activation. */
+    custom_limits_usd?: string
+}
+
+export interface BillingActivationResponseApi {
+    /** Whether the subscription was activated. */
+    success?: boolean
+    /** Whether payment details are required. */
+    must_setup_payment?: boolean
+    /** Products activated by this request. */
+    products?: string[]
+    /**
+     * Reason activation failed.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface BillingPaymentOrganizationApi {
+    /** Organization selected when this payment flow started. */
+    organization_id: string
+}
+
+export interface BillingAuthorizationResponseApi {
+    /** Stripe client secret for the authorization intent. */
+    clientSecret?: string
+    /** Whether authorization completed without a payment form. */
+    success?: boolean
+}
+
+export interface BillingAuthorizationStatusRequestApi {
+    /** Organization selected when this payment flow started. */
+    organization_id: string
+    /**
+     * Stripe payment intent created for this organization.
+     * @nullable
+     */
+    payment_intent_id?: string | null
+}
+
+export interface BillingAuthorizationStatusResponseApi {
+    /** Authorization status: loading, success, or failed. */
+    status?: string
+    /**
+     * Reason authorization failed.
+     * @nullable
+     */
+    error?: string | null
+    /** Whether authorization completed without a payment form. */
+    success?: boolean
+}
+
 export interface BillingApi {
     /** @maxLength 100 */
     plan: string
@@ -285,22 +344,11 @@ export interface BillingAlertConfigurationApi {
      */
     threshold_value?: string | null
     /**
-     * Minimum current value before the alert can fire.
-     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-     */
-    minimum_value?: string
-    /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @minimum 1
      * @maximum 90
      */
     baseline_window_days?: number
-    /**
-     * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-     * @minimum 0
-     * @maximum 72
-     */
-    evaluation_delay_hours?: number
     /** Current lifecycle state of this alert.
      *
      * * `not_firing` - Not firing
@@ -309,12 +357,6 @@ export interface BillingAlertConfigurationApi {
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
     readonly state: BillingAlertConfigurationStateEnumApi
-    /**
-     * Minimum hours between repeated firing notifications.
-     * @minimum 0
-     * @maximum 720
-     */
-    cooldown_hours?: number
     /**
      * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
      * @nullable
@@ -418,22 +460,11 @@ export interface PatchedBillingAlertConfigurationApi {
      */
     threshold_value?: string | null
     /**
-     * Minimum current value before the alert can fire.
-     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-     */
-    minimum_value?: string
-    /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @minimum 1
      * @maximum 90
      */
     baseline_window_days?: number
-    /**
-     * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-     * @minimum 0
-     * @maximum 72
-     */
-    evaluation_delay_hours?: number
     /** Current lifecycle state of this alert.
      *
      * * `not_firing` - Not firing
@@ -442,12 +473,6 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
     readonly state?: BillingAlertConfigurationStateEnumApi
-    /**
-     * Minimum hours between repeated firing notifications.
-     * @minimum 0
-     * @maximum 720
-     */
-    cooldown_hours?: number
     /**
      * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
      * @nullable
@@ -1263,6 +1288,18 @@ export interface ProjectUsageSummaryApi {
     billing_period: BillingPeriodApi | null
     /** One entry per usage counter the project reported. */
     results: ProjectUsageItemApi[]
+}
+
+export type BillingListParams = {
+    /**
+     * Whether to include usage forecasting.
+     * @nullable
+     */
+    include_forecasting?: boolean | null
+    /**
+     * Explicit organization to refresh after payment.
+     */
+    organization_id?: string
 }
 
 export type BillingSpendRetrieveParams = {

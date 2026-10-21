@@ -106,6 +106,22 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
+/// A cached flag that the serving read cannot deserialize. Its property filter has no
+/// `"type"` key, and `PropertyFilter` requires one.
+pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
+    json!({
+        "id": id,
+        "key": key,
+        "team_id": team_id,
+        "active": true,
+        "deleted": false,
+        "filters": {"groups": [{
+            "properties": [{"key": "email", "value": "a@example.com"}],
+            "rollout_percentage": 100
+        }]}
+    })
+}
+
 /// Write flags to the hypercache key for `team_id` in Redis.
 /// Auto-generates single-stage `evaluation_metadata` with no transitive-dependency
 /// information (all flags in one stage, `transitive_deps[id] = []` for each flag).
@@ -1335,6 +1351,7 @@ pub fn flag_list_with_metadata_and_filter(
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     });
 
     FeatureFlagList {
@@ -1850,6 +1867,25 @@ impl TestContext {
         .await?;
 
         Ok((key_id, raw_key))
+    }
+
+    /// Records a token hash as leak-revoked (`revoke_exposed_project_secret_api_key`).
+    pub async fn create_revoked_team_secret_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            r#"INSERT INTO posthog_revokedteamsecrettoken (team_id, secure_value, created_at)
+               VALUES ($1, $2, NOW())"#,
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
     }
 
     /// Creates a team with both public token and secret API token

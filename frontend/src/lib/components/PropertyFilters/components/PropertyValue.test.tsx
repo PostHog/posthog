@@ -461,4 +461,66 @@ describe('PropertyValue', () => {
         // The pasted id is shown as the value.
         expect(screen.getByText('org-abc-123')).toBeInTheDocument()
     })
+
+    it.each([
+        ['false', false],
+        ['true', true],
+    ])('saves a flag dependency value %s typed before the options load as a boolean', async (typed, expected) => {
+        useMocks({
+            get: {
+                '/api/projects/:team/flag_value/values': () => new Promise(() => {}),
+            },
+        })
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="42"
+                    type={PropertyFilterType.Flag}
+                    operator={PropertyOperator.FlagEvaluatesTo}
+                    onSet={onSet}
+                    value={null}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        userEvent.click(input)
+        userEvent.type(input, `${typed}{enter}`)
+
+        expect(propertyDefinitionsModel.values.options['42']?.status).not.toBe('loaded')
+        await waitFor(() => expect(onSet).toHaveBeenCalledWith(expected))
+    })
+
+    it('keeps a loaded flag dependency variant named false as a string', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/flag_value/values': {
+                    results: [{ name: true }, { name: false }, { name: 'false' }],
+                    refreshing: false,
+                },
+            },
+        })
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="42"
+                    type={PropertyFilterType.Flag}
+                    operator={PropertyOperator.FlagEvaluatesTo}
+                    onSet={onSet}
+                    value={null}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        userEvent.click(input)
+        await waitFor(() => expect(propertyDefinitionsModel.values.options['42']?.status).toBe('loaded'), {
+            timeout: 3000,
+        })
+        userEvent.type(input, 'false{enter}')
+
+        await waitFor(() => expect(onSet).toHaveBeenCalledWith('false'))
+    })
 })

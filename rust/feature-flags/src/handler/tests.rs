@@ -162,7 +162,6 @@ fn test_geoip_person_property_overrides(
 
     let result = properties::get_person_property_overrides(
         geoip_disabled,
-        true,
         person_properties,
         &ip,
         &geoip_service,
@@ -189,55 +188,6 @@ fn test_geoip_person_property_overrides(
     }
 }
 
-#[rstest]
-#[case::included(true)]
-#[case::excluded(false)]
-#[tokio::test]
-async fn test_geoip_subdivisions_follow_team_exclusion(#[case] include_subdivisions: bool) {
-    let geoip_service = create_test_geoip_service();
-    let ip = IpAddr::V4(Ipv4Addr::new(31, 28, 64, 3));
-    let lookup = geoip_service
-        .get_geoip_properties(&ip.to_string())
-        .unwrap_or_default();
-    assert!(
-        lookup.contains_key("$geoip_subdivision_1_code")
-            && lookup.contains_key("$geoip_subdivision_1_name"),
-        "the test needs an IP that resolves a subdivision"
-    );
-
-    let supplied = json!("XX");
-    let person_properties =
-        HashMap::from([("$geoip_subdivision_1_code".to_string(), supplied.clone())]);
-
-    let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), ip.to_string());
-    let (result, final_log) = run_with_canonical_log(log, async {
-        properties::get_person_property_overrides(
-            false,
-            include_subdivisions,
-            Some(person_properties),
-            &ip,
-            &geoip_service,
-        )
-    })
-    .await;
-    let result = result.expect("expected property overrides");
-
-    assert_eq!(result.get("$geoip_subdivision_1_code"), Some(&supplied));
-    // An excluded team's lookup value is dropped before the comparison, so it cannot diverge.
-    assert_eq!(
-        final_log.geoip_properties_differ_from_lookup,
-        include_subdivisions
-    );
-    for (key, value) in lookup
-        .iter()
-        .filter(|(key, _)| *key != "$geoip_subdivision_1_code")
-    {
-        let expected = (include_subdivisions || !key.starts_with("$geoip_subdivision_"))
-            .then(|| Value::String(value.clone()));
-        assert_eq!(result.get(key), expected.as_ref(), "{key}");
-    }
-}
-
 #[test]
 // A supplied null survives only when the IP resolves nothing: the fill loop at
 // properties.rs only visits keys MaxMind returns. That leftover null reads as
@@ -256,7 +206,6 @@ fn test_supplied_geoip_null_survives_unresolvable_ip() {
 
     let result = properties::get_person_property_overrides(
         false,
-        true,
         Some(person_properties),
         &ip,
         &geoip_service,
@@ -309,7 +258,6 @@ async fn test_canonical_log_records_geoip_divergence(
     let (result, final_log) = run_with_canonical_log(log, async {
         properties::get_person_property_overrides(
             geoip_disabled,
-            true,
             person_properties,
             &ip,
             &geoip_service,
@@ -570,7 +518,6 @@ fn test_get_person_property_overrides_ipv4() {
     let geoip_service = create_test_geoip_service();
     let result = properties::get_person_property_overrides(
         false,
-        true,
         Some(HashMap::new()),
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
         &geoip_service,
@@ -585,7 +532,6 @@ fn test_get_person_property_overrides_ipv6() {
     let geoip_service = create_test_geoip_service();
     let result = properties::get_person_property_overrides(
         false,
-        true,
         Some(HashMap::new()),
         &IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)),
         &geoip_service,
@@ -1518,6 +1464,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         dependency_stages: vec![vec![1], vec![2]],
         flags_with_missing_deps: vec![],
         transitive_deps: HashMap::from([(2, std::collections::HashSet::from([1]))]),
+        ..Default::default()
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),

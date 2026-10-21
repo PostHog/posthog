@@ -110,6 +110,8 @@ export const createGlobalsFromResponse = (
     groups: CyclotronJobInvocationGlobals['groups'] = {}
 ): CyclotronJobInvocationGlobals => {
     const projectUrl = `${window.location.origin}/project/${teamId}`
+    // The events query's `person` column names the id `uuid`, and holds only `distinct_id` for an event with no person.
+    const personId = person?.uuid ?? person?.id
     return {
         event: {
             uuid: event.uuid,
@@ -122,12 +124,12 @@ export const createGlobalsFromResponse = (
             event: event.event,
             properties: event.properties,
         },
-        person: person
+        person: personId
             ? {
-                  id: person.id,
+                  id: personId,
                   properties: person.properties,
                   name: person.name || 'Unknown person',
-                  url: `${window.location.origin}/person/${person.id}`,
+                  url: `${window.location.origin}/person/${personId}`,
               }
             : undefined,
         groups,
@@ -337,6 +339,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -366,6 +371,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -466,6 +476,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -495,6 +508,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -599,6 +617,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -628,6 +649,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -728,6 +754,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -757,6 +786,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {

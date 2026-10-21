@@ -117,12 +117,15 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "PlatformAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
     "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "KnowledgeSource",
+    "KnowledgeLibrary",
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
@@ -365,6 +368,7 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
@@ -559,6 +563,18 @@ vision_alert_machine_fields = [
     "updated_at",
 ]
 
+# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
+platform_alert_runtime_fields = [
+    "next_check_at",
+    "snooze_until",
+    "consecutive_failures",
+    "check_status",
+    "owner",
+    "owner_changed_at",
+    "switched_off_at",
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -579,6 +595,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -600,12 +617,16 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     # site, so the save that only moves the active version must not add an `updated` row.
     "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
-    # and the failure streak by the runner on every run outcome. When those are the only
+    # the pre-check fields on every scheduled pre-check, and the failure streak by the runner on
+    # every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
     # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
         "consecutive_failure_count",
+        "last_precheck_at",
+        "last_precheck_outcome",
+        "last_precheck_row_count",
     ],
 }
 
@@ -713,6 +734,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
+    # The reverse relations hold runtime state per group and per notification thread.
+    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.

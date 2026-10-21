@@ -93,12 +93,13 @@ from products.alerts.backend.evaluation.validation import validate_alert_config,
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
-    MAX_CONCURRENT_MODEL_CALLS,
+    LLM_EVALUATE_EXECUTOR,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
 )
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
+from products.alerts.backend.facade.email import alert_email_recipients
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.notifications.backend.facade.api import (
@@ -129,14 +130,6 @@ async def _run_control(
 
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
-
-# AI-detector checks hold a thread for the model call, up to a minute each. On the shared
-# default pool that would let a slow model stall every alert's database work on the worker,
-# so they run on their own pool, sized to the detector's own concurrency bound. A check
-# past that bound queues here without holding any thread.
-_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
-    max_workers=MAX_CONCURRENT_MODEL_CALLS, thread_name_prefix="insight-alert-llm-evaluate"
-)
 
 
 @frozen
@@ -818,7 +811,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # tick, which prepares and routes it again.
             logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
             return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
-        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
+        executor = LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
         # Shielded, so cancelling the attempt leaves this future to complete when the thread exits,
         # which is what _stop_work waits for.
         thread = asyncio.ensure_future(
@@ -1007,7 +1000,7 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
 def dispatch_alert_firing_realtime_notification(
     alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
 ) -> None:
-    """Fan out one realtime in-app notification per subscribed user when an alert fires.
+    """Fan out one realtime in-app notification per subscribed user who can view the insight.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
     poison the email path or the alert-check transaction.
@@ -1018,7 +1011,7 @@ def dispatch_alert_firing_realtime_notification(
             body += f" (+{len(breaches) - 3} more)"
         title = f"Alert firing: {alert.name}"[:100]
         source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
-        for user_id in alert.subscribed_users.values_list("id", flat=True):
+        for user_id, _ in alert_email_recipients(team_id=alert.team_id, alert_id=alert.id):
             create_notification(
                 NotificationData(
                     team_id=alert.team_id,

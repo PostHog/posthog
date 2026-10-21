@@ -7,34 +7,19 @@ recipient against a campaign key, so a retried delivery sends nobody a second co
 An email starts no conversation, so a send returns no handle and a resolve is a new email.
 """
 
-import hashlib
 from typing import Final
 
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.email import EmailMessage
 
-from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.message import AlertMessage, transition_delivery_key
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
 
 PROVIDER: Final = "email"
 TEMPLATE_NAME: Final = "alert_platform_notification"
-
-
-def _campaign_key(message: AlertMessage) -> str:
-    # One key per transition a check recorded. `posthog.email` refuses a second send under one key
-    # to one recipient, so a retry of this delivery reaches nobody twice. The column holds 128
-    # characters, which a long evaluation or group key would exceed, so the key is a digest.
-    transition = message.transition
-    parts = (
-        message.configuration_id,
-        transition.grouping_key,
-        transition.kind.value,
-        transition.occurred_at.isoformat(),
-    )
-    return f"alert-platform-{hashlib.sha256('|'.join(parts).encode()).hexdigest()[:32]}"
 
 
 def subject_for(message: AlertMessage) -> str:
@@ -62,7 +47,7 @@ class EmailTransport:
             raise DeliveryError("This email destination has no recipients.")
         try:
             email = EmailMessage(
-                campaign_key=_campaign_key(message),
+                campaign_key=transition_delivery_key(message),
                 template_name=TEMPLATE_NAME,
                 subject=subject_for(message),
                 template_context={

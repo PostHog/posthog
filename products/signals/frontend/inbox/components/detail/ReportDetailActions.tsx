@@ -171,7 +171,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: report.status === SignalReportStatus.MONITORING ? 'Finish monitoring' : 'Resolve',
         icon: <IconCheckCircle />,
         loading: isResolving,
-        tooltip: 'Mark this report as done',
+        tooltip:
+            report.status === SignalReportStatus.MONITORING
+                ? 'Resolve manually without automatic verification or an evidence amendment'
+                : 'Mark this report as done',
         // The judge found the fix already in flight, so Create PR is withheld and closing the
         // report is the step it waits on.
         primary: report.already_addressed === true,
@@ -187,6 +190,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       icon: <IconClock />,
                       loading: reportStateSaving,
                       tooltip: 'Implementation is complete; verify the outcome before resolving',
+                      disabledReason: 'Implementation completion is not available yet.',
                       onClick: () => changeReportState('monitoring'),
                   },
               ]
@@ -214,5 +218,9 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ...(canRefund ? [refund] : []),
     ]
 
-    return actions
+    const updating = reportStateSaving || isResolving || isDismissing || isRefunding
+    return actions.map((action) => ({
+        ...action,
+        disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
+    }))
 }

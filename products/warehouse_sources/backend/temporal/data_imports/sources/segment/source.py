@@ -241,7 +241,7 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             "github.com/segment-integrations/analytics-swift-quantcast",
             "github.com/segmentio/public-api-sdk-swift",
         ),
-        competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
+        alternative_to=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 
     api_docs_url = "https://docs.segmentapis.com/"
@@ -256,7 +256,7 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             name=ExternalDataSourceType.SEGMENT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Segment",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Twilio Segment workspace-scoped Public API token to pull your Segment workspace configuration into the PostHog Data warehouse.
 
 Create a **Public API token** in your Segment workspace under **Settings → Access Management → Tokens**, and pick the region your workspace lives in.

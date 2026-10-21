@@ -91,7 +91,10 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
+from products.data_modeling.backend.facade.tasks import (
+    cleanup_deleted_saved_query_nodes,
+    cleanup_expired_test_saved_queries,
+)
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
@@ -119,6 +122,7 @@ from products.signals.backend.tasks import (
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
+    sweep_first_report_notifications,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -433,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         sweep_implementation_dispatches.s(),
         name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_first_report_notifications.s(),
+        name="send first self-driving report emails",
         expires_seconds=5 * 60,
     )
 
@@ -985,7 +997,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,
@@ -1073,6 +1085,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="5", minute="30"),
+        cleanup_deleted_saved_query_nodes.s(),
+        name="cleanup deleted saved query nodes",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired

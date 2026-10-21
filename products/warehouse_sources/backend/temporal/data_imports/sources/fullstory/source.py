@@ -81,7 +81,7 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
             "github.com/fullstorydev/fullstory-guides-and-surveys-swift-package-ios",
             "github.com/fullstorydev/fullstory-swiftui-selectors-ios",
         ),
-        competes_with=(ProductKey.SESSION_REPLAY,),
+        alternative_to=(ProductKey.SESSION_REPLAY,),
     )
 
     supported_versions = ("v2",)
@@ -118,7 +118,7 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
 You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with the Viewer permission level can sync users and segments. The sessions table needs the Admin or Architect level, and the events table needs the Segment Export add-on on your Fullstory plan.""",
             iconPath="/static/services/fullstory.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fullstory",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

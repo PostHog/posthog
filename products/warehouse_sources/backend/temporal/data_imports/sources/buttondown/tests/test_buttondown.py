@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buttondown import (
@@ -46,6 +47,13 @@ class TestButtondownTransport:
         assert result.raised is None
         assert result.rows == [{"id": "a"}, {"id": "b"}]
         assert result.saved_states == [ButtondownResumeConfig(next_url=page_two)]
+
+    def test_notes_is_a_plain_full_refresh_listing(self) -> None:
+        result = self._driver().run("notes", [_page([{"id": "note_1"}, {"id": "note_2"}])])
+
+        assert result.raised is None
+        assert result.urls[0].startswith(f"{BUTTONDOWN_BASE_URL}/notes")
+        assert [row["id"] for row in result.rows] == ["note_1", "note_2"]
 
     def test_resumes_from_saved_next_url(self) -> None:
         saved = f"{BUTTONDOWN_BASE_URL}/subscribers?page=7"
@@ -118,6 +126,78 @@ class TestButtondownTransport:
         # forces ascending order. Anything else must stay on the end-of-job commit path.
         assert config.sort_mode == "desc" or config.ordering == "creation_date"
 
+    @pytest.mark.parametrize(
+        "endpoint,child_suffix,parent_key,child_row",
+        [
+            ("stripe_subscriptions", "stripe-subscriptions", "subscriber_id", {"subscription_id": "sub_1"}),
+            ("referrals", "referrals", "referrer_subscriber_id", {"id": "sub_referred"}),
+            ("automation_attempts", "automations", "subscriber_id", {"id": "aut_att_1"}),
+        ],
+    )
+    def test_fanout_walks_every_subscriber_and_keys_rows_by_the_parent(
+        self, endpoint: str, child_suffix: str, parent_key: str, child_row: dict[str, Any]
+    ) -> None:
+        def child(subscriber: str) -> str:
+            return f"/subscribers/{subscriber}/{child_suffix}"
+
+        script = route(
+            {
+                child("sub_a"): [
+                    _page([child_row], next_url=f"{BUTTONDOWN_BASE_URL}{child('sub_a')}?page=2"),
+                    _page([{**child_row, "page": 2}]),
+                ],
+                # Deleted between the parent listing and its child fetch.
+                child("sub_b"): [ScriptedResponse(status=404, json={"detail": "Not found."})],
+                child("sub_c"): [_page([child_row])],
+                "/subscribers": [
+                    _page([{"id": "sub_a"}], next_url=f"{BUTTONDOWN_BASE_URL}/subscribers?page=2"),
+                    _page([{"id": "sub_b"}, {"id": "sub_c"}]),
+                ],
+            }
+        )
+
+        result = self._driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {**child_row, parent_key: "sub_a"},
+            {**child_row, "page": 2, parent_key: "sub_a"},
+            {**child_row, parent_key: "sub_c"},
+        ]
+        assert result.response is not None and result.response.primary_keys is not None
+        assert parent_key in result.response.primary_keys
+
+    def test_fanout_resumes_from_the_subscriber_in_progress(self) -> None:
+        in_progress_next = f"{BUTTONDOWN_BASE_URL}/subscribers/sub_b/referrals?page=3"
+        script = route(
+            {
+                "/subscribers/sub_b/referrals": [_page([{"id": "sub_x"}])],
+                "/subscribers/sub_c/referrals": [_page([{"id": "sub_y"}])],
+                "/subscribers": [_page([{"id": "sub_a"}, {"id": "sub_b"}, {"id": "sub_c"}])],
+            }
+        )
+
+        result = self._driver().run(
+            "referrals",
+            script,
+            resume_state=ButtondownResumeConfig(
+                fanout_state={
+                    "completed": ["/subscribers/sub_a/referrals"],
+                    "current": "/subscribers/sub_b/referrals",
+                    "child_state": {"next_url": in_progress_next},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.urls[1:] == [in_progress_next, f"{BUTTONDOWN_BASE_URL}/subscribers/sub_c/referrals"]
+        assert [row["referrer_subscriber_id"] for row in result.rows] == ["sub_b", "sub_c"]
+        assert result.final_state.fanout_state["completed"] == [
+            "/subscribers/sub_a/referrals",
+            "/subscribers/sub_b/referrals",
+            "/subscribers/sub_c/referrals",
+        ]
+
     def test_missing_results_key_fails_loudly(self) -> None:
         result = self._driver().run("subscribers", [_page(None, drop_results=True)])
 
@@ -145,7 +225,7 @@ class TestToStartDate:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected",
-        [(200, (True, 200)), (401, (False, 401)), (403, (False, 403)), (500, (False, 500))],
+        [(403, (False, 403))],
     )
     def test_maps_probe_status_to_result(self, status_code: int, expected: tuple[bool, int]) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:

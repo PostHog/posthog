@@ -426,6 +426,8 @@
     --color-product-web-scripts-dark: rgb(246 124 194);
     --color-product-wizard-light: rgb(217 40 160);
     --color-product-wizard-dark: rgb(244 114 208);
+    --color-product-self-driving-light: rgb(245 78 0);
+    --color-product-self-driving-dark: rgb(255 122 69);
     --color-product-business-knowledge-light: rgb(202 138 4);
     --color-product-business-knowledge-dark: rgb(250 204 21);
     --color-product-models-light: rgb(79 70 229);
@@ -1239,9 +1241,11 @@
         visibility: visible;
     }
 
-    a:focus-visible,
-    button:focus-visible,
-    [data-highlighted]:not(:hover) {
+    // Quill controls draw their own focus ring, so the Lemon accent outline must not stack on them.
+    // Base UI also marks the parts inside a highlighted item, such as a menu's radio indicator, so only the item gets it.
+    a:focus-visible:not([data-quill]),
+    button:focus-visible:not([data-quill]),
+    [data-highlighted]:not(:hover, [data-quill], [data-highlighted] *) {
         outline: 2px solid var(--color-accent);
     }
 

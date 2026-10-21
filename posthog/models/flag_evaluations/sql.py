@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -7,6 +9,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
     ttl_period,
 )
+from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
@@ -172,6 +175,25 @@ _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
     , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
 """
 
+
+# posthog/clickhouse/test/test_schema.py reads one column per line, so each piece renders on one line.
+def _single_line(pieces: Iterable[str]) -> str:
+    return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
+
+
+# Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
+# person properties on events from the same maps instead of the JSON. They are MATERIALIZED, unlike
+# the typed columns above, because no writer sets them. Property removal copies rows without them,
+# and the reingest recomputes them from the cleaned JSON, as on sharded_events.
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = _single_line(
+    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_DATA_TABLE)
+)
+
+# The read table declares the map columns plain, without their indexes, like the typed columns.
+_FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS = _single_line(
+    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_TABLE)
+)
+
 # The bloom filters cover point lookups the sort key can't serve (a specific user,
 # person, session, or flags-service request). The minmax on inserted_at serves
 # incremental consumers that checkpoint on it: partitioning is on timestamp, so an
@@ -211,6 +233,7 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
     {_FLAG_EVALUATIONS_TYPED_COLUMNS}
+    {_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
@@ -247,12 +270,12 @@ def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
     return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
 
 
-def _distributed_table_sql(table_name: str, *, typed_columns: str = "") -> str:
+def _distributed_table_sql(table_name: str, *, proxy_columns: str = "") -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {typed_columns}
+    {proxy_columns}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
@@ -264,7 +287,8 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
+    FLAG_EVALUATIONS_TABLE,
+    proxy_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS + _FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS,
 )
 
 

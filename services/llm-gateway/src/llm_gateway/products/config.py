@@ -70,6 +70,12 @@ WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 # What a retired wizard product answers every caller with.
 WIZARD_RETIRED_MESSAGE = "The wizard now runs on the PostHog AI gateway. Upgrade with: npx @posthog/wizard@latest"
+# posthog_code reaches this gateway only after a PostHog AI token refusal, so the advice names
+# the common refusals.
+POSTHOG_CODE_RETIRED_MESSAGE = (
+    "PostHog Code no longer runs on this gateway. This request arrived here because the app couldn't get "
+    "a PostHog AI token: sign in again and confirm your email is verified. Contact support if this continues."
+)
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
@@ -146,6 +152,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
         credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
+        denial_message=POSTHOG_CODE_RETIRED_MESSAGE,
     ),
     # PostHog-initiated internal task runs (Task.internal=True without a more specific
     # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
@@ -248,7 +255,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5", "gpt-5.6-luna"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "gpt-5.6-luna", "gpt-6-luna"}),
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
