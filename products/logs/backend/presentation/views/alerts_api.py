@@ -1,4 +1,3 @@
-import os
 import datetime as dt
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -32,7 +31,6 @@ from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
@@ -47,7 +45,6 @@ from products.alerts.backend.facade.destinations import (
     owned_alert_destination_ids,
     redact_destination_data,
     soft_delete_alert_destinations,
-    soft_delete_all_alert_destinations,
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
@@ -99,26 +96,20 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.facade.api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_MERGED_EVENT_ROWS,
+    AlertLimitReached,
     PlatformCheckRow,
+    claim_alert_slot,
     close_incident_on_commit,
+    first_check_at,
     follow_logs_alert,
     has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
     platform_check_rows,
 )
-from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
+from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-MAX_ALERTS_PER_TEAM = 20
-# Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
-# argocd for internal dogfood projects whose observability needs exceed the
-# customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
-# semaphore-sized fan-out in the Temporal activity) still hold for any team
-# not in this set.
-UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
-    int(t) for x in os.environ.get("LOGS_ALERTS_UNCAPPED_TEAM_IDS", "").split(",") if (t := x.strip()).isdigit()
-)
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
@@ -900,20 +891,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         grouping: Grouping | None = validated_data.pop("grouping", None)
 
         with transaction.atomic():
-            # select_for_update().count() doesn't acquire row locks because
-            # Django optimises count() to SELECT COUNT(*). Locking the team
-            # row instead serialises concurrent creates for this team.
-            team = Team.objects.select_for_update().get(id=validated_data["team_id"])
-            if validated_data["team_id"] not in UNCAPPED_ALERT_TEAM_IDS:
-                count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
-                if count >= MAX_ALERTS_PER_TEAM:
-                    raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
+            try:
+                claim_alert_slot(validated_data["team_id"])
+            except AlertLimitReached as error:
+                raise ValidationError(str(error)) from error
             if schedule_restriction := validated_data.get("schedule_restriction"):
-                validated_data["next_check_at"] = next_allowed_check_at(
-                    datetime.now(UTC),
-                    team_timezone=team.timezone,
-                    schedule_restriction=schedule_restriction,
-                )
+                validated_data["next_check_at"] = first_check_at(validated_data["team_id"], schedule_restriction)
             created = super().create(validated_data)
             # Raised inside the transaction, so a grouping the alert cannot take leaves no alert behind.
             if _write_platform_edit(
@@ -1845,21 +1828,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        before_delete(team_id=instance.team_id, alert_id=instance.id)
-        with transaction.atomic():
-            locked_instance = (
-                LogsAlertConfiguration.objects.select_for_update()
-                .filter(team_id=instance.team_id, id=instance.id)
-                .first()
-            )
-            if locked_instance is None:
-                return
-            soft_delete_all_alert_destinations(
-                team_id=locked_instance.team_id,
-                alert_id=str(locked_instance.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-            if locked_instance.platform_owned:
-                on_deleted(team_id=locked_instance.team_id, alert_id=locked_instance.id)
-            super().perform_destroy(locked_instance)
-            transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)
+        if delete_alert(team_id=instance.team_id, alert_id=instance.id):
+            # Robust, so an analytics failure, such as a malformed Referer, cannot fail a committed delete.
+            transaction.on_commit(lambda: self._track("deleted", instance), robust=True)
