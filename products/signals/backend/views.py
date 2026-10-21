@@ -5838,7 +5838,9 @@ class SignalReportArtefactViewSet(
                 return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
             except ReviewerWriteError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-            self._schedule_suggested_reviewer_telemetry(content=parsed_content, report_id=report_id)
+            self._schedule_suggested_reviewer_telemetry(
+                content=SuggestedReviewers.model_validate_json(artefact.content), report_id=report_id
+            )
             return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)

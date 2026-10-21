@@ -1170,6 +1170,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_service.assignment_agent_selection_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.views.capture_suggested_reviewers_resolved") as telemetry,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             human_edit = self.client.put(
                 reviewers_url,
@@ -1192,6 +1194,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert automatic_edit.json()["claim_id"] == str(claim.id)
         latest_reviewers = report.artefacts.filter(type="suggested_reviewers").latest("created_at")
         assert latest_reviewers.claim_id == claim.id
+        assert set(telemetry.call_args.kwargs["github_logins"]) == {"human-reviewer", "automatic-reviewer"}
         assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
             str(human_reviewer.uuid),
             str(automatic_reviewer.uuid),
