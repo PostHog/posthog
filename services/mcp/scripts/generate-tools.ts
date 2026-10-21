@@ -1230,6 +1230,7 @@ function generateToolCode(
             handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
+    const transformsBody = hasBody && !!config.hooks
 
     const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
@@ -1237,6 +1238,8 @@ function generateToolCode(
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
         handlerBody += `            body: { ${softDeleteField}: true },\n`
+    } else if (transformsBody) {
+        handlerBody += `            body: await transformRequestBody(${hooksVarName(toolName)}, context, params, body),\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
@@ -2099,7 +2102,7 @@ function generateCategoryFile(
     const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
     const hooksImportLines =
         hookedTools.length > 0
-            ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
+            ? `import { ${toolCodes.some((code) => code.includes('transformRequestBody(')) ? 'transformRequestBody, ' : ''}withToolHooks } from '@/tools/tool-hooks'\n` +
               hookedTools
                   .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
                   .join('')
@@ -2207,6 +2210,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2234,6 +2238,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2258,6 +2263,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2291,6 +2297,9 @@ function generateDefinitionsJson(
                     : {}),
                 ...(wrapperConfig.hidden_when_flag_on
                     ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
+                    : {}),
+                ...(wrapperConfig.reads_ingested_data
+                    ? { reads_ingested_data: wrapperConfig.reads_ingested_data }
                     : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
@@ -2470,6 +2479,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
+            ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),

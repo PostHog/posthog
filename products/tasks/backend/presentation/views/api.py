@@ -3557,13 +3557,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "concatenated first (oldest ancestor → ... → this run) so resume "
             "consumers see a single continuous history. A resumed Pi run "
             "includes the earlier runs of its task session the same way, each "
-            "preceded by a pi_run_started entry that names its run."
+            "preceded by a pi_run_started entry that names its run. For a live "
+            "presence-gated run, the request marks the stream as watched before "
+            "it reads the log, so events after the snapshot reach the live stream."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
+        with timer("mark_watched"):
+            tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
         with timer("s3_read"):
             log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:
@@ -3649,15 +3653,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
         thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
-        stream_base_url = (
-            None
-            if thin_tail_withheld
-            else tasks_facade.resolve_stream_base_url(
-                distinct_id=request.user.distinct_id,
-                organization_id=self.team.organization_id,
-                force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
-            )
-        )
+        stream_base_url = None if thin_tail_withheld else tasks_facade.resolve_stream_base_url()
         route: StreamTokenRoute = "thin_tail_withheld"
         if not thin_tail_withheld:
             route = "proxy" if stream_base_url else "django"

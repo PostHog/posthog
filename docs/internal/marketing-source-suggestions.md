@@ -11,6 +11,12 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## Background source checks
+
+Source health checks run when the window regains focus and every 30 seconds while a source is syncing.
+These checks update source metadata and validation without forcing all dashboard queries to refresh.
+Queries reload when their inputs change or when the user refreshes the dashboard.
+
 ## MCP setup recommendations
 
 The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
