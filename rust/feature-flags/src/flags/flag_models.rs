@@ -98,20 +98,16 @@ impl EvaluationMetadata {
     /// closed like any other flag whose dependency Django cannot resolve.
     /// A no-op while both sides agree, which is every payload Django writes.
     pub fn retain_flags(&mut self, kept_flag_ids: &HashSet<i32>) {
-        let mut missing_deps: HashSet<i32> = self
-            .flags_with_missing_deps
-            .iter()
-            .copied()
-            .filter(|id| kept_flag_ids.contains(id))
-            .collect();
-        for (id, deps) in &self.transitive_deps {
-            if kept_flag_ids.contains(id) && deps.iter().any(|dep| !kept_flag_ids.contains(dep)) {
-                missing_deps.insert(*id);
-            }
-        }
-        let mut missing_deps: Vec<i32> = missing_deps.into_iter().collect();
-        missing_deps.sort_unstable();
-        self.flags_with_missing_deps = missing_deps;
+        self.flags_with_missing_deps
+            .retain(|id| kept_flag_ids.contains(id));
+        self.flags_with_missing_deps.extend(
+            self.transitive_deps
+                .iter()
+                .filter(|(id, deps)| kept_flag_ids.contains(id) && !deps.is_subset(kept_flag_ids))
+                .map(|(id, _)| *id),
+        );
+        self.flags_with_missing_deps.sort_unstable();
+        self.flags_with_missing_deps.dedup();
 
         self.transitive_deps
             .retain(|id, _| kept_flag_ids.contains(id));
@@ -133,9 +129,12 @@ impl EvaluationMetadata {
 /// `_get_feature_flags_for_service()` in products/feature_flags/backend/flags_cache.py.
 /// Field changes must follow the expand-and-contract pattern — see contract tests in
 /// products/feature_flags/backend/test/test_flags_cache.py.
+///
+/// `F` is the flags array type. The serving read uses
+/// [`LenientFlags`](crate::flags::feature_flag_list::LenientFlags) to skip a flag it cannot read.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct HypercacheFlagsWrapper {
-    pub flags: Vec<FeatureFlag>,
+pub struct HypercacheFlagsWrapper<F = Vec<FeatureFlag>> {
+    pub flags: F,
     pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip

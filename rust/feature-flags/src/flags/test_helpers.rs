@@ -39,6 +39,51 @@ pub fn v2_filters_referencing(
     filters
 }
 
+/// A hypercache payload in which only flag 2 fails to deserialize. Its property
+/// filter has no `"type"` key, and `PropertyFilter` requires one. Flag 3 depends on flag 2.
+pub fn payload_with_unparseable_flag(team_id: TeamId) -> serde_json::Value {
+    serde_json::json!({
+        "flags": [
+            {
+                "id": 1,
+                "key": "healthy_flag",
+                "team_id": team_id,
+                "active": true,
+                "deleted": false,
+                "filters": { "groups": [] }
+            },
+            {
+                "id": 2,
+                "key": "malformed_flag",
+                "team_id": team_id,
+                "active": true,
+                "deleted": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{ "key": "email", "value": "a@example.com" }],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            },
+            {
+                "id": 3,
+                "key": "dependent_flag",
+                "team_id": team_id,
+                "active": true,
+                "deleted": false,
+                "filters": { "groups": [] }
+            }
+        ],
+        "evaluation_metadata": {
+            "dependency_stages": [[1, 2], [3]],
+            "flags_with_missing_deps": [],
+            "transitive_deps": { "1": [], "2": [], "3": [2] }
+        }
+    })
+}
+
 /// Generate the Django-compatible hypercache key for tests
 /// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
 /// The "posthog:1:" prefix matches Django's cache versioning

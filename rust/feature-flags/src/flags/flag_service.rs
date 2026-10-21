@@ -240,7 +240,7 @@ impl FlagService {
     /// A payload-level `Json`/`Pickle` parse error hard-fails with a tombstone,
     /// because we never want to silently degrade to PG on data corruption. A flag
     /// whose own JSON does not parse is skipped and counted instead, so one bad
-    /// flag cannot take the team's evaluation down.
+    /// flag does not fail the evaluation of the team's other flags.
     async fn fetch_wrapper_or_pg(
         &self,
         team_id: TeamId,
@@ -1021,49 +1021,16 @@ mod tests {
         );
     }
 
-    /// One flag the cache payload cannot parse must not take the team's whole
-    /// evaluation down: the team keeps every other flag, and gets no 500.
+    /// One flag that the cache payload cannot parse must not fail the team's read.
+    /// The team keeps every other flag and gets no 500.
     #[tokio::test]
     async fn test_get_flags_skips_unparseable_flag_in_hypercache_payload() {
+        use crate::flags::test_helpers::payload_with_unparseable_flag;
         use common_redis::MockRedisClient;
 
         let team_id = 4242;
 
-        // The second flag holds a property filter with no "type" key, which
-        // PropertyFilter requires, so it alone fails to deserialize.
-        let payload = serde_json::json!({
-            "flags": [
-                {
-                    "id": 1,
-                    "key": "healthy_flag",
-                    "team_id": team_id,
-                    "active": true,
-                    "deleted": false,
-                    "filters": { "groups": [] }
-                },
-                {
-                    "id": 2,
-                    "key": "malformed_flag",
-                    "team_id": team_id,
-                    "active": true,
-                    "deleted": false,
-                    "filters": {
-                        "groups": [
-                            {
-                                "properties": [{ "key": "email", "value": "a@example.com" }],
-                                "rollout_percentage": 100
-                            }
-                        ]
-                    }
-                }
-            ],
-            "evaluation_metadata": {
-                "dependency_stages": [[1, 2]],
-                "flags_with_missing_deps": [],
-                "transitive_deps": { "1": [], "2": [] }
-            }
-        })
-        .to_string();
+        let payload = payload_with_unparseable_flag(team_id).to_string();
         let pickled = serde_pickle::to_vec(&payload, Default::default()).expect("Failed to pickle");
 
         let mut mock_client = MockRedisClient::new();
@@ -1095,10 +1062,10 @@ mod tests {
             .iter()
             .map(|f| f.key.as_str())
             .collect();
-        assert_eq!(keys, vec!["healthy_flag"]);
+        assert_eq!(keys, vec!["healthy_flag", "dependent_flag"]);
         assert_eq!(
             result.prepared.evaluation_metadata.dependency_stages,
-            vec![vec![1]]
+            vec![vec![1], vec![3]]
         );
     }
 

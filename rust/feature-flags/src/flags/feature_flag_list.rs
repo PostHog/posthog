@@ -14,8 +14,8 @@ use metrics::counter;
 use serde::de::Deserializer;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
@@ -73,10 +73,15 @@ impl From<Vec<FeatureFlag>> for PreparedFlags {
     }
 }
 
+fn record_dropped_flags(dropped: u64) {
+    counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(dropped);
+    counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+}
+
 /// A flags array that skips an element it cannot deserialize, instead of
 /// failing the whole array. Counts the skips so the caller can report them.
-#[derive(Debug, Default)]
-struct LenientFlags {
+#[derive(Debug)]
+pub struct LenientFlags {
     flags: Vec<FeatureFlag>,
     skipped: u64,
 }
@@ -86,21 +91,20 @@ impl<'de> Deserialize<'de> for LenientFlags {
     where
         D: Deserializer<'de>,
     {
-        // Each flag is buffered as raw JSON first, because serde cannot resume a
-        // sequence after one element fails. The hypercache payload is JSON on
-        // every tier, even when Redis holds it inside a pickle, so RawValue
-        // buffers one contiguous slice per flag rather than a whole value tree.
-        let raw_flags: Vec<Box<RawValue>> = Vec::deserialize(deserializer)?;
+        // This buffers each flag as raw JSON first, because serde cannot resume a
+        // sequence after one element fails. A borrowed RawValue fails unless the
+        // deserializer reads a string or byte slice, as the hypercache reader's
+        // `serde_json::from_str` does.
+        let raw_flags: Vec<&'de RawValue> = Vec::deserialize(deserializer)?;
 
-        let mut out = LenientFlags::default();
-        for raw in raw_flags {
+        let mut flags = Vec::with_capacity(raw_flags.len());
+        for raw in &raw_flags {
             match serde_json::from_str::<FeatureFlag>(raw.get()) {
-                Ok(flag) => out.flags.push(flag),
+                Ok(flag) => flags.push(flag),
                 Err(e) => {
-                    out.skipped += 1;
                     let flag_key = serde_json::from_str::<serde_json::Value>(raw.get())
                         .ok()
-                        .and_then(|v| v.get("key").and_then(|k| k.as_str()).map(str::to_owned));
+                        .and_then(|v| v["key"].as_str().map(str::to_owned));
                     tracing::warn!(
                         "Failed to deserialize cached flag {}: {}",
                         flag_key.as_deref().unwrap_or("<unknown>"),
@@ -109,27 +113,19 @@ impl<'de> Deserialize<'de> for LenientFlags {
                 }
             }
         }
-        Ok(out)
+        let skipped = (raw_flags.len() - flags.len()) as u64;
+        Ok(LenientFlags { flags, skipped })
     }
 }
 
-/// Read-path view of the hypercache payload, with the same keys as
-/// [`HypercacheFlagsWrapper`]. A flag that does not deserialize is skipped here
-/// rather than failing the team's whole payload, which mirrors what
-/// [`FeatureFlagList::from_pg`] does with a malformed `filters` column. The
-/// cache builder, the shadow comparator and the contract tests keep the strict
-/// type, so a payload-shape break still fails loudly there.
-#[derive(Debug, Deserialize)]
-pub struct LenientHypercacheFlagsWrapper {
-    flags: LenientFlags,
-    evaluation_metadata: EvaluationMetadata,
-    #[serde(default)]
-    cohorts: Option<Vec<Cohort>>,
-}
+/// The hypercache payload as the serving read parses it. The contract test
+/// parses its fixture with this type and with the strict default, so a flag
+/// shape that Rust cannot read fails that test instead of being skipped silently.
+pub type LenientHypercacheFlagsWrapper = HypercacheFlagsWrapper<LenientFlags>;
 
 impl LenientHypercacheFlagsWrapper {
     pub fn into_wrapper(self, team_id: TeamId) -> HypercacheFlagsWrapper {
-        let LenientHypercacheFlagsWrapper {
+        let HypercacheFlagsWrapper {
             flags,
             mut evaluation_metadata,
             cohorts,
@@ -142,8 +138,7 @@ impl LenientHypercacheFlagsWrapper {
                 team_id,
                 flags.flags.len()
             );
-            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(flags.skipped);
-            counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+            record_dropped_flags(flags.skipped);
             // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
             counter!(
                 TOMBSTONE_COUNTER,
@@ -375,8 +370,7 @@ impl FeatureFlagList {
             .collect();
 
         if !undecodable.is_empty() {
-            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(undecodable.len() as u64);
-            counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+            record_dropped_flags(undecodable.len() as u64);
         }
 
         tracing::debug!(
@@ -982,55 +976,16 @@ mod tests {
 
     #[test]
     fn test_lenient_wrapper_skips_unparseable_flag_and_keeps_the_rest() {
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use crate::flags::test_helpers::payload_with_unparseable_flag;
+        use crate::utils::test_utils::counter_total;
+        use metrics_util::debugging::DebuggingRecorder;
 
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let _guard = metrics::set_default_local_recorder(&recorder);
 
-        // Flag 2 carries a property filter with no "type" key, which PropertyFilter
-        // requires. Flag 3 depends on flag 2.
-        let wrapper: LenientHypercacheFlagsWrapper = serde_json::from_value(json!({
-            "flags": [
-                {
-                    "id": 1,
-                    "key": "healthy_flag",
-                    "team_id": 123,
-                    "active": true,
-                    "deleted": false,
-                    "filters": { "groups": [] }
-                },
-                {
-                    "id": 2,
-                    "key": "malformed_flag",
-                    "team_id": 123,
-                    "active": true,
-                    "deleted": false,
-                    "filters": {
-                        "groups": [
-                            {
-                                "properties": [{ "key": "email", "value": "a@example.com" }],
-                                "rollout_percentage": 100
-                            }
-                        ]
-                    }
-                },
-                {
-                    "id": 3,
-                    "key": "dependent_flag",
-                    "team_id": 123,
-                    "active": true,
-                    "deleted": false,
-                    "filters": { "groups": [] }
-                }
-            ],
-            "evaluation_metadata": {
-                "dependency_stages": [[1, 2], [3]],
-                "flags_with_missing_deps": [],
-                "transitive_deps": { "1": [], "2": [], "3": [2] }
-            }
-        }))
-        .unwrap();
+        let wrapper: LenientHypercacheFlagsWrapper =
+            serde_json::from_str(&payload_with_unparseable_flag(123).to_string()).unwrap();
 
         let wrapper = wrapper.into_wrapper(123);
         let metadata = &wrapper.evaluation_metadata;
@@ -1041,21 +996,13 @@ mod tests {
         assert_eq!(metadata.flags_with_missing_deps, vec![3]);
         assert!(!metadata.transitive_deps.contains_key(&2));
 
-        let counter_value = |name: &str| {
-            snapshotter
-                .snapshot()
-                .into_vec()
-                .into_iter()
-                .find(|(ckey, _, _, _)| ckey.key().name() == name)
-                .map(|(_, _, _, value)| value)
-        };
         assert_eq!(
-            counter_value(FLAG_MALFORMED_FILTER_COUNTER),
-            Some(DebugValue::Counter(1))
+            counter_total(&snapshotter, FLAG_MALFORMED_FILTER_COUNTER, &[]),
+            1
         );
         assert_eq!(
-            counter_value(FLAG_MALFORMED_FILTER_READ_COUNTER),
-            Some(DebugValue::Counter(1))
+            counter_total(&snapshotter, FLAG_MALFORMED_FILTER_READ_COUNTER, &[]),
+            1
         );
     }
 
@@ -1519,6 +1466,14 @@ mod tests {
 
         // Verify flags parsed correctly
         assert_eq!(flags.len(), 7, "Expected 7 flags in contract fixture");
+
+        let served: LenientHypercacheFlagsWrapper = serde_json::from_str(fixture)
+            .expect("The serving read failed to deserialize hypercache_contract.json");
+        assert_eq!(
+            served.into_wrapper(99).flags.len(),
+            7,
+            "The serving read skipped a flag that the contract fixture holds"
+        );
 
         // Full flag with all optional fields
         let full_flag = &flags[0];
