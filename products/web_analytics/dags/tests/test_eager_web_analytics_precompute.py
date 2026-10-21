@@ -3,10 +3,10 @@ from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import dagster
@@ -120,8 +120,8 @@ class TestResolveEagerAudience:
         assert diag == {"teams_configured": len(expected), "active_teams_pct": pct, "active_teams": expected_active}
 
 
-class TestFetchActiveWaTeamIds(ClickhouseTestMixin, BaseTest):
-    _DASHBOARD_READ: dict[str, Any] = {
+class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
+    _DASHBOARD_READ: dict[str, str | int] = {
         "lc_query_type": "stats_table_paths",
         "lc_kind": "request",
         "lc_feature": "query",
@@ -135,7 +135,7 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, BaseTest):
         super().setUp()
         sync_execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}")
 
-    def _archive_reads(self, team_id: int, count: int, **overrides: Any) -> None:
+    def _archive_reads(self, team_id: int, count: int, **overrides: str | int) -> None:
         row = {**self._DASHBOARD_READ, **overrides}
         sync_execute(
             f"""
@@ -163,7 +163,7 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, BaseTest):
             ("outside_lookback", {"hours_ago": 30}),
         ]
     )
-    def test_ranks_dashboard_reads_and_drops_other_traffic(self, _name: str, excluded: dict[str, Any]) -> None:
+    def test_ranks_dashboard_reads_and_drops_other_traffic(self, _name: str, excluded: dict[str, str | int]) -> None:
         self._archive_reads(team_id=101, count=3)
         self._archive_reads(team_id=102, count=5)
         self._archive_reads(team_id=0, count=10)
