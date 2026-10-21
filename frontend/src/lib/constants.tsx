@@ -303,7 +303,6 @@ export const FEATURE_FLAGS = {
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
-    DWH_SYNC_ALERTS: 'dwh-sync-alerts', // owner: #team-warehouse-sources, gates the data warehouse sync alert sub-templates
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
     EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
@@ -422,6 +421,7 @@ export const FEATURE_FLAGS = {
     METRICS_DASHBOARD_IMPORT: 'metrics-dashboard-import', // owner: #team-apm — gates the dashboard import from a Grafana JSON model or a screenshot, which bills AI credits
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
+    METRICS_FACET_RAIL: 'metrics-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in the metrics viewer
     METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
@@ -557,6 +557,7 @@ export const FEATURE_FLAGS = {
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
+    UPTIME_MONITORING: 'uptime-monitoring', // owner: #team-apm, gates the unreleased uptime monitoring product
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
