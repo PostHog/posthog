@@ -16,6 +16,8 @@ export interface CohortUsedInSection {
     noun: string
     /** Every use, which can exceed the number of items when the API truncates the list. */
     total: number
+    /** Uses the caller cannot view. They count toward the total but never appear in the items. */
+    hidden?: number
     items: CohortUsedInItem[]
 }
 
@@ -33,10 +35,11 @@ export function cohortUsedInSections(
     const flags = blockingOnly
         ? usedIn.feature_flags.results.filter((flag) => flag.active)
         : usedIn.feature_flags.results
-    // During a rollout the frontend can reach a backend that predates this block.
+    // During a rollout the frontend can reach a backend that predates these blocks.
     const environments = usedIn.test_account_filters?.results ?? []
+    const workflows = usedIn.workflows ?? { results: [], total: 0, hidden: 0, has_more: false }
 
-    return [
+    const sections: CohortUsedInSection[] = [
         {
             title: 'Feature flags',
             noun: 'feature flag',
@@ -82,5 +85,22 @@ export function cohortUsedInSections(
                 label: environment.name,
             })),
         },
-    ].filter((section) => section.items.length > 0)
+    ]
+    // The editor shows workflows in its own link next to the cohort type, so only the blocking list includes them.
+    // Every workflow in the block is active, and an active workflow blocks a delete.
+    if (blockingOnly) {
+        sections.push({
+            title: 'Workflows',
+            noun: 'workflow',
+            total: workflows.total,
+            hidden: workflows.hidden,
+            items: workflows.results.map((workflow) => ({
+                key: `workflow-${workflow.id}`,
+                url: urls.workflow(workflow.id, 'workflow'),
+                label: workflow.name || 'Untitled workflow',
+            })),
+        })
+    }
+    // A section whose uses are all hidden from the caller has no items, but it still blocks a delete.
+    return sections.filter((section) => section.total > 0)
 }

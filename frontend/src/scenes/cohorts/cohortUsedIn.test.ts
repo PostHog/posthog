@@ -42,6 +42,24 @@ describe('cohortUsedInSections', () => {
         expect(sections[0].total).toEqual(1)
     })
 
+    it.each([
+        [
+            'some of them are visible',
+            { results: [{ id: 'wf-1', name: 'Onboarding', status: 'active' }], total: 3, hidden: 2, has_more: true },
+            ['Onboarding'],
+        ],
+        ['none of them are visible', { results: [], total: 1, hidden: 1, has_more: true }, []],
+    ])('lists relying workflows as delete blockers when %s', (_, workflows, labels) => {
+        const withWorkflows: CohortUsedInResponseApi = { ...usedIn, workflows }
+        const section = cohortUsedInSections(withWorkflows, { blockingOnly: true }).find(
+            ({ title }) => title === 'Workflows'
+        )
+
+        expect(section).toMatchObject({ total: workflows.total, hidden: workflows.hidden })
+        expect(section?.items.map(({ label }) => label)).toEqual(labels)
+        expect(cohortUsedInSections(withWorkflows).map(({ title }) => title)).not.toContain('Workflows')
+    })
+
     it('returns nothing for a cohort no-one references', () => {
         const empty = { results: [], total: 0, has_more: false }
 

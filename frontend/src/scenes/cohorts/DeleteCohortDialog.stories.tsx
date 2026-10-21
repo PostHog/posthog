@@ -28,7 +28,12 @@ const usedIn: CohortUsedInResponseApi = {
         total: 1,
         has_more: false,
     },
-    workflows: { ...emptyBlock, hidden: 0 },
+    workflows: {
+        results: [{ id: '0192a7f0-0000-7000-8000-000000000001', name: 'Welcome series', status: 'active' }],
+        total: 2,
+        hidden: 1,
+        has_more: true,
+    },
 }
 
 const meta: Meta<typeof DeleteCohortDialog> = {
