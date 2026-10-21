@@ -547,8 +547,8 @@ jobs:
         # Not on the hourly cron: the vs-base comparison build is pull_request-only,
         # so a cron run measures an absolute size with nothing to compare it against.
         if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.FRONTEND_CHECKS_RUNNER || 'ubuntu-24.04' }}
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

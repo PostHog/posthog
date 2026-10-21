@@ -24,6 +24,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
@@ -45,7 +46,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
-from ..metrics import get_node_suspended_metric
+from ..metrics import UNKNOWN_RUN_MODE, get_node_suspended_metric
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -84,6 +85,10 @@ class ManagedWarehouseShadowInputs:
         }
 
 
+INCREMENTAL_RUN_MODE = DataModelingJobRunMode.INCREMENTAL.value
+FULL_REFRESH_RUN_MODE = DataModelingJobRunMode.FULL_REFRESH.value
+
+
 @dataclasses.dataclass(frozen=False)
 class ManagedWarehouseShadowResult:
     row_count: int
@@ -93,6 +98,15 @@ class ManagedWarehouseShadowResult:
     error: str | None = None
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    run_mode: str = UNKNOWN_RUN_MODE
+
+
+def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
+    if not use_trino:
+        return FULL_REFRESH_RUN_MODE
+    if plan is None:
+        return UNKNOWN_RUN_MODE
+    return INCREMENTAL_RUN_MODE if plan.incremental else FULL_REFRESH_RUN_MODE
 
 
 @frozen
@@ -324,6 +338,7 @@ async def _materialize_view_managed_warehouse(
             table_name=result.table_name,
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
+            run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -348,6 +363,7 @@ async def _materialize_view_managed_warehouse(
             schema_name=schema_name,
             table_name=table_name,
             error=str(e),
+            run_mode=_failed_run_mode(plan, inputs.use_trino),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
