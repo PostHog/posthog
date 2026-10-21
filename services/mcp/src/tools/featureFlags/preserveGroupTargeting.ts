@@ -377,26 +377,20 @@ function hasSameTypeAndGroupIndex(a: FlagProperty, b: FlagProperty): boolean {
     return a.type === b.type && (a.group_type_index ?? null) === (b.group_type_index ?? null)
 }
 
-/**
- * Prefers the candidates that match the incoming filter, then the ones with its operator, then all
- * of them. Returns undefined when those candidates would restore different typings. The result
- * therefore never depends on the order of the stored filters. mergeProperty copies a stored
- * group_type_index only onto a `group` property that the incoming filter sends no index for. Only
- * then must the candidates' indexes agree.
- */
-function pickCandidate(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
+function restoredTyping(stored: FlagProperty, incoming: FlagProperty): FlagProperty {
+    return stored.type === 'group' && !isPresentGroupIndex(incoming.group_type_index)
+        ? { type: stored.type, group_type_index: stored.group_type_index }
+        : { type: stored.type }
+}
+
+/** Returning undefined when the typings disagree keeps the result independent of the order of the stored filters. */
+function pickTyping(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
     const operator = evaluatedOperator(incoming)
     const matching = usable.filter((candidate) => matchesFilter(candidate, incoming))
     const sameOperator = usable.filter((candidate) => evaluatedOperator(candidate) === operator)
     const remaining = [matching, sameOperator, usable].find((tier) => tier.length > 0) ?? []
-    const first = remaining[0]
-    if (!first) {
-        return undefined
-    }
-    const restoresIndex = first.type === 'group' && !isPresentGroupIndex(incoming.group_type_index)
-    const agrees = (candidate: FlagProperty): boolean =>
-        restoresIndex ? hasSameTypeAndGroupIndex(candidate, first) : candidate.type === first.type
-    return remaining.every(agrees) ? first : undefined
+    const [first, ...rest] = remaining.map((candidate) => restoredTyping(candidate, incoming))
+    return first && rest.every((typing) => hasSameTypeAndGroupIndex(typing, first)) ? first : undefined
 }
 
 function unambiguousPersonCandidates(
@@ -428,7 +422,7 @@ function mergeProperty(
             const restoredType =
                 candidates?.some((candidate) => candidate.type === 'group') || personTyped.length === 0
                     ? 'group'
-                    : pickCandidate(personTyped, out)?.type
+                    : pickTyping(personTyped, out)?.type
             if (restoredType) {
                 out.type = restoredType
             }
@@ -440,16 +434,11 @@ function mergeProperty(
             const fromSource = source
                 ? usableCandidates(candidates, source === 'person' ? isPresentType : isPersonAggregatedType)
                 : []
-            // The merge reads other sets only when the source has no filter on the key whose type
-            // it can restore. Source filters that disagree on the type leave the property untyped.
             const others = source ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
             const usable = fromSource.length > 0 ? fromSource : usableCandidates(others, isPersonAggregatedType)
-            const restored = pickCandidate(usable, out)
-            if (restored) {
-                out.type = restored.type
-                if (restored.type === 'group' && !isPresentGroupIndex(out.group_type_index)) {
-                    out.group_type_index = restored.group_type_index
-                }
+            const typing = pickTyping(usable, out)
+            if (typing) {
+                Object.assign(out, typing)
             }
         }
     }

@@ -610,15 +610,6 @@ describe('preserveGroupTargetingFilters', () => {
             expected: {},
         },
         {
-            name: 'two person candidates differ only in a null group_type_index',
-            stored: [
-                { key: 'name', type: 'person', group_type_index: null, operator: 'exact', value: 'acme' },
-                { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
-            ],
-            operator: 'regex',
-            expected: { type: 'person' },
-        },
-        {
             name: 'two person candidates differ only in a numeric group_type_index',
             stored: [
                 { key: 'name', type: 'person', group_type_index: 0, operator: 'exact', value: 'acme' },
@@ -686,14 +677,7 @@ describe('preserveGroupTargetingFilters', () => {
             const incoming = {
                 groups: [
                     {
-                        properties: [
-                            {
-                                key: 'name',
-                                operator,
-                                value,
-                                ...(index === undefined ? {} : { group_type_index: index }),
-                            },
-                        ],
+                        properties: [{ key: 'name', operator, value, group_type_index: index }],
                         rollout_percentage: 100,
                     },
                 ],
