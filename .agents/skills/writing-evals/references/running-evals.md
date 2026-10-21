@@ -1,153 +1,179 @@
-# Running evals locally and remotely
+# Run evals locally and remotely
 
-Use this reference to prepare a machine for the standalone eval harness and choose between local Docker sandboxes and remote Modal sandboxes.
-Both providers keep the eval database, Django server, LLM gateway, MCP server, Temporal, personhog, case setup, and scoring on the machine running `hogli evals`.
-The provider changes only where the coding-agent sandbox runs.
-Prefer remote Modal for multi-case sandboxed evals when its prerequisites are available.
-Remote sandboxes run in parallel without consuming local Docker memory, which usually shortens the run substantially.
-Use local Docker for a single-case smoke test, offline work, or when Modal credentials or a Funnel-capable tailnet are unavailable.
+Use this reference to prepare the harness and choose a sandbox provider.
+Both providers keep databases, Django, the LLM gateway, MCP, Temporal, personhog, setup, and scoring on the machine running `hogli evals`.
+The provider changes only where the agent sandbox runs.
+Both providers require network access for model calls.
 
-## Shared setup
+Use Docker for a small local run.
+Prefer Modal for larger runs when its prerequisites are available.
+Modal runs sandboxes in parallel without using local Docker memory.
 
-Run evals from the repository root in a flox shell.
+## Prepare the shared environment
+
+Run commands from the repository root in a flox shell.
 The personhog build needs flox's Rust toolchain, `pkg-config`, and OpenSSL.
-When a flox shell is not already active, wrap the whole command instead of starting an interactive activation:
+For one command, use:
 
 ```bash
 flox activate -- bash -c "hogli evals --list"
 ```
 
-Use `hogli evals` for normal runs.
-It loads the repository's `.env`, `.env.local`, `.env.development`, and `.env.services` files, with existing shell variables taking precedence.
-Keep personal credentials in the gitignored `.env.local` or in the shell.
-The direct `python -m products.posthog_ai.eval_harness.harness` entry point loads only `.env`, so export any other credentials before using it.
+`hogli evals` loads `.env`, `.env.local`, `.env.development`, and `.env.services`.
+Existing shell variables take precedence.
+Keep personal credentials in the gitignored `.env.local` file or in the shell.
 
-The required variables depend on the selected suite and runtime:
+The direct entry point is `python -m products.posthog_ai.eval_harness.harness`.
+It loads only `.env`. Export credentials from other files before using that entry point.
+`hogli evals:sandboxed` is an alias of `hogli evals`.
 
-| Selection           | Required variables                                              |
-| ------------------- | --------------------------------------------------------------- |
-| Every suite         | `BRAINTRUST_API_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`           |
-| Any sandboxed suite | `SANDBOX_JWT_PRIVATE_KEY` in addition to the variables above    |
-| Codex runtime       | `LLM_GATEWAY_OPENAI_API_KEY` in addition to the variables above |
+| Selection                                      | Required variables                                    |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| Every suite with the current Braintrust engine | `BRAINTRUST_API_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY` |
+| Any sandboxed suite                            | Also `SANDBOX_JWT_PRIVATE_KEY`                        |
+| Codex runtime                                  | Also `LLM_GATEWAY_OPENAI_API_KEY`                     |
 
-The local-development sandbox JWT key ships in `.env.example` and is normally copied into `.env` as part of repository setup.
-Use that key only for local development, never for production.
-Preflight reports every missing variable before it starts the database or any services.
+Private runners also need these credentials.
+Preflight reports missing variables before it starts databases or services.
+The local sandbox JWT key is in `.env.example`. Use it only for local development.
 
-List discovered suite IDs before the first real run:
+List discovered suites before the first run:
 
 ```bash
 hogli evals --list
 ```
 
-Product-owned suites have IDs in the form `<product>/<module>::<function>`.
-Start with one suite and one case so setup errors are cheap to diagnose:
+Choose one suite and one case from the output and source files.
+For example:
 
 ```bash
-hogli evals '<product>/eval_example::eval_my_thing' --eval '<case-name>'
+hogli evals sql/eval_sql::eval_sql \
+    --eval sql_pageviews_by_browser \
+    --max-sandboxes 1 \
+    --no-tui
 ```
 
+A run without suite selectors selects every suite.
+An unmatched suite selector fails before setup.
 One-shot-only selections do not use a sandbox provider.
-Do not pass `--provider`, `--max-sandboxes`, or other sandbox-only flags for them; preflight rejects those flags rather than ignoring them.
+Do not pass `--provider`, `--max-sandboxes`, or other sandbox-only flags to them. Preflight rejects those flags.
 
-The harness also limits the team-cloning and case-seeding phase separately from sandbox concurrency.
-That setup limit is one on an ordinary local machine and automatically increases to four when either `CODER` or `CI` is set.
-The higher limit lets managed development and CI environments prepare cases in parallel while keeping local ClickHouse memory use conservative.
+Team copying and seeding have a separate concurrency limit.
+The limit is one on ordinary local machines and four when `CODER` or `CI` is set.
+Increasing `--max-sandboxes` does not increase this setup limit.
 
-## Local setup with Docker
+## Use local Docker
 
-Local sandboxed evals use Docker by default.
-Install Docker, start the daemon, and confirm the CLI can reach it:
+Install Docker and start its daemon.
+Check access with:
 
 ```bash
 docker info
 ```
 
-No manual sandbox-image build is required.
-Before a run, the harness checks whether `posthog-sandbox-base` is current and rebuilds it when the Dockerfile or published agent version changed.
-The first personhog build and any required image build can take several minutes; later runs reuse their outputs.
+The harness checks the local `posthog-sandbox-base` image and rebuilds it when required.
+It checks the Dockerfile and published agent version. No manual image build is needed.
+The first personhog build and sandbox image build can take several minutes.
+Later runs reuse their outputs.
 
-Run one case with one live sandbox first:
+Docker is the default provider. To select it explicitly:
 
 ```bash
-hogli evals '<suite-selector>' \
-    --eval '<case-name>' \
+hogli evals sql/eval_sql::eval_sql \
+    --eval sql_pageviews_by_browser \
     --provider docker \
     --max-sandboxes 1
 ```
 
-`--provider docker` is optional because Docker is the default.
-The default local cap is four concurrent sandboxes, and each sandbox is configured for up to 16 GB of memory.
-Keep `--max-sandboxes` low unless the host has enough memory for the requested concurrency.
+The default limit is four concurrent sandboxes.
+Each sandbox can use up to 16 GB of memory.
+Choose a lower limit when the host cannot support that memory use.
 
-Normal teardown removes each case's container and sweeps leftovers from the current run.
-For a failed case that needs container inspection, rerun it with `--keep-sandbox-containers`; remove the retained container after debugging.
-Use `--rebuild-sandbox-image` only when a forced image rebuild is part of the diagnosis.
+Normal cleanup removes case containers and leftovers from the current run.
+Use `--keep-sandbox-containers` when you need to inspect a failed case's container.
+Remove retained containers after diagnosis.
+Use `--rebuild-sandbox-image` only when you need to force an image build.
 
-## Remote setup with Modal (preferred)
+## Use remote Modal
 
-Remote sandboxed evals use the dedicated `posthog-sandbox-evals` Modal app.
-Install the `modal` and `tailscale` CLIs and make sure both are on `PATH` inside the flox environment.
+The remote provider uses the `posthog-sandbox-evals` Modal app.
+Install the `modal` and `tailscale` CLIs.
+Make sure the flox environment can find both executables.
 
-Authenticate Modal once:
+Authenticate Modal:
 
 ```bash
 modal token new
 ```
 
 This normally writes `~/.modal.toml`.
-For non-interactive environments, set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` instead.
+For a non-interactive environment, set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`.
 
-Connect this machine to your tailnet once:
+Connect the host to your tailnet:
 
 ```bash
 tailscale up
 ```
 
-Funnel additionally needs the `funnel` node attribute granted to the tailnet and this node in the [admin console](https://login.tailscale.com/admin/acls), and HTTPS certificates enabled for the tailnet.
-The harness then exposes the local Django API, LLM gateway, and MCP server over Tailscale Funnel for the duration of the run, one service per Funnel public port (`443`, `8443`, `10000`).
-Do not manually set `SANDBOX_API_URL`, `SANDBOX_LLM_GATEWAY_URL`, or `SANDBOX_MCP_URL` for an eval run.
+Tailscale Funnel also needs the `funnel` node attribute and HTTPS certificates for the tailnet.
+Configure these in the [Tailscale admin console](https://login.tailscale.com/admin/acls).
 
-Funnel serves only those three public ports, so the harness refuses to start when your tailnet node already serves one of them rather than clobbering it.
-Free the port first — `tailscale funnel --https=443 off`, and likewise for `8443` and `10000`.
+The harness exposes Django, the LLM gateway, and MCP through Funnel ports `443`, `8443`, and `10000`.
+These URLs are public while the run is active. Do not share them.
+Keep the host process and network connection active because remote sandboxes call these local services.
 
-Start with one remote sandbox to verify credentials, Funnel, and the remote image build:
+Do not set `SANDBOX_API_URL`, `SANDBOX_LLM_GATEWAY_URL`, or `SANDBOX_MCP_URL` manually for eval runs.
+The harness refuses to overwrite an existing service on any required Funnel port.
+Check `tailscale serve status` before removing an existing mapping.
+For an unused mapping, `tailscale funnel --https=443 off` releases port `443`.
+Use the corresponding port for `8443` or `10000`.
+
+Start with one sandbox to check credentials, Funnel, and the image build:
 
 ```bash
-hogli evals '<suite-selector>' \
-    --eval '<case-name>' \
+hogli evals sql/eval_sql::eval_sql \
+    --eval sql_pageviews_by_browser \
     --provider modal \
     --max-sandboxes 1
 ```
 
-The first Modal run builds the eval image remotely.
-Later runs reuse that image until its Dockerfile, build context, or bundled local skills change.
-Keep the local process and network connection alive because the remote sandbox calls back into the services running on the local machine.
-
-Modal concurrency is unbounded by default, so always choose an intentional `--max-sandboxes` value before running a product or domain with many cases:
+The first run builds the Modal image remotely.
+Later runs reuse it until its Dockerfile, build context, or bundled local skills change.
+Modal has no default concurrency limit. Set an explicit limit for larger selections:
 
 ```bash
-hogli evals '<product-or-domain>' --provider modal --max-sandboxes 4
+hogli evals sql --provider modal --max-sandboxes 4
 ```
 
-The harness turns its Funnel mappings off during teardown.
-It also terminates each case's task-tagged sandbox and sweeps leftovers belonging to the current run.
-Funnel config lives in `tailscaled` and outlives the harness process, so a run killed with `SIGKILL` can leave the three ports public — check with `tailscale serve status` and turn them off by hand.
-The Funnel URLs are reachable by anyone on the internet who learns them while the run is active, so do not share them or leave a run unattended after an interruption.
+Normal cleanup disables Funnel mappings and terminates task-tagged sandboxes from this run.
+A `SIGKILL` can leave Funnel mappings active because their configuration lives in `tailscaled`.
+After a forced interruption, check `tailscale serve status` and disable the run's remaining mappings.
 
-## Diagnosing setup failures
+## Select runtime and skill delivery
 
-Read the preflight error first; it names the missing executable, credential, or environment variable and gives the expected fix.
-Frequent causes are:
+Claude is the default agent runtime.
+Use `--agent-runtime codex` with `LLM_GATEWAY_OPENAI_API_KEY` to select Codex.
+Use `--agent-model <bare-model-id>` to pin the model. Do not include an `anthropic/` or `openai/` prefix.
+The runtime and model appear in experiment metadata.
 
-- Running outside flox, which makes the personhog Rust build fail on its toolchain or OpenSSL dependencies.
-- A stopped Docker daemon in local mode.
-- Missing `~/.modal.toml` or incomplete `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` credentials in remote mode.
-- A stopped `tailscaled`, a node that is not logged in, or a tailnet without the `funnel` node attribute or HTTPS certificates, which stops Funnel from serving the three remote-reachable services.
-- A Funnel public port (`443`, `8443`, `10000`) already serving something else, which the harness refuses to overwrite.
-- Passing provider flags to a one-shot-only selection.
-- Omitting `LLM_GATEWAY_OPENAI_API_KEY` when selecting `--agent-runtime codex`.
+`--skill-delivery bundled` is the default native skill path.
+`--skill-delivery exec` tests MCP skill distribution and removes native skills from all cases.
+Use separate runs to compare these modes.
 
-Every real invocation mirrors stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`.
-The final terminal line is that transcript's absolute path, and `logs/harness/latest.log` points to the newest run.
-After a case starts, its agent log directory contains `<case>.jsonl`, `<case>.artifacts.json`, and `<case>.summary.txt` for deeper debugging.
+## Diagnose setup failures
+
+Read the preflight error first. It names the missing executable, credential, or environment variable.
+Common causes include:
+
+- A personhog build outside flox with missing toolchain or OpenSSL dependencies.
+- A stopped Docker daemon.
+- Missing Modal credentials.
+- A stopped or unauthenticated `tailscaled` process.
+- Missing Funnel access, HTTPS certificates, or an available Funnel port.
+- Sandbox-only flags on a one-shot-only selection.
+- Missing OpenAI credentials for the Codex runtime.
+
+The final terminal line gives the full run transcript path.
+`logs/harness/latest.log`, under `products/posthog_ai/eval_harness/`, points to the newest transcript.
+Open the experiment's `Agent logs` directory for trial summaries, raw agent logs, and artifacts.
+See [reading-results.md](reading-results.md) for score meanings, repeated trials, and failure diagnosis.

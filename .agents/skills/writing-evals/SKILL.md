@@ -1,181 +1,157 @@
 ---
 name: writing-evals
 description: >
-  Teaches how to write and run evals on the `products/posthog_ai/eval_harness/` harness — sandboxed agent suites that execute the real coding agent in a Docker or Modal sandbox against a seeded Hedgebox project, and one-shot suites that score a single in-process model invocation per case.
-  Use when adding or changing eval suites, cases, scorers, seeders, or synthesizers under `products/posthog_ai/evals/` or `products/*/evals/`, when touching the harness under `products/posthog_ai/eval_harness/`, or when running or debugging those evals (`hogli evals`).
-  Covers suite kinds and discovery, case anatomy, the seeder/synthesizer split, the one-branch scorer patterns, and how to read results.
-  Not for the LLM Analytics product's evaluation features.
+  Explains the sandbox harness evals in products/posthog_ai/eval_harness/.
+  Covers how to run evals with hogli evals, read scores, compare changes, and write suites, cases, seeders, and scorers.
+  Use for sandboxed agent evals, one-shot model evals, and changes under products/posthog_ai/evals/ or products/*/evals/.
+  Requires a PostHog repository checkout. Does not cover the customer-facing online evaluation features.
 ---
 
 # Writing and running evals
 
-The harness under `products/posthog_ai/eval_harness/` runs two kinds of suites: **sandboxed** suites execute the real coding agent inside a real sandbox against a seeded Hedgebox project and score what it did, and **one-shot** suites score a single in-process model invocation per case.
-Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, LLM gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
+An eval measures whether an AI agent or model completes a task correctly.
+These evals run against Hedgebox, the generated demo project.
+They help check changes to prompts, tools, skills, models, and agent behavior.
 
-Read before writing anything:
+The **harness** prepares the services, runs the tasks, collects their output, and applies scorers.
+A **suite** groups related cases into one Braintrust experiment.
+A **case** contains a user prompt and any expected values or setup function.
+A **scorer** measures one requirement and returns a score from 0 to 1, or `None` to skip it.
+A **trial** repeats a case to measure variation between model responses.
+The harness uses Braintrust as its execution engine, including when it keeps results local.
 
-- [products/posthog_ai/eval_harness/README.md](../../../products/posthog_ai/eval_harness/README.md) — usage, CLI flags, providers.
-- [products/posthog_ai/evals/AGENTS.md](../../../products/posthog_ai/evals/AGENTS.md) — the Hedgebox dataset reference. Your prompts, `expected` values, and scorers must match that taxonomy exactly (`signed_up`, not `sign_up`).
-- [products/posthog_ai/eval_harness/harness/AGENTS.md](../../../products/posthog_ai/eval_harness/harness/AGENTS.md) — invariants when touching the harness itself.
+## Choose what to run
 
-Field-level API detail (case fields, the `output` dict, `LogParser`, seeder inventory) lives in [references/authoring-reference.md](references/authoring-reference.md).
+| Suite kind             | What each case runs                                             | Use it to check                                         |
+| ---------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| Sandboxed, the default | The real coding agent in Docker or Modal, with tools and skills | Task completion, tool use, skill use, and conversations |
+| One-shot               | One model task in the harness process                           | A single model response without an agent sandbox        |
 
-## Writing a suite
+Sandboxed cases each get an isolated organization, team, and user copied from the master Hedgebox team.
+A seeder can add data to that case's team before the agent starts.
+One-shot cases share the master team for read-only queries.
+A one-shot task that writes data must copy a team first.
 
-Suites are discovered by convention, not registered: any coroutine named `eval_*` in a file named `eval_*.py`, taking a single `ctx: EvalContext` and returning `None`.
-The harness discovers suites from two root sets:
+These suites do not run through pytest.
+The harness starts shared services once and runs the selected suites concurrently.
+Sandboxed suites need the test databases, personhog, demo data, Django, an LLM gateway, MCP, and Temporal.
+One-shot suites need only the test databases, personhog, and demo data.
+Unit tests for the harness and scorers still use pytest.
 
-- `products/posthog_ai/evals/<domain>/` — the built-in tree, reserved for Max and other agent suites. The directory is the domain; the suite id is `<domain>/<module>::<fn>` (import path `products.posthog_ai.evals.<domain>.<module>`).
-- `products/<product>/evals/` — where a product ships eval suites next to its own code. Note the **plural** `evals/`: the singular `products/signals/eval/` is an existing pytest tree and is not collected by the harness. The product is the domain; the suite id is `<product>/<module>::<fn>` (import path `products.<product>.evals.<module>`).
+## Run an existing case first
 
-New product-owned evals belong under `products/<product>/evals/`. Both root sets use the same conventions (the `eval_*`-coroutine-in-`eval_*.py` rule, the `SUITE_KIND` marker, and substring selectors).
-No `evals/` tree needs a pytest-collection exclusion: pytest's default `python_files` matches `test_*.py`, so `eval_*.py` files there are never collected as tests. Do not add a `conftest.py` under an `evals/` tree.
+Run commands from the repository root in a flox shell.
+Use `flox activate -- bash -c "<command>"` if you need to activate flox for one command.
+The personhog build needs its Rust toolchain, `pkg-config`, and OpenSSL.
+
+1. Prepare credentials and a provider with [running-evals.md](references/running-evals.md).
+2. List suites with `hogli evals --list`. This imports suites but starts no services.
+3. Select one suite and one case before a larger run.
+
+```bash
+hogli evals sql/eval_sql::eval_sql --eval sql_pageviews_by_browser --max-sandboxes 1 --no-tui
+```
+
+The suite selector matches a substring of `<domain>/<module>::<function>`.
+`--eval` matches a substring of the case name.
+Omitting suite selectors runs every suite, so keep a selector during development.
+
+Docker is the default provider, with a limit of four sandboxes.
+Use Modal for larger runs when Modal and Tailscale Funnel access are available.
+Modal runs only the agent remotely. Services, data setup, and scoring still run on your machine.
+Set `--max-sandboxes` to control parallel execution and cost. Modal has no default limit.
+
+Read [reading-results.md](references/reading-results.md) before deciding whether a run supports a change.
+A successful process exit does not prove that the agent met the requirements.
+Use `--fail-under <fraction>` when the command must enforce a minimum mean score.
+
+## Add or change a suite
+
+First write the user task and the requirement that a scorer must measure.
+Use an existing suite when its cases measure the same behavior.
+Use a sandboxed suite when the task needs tools, skills, project state, or several conversation turns.
+Use a one-shot suite when one model call can exercise the behavior.
+
+1. Read the [Hedgebox dataset reference](../../../products/posthog_ai/evals/AGENTS.md).
+2. Choose an existing suite as a model from [authoring-reference.md](references/authoring-reference.md).
+3. Add a case, its expected values, and any required data setup.
+4. Reuse a scorer or add a scorer for the requirement.
+5. List suites, run the case alone, and inspect its output and scorer metadata.
+6. Repeat the affected suite before comparing the change with the base version.
+
+New product-owned suites belong in `products/<product>/evals/eval_<name>.py`.
+Built-in agent suites use `products/posthog_ai/evals/<domain>/eval_<name>.py`.
+The harness discovers `async def eval_*(ctx: EvalContext) -> None` functions in `eval_*.py` files.
+There is no suite registry.
+Keep pytest tests outside these suite directories. Do not add a `conftest.py` there.
+
+This complete example checks schema discovery. Save it in a product's `evals/eval_schema_discovery.py`:
 
 ```python
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 
 
-async def eval_my_thing(ctx: EvalContext) -> None:
+async def eval_schema_discovery(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
-        experiment_name="sandboxed-my-thing-cli",
-        cases=[SandboxedEvalCase(name="my_case", prompt="...")],
-        scorers=[],
+        experiment_name="sandboxed-schema-discovery-cli",
+        cases=[
+            SandboxedEvalCase(
+                name="find_signup_event",
+                prompt="Check the project schema. Which event records a user signup?",
+            ),
+        ],
+        scorers=[RequiredToolCall(required={"read-data-schema"})],
         ctx=ctx,
     )
 ```
 
-- One suite = one Braintrust experiment. Bundle related cases into one suite; split only when the scorecard would be heterogeneous (self-skipping scorers stretch a shared scorer list across mildly different cases, but a scorecard where half the scorers skip half the cases is a sign to split).
-- `experiment_name` is the Braintrust history key — renaming it resets cross-run comparison. Existing sandboxed suites end in `-cli` because the MCP server serves the `cli` surface.
-- `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when `offline_suite` is configured. `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service by default; local logs are still written. Set `send_to_posthog=True` with `offline_suite` to publish only to PostHog, or `send_to_posthog=False` to disable that destination independently. These options also apply to one-shot suites. Ordinary SDK and trace clients still honor `OPT_OUT_CAPTURE`. See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md).
-- To enroll a suite in PostHog reporting, register its scorer kinds and immutable version UUIDs in the owning `offline_config.py` catalog, then pass `offline_suite=offline_suite("<domain>/<module>::<function>", metrics=[...])` to the runner. Use the PostHog AI catalog for built-in suites and the Slack app catalog for Slack suites. List every explicit scorer's `_name()` in `metrics`; the catalog adds `exit_code_zero` only for sandboxed suites. For one-shot suites, pass `suite_kind=SUITE_KIND`. The enrollment test discovers catalog-using modules and checks every suite function against its scorer list.
-- Uploading and tagging require `POSTHOG_OFFLINE_EVAL_API_KEY` to be a personal key with `offline_evaluation_ingestion:write` and `evaluation:write`. Ingestion-only personal or project secret keys can upload without tags. Upload success is recorded before the separate, bounded tag update, so a tagging failure or interruption keeps the results link.
+Run it with `hogli evals eval_schema_discovery --eval find_signup_event --max-sandboxes 1`.
+The scorer checks for a successful schema tool call. It does not check the answer's correctness.
+Add a separate answer scorer if correctness is part of the requirement.
+The harness adds `ExitCodeZero` automatically. Do not add it to the scorer list.
 
-## One-shot suites
+## Write useful cases and scorers
 
-A module-level `SUITE_KIND` declares how a module's suites execute; absent means sandboxed, so existing suites need nothing.
-`SuiteKind.ONE_SHOT` suites skip the sandbox entirely: the harness boots only the test DB, personhog, and demo data for them, and preflight requires only `BRAINTRUST_API_KEY` + `LLM_GATEWAY_ANTHROPIC_API_KEY`.
+- Use exact dataset names, such as `signed_up`. Do not guess event or property names.
+- Use relative dates and assertions about result structure. Avoid fixed event counts that change when the simulation changes.
+- Keep case names unique within a suite. Keep `experiment_name` stable to preserve comparisons with earlier runs.
+- Put each scorer's expected values under its `_name()` key. Check existing scorer contracts before choosing the shape.
+- Use `setup=` for data that Hedgebox does not supply. Return IDs and expected values through `output["seed"]`.
+- Use deterministic checks for observable requirements. Use an LLM judge when the requirement needs semantic judgment.
+- Count successful tool calls unless the requirement specifically concerns failed attempts.
+- Give missing required output a failed score. Use `None` only when the requirement does not apply.
 
-```python
-from products.posthog_ai.eval_harness.config import BaseEvalCase
-from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
+Read [authoring-reference.md](references/authoring-reference.md) for case fields, multi-turn cases, seeders, scorer patterns, and one-shot suites.
+Read the [harness rules](../../../products/posthog_ai/eval_harness/harness/AGENTS.md) before changing the harness itself.
 
-SUITE_KIND = SuiteKind.ONE_SHOT
+## Choose where results go
 
+| Runner                                        | Braintrust results           | PostHog offline results                    |
+| --------------------------------------------- | ---------------------------- | ------------------------------------------ |
+| `SandboxedPrivateEval` / `OneShotPrivateEval` | Disabled                     | Disabled by default                        |
+| `SandboxedPublicEval` / `OneShotPublicEval`   | Enabled                      | Enabled when `offline_suite` is configured |
+| Either runner with `send_to_posthog=True`     | Follows the runner's default | Enabled when `offline_suite` is configured |
 
-async def eval_my_generation(ctx: EvalContext) -> None:
-    async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
-        return {"answer": ...}  # one model invocation, JSON-serializable
+Private runners still write local logs and still require the engine's credentials.
+`send_to_posthog=False` disables PostHog result uploads independently.
+`OPT_OUT_CAPTURE` controls ordinary SDK and trace capture separately from offline result uploads.
 
-    await OneShotPrivateEval(
-        experiment_name="my-generation",
-        cases=[BaseEvalCase(name="my_case", prompt="...")],
-        scorers=[...],
-        task=task,
-        ctx=ctx,
-    )
-```
+For PostHog reporting, register scorer kinds and immutable version UUIDs in the owning `offline_config.py` catalog.
+Pass its `offline_suite(...)` configuration to the runner.
+List every explicit scorer's `_name()` in `metrics`. The catalog adds `exit_code_zero` for sandboxed suites only.
+One-shot configurations also pass `suite_kind=SUITE_KIND`.
+See [offline evaluation reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for credentials, enrollment, and upload limits.
 
-- The task function runs once per case under the global one-shot limiter with the standard per-case timeout, and its returned dict **is** the scorer `output` — each one-shot suite defines its own output shape, and its scorers read the keys they know about. The runner backfills `prompt`; an optional `last_message` feeds the local `.summary.txt`.
-- Cases are `BaseEvalCase` (no `repo_fixture`/`setup`); the shared master Hedgebox team is available as `ctx.demo_data.master_team_id` for read-only queries. A task that needs writes should copy a team via `products.posthog_ai.eval_harness.data_setup.copy_demo_data_to_new_team` under `ctx.demo_slots`.
-- The sandbox-log scorer helpers (`LogParser`, `ExitCodeZero`, tool-call scorers) don't apply to one-shot outputs — write deterministic scorers against your own output dict, and reuse `JudgedScorer` for LLM judges.
+## Check the change
 
-## Case anatomy
+1. Run `hogli evals --list` to check discovery and imports.
+2. Run each new or changed case alone. Read its transcript, case summary, and scorer metadata.
+3. Check scorer behavior for a correct result, an incorrect result, and missing required output.
+4. Run relevant existing scorer or synthesizer tests with `hogli test <path>` when their code changes.
+5. Compare repeated runs with the same cases, runtime, model, and skill delivery mode.
 
-`SandboxedEvalCase` (`products/posthog_ai/eval_harness/config.py`) has seven author-facing fields: `name`, `prompt`, `repo_fixture`, `expected`, `metadata`, `disable_bundled_skills`, `setup`.
-
-- `name` doubles as the `--eval <substr>` filter target and the per-case log filename — keep it unique within the suite.
-- `expected` is keyed by each scorer's `_name()`. A scorer reads only its own sub-dict and self-skips (or falls back to default behavior) when its key is absent — that is what lets one scorer list span a suite's cases. Judges take payloads like `{"warehouse_answer_correctness": {"expected_answer": "..."}}`.
-- `--skill-delivery exec` enables MCP skill distribution and removes native skills for every case in the run. `disable_bundled_skills=True` is an additional per-case override for other delivery-path evals.
-- Every sandboxed case runs in a fresh isolated org/team/user copied from the master Hedgebox team, so cases never see each other's state. One-shot cases share the master team read-only.
-
-## Seeding data: seeders and synthesizers
-
-When a case needs data Hedgebox doesn't have (a running experiment, error-tracking issues, a warehouse catalog), declare a **seeder** as the case's `setup=`.
-
-The contract:
-
-- Synchronous: `def seed_x(context: CustomPromptSandboxContext) -> dict[str, Any]`. The harness calls it via `asyncio.to_thread` — never make it async.
-- Runs once per case, after the per-case team is provisioned and before the agent prompt is dispatched.
-- The returned dict lands in scorer `output["seed"]` — this is how scorers learn seeded IDs, flag keys, and expected values. Return everything a scorer will need.
-- It receives only the context (`team_id`, `user_id`, ...) — there are no per-case parameters. Case-specific configuration means a dedicated seeder function; adding knobs to a shared seeder silently couples every suite that uses it.
-- A seeder exception marks the case as an infra error (excluded from score averages), not a 0 — so a broken seeder never masquerades as an agent regression.
-
-Shared building blocks live in `products/posthog_ai/eval_harness/seeders/` (`common.py` seeded-name providers and the `[lookup]` prefix, `insight.py` noise insights, `survey.py` flags); domain seeders live next to their suites (`data_warehouse/seeder.py`, `error_tracking/seeders.py`, `experiments/seeders.py`).
-
-**Synthesizers** are the generation half of a two-part split, used when the seeded catalog is large or synthetic. A synthesizer is a pure, Django-free, deterministic generator that emits frozen dataclasses — no ORM, no I/O — and the seeder translates that catalog into ORM/ClickHouse/S3 rows inside the case's team.
-The split exists so generation stays unit-testable and byte-for-byte reproducible (see `products/posthog_ai/eval_harness/test/test_warehouse_synthesizer.py`) while installation stays an integration concern.
-The reference implementation is `data_warehouse/synthesizer.py`: ~250 realistic noise tables plus seven planted "needles", each targeting one discovery skill, with needle name constants that prompts, `expected` values, and scorers all import verbatim so they can never drift apart.
-Follow this split (and the constants-shared-by-all-three pattern) when seeding any new synthetic catalog.
-
-## Writing scorers
-
-Two patterns, each with exactly **one** implemented branch — never both `_run_eval_sync` and `_run_eval_async` (see the Scorers section of `harness/AGENTS.md`):
-
-**Deterministic** — subclass `Scorer`, implement `_run_eval_sync` only. The base class supplies the async path the engine uses.
-
-```python
-from products.posthog_ai.eval_harness.log_parser import LogParser
-from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-
-
-class MyCheck(Scorer):
-    def _name(self) -> str:
-        return "my_check"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if not output or not output.get("raw_log"):
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        parser = LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "")
-        ...
-```
-
-**LLM judge** — subclass `JudgedScorer` from `products.posthog_ai.eval_harness.scorers`, implement `_prepare` only (plus `__init__` with the prompt template). `_prepare` returns either a `Score` to short-circuit without an LLM call, or `{"output": ..., "expected": ...}` template variables (omit `"expected"` for judges that don't need it). The shared base owns the async branch and maps judge errors to `score=0.0`.
-
-Rules that apply to both:
-
-- The sandboxed harness adds `ExitCodeZero` to every experiment. Do not include it in a suite's `scorers`; an explicit duplicate is rejected. One-shot suites do not receive it.
-- Reuse the other generic scorers first: `NoToolCall`, `RequiredToolCall`, and `LastToolCallNot` (all in `products.posthog_ai.eval_harness.scorers`).
-- Always parse logs via `LogParser.cached(...)` so a case's log is parsed once, not once per scorer.
-- Count only successful tool calls (`is_error=False`) — the agent is free to attempt and fail.
-- `score=None` means "skipped": Braintrust omits it from the aggregate entirely. `0.0` means "failed". Pick deliberately — `None` for "this check doesn't apply to this case", `0.0` for "the agent got it wrong" _and_ for broken-judge/missing-input paths that must not silently vanish from the average.
-
-## Running
-
-Read [references/running-evals.md](references/running-evals.md) when setting up the local Docker provider or the remote Modal provider for the first time.
-It covers shared credentials, provider authentication, first-run commands, concurrency limits, and common setup failures.
-Prefer remote Modal for sandboxed suites when its prerequisites are available.
-It runs agent sandboxes in parallel without the local Docker memory ceiling, so multi-case evals finish faster; keep Docker for small smoke tests or when remote access is unavailable.
-
-```bash
-hogli evals --list                      # suite ids, no infra
-hogli evals eval_my_thing --eval my_case  # one case, docker
-hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
-hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed skills only
-```
-
-`hogli evals:sandboxed` is a back-compat alias of `hogli evals`.
-
-- Run from a flox shell (or wrap in `flox activate -- bash -c "..."`): the personhog build needs flox's Rust toolchain, and outside it the preflight `cargo build` dies on a missing `pkg-config`/OpenSSL.
-- Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
-- `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
-- Team cloning and case seeding use one setup slot on ordinary local machines and four when `CODER` or `CI` is set.
-- `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
-- `--skill-delivery bundled` is the default native-skill path. `--skill-delivery exec` enables the MCP skill prompt and clears all native skill directories; compare the modes in separate runs because MCP configuration is process-wide.
-- `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-6.1-sol`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the Braintrust experiment metadata, so compare scores within one runtime.
-- Every real eval invocation mirrors its complete stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`. The ending label identifies it as the full run transcript, the last terminal line is its absolute path, and `logs/harness/latest.log` points to the newest transcript. `--list` and argument errors do not create one.
-- The plain-text summary is stable for people and agents: only the overall run says `PASS` or `FAIL`; completed suites, experiments, and cases say `DONE`; experiment blocks label scores, URLs, and agent-log directories.
-- `EXPORT_EVAL_RESULTS=1` additionally appends one structured Braintrust summary per experiment to `eval_results.jsonl`. It does not replace the always-on transcript.
-- Start debugging with the transcript path on the last line. Then open the experiment's `Agent logs` directory for `<case>.jsonl` (raw agent log), `<case>.artifacts.json`, and `<case>.summary.txt`. `logs/runs.jsonl` indexes historical case runs.
-
-## Verification checklist
-
-Before opening a PR:
-
-1. `hogli evals --list` shows your suite (this also import-checks every eval module).
-2. Run your new case alone: `hogli evals <suite> --eval <case>`. Read the transcript named on the final line, then the case summary and scorer metadata, not just the score.
-3. Unit-test scorer and synthesizer logic where it's cheap — but not inside an `evals/` tree: keep suite dirs free of `conftest.py` and `pytest` imports. Existing homes: `products/posthog_ai/eval_harness/test/` and product test dirs.
-4. Prompts and `expected` values use exact Hedgebox taxonomy names, relative date ranges (`-30d`, `-8w`), and shape-based assertions — never absolute counts.
+Read [reading-results.md](references/reading-results.md) for score limits, repeated trials, and failure diagnosis.
+The [harness README](../../../products/posthog_ai/eval_harness/README.md) contains the full command reference.

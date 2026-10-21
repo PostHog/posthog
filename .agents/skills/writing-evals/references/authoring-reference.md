@@ -1,101 +1,211 @@
-# Sandboxed eval authoring reference
+# Authoring reference
 
-Field-level contracts for eval authors. Paths are relative to `products/posthog_ai/eval_harness/` unless noted.
-When anything here disagrees with the code, the code wins — the sources of truth are `config.py`, `base.py`, and `log_parser.py`.
+Use this reference to add cases, data setup, or scorers.
+Paths in the tables are relative to `products/posthog_ai/` unless they name another product.
+The source contracts are [config.py](../../../../products/posthog_ai/eval_harness/config.py), [base.py](../../../../products/posthog_ai/eval_harness/base.py), and [log_parser.py](../../../../products/posthog_ai/eval_harness/log_parser.py).
 
-## `SandboxedEvalCase` (`config.py`)
+## Choose an existing example
 
-| Field                    | Type                                                   | Meaning                                                                                                                                                   |
-| ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                   | `str`                                                  | Case name. Also the `--eval <substr>` filter target and the per-case log filename. Unique within the suite.                                               |
-| `prompt`                 | `str`                                                  | The natural-language task given to the agent.                                                                                                             |
-| `repo_fixture`           | `str = ""`                                             | Informational only (tracking).                                                                                                                            |
-| `expected`               | `dict = {}`                                            | Per-scorer expected values, keyed by each scorer's `_name()`. A scorer reads only its own sub-dict; a missing key means default behavior or self-skip.    |
-| `metadata`               | `dict = {}`                                            | Arbitrary tracking/filtering metadata.                                                                                                                    |
-| `disable_bundled_skills` | `bool = False`                                         | Clears native skill directories before agent startup. Use when evaluating a separate skill distribution path.                                             |
-| `setup`                  | `Callable[[CustomPromptSandboxContext], dict] \| None` | The seed hook. Excluded from serialization (callables don't survive Braintrust's JSON round-trip); the runner re-binds it from the original case by name. |
+| Requirement                         | Example                                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| Query generation and answer checks  | `evals/sql/eval_sql.py` and `evals/sql/scorers.py`                         |
+| Tool selection and rendering        | `evals/cli_mcp/eval_render_ui.py` and `evals/cli_mcp/scorers.py`           |
+| Data setup with a generated catalog | `evals/data_warehouse/seeder.py` and `evals/data_warehouse/synthesizer.py` |
+| Several turns in one agent session  | `evals/product_analytics/eval_typed_runner_lock_in.py`                     |
+| A surface-specific system prompt    | `products/slack_app/evals/eval_posthog_first.py`                           |
 
-There is no per-case `skills` attachment field. Skills are built once per run and use native bundled delivery by default. `--skill-delivery exec` enables MCP distribution and clears native skills for every case; `disable_bundled_skills` is an additional per-case override. There is no per-case timeout (`--case-timeout` is run-level, counted from sandbox acquisition).
+Keep related cases in one suite when they use a common set of scorers.
+Split a suite when most scorers would skip most cases.
+The suite function receives `EvalContext`. Pass that context to the runner as `ctx=ctx`.
 
-## Seeder contract
+## Case fields
+
+`SandboxedEvalCase` inherits the common fields from `BaseEvalCase`.
+
+| Field                    | Purpose                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `name`                   | Unique case name within the suite; target for the `--eval` substring filter           |
+| `prompt`                 | First user message                                                                    |
+| `followups`              | Later user messages in the same sandboxed agent session; defaults to an empty list    |
+| `expected`               | Expected values for scorers; defaults to an empty dictionary                          |
+| `metadata`               | Tracking values; defaults to an empty dictionary                                      |
+| `repo_fixture`           | Informational fixture name; does not install a repository                             |
+| `disable_bundled_skills` | Remove native skills for this case; defaults to `False`                               |
+| `interaction_origin`     | Select a surface's system prompt, such as `"slack"`; defaults to `None`               |
+| `setup`                  | Optional synchronous seeder function; the runner restores it after case serialization |
+
+Use the scorer's `_name()` as the key for expected values.
+For example, a judge can read `{"warehouse_answer_correctness": {"expected_answer": "..."}}`.
+A missing key can mean a default or a skipped check. Read the scorer before omitting its key.
+
+There is no per-case skill attachment or timeout field.
+The harness builds product skills from the checkout once per run.
+`--skill-delivery bundled` uses native skills by default.
+`--skill-delivery exec` enables MCP skill distribution and removes native skills from every sandbox.
+Compare these delivery modes in separate runs because MCP configuration applies to the whole process.
+
+For a multi-turn module, set `MULTI_TURN_CASES = True` at module level.
+The harness uses this marker to increase the default case budget.
+Set `followups=[...]` on each case that needs later user messages.
+The runner sends each message after the preceding turn completes and keeps the same session.
+Follow-up messages share one case deadline.
+One-shot runners ignore `followups`.
+
+## Add data with a seeder
+
+A seeder installs data in the case's isolated team before the agent receives the prompt.
+Use it when Hedgebox does not contain the flags, experiments, errors, or warehouse data that the task needs.
+
+The function has this signature:
 
 ```python
 def seed_my_domain(context: CustomPromptSandboxContext) -> dict[str, Any]: ...
 ```
 
-- Synchronous, plain Django ORM / `sync_execute`; the harness runs it in `asyncio.to_thread`.
-- Runs once per case: after the isolated team/user is minted, before the prompt is dispatched.
-- `context` is a frozen dataclass; seeders in practice use `context.team_id` and `context.user_id`.
-- The return dict becomes `output["seed"]` for every scorer of that case.
-- Raising marks the case as an infra error (excluded from averages) rather than scoring 0.
+Import `CustomPromptSandboxContext` from `products.tasks.backend.facade.agents`.
+Pass the function as `setup=seed_my_domain`, without calling it.
+The harness calls it through `asyncio.to_thread`, so keep it synchronous.
+Use `context.team_id` and `context.user_id` for the isolated case.
+The function receives no extra case parameters. Use a separate function when a case needs different setup.
 
-Existing seeders and what they return:
+Return the IDs, keys, and reference values that scorers need.
+The runner puts this dictionary in `output["seed"]`.
+A seeder exception produces an infrastructure error, separate from a failed agent score.
 
-| Seeder                                                  | Returns                                                                                                          |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `seeders/insight.py::seed_insight_noise`                | `{"noise_count", "lookup_insights": [{id, short_id, name}]}`                                                     |
-| `seeders/survey.py::seed_survey_feature_flags`          | `{"feature_flags_by_key": {...}}`                                                                                |
-| `data_warehouse/seeder.py::seed_warehouse_schema`       | per-needle metadata incl. `queryable` (False when object storage creds are absent — dependent scorers self-skip) |
-| `error_tracking/seeders.py::seed_error_tracking_issues` | `{"lookup_issues": [{id, name}]}`                                                                                |
-| `experiments/seeders.py::seed_*`                        | seeded experiment ids, flag keys, split signatures                                                               |
+Shared helpers live in `eval_harness/seeders/`:
 
-`seeders/common.py` provides `make_name_providers(seed)` (seeded mimesis bundle, `DEFAULT_NAME_SEED = 42`) and `LOOKUP_PREFIX = "[lookup]"` — a substring guaranteed absent from generated noise, so a prompt can name a lookup entity unambiguously.
+| Helper                                 | Purpose                                                                      |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| `common.py::make_name_providers`       | Generate repeatable names from a fixed seed                                  |
+| `common.py::LOOKUP_PREFIX`             | Mark target entities with `[lookup]`, which generated noise does not contain |
+| `insight.py::seed_insight_noise`       | Add unrelated insights and target insights                                   |
+| `survey.py::seed_survey_feature_flags` | Add flags that survey cases need                                             |
 
-## The `output` dict scorers receive
+Product-specific seeders live beside their suites.
+Read the seeder's return value before using `output["seed"]` in a scorer.
 
-`AgentArtifacts.model_dump()` (`config.py`) merged with runner extras (`base.py`):
+For a large generated catalog, separate generation from installation:
 
-- From `AgentArtifacts`: `exit_code`, `stdout`, `stderr`, `git_diff`, `files_changed`, `test_exit_code`, `test_output`, `lint_exit_code`, `lint_output`, `duration_seconds`, `pr_url`.
-- Added by the runner: `last_message` (final assistant text), `messages` (parsed message list), `raw_log` (the raw JSONL — what `LogParser` consumes), `seed` (the setup hook's return dict), `prompt`.
+1. A **synthesizer** generates repeatable data without Django, database access, or other I/O.
+2. It returns frozen data objects.
+3. A seeder installs those objects in the case's databases or object storage.
 
-Error semantics: a per-case timeout produces a scored-0 agent failure (`exit_code=1`, stderr says timeout); any other exception (demo copy, seeder, provisioning) re-raises as an errored case excluded from score averages.
+Use the warehouse synthesizer and seeder as the example.
+Import shared target-name constants into prompts, expected values, and scorers to prevent differences between them.
+Use fixed seeds for generated noise.
 
-## `LogParser` (`log_parser.py`)
+## Output available to sandboxed scorers
 
-- `LogParser.cached(raw_log, initial_prompt="")` — memoized; always use this over the constructor so one case's log is parsed once across scorers.
-- `get_tool_calls(name=None) -> list[ToolCall]` — chronological tool calls (excludes the `Skill` tool), optionally filtered by normalized name.
-- `get_skill_calls(name=None)` / `was_skill_called(name)` — `Skill` tool invocations (`SkillCall(name, args, call_id, output, is_error, position)`).
-- `get_user_prompt()` — first user text, falling back to `initial_prompt`.
-- `get_final_agent_message()` — last assistant text block, or `None`.
-- `normalize_tool_name(name)` — strips `mcp__<server>__<tool>` down to `<tool>`.
-- `INFO_SYNTHETIC_PREFIX = "__info__:"` — synthetic call name unifying `exec {command: "info <tool>"}` and Claude Code's `ToolSearch(select:...)` as "tool schema loaded".
+The runner combines `AgentArtifacts` with the agent log and setup results.
 
-`ToolCall` fields: `name` (normalized; `exec` unwrapped to the inner tool), `input: dict`, `output: str`, `is_error` (also `True` when unpaired), `call_id`, `position` (chronological index), `raw_name`, `is_exec_unwrapped`, `requested_output_format` (`"json"` / `"optimized"` / `None`).
+| Output key                                                       | Content                                                |
+| ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `exit_code`, `stderr`                                            | Execution status and error text                        |
+| `last_message`, `messages`, `prompt`                             | Final answer, parsed messages, and initial user prompt |
+| `raw_log`                                                        | Raw JSONL agent log for `LogParser`                    |
+| `seed`                                                           | Seeder return value                                    |
+| `stdout`, `tool_call_count`, `duration_seconds`                  | Tool output, tool count, and elapsed time              |
+| `git_diff`, `files_changed`, `pr_url`                            | Available repository artifacts                         |
+| `test_exit_code`, `test_output`, `lint_exit_code`, `lint_output` | Available test and lint artifacts                      |
 
-## Judge scorer shape
+Some fields can be empty or `None`. Check the required fields before scoring.
+One-shot tasks define their own output dictionary. Do not assume they contain sandboxed output fields.
+
+## Write a deterministic scorer
+
+Reuse `RequiredToolCall`, `NoToolCall`, and other generic scorers when they measure the requirement.
+A new deterministic scorer subclasses `Scorer` and implements `_run_eval_sync` only.
+The base class provides the async execution path.
+
+This example checks final text for a required event name:
 
 ```python
 from typing import Any
 
-from braintrust import Score
-
-from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 
-class SaysHello(JudgedScorer):
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="says_hello",
-            prompt_template="...did the agent greet the user?...\n<msg>{{output.last_message}}</msg>\nAnswer `yes` or `no`.",
-            choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
-            max_completion_tokens=128,
-            **kwargs,
+class MentionsEvent(Scorer):
+    def _name(self) -> str:
+        return "mentions_event"
+
+    def _run_eval_sync(
+        self,
+        output: dict[str, Any] | None,
+        expected: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Score:
+        target = (expected or {}).get(self._name())
+        if target is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "Not applicable"})
+        message = (output or {}).get("last_message") or ""
+        return Score(
+            name=self._name(),
+            score=1.0 if target["event"] in message else 0.0,
+            metadata={"event": target["event"]},
         )
-
-    def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        if not output or not output.get("last_message"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No final message"})
-        return {"output": {"last_message": output["last_message"]}}
 ```
 
-`_prepare` returns template variables — `{{output.*}}` / `{{expected.*}}` in `prompt_template` resolve against the returned `"output"` / `"expected"` values, not the raw case output. Shared constants: `BINARY_CHOICE_SCORES` (yes/no), `GRADED_ALIGNMENT_CHOICE_SCORES` (six-bucket scale), `JUDGE_MODEL`.
+Use it with `expected={"mentions_event": {"event": "signed_up"}}` and `scorers=[MentionsEvent()]`.
+This scorer checks only text presence. It cannot prove that the answer is correct.
+Use a query-result check or a judge when the requirement needs more evidence.
+A missing answer fails the check. A case without this expected-value key skips it.
 
-## Determinism discipline
+## Parse tool and skill calls
 
-The dataset is byte-for-byte reproducible under the fixed `EVAL_SEED` (`products/posthog_ai/eval_harness/data_setup.py`), and noise generators use fixed seeds.
+Use `LogParser.cached(raw_log, initial_prompt=...)` so scorers share one parsed log.
 
-- Reference events, properties, flags, and insight names **exactly** as listed in the Hedgebox dataset reference (`products/posthog_ai/evals/AGENTS.md`).
-- Prefer relative date ranges (`-30d`, `-8w`, `-6m`) and shape-based assertions; never hard-code absolute counts — they drift when the simulation changes.
-- Mirror seeded insights with `filterTestAccounts=True`; use the `account` group type (index 0) for group math.
-- Share constants between synthesizer/seeder, prompts, and scorers by importing them (the warehouse needle pattern) instead of restating strings.
+| Method                       | Result                                                        |
+| ---------------------------- | ------------------------------------------------------------- |
+| `get_tool_calls(name=None)`  | Chronological tool calls, excluding the native `Skill` tool   |
+| `get_skill_calls(name=None)` | Native skill calls                                            |
+| `was_skill_called(name)`     | Whether the native skill call exists                          |
+| `get_user_prompt()`          | First user text, with the supplied initial prompt as fallback |
+| `get_final_agent_message()`  | Last assistant text block, or `None`                          |
+| `normalize_tool_name(name)`  | Tool name without the `mcp__<server>__` prefix                |
+
+Tool calls expose `name`, `input`, `output`, `is_error`, `call_id`, and `position`.
+The parser unwraps exec calls to the inner tool name.
+Unpaired calls have `is_error=True`.
+Use `not call.is_error` when counting successful actions.
+The synthetic `__info__:` prefix identifies schema-discovery calls.
+For exec skill delivery, reuse the existing skill-distribution scorers rather than assuming a native `Skill` call.
+
+## Write an LLM judge
+
+Subclass `JudgedScorer` from `products.posthog_ai.eval_harness.scorers`.
+Set the prompt template and choice scores in `__init__`. Implement `_prepare` only.
+Do not implement `_run_eval_sync` or `_run_eval_async` on the judge.
+
+`_prepare` returns either a `Score` or template variables such as `{"output": ..., "expected": ...}`.
+The template reads these prepared values through `{{output.*}}` and `{{expected.*}}`.
+Return a failed score when required input is missing.
+Return `None` as the score only when the check does not apply.
+The shared judge base maps judge errors to `0.0`.
+
+Reuse `JUDGE_MODEL`, `BINARY_CHOICE_SCORES`, or `GRADED_ALIGNMENT_CHOICE_SCORES` where appropriate.
+Read an existing domain judge before writing a new judge prompt.
+
+## Write a one-shot suite
+
+Set `SUITE_KIND = SuiteKind.ONE_SHOT` at module level.
+Import `SuiteKind` from `products.posthog_ai.eval_harness.harness.requirements`.
+Use `BaseEvalCase` and `OneShotPrivateEval` or `OneShotPublicEval` from `eval_harness.one_shot`.
+
+Supply `task=` with an async function that accepts `(case: BaseEvalCase, ctx: EvalContext)` and returns a JSON-serializable dictionary.
+That dictionary becomes the scorer's `output`. The runner adds `prompt` if needed.
+An optional `last_message` supplies text for the local summary.
+The harness applies its one-shot concurrency limit and case timeout.
+
+Read the shared demo team through `ctx.demo_data.master_team_id`.
+If the task needs writes, call `data_setup.copy_demo_data_to_new_team` under `ctx.demo_slots`.
+Use deterministic scorers for your dictionary or `JudgedScorer` for semantic checks.
+Do not add `ExitCodeZero` or sandbox-log scorers. One-shot suites have no agent sandbox log.
+
+## Keep expectations stable
+
+Read the [Hedgebox taxonomy](../../../../products/posthog_ai/evals/AGENTS.md) before writing prompts and assertions.
+Use relative date ranges such as `-30d`, `-8w`, or `-6m`.
+Use `filterTestAccounts=True` when matching seeded insights.
+Use the `account` group type, at index 0, for group calculations.
+Keep scorer and synthesizer unit tests in `eval_harness/test/` or the product's existing test directory.
