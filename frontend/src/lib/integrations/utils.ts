@@ -3,6 +3,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { IntegrationKind } from '~/types'
 
 import IconApple from 'public/services/apple_search_ads.png'
+import IconAwsKinesis from 'public/services/aws-kinesis.png'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
@@ -130,6 +131,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
     'aws-redshift': IconRedshift,
+    'aws-kinesis': IconAwsKinesis,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
@@ -185,6 +187,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'PostgreSQL'
         case 'aws-s3':
             return 'AWS S3'
+        case 'aws-kinesis':
+            return 'AWS Kinesis'
         // Named after the batch export destination users already see, not the `aws-` kind prefix.
         case 'aws-redshift':
             return 'Redshift'

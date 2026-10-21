@@ -5,9 +5,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
-// PostHog's own role, which a customer's trust policy has to name. Mirrors
-// BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN per region, the role every AWS role integration assumes from.
-const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
+// PostHog's own role for batch exports, which a customer's trust policy has to name. Mirrors
+// BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN per region.
+const BATCH_EXPORTS_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
     [Region.US]: 'arn:aws:iam::309986977637:role/posthog-external-batch-exports',
     [Region.EU]: 'arn:aws:iam::623789312881:role/posthog-external-batch-exports',
 }
@@ -15,13 +15,26 @@ const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
 /**
  * The trust-policy checklist shown on the "assume IAM role" tab of an AWS integration setup modal.
  * The first two steps are the same for every AWS service, so callers only supply the permissions
- * their service needs.
+ * their service needs, and the PostHog role that their integration assumes from.
  */
-export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element }): JSX.Element {
+export function AwsRoleRequirements({
+    permissions,
+    posthogRole,
+}: {
+    permissions: JSX.Element
+    posthogRole: 'batch-exports' | 'cdp-destinations'
+}): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
 
-    const posthogRoleArn = preflight?.region ? POSTHOG_ROLE_ARN_BY_REGION[preflight.region] : undefined
+    // The CDP role comes from the instance setting, so the role shown here is always the role that
+    // PostHog validates the customer's role against.
+    const posthogRoleArn =
+        posthogRole === 'cdp-destinations'
+            ? preflight?.cdp_aws_external_role_arn
+            : preflight?.region
+              ? BATCH_EXPORTS_ROLE_ARN_BY_REGION[preflight.region]
+              : undefined
 
     const steps: JSX.Element[] = [
         posthogRoleArn ? (
@@ -37,8 +50,8 @@ export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element 
         ),
         <>
             The trust policy must require an <code>sts:ExternalId</code> condition equal to{' '}
-            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and exports will
-            fail without it.
+            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and does not
+            connect to a role without it.
         </>,
         permissions,
     ]
