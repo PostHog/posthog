@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
     GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
@@ -448,6 +449,12 @@ class GoogleAdsSource(
             # a clean message instead of the raw connection error.
             raise IntegrationAccountListingError(
                 "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
+        except GoogleAdsQuotaExhaustedError as e:
+            # Unlike the sync path, no Temporal activity retries this interactive call, so a 429
+            # otherwise surfaces as an unhandled 500 instead of something the user can act on.
+            raise IntegrationAccountListingError(
+                "Google Ads rate-limited this request. Please wait a moment and try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}

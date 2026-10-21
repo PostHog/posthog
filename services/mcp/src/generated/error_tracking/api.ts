@@ -8216,7 +8216,7 @@ export const ErrorTrackingIssuesSplitCreateBody = () => zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const ErrorTrackingQueryIssueCreateParams = () => zod.object({
@@ -8681,7 +8681,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
         .optional()
-        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_release.'),
     fingerprint: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
