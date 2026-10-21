@@ -559,6 +559,7 @@ module "metrics4_names_family" {
   storage = {
     engine       = "AggregatingMergeTree"
     partition_by = "toDate(original_expiry_time_bucket)"
+    primary_key  = "(team_id, time_bucket, metric_name, original_expiry_time_bucket)"
     order_by     = "(team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)"
     ttl          = var.ttl ? "original_expiry_timestamp" : null
   }

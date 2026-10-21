@@ -65,10 +65,14 @@ module "sharded_flag_evaluations_family" {
     { name = "_timestamp", type = "DateTime" },
     { name = "_offset", type = "UInt64" },
     { name = "_partition", type = "UInt64" },
+    { name = "properties_group_custom", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))" },
+    { name = "person_properties_map_custom", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))" },
   ]
   storage = {
+    engine       = "ReplacingMergeTree"
+    engine_args  = ["_timestamp"]
     partition_by = "toYYYYMM(timestamp)"
-    order_by     = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
+    order_by     = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))"
     ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
     settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
     indexes = [
@@ -77,6 +81,10 @@ module "sharded_flag_evaluations_family" {
       { name = "session_id_idx", expression = "session_id", type = "bloom_filter(0.01)", granularity = 1 },
       { name = "request_id_idx", expression = "request_id", type = "bloom_filter(0.01)", granularity = 1 },
       { name = "inserted_at_idx", expression = "inserted_at", type = "minmax", granularity = 1 },
+      { name = "properties_group_custom_keys_bf", expression = "mapKeys(properties_group_custom)", type = "bloom_filter", granularity = 1 },
+      { name = "properties_group_custom_values_bf", expression = "mapValues(properties_group_custom)", type = "bloom_filter", granularity = 1 },
+      { name = "person_properties_map_custom_keys_bf", expression = "mapKeys(person_properties_map_custom)", type = "bloom_filter", granularity = 1 },
+      { name = "person_properties_map_custom_values_bf", expression = "mapValues(person_properties_map_custom)", type = "bloom_filter", granularity = 1 },
     ]
   }
   routing = {
@@ -105,6 +113,8 @@ module "sharded_flag_evaluations_family" {
       { name = "_timestamp", type = "DateTime" },
       { name = "_offset", type = "UInt64" },
       { name = "_partition", type = "UInt64" },
+      { name = "properties_group_custom", type = "Map(String, String)" },
+      { name = "person_properties_map_custom", type = "Map(String, String)" },
     ]
     write_columns = [
       { name = "uuid", type = "UUID" },

@@ -66,6 +66,7 @@ locals {
     "logs32_to_resource_attributes",
     "logs34",
     "logs34_to_log_attributes3",
+    "logs34_to_pattern_buckets",
     "logs34_to_resource_attributes3",
     "logs34_to_volume_buckets",
     "logs_billing_metrics",

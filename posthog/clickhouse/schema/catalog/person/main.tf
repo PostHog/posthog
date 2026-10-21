@@ -46,10 +46,18 @@ locals {
     { name = "last_seen_at", type = "Nullable(DateTime64(3))" },
   ]
 
-  person_columns = concat(local.kafka_person_columns, [
+  person_columns = [
+    { name = "id", type = "UUID" },
+    { name = "created_at", type = "DateTime64(3)" },
+    { name = "team_id", type = "Int64" },
+    { name = "properties", type = "String" },
+    { name = "is_identified", type = "Int8" },
+    { name = "is_deleted", type = "Int8", default_expression = "0" },
+    { name = "version", type = "UInt64" },
     { name = "_timestamp", type = "DateTime" },
     { name = "_offset", type = "UInt64" },
-  ])
+    { name = "last_seen_at", type = "Nullable(DateTime64(3))" },
+  ]
 }
 
 module "person_family" {
@@ -62,14 +70,25 @@ module "person_family" {
   layout   = "global"
   columns  = local.person_columns
   storage = {
-    engine      = "ReplacingMergeTree"
-    engine_args = ["version"]
-    order_by    = "(team_id, id)"
-    indexes = [
-      { name = "kafka_timestamp_minmax_person", expression = "_timestamp", type = "minmax", granularity = 3 },
-    ]
-    unmanaged_columns = ["^p?mat_"]
+    engine            = "ReplacingMergeTree"
+    engine_args       = ["version"]
+    order_by          = "(team_id, id)"
+    unmanaged_columns = ["^(p?mat_|alias_pmat_)"]
     unmanaged_indexes = ["^(minmax|bloom_filter|bloom_filter_lower|ngram_bf_lower)_p?mat_"]
+  }
+  routing = {
+    write_columns = [
+      { name = "id", type = "UUID" },
+      { name = "created_at", type = "DateTime64(3)" },
+      { name = "team_id", type = "Int64" },
+      { name = "properties", type = "String" },
+      { name = "is_identified", type = "Int8" },
+      { name = "is_deleted", type = "Int8" },
+      { name = "version", type = "UInt64" },
+      { name = "_timestamp", type = "DateTime" },
+      { name = "_offset", type = "UInt64" },
+      { name = "last_seen_at", type = "Nullable(DateTime64(3))" },
+    ]
   }
   kafka = {
     topic          = "clickhouse_person"

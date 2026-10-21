@@ -91,6 +91,7 @@ locals {
     { name = "severity_text", type = "LowCardinality(String)" },
     { name = "pattern_version", type = "UInt8" },
     { name = "pattern", type = "String" },
+    { name = "retention_days", type = "SimpleAggregateFunction(max, UInt16)" },
     { name = "log_count", type = "SimpleAggregateFunction(sum, UInt64)" },
   ]
 
@@ -431,6 +432,7 @@ module "logs_kafka_metrics_family" {
   storage = {
     engine   = "AggregatingMergeTree"
     order_by = "(_topic, _partition)"
+    settings = "deduplicate_merge_projection_mode = 'rebuild', index_granularity = 8192"
   }
   routing = {
     read = true
@@ -453,8 +455,8 @@ module "logs_pattern_buckets_family" {
     partition_by = "toDate(time_bucket)"
     primary_key  = "(team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)"
     order_by     = "(team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)"
-    ttl          = var.ttl ? "time_bucket + toIntervalDay(42)" : null
-    settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
+    ttl          = var.ttl ? "time_bucket + toIntervalDay(greatest(42, retention_days))" : null
+    settings     = "index_granularity = 8192, ttl_only_drop_parts = 0"
   }
   routing = {
     read         = true
@@ -822,6 +824,60 @@ module "logs34_to_volume_buckets" {
   depends_on = [
     module.logs34_family,
     module.logs_volume_buckets_family,
+  ]
+}
+
+module "logs34_to_pattern_buckets" {
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
+
+  enabled  = contains(var.objects, "logs34_to_pattern_buckets")
+  database = var.database
+  name     = "logs34_to_pattern_buckets"
+  to_table = "${var.database}.logs_pattern_buckets"
+  query    = <<-SQL
+    SELECT
+        team_id,
+        time_bucket,
+        service_name,
+        namespace,
+        environment,
+        severity_text,
+        pattern_version,
+        pattern,
+        maxSimpleState(retention_days) AS retention_days,
+        sumSimpleState(1) AS log_count
+    FROM
+    (
+        SELECT
+            team_id,
+            toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+            service_name,
+            if((resource_attributes['k8s.namespace.name']) != '', resource_attributes['k8s.namespace.name'], resource_attributes['service.namespace']) AS namespace,
+            if((resource_attributes['deployment.environment.name']) != '', resource_attributes['deployment.environment.name'], if((resource_attributes['deployment.environment']) != '', resource_attributes['deployment.environment'], resource_attributes['env'])) AS environment,
+            lower(severity_text) AS severity_text,
+            pattern_version,
+            pattern,
+            toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
+        FROM ${var.database}.logs34
+        WHERE pattern_version != 0
+    )
+    GROUP BY
+        team_id,
+        time_bucket,
+        service_name,
+        namespace,
+        environment,
+        severity_text,
+        pattern_version,
+        pattern
+  SQL
+  override = try(local.deployment.overrides["logs34_to_pattern_buckets"], {})
+
+  depends_on = [
+    module.logs34_family,
+    module.logs_pattern_buckets_family,
   ]
 }
 

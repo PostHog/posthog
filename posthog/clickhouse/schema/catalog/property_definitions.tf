@@ -20,7 +20,7 @@ module "property_definitions" {
     { name = "group_type_index", type = "Nullable(UInt8)" },
     { name = "type", type = "UInt8", default_expression = "1" },
     { name = "last_seen_at", type = "DateTime" },
-    { name = "version", type = "UInt64", materialized_expression = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))" },
+    { name = "version", type = "UInt64", materialized_expression = "bitShiftLeft(toUInt64(NOT (property_type IS NULL)), 48) + toUInt64(toUnixTimestamp(last_seen_at))" },
   ]
   deployment = merge(var.deployment.global, try(var.deployment.families.property_definitions, {}), { overrides = var.overrides })
 }

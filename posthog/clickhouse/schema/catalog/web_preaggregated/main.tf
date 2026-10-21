@@ -175,8 +175,8 @@ locals {
     { name = "has_gclid", type = "Bool" },
     { name = "has_gad_source_paid_search", type = "Bool" },
     { name = "has_fbclid", type = "Bool" },
-    { name = "mat_metadata_loggedIn", type = "Bool" },
-    { name = "mat_metadata_backend", type = "String" },
+    { name = "mat_metadata_loggedIn", type = "Nullable(Bool)" },
+    { name = "mat_metadata_backend", type = "Nullable(String)" },
     { name = "persons_uniq_state", type = "AggregateFunction(uniq, UUID)" },
     { name = "sessions_uniq_state", type = "AggregateFunction(uniq, String)" },
     { name = "pageviews_count_state", type = "AggregateFunction(sum, UInt64)" },
@@ -206,8 +206,8 @@ locals {
     { name = "has_gclid", type = "Bool" },
     { name = "has_gad_source_paid_search", type = "Bool" },
     { name = "has_fbclid", type = "Bool" },
-    { name = "mat_metadata_loggedIn", type = "Bool" },
-    { name = "mat_metadata_backend", type = "String" },
+    { name = "mat_metadata_loggedIn", type = "Nullable(Bool)" },
+    { name = "mat_metadata_backend", type = "Nullable(String)" },
     { name = "persons_uniq_state", type = "AggregateFunction(uniq, UUID)" },
     { name = "sessions_uniq_state", type = "AggregateFunction(uniq, String)" },
     { name = "pageviews_count_state", type = "AggregateFunction(sum, UInt64)" },
@@ -560,7 +560,7 @@ module "web_pre_aggregated_bounces_family" {
   columns  = local.web_pre_aggregated_bounces_columns
   storage = {
     partition_by = "toYYYYMMDD(period_bucket)"
-    order_by     = "(team_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_loggedIn, mat_metadata_backend)"
+    order_by     = "(team_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid)"
   }
   deployment = local.deployment
 }
@@ -576,7 +576,7 @@ module "web_pre_aggregated_bounces_staging_family" {
   columns  = local.web_pre_aggregated_bounces_columns
   storage = {
     partition_by = "toYYYYMMDD(period_bucket)"
-    order_by     = "(team_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_loggedIn, mat_metadata_backend)"
+    order_by     = "(team_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid)"
   }
   deployment = local.deployment
 }
@@ -592,7 +592,7 @@ module "web_pre_aggregated_stats_family" {
   columns  = local.web_pre_aggregated_stats_columns
   storage = {
     partition_by = "toYYYYMMDD(period_bucket)"
-    order_by     = "(team_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_loggedIn, mat_metadata_backend)"
+    order_by     = "(team_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid)"
   }
   deployment = local.deployment
 }
@@ -608,7 +608,7 @@ module "web_pre_aggregated_stats_staging_family" {
   columns  = local.web_pre_aggregated_stats_columns
   storage = {
     partition_by = "toYYYYMMDD(period_bucket)"
-    order_by     = "(team_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_loggedIn, mat_metadata_backend)"
+    order_by     = "(team_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid)"
   }
   deployment = local.deployment
 }
@@ -629,7 +629,7 @@ module "web_pre_aggregated_teams_family" {
   storage = {
     engine      = "ReplacingMergeTree"
     engine_args = ["version"]
-    order_by    = "(team_id)"
+    order_by    = "team_id"
   }
   deployment = merge({
     keeper_path = "/clickhouse/tables/noshard/${var.database}.web_analytics_team_selection"
