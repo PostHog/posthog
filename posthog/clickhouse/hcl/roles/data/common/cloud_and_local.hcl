@@ -253,6 +253,56 @@ database "posthog" {
     }
   }
 
+  table "distributed_posthog_document_embeddings_text_embedding_3_small_256" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "product" {
+      type = "LowCardinality(String)"
+    }
+    column "document_type" {
+      type = "LowCardinality(String)"
+    }
+    column "rendering" {
+      type = "LowCardinality(String)"
+    }
+    column "document_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "content" {
+      type    = "String"
+      default = "''"
+    }
+    column "metadata" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "embedding" {
+      type = "Array(Float64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_posthog_document_embeddings_text_embedding_3_small_256"
+      sharding_key    = "cityHash64(document_id)"
+    }
+  }
+
   table "duplicate_events" {
     order_by     = ["team_id", "distinct_id", "event", "inserted_at"]
     partition_by = "toYYYYMMDD(inserted_at)"
@@ -837,6 +887,23 @@ SELECT
   _partition,
   'text-embedding-3-large-3072' AS model_name
 FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_large_3072
+UNION ALL
+SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition,
+  'text-embedding-3-small-256' AS model_name
+FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_small_256
 SQL
 
   }
@@ -1553,6 +1620,70 @@ SQL
     }
   }
 
+  table "sharded_posthog_document_embeddings_text_embedding_3_small_256" {
+    order_by     = ["team_id", "toDate(timestamp)", "product", "document_type", "rendering", "cityHash64(document_id)"]
+    partition_by = "toMonday(timestamp)"
+    ttl          = "timestamp + toIntervalMonth(1)"
+    settings = {
+      index_granularity   = "512"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "product" {
+      type = "LowCardinality(String)"
+    }
+    column "document_type" {
+      type = "LowCardinality(String)"
+    }
+    column "rendering" {
+      type = "LowCardinality(String)"
+    }
+    column "document_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "content" {
+      type    = "String"
+      default = "''"
+    }
+    column "metadata" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "embedding" {
+      type = "Array(Float64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_256" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    constraint "embedding_dimension_check" {
+      check = "length(embedding) = 256"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_256"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
   table "sharded_preaggregation_results" {
     order_by     = ["team_id", "job_id", "time_window_start", "breakdown_value"]
     partition_by = "toYYYYMM(time_window_start)"
@@ -1860,6 +1991,56 @@ SQL
       cluster_name    = "posthog"
       remote_database = "posthog"
       remote_table    = "sharded_posthog_document_embeddings_text_embedding_3_small_1536"
+      sharding_key    = "cityHash64(document_id)"
+    }
+  }
+
+  table "writable_posthog_document_embeddings_text_embedding_3_small_256" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "product" {
+      type = "LowCardinality(String)"
+    }
+    column "document_type" {
+      type = "LowCardinality(String)"
+    }
+    column "rendering" {
+      type = "LowCardinality(String)"
+    }
+    column "document_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "content" {
+      type    = "String"
+      default = "''"
+    }
+    column "metadata" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "embedding" {
+      type = "Array(Float64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_posthog_document_embeddings_text_embedding_3_small_256"
       sharding_key    = "cityHash64(document_id)"
     }
   }

@@ -822,6 +822,51 @@ SQL
     }
   }
 
+  materialized_view "posthog_document_embeddings_text_embedding_3_small_256_mv" {
+    to_table = "posthog.writable_posthog_document_embeddings_text_embedding_3_small_256"
+    query    = file("sql/posthog_document_embeddings_text_embedding_3_small_256_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "product" {
+      type = "LowCardinality(String)"
+    }
+    column "document_type" {
+      type = "LowCardinality(String)"
+    }
+    column "rendering" {
+      type = "LowCardinality(String)"
+    }
+    column "document_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "content" {
+      type = "String"
+    }
+    column "metadata" {
+      type = "String"
+    }
+    column "embedding" {
+      type = "Array(Float64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   table "property_definitions" {
     order_by = ["team_id", "type", "coalesce(event, '')", "name", "coalesce(group_type_index, 255)"]
     settings = {
