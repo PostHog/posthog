@@ -20,11 +20,8 @@ class CloudflareR2FileFormatConfig(config.Config):
 
 @config.config
 class CloudflareR2SourceConfig(config.Config):
-    account_id: str
-    bucket: str
+    url_pattern: str
     access_key_id: str
     secret_access_key: str
     file_format: CloudflareR2FileFormatConfig
-    path: str | None = None
-    file_pattern: str | None = None
     combine_files: CloudflareR2CombineFilesConfig | None = None
