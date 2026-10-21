@@ -8,7 +8,7 @@ from django.http import HttpRequest
 import structlog
 from pydantic import BaseModel, Field
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 
 from posthog.schema import (
@@ -39,7 +39,7 @@ from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourc
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
@@ -363,6 +363,8 @@ class UpsertDashboardTool(MaxTool):
         try:
             serializer.is_valid(raise_exception=True)
             dashboard = serializer.save()
+        except PermissionDenied as error:
+            raise MaxToolAccessDeniedError("insight", "viewer", action="read") from error
         except ValidationError as error:
             raise MaxToolRetryableError(str(error.detail)) from error
         dashboard.variables = variables

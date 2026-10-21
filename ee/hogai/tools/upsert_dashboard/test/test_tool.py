@@ -28,6 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
@@ -1875,6 +1876,7 @@ class TestUpsertDashboardTool(BaseTest):
         copied_insight.query = DEFAULT_TRENDS_QUERY.model_dump()
         await copied_insight.asave(update_fields=["query"])
         await source_insight.arefresh_from_db()
+        assert source_insight.query is not None
         self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
 
         creation_events = [
@@ -1900,17 +1902,40 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("subscription_id", str(error.exception))
         self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), 1)
 
+    @parameterized.expand(["validation", "permission"])
     @patch("posthog.event_usage.posthoganalytics.capture")
-    async def test_duplicate_dashboard_rolls_back_invalid_insight(self, mock_capture: MagicMock) -> None:
+    async def test_duplicate_dashboard_rolls_back_failed_copy(self, failure: str, mock_capture: MagicMock) -> None:
         source, source_insight, *_ = await self._create_variable_dashboard()
-        invalid_insight = await self._create_insight("x" * 400)
+        expected_error: type[MaxToolRetryableError | MaxToolAccessDeniedError] = MaxToolRetryableError
+        error_message = "copy the insight"
+        if failure == "validation":
+            invalid_insight = await self._create_insight("x" * 400)
+        else:
+            expected_error = MaxToolAccessDeniedError
+            error_message = "viewer access"
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await self.organization.asave()
+            membership = await OrganizationMembership.objects.aget(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.MEMBER
+            await membership.asave()
+            invalid_insight = await self._create_insight("Restricted insight")
+            await Insight.objects.filter(id=invalid_insight.id).aupdate(created_by=None)
+            await AccessControl.objects.acreate(
+                team=self.team,
+                resource="insight",
+                resource_id=str(invalid_insight.id),
+                access_level="none",
+                organization_member=membership,
+            )
         await DashboardTile.objects.acreate(dashboard=source, insight=invalid_insight)
         dashboard_count = await Dashboard.objects.filter(team=self.team).acount()
         insight_count = await Insight.objects.filter(team=self.team).acount()
         tile_count = await DashboardTile.objects.filter(dashboard__team=self.team).acount()
         text_count = await Text.objects.filter(team=self.team).acount()
 
-        with self.assertRaisesRegex(MaxToolRetryableError, "copy the insight"):
+        with self.assertRaisesRegex(expected_error, error_message):
             await self._create_tool()._arun_impl(
                 DuplicateDashboardToolArgs(dashboard_id=str(source.id), name="Invalid copy")
             )
@@ -1920,6 +1945,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(await DashboardTile.objects.filter(dashboard__team=self.team).acount(), tile_count)
         self.assertEqual(await Text.objects.filter(team=self.team).acount(), text_count)
         await source_insight.arefresh_from_db()
+        assert source_insight.query is not None
         self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
         self.assertFalse(any(call.kwargs.get("event") == "dashboard created" for call in mock_capture.call_args_list))
 
