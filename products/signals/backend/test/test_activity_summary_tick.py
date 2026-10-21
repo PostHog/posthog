@@ -31,6 +31,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -103,6 +104,24 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             capture_events=False,
         ),
     ),
+    (
+        "limits fall back to the defaults when invalid and clamp when too large",
+        {
+            "enabled": True,
+            "limits": {
+                "task_lines": 20,
+                "activity_lines": 0,
+                "max_units_per_day": True,
+                "sections_max_chars": "9000",
+                "window_days": 10_000,
+                "max_completion_tokens": 10_000_000,
+            },
+        },
+        ActivitySummaryConfig(
+            enabled=True, limits=RenderLimits(task_lines=20, window_days=90, max_completion_tokens=16000)
+        ),
+    ),
+    ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
 ]
 
 
@@ -371,6 +390,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "min_update_interval_hours": 24.0,
         "emit_embeddings": True,
         "capture_events": True,
+        "limits": DEFAULT_LIMITS,
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})

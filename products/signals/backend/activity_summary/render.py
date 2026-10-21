@@ -20,7 +20,10 @@ from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 
-# Bump on any change to the filters, the caps, the sampling or the rendered layout, so summaries stay comparable.
+from products.signals.backend.activity_summary.prompt import SUMMARY_MAX_WORDS
+
+# Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
+# stay comparable. Limits from the flag payload go into `inputs_used` instead.
 RENDER_VERSION = 3
 
 WINDOW_DAYS = 28
@@ -36,8 +39,8 @@ MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 MAX_UNITS_PER_DAY = 3
 TASK_LINES = 12
 ACTIVITY_LINES = 15
-# Per-line caps, so one runaway title or intent cannot take the budget. With them a full prompt
-# section stays under SECTIONS_MAX_CHARS; the hard stop is the backstop if the caps change.
+# Per-line caps, so one runaway title or intent cannot take the budget. With the default caps a full
+# prompt section stays under SECTIONS_MAX_CHARS; the hard stop is the backstop when the caps change.
 TASK_LINE_CHARS = 260
 TASK_GOAL_CHARS = 180
 TASK_TITLE_CHARS = 100
@@ -47,6 +50,8 @@ ACTIVITY_LINE_CHARS = 220
 ACTIVITY_NAME_CHARS = 70
 ACTIVITY_INTENT_CHARS = 100
 SECTIONS_MAX_CHARS = 8000
+# Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
+MAX_COMPLETION_TOKENS = 4000
 
 # Masking and whitespace folding shorten a text, so the patterns read this many times its cap.
 RAW_TEXT_FACTOR = 4
@@ -82,6 +87,26 @@ _WORD_RUN = re.compile(r"[\w-]{24,}")
 _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
+
+
+@frozen
+class RenderLimits:
+    """The limits that shape one summary. The `activity-summary` flag payload can override each one."""
+
+    window_days: int = WINDOW_DAYS
+    task_lines: int = TASK_LINES
+    activity_lines: int = ACTIVITY_LINES
+    max_units_per_day: int = MAX_UNITS_PER_DAY
+    sections_max_chars: int = SECTIONS_MAX_CHARS
+    task_line_chars: int = TASK_LINE_CHARS
+    task_goal_chars: int = TASK_GOAL_CHARS
+    activity_line_chars: int = ACTIVITY_LINE_CHARS
+    activity_intent_chars: int = ACTIVITY_INTENT_CHARS
+    summary_max_words: int = SUMMARY_MAX_WORDS
+    max_completion_tokens: int = MAX_COMPLETION_TOKENS
+
+
+DEFAULT_LIMITS = RenderLimits()
 
 
 class Drop(StrEnum):
@@ -196,15 +221,15 @@ def _day(at: datetime.datetime) -> datetime.date:
     return at.astimezone(datetime.UTC).date()
 
 
-def summary_goal(summary: str) -> str:
+def summary_goal(summary: str, max_chars: int = TASK_GOAL_CHARS) -> str:
     """The opening sentences of a task summary, which state what was asked, without the label."""
     text = _SUMMARY_LABEL.sub("", clean_text(bounded_raw(summary, MAX_SUMMARY_CHARS), MAX_SUMMARY_CHARS))
     goal = ""
     for sentence in _SENTENCE_END.split(text):
-        if goal and len(goal) + len(sentence) + 1 > TASK_GOAL_CHARS:
+        if goal and len(goal) + len(sentence) + 1 > max_chars:
             break
         goal = f"{goal} {sentence}".strip()
-    return cap_line(goal, TASK_GOAL_CHARS)
+    return cap_line(goal, max_chars)
 
 
 def _templated_label(title: str) -> str | None:
@@ -214,7 +239,7 @@ def _templated_label(title: str) -> str | None:
     return None
 
 
-def task_units(tasks: Iterable[TaskItem], drops: Counter[str]) -> list[Unit]:
+def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS) -> list[Unit]:
     """One line per task, with templated titles collapsed to one line per template."""
     units: list[Unit] = []
     templated: dict[str, list[datetime.datetime]] = {}
@@ -230,22 +255,27 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str]) -> list[Unit]:
         if task.summary:
             tags = [cap_line(clean_text(tag, MAX_TAG_CHARS * 2), MAX_TAG_CHARS) for tag in task.tags[:MAX_TAGS]]
             tag_text = f"[{', '.join(tag for tag in tags if tag)}] " if any(tags) else ""
-            line = f"- {day} {tag_text}{summary_goal(task.summary)}"
+            line = f"- {day} {tag_text}{summary_goal(task.summary, limits.task_goal_chars)}"
         elif len(title.split()) >= MIN_BARE_TITLE_WORDS:
             line = f"- {day} {cap_line(clean_text(title, TASK_TITLE_CHARS * 2), TASK_TITLE_CHARS)}"
         else:
             drops[Drop.BARE_TITLE] += 1
             continue
-        units.append(Unit(at=task.at, text=cap_line(line, TASK_LINE_CHARS)))
+        units.append(Unit(at=task.at, text=cap_line(line, limits.task_line_chars)))
     for label, times in templated.items():
         latest = max(times)
         units.append(
-            Unit(at=latest, text=cap_line(f"- {_day(latest).isoformat()} {label} (x{len(times)})", TASK_LINE_CHARS))
+            Unit(
+                at=latest,
+                text=cap_line(f"- {_day(latest).isoformat()} {label} (x{len(times)})", limits.task_line_chars),
+            )
         )
     return units
 
 
-def activity_units(items: Iterable[ActivityItem], drops: Counter[str]) -> list[Unit]:
+def activity_units(
+    items: Iterable[ActivityItem], drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS
+) -> list[Unit]:
     """Changes collapsed to one line per object, creates first, then the most changed, then the newest.
 
     A line carries the newest agent intent of its rows. Lines are already collapsed per object, so
@@ -272,10 +302,10 @@ def activity_units(items: Iterable[ActivityItem], drops: Counter[str]) -> list[U
             -max(row.at for row in entry[1]).timestamp(),
         ),
     )
-    if len(ranked) > ACTIVITY_LINES:
-        drops[Drop.SAMPLE_CAP] += len(ranked) - ACTIVITY_LINES
+    if len(ranked) > limits.activity_lines:
+        drops[Drop.SAMPLE_CAP] += len(ranked) - limits.activity_lines
     units: list[Unit] = []
-    for (scope, activity, name), rows in ranked[:ACTIVITY_LINES]:
+    for (scope, activity, name), rows in ranked[: limits.activity_lines]:
         latest = max(row.at for row in rows)
         count = f" (x{len(rows)})" if len(rows) > 1 else ""
         name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
@@ -283,10 +313,10 @@ def activity_units(items: Iterable[ActivityItem], drops: Counter[str]) -> list[U
         intents = [row for row in rows if row.intent and row.intent.strip()]
         if intents:
             intent = max(intents, key=lambda row: row.at).intent or ""
-            intent_text = cap_line(clean_text(intent, ACTIVITY_INTENT_CHARS * 2), ACTIVITY_INTENT_CHARS)
+            intent_text = cap_line(clean_text(intent, limits.activity_intent_chars * 2), limits.activity_intent_chars)
             if intent_text:
                 line += f" (agent: {intent_text})"
-        units.append(Unit(at=latest, text=cap_line(line, ACTIVITY_LINE_CHARS)))
+        units.append(Unit(at=latest, text=cap_line(line, limits.activity_line_chars)))
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
@@ -301,12 +331,12 @@ def dedupe_latest(units: Iterable[Unit], drops: Counter[str]) -> list[Unit]:
     return sorted(latest.values(), key=lambda unit: (unit.at, unit.text))
 
 
-def burst_cap(units: Sequence[Unit], drops: Counter[str]) -> list[Unit]:
-    """At most `MAX_UNITS_PER_DAY` units per UTC day, newest first, in chronological order."""
+def burst_cap(units: Sequence[Unit], drops: Counter[str], max_per_day: int = MAX_UNITS_PER_DAY) -> list[Unit]:
+    """At most `max_per_day` units per UTC day, newest first, in chronological order."""
     kept: list[Unit] = []
     per_day: Counter[datetime.date] = Counter()
     for unit in sorted(units, key=lambda unit: (unit.at, unit.text), reverse=True):
-        if per_day[_day(unit.at)] >= MAX_UNITS_PER_DAY:
+        if per_day[_day(unit.at)] >= max_per_day:
             drops[Drop.BURST_CAP] += 1
             continue
         per_day[_day(unit.at)] += 1
@@ -349,9 +379,11 @@ def _sections_chars(sections: Sequence[tuple[str, list[Unit]]]) -> int:
     return sum(len(_section(header, units)) + 2 for header, units in sections)
 
 
-def enforce_budget(sections: list[tuple[str, list[Unit]]], drops: Counter[str]) -> None:
-    """Drop the oldest unit across sections until the rendered sections fit `SECTIONS_MAX_CHARS`."""
-    while _sections_chars(sections) > SECTIONS_MAX_CHARS:
+def enforce_budget(
+    sections: list[tuple[str, list[Unit]]], drops: Counter[str], max_chars: int = SECTIONS_MAX_CHARS
+) -> None:
+    """Drop the oldest unit across sections until the rendered sections fit `max_chars`."""
+    while _sections_chars(sections) > max_chars:
         oldest = min((units[0].at, index) for index, (_, units) in enumerate(sections) if units)
         sections[oldest[1]][1].pop(0)
         drops[Drop.SECTIONS_BUDGET] += 1
@@ -363,20 +395,21 @@ def build_input(
     *,
     as_of: datetime.datetime,
     seed: int,
+    limits: RenderLimits = DEFAULT_LIMITS,
 ) -> RenderedInput | None:
     """The rendered input of one (project, person) pair, or None when nothing survives the filters.
 
     Order: the named filters, then the burst cap, then the recency-weighted sample, then the hard
     budget, so the sample is drawn from clean units only."""
     drops: Counter[str] = Counter()
-    task_pool = burst_cap(dedupe_latest(task_units(tasks, drops), drops), drops)
-    activity_lines = activity_units(activity, drops)
+    task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
+    activity_lines = activity_units(activity, drops, limits)
     if not task_pool and not activity_lines:
         return None
-    chosen_tasks = sample_units(task_pool, limit=TASK_LINES, as_of=as_of, seed=seed)
+    chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
     sections = [(TASKS_HEADER, chosen_tasks), (ACTIVITY_HEADER, activity_lines)]
-    enforce_budget(sections, drops)
+    enforce_budget(sections, drops, limits.sections_max_chars)
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
     return RenderedInput(
