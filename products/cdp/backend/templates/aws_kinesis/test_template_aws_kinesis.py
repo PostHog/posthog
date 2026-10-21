@@ -1,24 +1,34 @@
+import pytest
 import time_machine
+
+from parameterized import parameterized
 
 from products.cdp.backend.templates.aws_kinesis.template_aws_kinesis import template as template_aws_kinesis
 from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+
+STREAM_INPUTS = {
+    "aws_region": "aws_region",
+    "aws_kinesis_stream_name": "aws_kinesis_stream_arn",
+    "aws_kinesis_partition_key": "1",
+    "payload": {"hello": "world"},
+}
 
 
 class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
     template = template_aws_kinesis
 
+    @parameterized.expand(
+        [
+            (
+                "access_keys",
+                {"aws_access_key_id": "aws_access_key_id", "aws_secret_access_key": "aws_secret_access_key"},
+            ),
+            ("connection", {"aws_connection": {"$integration_id": 1, "name": "stream writer"}}),
+        ]
+    )
     @time_machine.travel("2024-04-16T12:34:51Z", tick=False)
-    def test_function_works(self):
-        res = self.run_function(
-            inputs={
-                "aws_access_key_id": "aws_access_key_id",
-                "aws_secret_access_key": "aws_secret_access_key",
-                "aws_region": "aws_region",
-                "aws_kinesis_stream_name": "aws_kinesis_stream_arn",
-                "aws_kinesis_partition_key": "1",
-                "payload": {"hello": "world"},
-            }
-        )
+    def test_function_works(self, _name, credential_inputs):
+        res = self.run_function(inputs={**credential_inputs, **STREAM_INPUTS})
 
         # The Hog template now hands signing off to the Node.js cyclotron fetch executor,
         # which re-signs on every attempt. The aws_sigv4 bag carries input-key references,
@@ -39,6 +49,20 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
                     "region": "aws_region",
                     "access_key_id_input": "aws_access_key_id",
                     "secret_access_key_input": "aws_secret_access_key",
+                    "integration_input": "aws_connection",
                 },
             },
         )
+
+    @parameterized.expand(
+        [
+            ("nothing", {}),
+            ("only an access key id", {"aws_access_key_id": "aws_access_key_id"}),
+        ]
+    )
+    def test_function_requires_a_connection_or_access_keys(self, _name, credential_inputs):
+        with pytest.raises(Exception) as e:
+            self.run_function(inputs={**credential_inputs, **STREAM_INPUTS})
+
+        assert "Select an AWS connection, or enter an AWS access key ID and secret access key." in str(e.value)
+        assert self.get_mock_fetch_calls() == []
