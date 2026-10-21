@@ -425,7 +425,7 @@
         "scope": "project"
     },
     "cohortsStaffTools": {
-        "template": "/feature_flags/staff/cohorts",
+        "template": "/feature-flags/staff/cohorts",
         "params": [],
         "scope": "global"
     },
@@ -845,27 +845,27 @@
         "scope": "project"
     },
     "featureFlag": {
-        "template": "/feature_flags/{id}",
+        "template": "/feature-flags/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "featureFlagNew": {
-        "template": "/feature_flags/new",
+        "template": "/feature-flags/new",
         "params": [],
         "scope": "project"
     },
     "featureFlagTemplates": {
-        "template": "/feature_flags/templates",
+        "template": "/feature-flags/templates",
         "params": [],
         "scope": "project"
     },
     "featureFlags": {
-        "template": "/feature_flags",
+        "template": "/feature-flags",
         "params": [],
         "scope": "project"
     },
     "featureFlagsStaffTools": {
-        "template": "/feature_flags/staff",
+        "template": "/feature-flags/staff",
         "params": [],
         "scope": "global"
     },
@@ -1841,6 +1841,11 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
+        "params": [],
+        "scope": "project"
+    },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
         "params": [],
         "scope": "project"
     },

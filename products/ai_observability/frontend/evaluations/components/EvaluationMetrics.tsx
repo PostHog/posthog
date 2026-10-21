@@ -52,12 +52,12 @@ export function EvaluationMetrics(): JSX.Element {
     const enabledEvaluationsCount = evaluations.filter((e) => e.enabled && !e.deleted).length
 
     return (
-        <div className="mb-6">
-            <div className="flex gap-4 h-96">
+        <div className="@container/evaluation-metrics mb-6">
+            <div className="flex flex-col gap-4 @min-[56rem]/evaluation-metrics:flex-row">
                 {evaluationsLoading ? (
-                    <LemonSkeleton className="flex-1 h-full" />
+                    <LemonSkeleton className="flex-1 h-96" />
                 ) : chartQuery ? (
-                    <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
+                    <div className="flex-1 min-w-0 bg-bg-light rounded p-4 flex flex-col InsightCard h-96">
                         <h3 className="text-lg font-semibold mb-2">Pass rate over time</h3>
                         <p className="text-muted text-sm mb-4">Showing pass rate trends for enabled evaluations</p>
                         <div className="flex-1 flex flex-col min-h-0">
@@ -76,7 +76,7 @@ export function EvaluationMetrics(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 bg-bg-light border rounded p-8 flex items-center justify-center">
+                    <div className="flex-1 min-w-0 min-h-48 bg-bg-light border rounded p-8 flex items-center justify-center">
                         <div className="text-muted text-center">
                             No enabled evaluations with pass rates. Enable a boolean evaluation or set a passing rule on
                             a numeric or categorical evaluation.
@@ -84,7 +84,7 @@ export function EvaluationMetrics(): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex-1 grid grid-cols-2 gap-4">
+                <div className="flex-1 min-w-0 grid grid-cols-2 gap-4">
                     {statsLoading ? (
                         Array.from({ length: 4 }, (_, index) => <LemonSkeleton key={index} className="h-full w-full" />)
                     ) : (

@@ -25980,54 +25980,6 @@
                 }
             ]
         },
-        "ExperimentMaxBayesianContext": {
-            "additionalProperties": false,
-            "properties": {
-                "chance_to_win": {
-                    "type": "number"
-                },
-                "credible_interval": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "maxItems": 2,
-                    "minItems": 2,
-                    "type": "array"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "significant": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["key", "chance_to_win", "credible_interval", "significant"],
-            "type": "object"
-        },
-        "ExperimentMaxFrequentistContext": {
-            "additionalProperties": false,
-            "properties": {
-                "confidence_interval": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "maxItems": 2,
-                    "minItems": 2,
-                    "type": "array"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "significant": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["key", "p_value", "confidence_interval", "significant"],
-            "type": "object"
-        },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
@@ -27340,6 +27292,7 @@
                 "logs",
                 "tracing",
                 "metrics",
+                "uptime_monitoring",
                 "workflows",
                 "broadcasts",
                 "notebook",
@@ -41274,6 +41227,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "uptime_monitoring",
                 "metrics",
                 "visual_review",
                 "web_analytics",
@@ -50397,7 +50351,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

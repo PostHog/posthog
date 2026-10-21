@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Generic, NoReturn, Optional
 
 import pyarrow as pa
+from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
@@ -60,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     incremental_field,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -71,6 +73,18 @@ def _raise_translated(error: Exception, location: str) -> NoReturn:
     raise translated from error
 
 
+def _http_status(error: BaseException) -> int | None:
+    """The HTTP status of the botocore error behind an s3fs error, if there is one."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ClientError):
+            status = current.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if isinstance(status, int):
+                return status
+        current = current.__cause__
+    return None
+
+
 def validate_store_location(config: StoreConfig) -> None:
     """Apply the checks a self-managed warehouse table URL gets: https, no internal hosts, and no
     bucket that PostHog itself owns."""
@@ -80,7 +94,7 @@ def validate_store_location(config: StoreConfig) -> None:
 
 
 class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDeltaCursor], Generic[ConfigType]):
-    """Imports the files in a bucket folder: CSV, JSON Lines and Parquet files, and Delta tables.
+    """Imports the files a bucket URL selects: CSV, JSON Lines and Parquet files, and Delta tables.
 
     A full refresh reads each table in full, so the table matches the bucket at the time of the sync.
     The incremental and append sync types read only the files modified since the last sync. They
@@ -110,8 +124,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 "The storage provider rejected these credentials. Check the access key and secret, and that "
                 "the key can list and read the bucket, then reconnect the source."
             ),
-            NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket name, then reconnect the source.",
-            WRONG_REGION_ERROR: "The bucket is in a different region. Fix the region, then reconnect the source.",
+            NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
+            WRONG_REGION_ERROR: (
+                "The bucket is in a different region. Fix the region in the URL, then reconnect the source."
+            ),
             NO_TABLE_FILES_ERROR: (
                 "The files behind this table are no longer in the bucket. Refresh the source's tables, or "
                 "restore the files."
@@ -126,13 +142,20 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     ) -> list[TableDefinition]:
         store_config = self.object_store_config(config)
         try:
-            objects = store.list_objects("", MAX_DISCOVERY_OBJECTS)
+            objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
             _raise_translated(e, store_config.display_location)
         if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
             logger.warning("Reached the object storage listing limit; later objects are ignored")
         root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
-        return group_tables(objects, self.discovery_options(config), root_name=root_name, logger=logger)
+        return group_tables(
+            objects,
+            self.discovery_options(config),
+            root_name=root_name,
+            pattern=store_config.pattern,
+            listing_prefix=store_config.listing_prefix,
+            logger=logger,
+        )
 
     def validate_credentials(
         self,
@@ -146,10 +169,19 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             tables = self._discover(self.open_store(store_config), config)
         except ObjectStorageError as e:
             return False, str(e)
+        except OSError as e:
+            # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
+            status = _http_status(e)
+            if status in (401, 403):
+                return False, str(translate_storage_error(PermissionError(), store_config.display_location))
+            message = probe_status_message(self.get_source_config.label or "The storage provider", status)
+            if message is None:
+                raise
+            return False, message
         if not tables:
             return False, (
                 f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
-                "found nothing to import there. Check the folder, the file pattern, and the file format."
+                "found nothing to import there. Check the URL and the file format."
             )
         return True, None
 
