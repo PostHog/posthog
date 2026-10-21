@@ -217,6 +217,7 @@ dependencies = [
     "deltalite==0.1.12",
     "posthog-hogland==0.4.1",
     "requests-oauthlib~=2.0.0",
+    "adlfs~=2026.8.0",
 ]
 
 [dependency-groups]
