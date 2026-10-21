@@ -31,7 +31,7 @@ A record that can never become a row goes to `DLQ_TOPIC` with its original bytes
 
 - `personhog_changelog_relay_records_total{outcome="relayed"|"dlq", reason}`
 - `personhog_changelog_relay_produce_retries_total{topic}`
-- `personhog_changelog_relay_lag_seconds`: the age of the oldest record in the last batch, or 0 when idle; the one to alert on
+- `personhog_changelog_relay_lag_seconds`: the age of the oldest record in the last batch, or 0 when caught up. It climbs while a delivery retries, and after a failed read it shows the age of the last record relayed. Alert on it together with the rate of `personhog_changelog_relay_produce_retries_total`; the relay keeps reporting healthy during an outage, since a restart would not fix one
 - `personhog_changelog_relay_batch_duration_ms`, `personhog_changelog_relay_batch_records`
 - `personhog_changelog_relay_draining`: 1 while the subscription reads a sealed generation
 - `personhog_changelog_relay_commit_errors_total`, `personhog_changelog_relay_consumer_errors_total`

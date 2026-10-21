@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use common_kafka::kafka_producer::KafkaContext;
 use futures::future::join_all;
 use lifecycle::Handle;
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, gauge, histogram, Gauge};
 use personhog_coordination::follow::ChangelogSubscription;
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
@@ -27,6 +27,8 @@ pub struct Relay {
     dlq_topic: String,
     batch_size: usize,
     batch_timeout: Duration,
+    /// How far `clickhouse_person` trails the leaders, in seconds.
+    lag: Gauge,
 }
 
 impl Relay {
@@ -45,12 +47,19 @@ impl Relay {
             dlq_topic,
             batch_size: batch_size.max(1),
             batch_timeout,
+            lag: gauge!("personhog_changelog_relay_lag_seconds"),
         }
     }
 
+    fn set_lag_since(&self, timestamp_ms: i64) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.lag.set((now - timestamp_ms).max(0) as f64 / 1000.0);
+    }
+
     pub async fn run(&self, handle: &Handle) {
+        let mut last_relayed_ms = None;
         while !handle.is_shutting_down() {
-            let Some(batch) = self.collect(handle).await else {
+            let Some((batch, consumer_failed)) = self.collect(handle).await else {
                 return;
             };
             handle.report_healthy();
@@ -61,7 +70,13 @@ impl Relay {
             });
             histogram!("personhog_changelog_relay_batch_records").record(batch.len() as f64);
             if batch.is_empty() {
-                gauge!("personhog_changelog_relay_lag_seconds").set(0.0);
+                // An empty batch is caught up only if the consumer could read;
+                // otherwise the lag is at most the age of the last record relayed.
+                match (consumer_failed, last_relayed_ms) {
+                    (false, _) => self.lag.set(0.0),
+                    (true, Some(relayed)) => self.set_lag_since(relayed),
+                    (true, None) => {}
+                }
                 continue;
             }
             let started = Instant::now();
@@ -70,23 +85,22 @@ impl Relay {
             }
             histogram!("personhog_changelog_relay_batch_duration_ms")
                 .record(started.elapsed().as_secs_f64() * 1000.0);
-            // The oldest record relayed: how far ClickHouse trails the leaders.
             if let Some(oldest) = batch.iter().filter_map(|r| r.timestamp_ms).min() {
-                let now = chrono::Utc::now().timestamp_millis();
-                gauge!("personhog_changelog_relay_lag_seconds")
-                    .set((now - oldest).max(0) as f64 / 1000.0);
+                self.set_lag_since(oldest);
             }
+            last_relayed_ms = batch.iter().filter_map(|r| r.timestamp_ms).max();
         }
     }
 
-    /// Up to a batch of records, or what arrived within the batch timeout.
-    /// `None` when the consumer is fatally broken.
-    async fn collect(&self, handle: &Handle) -> Option<Vec<Record>> {
+    /// Up to a batch of records, or what arrived within the batch timeout, and
+    /// whether a read failed meanwhile. `None` when the consumer is fatally broken.
+    async fn collect(&self, handle: &Handle) -> Option<(Vec<Record>, bool)> {
         let deadline = tokio::time::Instant::now() + self.batch_timeout;
         let mut batch = Vec::new();
+        let mut failed = false;
         while batch.len() < self.batch_size {
             let received = tokio::select! {
-                _ = handle.shutdown_recv() => return Some(Vec::new()),
+                _ = handle.shutdown_recv() => return Some((Vec::new(), false)),
                 received = tokio::time::timeout_at(deadline, self.consumer.recv()) => received,
             };
             match received {
@@ -101,10 +115,11 @@ impl Relay {
                     }
                     counter!("personhog_changelog_relay_consumer_errors_total").increment(1);
                     warn!(error = %e, "Kafka recv error");
+                    failed = true;
                 }
             }
         }
-        Some(batch)
+        Some((batch, failed))
     }
 
     /// Delivers every record, then commits past them. Returns false when
@@ -131,7 +146,14 @@ impl Relay {
     async fn deliver(&self, record: &Record, handle: &Handle) -> bool {
         let (reason, error) = match person_row(record.payload.as_deref()) {
             Ok(row) => match self
-                .send(&self.output_topic, &row, None, handle, false)
+                .send(
+                    &self.output_topic,
+                    &row,
+                    None,
+                    record.timestamp_ms,
+                    handle,
+                    false,
+                )
                 .await
             {
                 Sent::Delivered => {
@@ -156,7 +178,14 @@ impl Relay {
         let payload = record.payload.as_deref().unwrap_or_default();
         // The record already fit on the changelog, so the DLQ retries even a rejection.
         match self
-            .send(&self.dlq_topic, payload, Some(headers), handle, true)
+            .send(
+                &self.dlq_topic,
+                payload,
+                Some(headers),
+                record.timestamp_ms,
+                handle,
+                true,
+            )
             .await
         {
             Sent::Delivered => {
@@ -180,6 +209,7 @@ impl Relay {
         topic: &str,
         payload: &[u8],
         headers: Option<OwnedHeaders>,
+        timestamp_ms: Option<i64>,
         handle: &Handle,
         retry_rejections: bool,
     ) -> Sent {
@@ -198,8 +228,11 @@ impl Relay {
                     warn!(topic, error = %e, "produce failed; retrying");
                 }
             }
-            // A broker outage is not a stuck process.
+            // A broker outage is not a stuck process, but the lag shows it.
             handle.report_healthy();
+            if let Some(timestamp_ms) = timestamp_ms {
+                self.set_lag_since(timestamp_ms);
+            }
             tokio::select! {
                 _ = handle.shutdown_recv() => return Sent::Shutdown,
                 _ = tokio::time::sleep(backoff) => {}

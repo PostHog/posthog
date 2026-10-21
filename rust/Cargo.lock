@@ -8945,6 +8945,7 @@ dependencies = [
  "futures",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",

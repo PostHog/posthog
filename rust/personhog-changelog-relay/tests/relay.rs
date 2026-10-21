@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use personhog_changelog_relay::consumer::{consumer_client_config, ChangelogConsumer};
 use personhog_changelog_relay::relay::Relay;
 use personhog_coordination::follow::Follower;
@@ -310,6 +311,92 @@ async fn a_move_to_the_live_topic_relays_it_from_its_first_record() {
     assert_eq!(moved, Some(old));
 
     assert_eq!(read(2).await.unwrap(), vec![person(1).uuid, person(2).uuid]);
+
+    handle.request_shutdown();
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the relay stops on shutdown")
+        .unwrap();
+}
+
+/// While a delivery retries, here into a DLQ too small for the record, the
+/// lag gauge climbs from the stuck record's age instead of freezing.
+#[tokio::test]
+async fn the_lag_climbs_while_a_delivery_retries() {
+    let (cluster, producer) = common_kafka::test::create_mock_kafka().await;
+    for topic in [CHANGELOG, OUTPUT, DLQ] {
+        cluster.create_topic(topic, 1, 1).unwrap();
+    }
+    let produced_at = chrono::Utc::now().timestamp_millis() - 60_000;
+    producer
+        .send(
+            FutureRecord::<(), _>::to(CHANGELOG)
+                .partition(0)
+                .timestamp(produced_at)
+                .payload(&vec![0xFF; 2_000]),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+
+    let kafka = KafkaConfig::init_from_hashmap(&HashMap::from([
+        ("KAFKA_HOSTS".to_string(), cluster.bootstrap_servers()),
+        (
+            "KAFKA_PRODUCER_MESSAGE_MAX_BYTES".to_string(),
+            "1500".to_string(),
+        ),
+    ]))
+    .unwrap();
+    let consumer = Arc::new(
+        ChangelogConsumer::new(
+            &consumer_client_config(&kafka, GROUP),
+            CHANGELOG.to_string(),
+        )
+        .unwrap(),
+    );
+    let mut manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "relay",
+        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let _monitor = manager.monitor_background();
+    let output = common_kafka::kafka_producer::create_kafka_producer(&kafka, handle.clone())
+        .await
+        .unwrap();
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let relay = metrics::with_local_recorder(&recorder, || {
+        Relay::new(
+            Arc::clone(&consumer),
+            output,
+            OUTPUT.to_string(),
+            DLQ.to_string(),
+            10,
+            Duration::from_millis(200),
+        )
+    });
+    let run_handle = handle.clone();
+    let running = tokio::spawn(async move { relay.run(&run_handle).await });
+
+    let lag = || {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find(|(key, _, _, _)| key.key().name() == "personhog_changelog_relay_lag_seconds")
+            .map(|(_, _, _, value)| match value {
+                DebugValue::Gauge(value) => value.into_inner(),
+                _ => panic!("the lag is a gauge"),
+            })
+            .unwrap_or_default()
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while lag() < 60.0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(lag() >= 60.0, "lag {} while the DLQ send retries", lag());
 
     handle.request_shutdown();
     tokio::time::timeout(Duration::from_secs(5), running)
