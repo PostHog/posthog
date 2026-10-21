@@ -449,6 +449,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly suggestions_enabled: boolean | null
+    /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -744,6 +746,8 @@ export interface HogFlowApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+    readonly tags: readonly string[]
 }
 
 /**
@@ -846,6 +850,8 @@ export interface HogFlowUpdateApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+    readonly tags: readonly string[]
 }
 
 /**
@@ -948,6 +954,8 @@ export interface PatchedHogFlowUpdateApi {
     readonly email_sending_resumed_at?: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run?: HogFlowLastRunApi | null
+    /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+    readonly tags?: readonly string[]
 }
 
 /**
@@ -1846,6 +1854,63 @@ export interface BroadcastConversionCandidatesApi {
     readonly has_more: boolean
     /** The most recently updated candidates, at most 100. */
     readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
+    /**
+     * List of object UUIDs to update tags on.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
+    reason: string
+}
+
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 /**
@@ -2766,6 +2831,10 @@ export type HogFlowsListParams = {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus
+    /**
+     * Comma-separated tag names. Returns workflows carrying any one of them.
+     */
+    tags?: string
     /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */

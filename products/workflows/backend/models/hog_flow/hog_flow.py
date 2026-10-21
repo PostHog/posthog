@@ -8,6 +8,7 @@ from django.utils.functional import Promise
 import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -150,7 +151,7 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.OriginProduct.choices)
 
 
-class HogFlow(UUIDTModel):
+class HogFlow(Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """

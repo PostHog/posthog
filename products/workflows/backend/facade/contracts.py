@@ -534,6 +534,8 @@ class Workflow:
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
     user_access_level: str | None
+    # Tag names, sorted. Keeps its default last, so every field without one stays above it.
+    tags: tuple[str, ...] = ()
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
@@ -618,6 +620,8 @@ class WorkflowListQuery:
     trigger: Any = None
     broadcast_eligible: bool = False
     broadcast_statuses: frozenset[str] = frozenset()
+    # A workflow matches when it carries any one of these tags.
+    tags: frozenset[str] = frozenset()
     suggestions_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 

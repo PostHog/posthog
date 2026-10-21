@@ -49,6 +49,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'draft'])
         .optional()
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+    tags: zod.string().optional().describe('Comma-separated tag names. Returns workflows carrying any one of them.'),
     trigger: zod
         .string()
         .optional()

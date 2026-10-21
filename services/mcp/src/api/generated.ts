@@ -56165,6 +56165,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -56375,6 +56377,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
+      /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -56770,6 +56774,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -83447,6 +83453,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at?: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run?: HogFlowLastRun | null;
+      /** Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint. */
+      readonly tags?: readonly string[];
     }
 
     /**
@@ -128394,6 +128402,10 @@ export namespace Schemas {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus;
+    /**
+     * Comma-separated tag names. Returns workflows carrying any one of them.
+     */
+    tags?: string;
     /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */

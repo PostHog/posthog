@@ -47,6 +47,10 @@
             "enum": ["active", "archived", "draft"],
             "type": "string"
         },
+        "tags": {
+            "description": "Comma-separated tag names. Returns workflows carrying any one of them.",
+            "type": "string"
+        },
         "trigger": {
             "description": "Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.",
             "type": "string"

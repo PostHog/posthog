@@ -55,6 +55,12 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemViewSetMixin,
+    normalize_tag_names,
+)
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -2926,6 +2932,14 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
     suggestions_enabled = serializers.SerializerMethodField(
         help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest "
+            "of the project. Set them with the bulk_update_tags endpoint."
+        ),
+    )
 
     class Meta:
         # The fields each serializer returns, in this order. get_fields applies it.
@@ -2956,6 +2970,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "last_run",
             "pending_suggestions",
             "suggestions_enabled",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -3363,10 +3378,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
             "last_run",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "version",
+            "tags",
             "created_at",
             "created_by",
             "updated_at",
@@ -4673,11 +4690,26 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                     "whether a schedule still has sends to come."
                 ),
             ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description="Comma-separated tag names. Returns workflows carrying any one of them.",
+            ),
         ]
+    ),
+    # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
     ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4722,8 +4754,11 @@ class HogFlowViewSet(
         "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
+        "bulk_update_tags",
     ]
     queryset = HogFlow.objects.all()
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
+    bulk_tag_activity_scope = "HogFlow"
     pagination_class = HogFlowPagination
     log_source = "hog_flow"
     app_source = "hog_flow"
@@ -4932,6 +4967,9 @@ class HogFlowViewSet(
         if len(search) > 200:
             raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
 
+        # Tags are stored tagified, so a filter typed in any case still matches.
+        tags = normalize_tag_names(params.get("tags", "").split(","))
+
         return WorkflowListQuery(
             search=search,
             created_by_uuid=created_by_uuid,
@@ -4940,6 +4978,7 @@ class HogFlowViewSet(
             trigger=trigger,
             broadcast_eligible=params.get("broadcast_eligible") == "true",
             broadcast_statuses=frozenset(broadcast_statuses),
+            tags=frozenset(tags),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )

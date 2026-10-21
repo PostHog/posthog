@@ -385,6 +385,7 @@ const workflowsList = (): ToolBase<
                     origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
+                    tags: params.tags,
                     trigger: params.trigger,
                     type: params.type,
                     updated_at: params.updated_at,
