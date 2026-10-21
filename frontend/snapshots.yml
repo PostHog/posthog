@@ -11803,9 +11803,9 @@ snapshots:
     scenes-app-inbox-scene--self-driving-verdict-pending--light:
         hash: v1.k794b7964.96cdbec6c78e8daedb06be4a0134093efcd5838af69e6e7d1722a3892cf561b5.iJ2K0zNhOVgGAPY6JvduyhDBODMwk-CN7_mAdB8scOg
     scenes-app-inbox-scene--settings--dark:
-        hash: v1.k794b7964.612c957c2cd6be3aacf8474108905309288515d8b9df4b55349af9cc46bd8db1.a8ySvmj0vf7FuB26LbmFYbJAm9h7B_6MDAM1pDxLKBQ
+        hash: v1.k794b7964.3c65f4d335106147d220ae0b545da61f2cd984ac2ad100fb78562a4e9dc47d4c.ihpI8ZNtY_JMoe4wlLsZe9p5WRxihBWhbFeo6xz8LA8
     scenes-app-inbox-scene--settings--light:
-        hash: v1.k794b7964.8f37c5b61160f9dff684aa6a1118005f609297319e926ab1d6adac8ffa811a1d.vX6fnQvxLtMMrSAm-dDjuRRwN2AL-nZQdw1J5UXzbnE
+        hash: v1.k794b7964.dfad8b0ec0cd1b9c1fa8787c079337a36ff8c0648f7f1cf00a83eeac78c71afb.fmMDMqlPWbI3doPeBMGe1NBBFok71dlfQ4QzEme_xDQ
     scenes-app-inbox-scene--triage--dark:
         hash: v1.k794b7964.77e43b36fdcd81befecf4de80e489050f525840924ec6ddef37c23a9179dbe8a.B3qkZFYBncFaPn2EBg4cBoYu_LIwW29imNwBdLXF5eo
     scenes-app-inbox-scene--triage--light:
@@ -12391,53 +12391,53 @@ snapshots:
     scenes-app-inbox-signal-cards--ticket-without-number--light:
         hash: v1.k794b7964.015ae3204d23d033c3a0b131e352122cbc3cfa019f66f8f230f059b100f8f2cc.ZMT3pKT2QFcOr116n_hOXdGWTMc0uwzvvfj8DVcWurM
     scenes-app-inbox-signalsourcespanel--armed-but-products-off--dark:
-        hash: v1.k794b7964.d9e1c2afb6f581f8b4c52431419f301a9ede3ace72af3c68833446a82e60a878.19TmWp9UJVMxXizkSUzcHxmGrFkTyXBwEmkxgs_rtPA
+        hash: v1.k794b7964.809dbb709546b9eee512250f4d1b67035d5ca2f29db8925e5cc158790c6775c6.upFn3SlPSyv9VGVSLu3lxs-sL2C34EXRjTPJfnV2dUw
     scenes-app-inbox-signalsourcespanel--armed-but-products-off--light:
-        hash: v1.k794b7964.c58c22bdf4320e2f5f5745ad2748bd8ee5f44a64ad9ad11dd59f4eb53ded1155.WtmvAHN3f0h7s6wBQeoeku7KZX1E9qtZOV5nRwSwaOI
+        hash: v1.k794b7964.14140db5b227aebb6c9d66fd3395f6dfecb054ce87d5b72e5b5900afbc65bae9.mvFzVtdnFSzrcuTn2Mq0wKWeWMdGszbu8bwnpvzxdkk
     scenes-app-inbox-signalsourcespanel--arming-blocked--dark:
-        hash: v1.k794b7964.1940ec0e00f18c0d9f69897f9653c85d4d91e8cb0529f0d01383adf4eaaef1fc.mmO8Ex3cycW_9Yuec9rKYO6VcCcuJM_hTGzY0VIActU
+        hash: v1.k794b7964.12ef2c555be1cda4d80fd08ad92352a279de7433adbe3adab0bff6bafdf35e37.r25-GsINgM2LZ-y60ubMxNhwQoH2BzOzJkJH36COsHk
     scenes-app-inbox-signalsourcespanel--arming-blocked--light:
-        hash: v1.k794b7964.44f5e8776f4772718f5e48859612f5b3755bb2d983b683faadc4663b8f699862.NMhn6QkLpktRDDw3BQB_RiAMbxRhp6bZjoWdqeferb0
+        hash: v1.k794b7964.89b916ba15bd9d355445c1c9ff87ac89259573ecbf6c60ea73d1b4c21e9bdaab.lb9MDixYhWJzRUPTcHDf7x71nLQB2veZrGFCSYTSV9M
     scenes-app-inbox-signalsourcespanel--error-tracking-expanded--dark:
-        hash: v1.k794b7964.7dde345e874d3bdbebe9771dafea12cd7e864725a82dcc3c0f316795d12c9d50.K9IoHt3jSnBEahbNFu0N2tZywxb1C5pof73cNr8l3UE
+        hash: v1.k794b7964.ddbfdb79da7e4c4d746c01d4aedf4490ead28e9286b47c9ed4bd4e2a5465fe53.5hjiaUKFfCO0XEcJCfsAc9fdfshJ2qrA_LydFEmqikI
     scenes-app-inbox-signalsourcespanel--error-tracking-expanded--light:
-        hash: v1.k794b7964.bc2f68514bc26966b8b79cd8a31d7258099dee2b591ec8837b081395c5c5d0ef.QQbW6kVDyzyuE1fYGYHsG0s-09hNK_qyzpa35jScxYM
+        hash: v1.k794b7964.abcf59d23da73f374629778b85b21699958bc326d481c09ba49de90cb7f3e94b.ypkHVdCGnXwJQFemGoAQ8yltUSgtZ_NfI9v_0pXQkok
     scenes-app-inbox-signalsourcespanel--event-definitions-unavailable--dark:
-        hash: v1.k794b7964.b98d54eded5a8ed6ac21341da9a289bea6a0271dedd4c1c73561a970b434896e.P0rfnaWExtCCXG3N9pmVfUIQqhw19hCFK9iVd_KrRoI
+        hash: v1.k794b7964.c2602b364ee9282c4c2aa56ef52ad397a94fcb939be67f2d1570563ab08e631e.K5TB-2phMI-4hT2tt_o4JgOdg-hMDmc5pxBKhQAzcs8
     scenes-app-inbox-signalsourcespanel--event-definitions-unavailable--light:
-        hash: v1.k794b7964.72e096179ea9a037671e0cdbf8cc12b35c0ca67d9080b7a7b4a3c8f58392770c.I-GXCnNUh2ZRmBJvnGYuMa7FqhTe0t8sD4vqghYN_mc
+        hash: v1.k794b7964.2e77c97617cacdb45bb51e807b11409a5d54125a13907eb54eb9028d39351694.QnACN15-kLqjbIjQiBKLv6UFyY1eNtaz7nD2zsZwAcA
     scenes-app-inbox-signalsourcespanel--everything-healthy--dark:
-        hash: v1.k794b7964.c34f61a0c04f89820537b1bf5498a7f238a113506efc75ce33a88f4fa941ae81.mX71hzhWonRB1u71FX2hrkU4rJ8l3bnZo07w3NAaWbc
+        hash: v1.k794b7964.0dbda1fce011976a473f3813051c6fc864ef2ab020defa1a5c3bbab5bf1551e1.7KnbPhRoumTUYhPXendqg5wVulu2_bvQ4E2iXsr4NGQ
     scenes-app-inbox-signalsourcespanel--everything-healthy--light:
-        hash: v1.k794b7964.4295ef3035ff47a0427900b19b3dfd7d9cdc7742eb59ba9a6e4c26fd25396df4.3UQqYdePooSWMuZG10Kj8Zjuc-hQLUSCn68St2BHNfY
+        hash: v1.k794b7964.c802e0dfda56210c8366a8d3a8adeacc61b3358bf22dbaac774ae66d9434cdf7.wrQLD00lmOfnTzJIQKhieSN7ibKON57FFERORdSs17o
     scenes-app-inbox-signalsourcespanel--external-sources-connected--dark:
-        hash: v1.k794b7964.8484a7ec658e1b397c8289a1b3f5c2e30d188b534274fc36b2f7e24bc0cf338b.LafX61fiDOHPQKLwS2KV6DSJeVa4TRHBRWe3ql530xU
+        hash: v1.k794b7964.7a1a68b87a35ec14db399573e53c306c16a4fb2fc57fa397a83b9af2d83d2754.JsIuZnm9m0o3szTqPhJwt3dHgHm6Vi_MX9W_foJ237w
     scenes-app-inbox-signalsourcespanel--external-sources-connected--light:
-        hash: v1.k794b7964.0dd2ea8c18149d0034f469c4a7213c42e5b11f5e113fd82e5e144a1270462df9.d7yUMu-2-FeG6QV6fyB9aX7QFFeaHbdVL0wZWzuPM2c
+        hash: v1.k794b7964.6c56799b4a1fc39e5908545e1c5621fe1c2a1c16256bfd281ba2e9f8d59c0c3c.S8TFYexbicA7Yq2Jci-uXR0IDM-FB4U3DnaSwV_ACX8
     scenes-app-inbox-signalsourcespanel--playground--dark:
-        hash: v1.k794b7964.105ae0aa2757615d0382ed469bf144c50cddd7ce4a3cda18f30a0722b371e6fe.M73GXlC31bXcY0KxKIMmUoxXb9NgzYTKwUBpS_kxdMU
+        hash: v1.k794b7964.7e9591a182bcf4259979a1b479e477db51943acd43b67d5600ad9112393dfa7d.15CfWkmf-KIS5_j2rG7NGUYScklC_6d0E9FiFBQiR4o
     scenes-app-inbox-signalsourcespanel--playground--light:
-        hash: v1.k794b7964.b17a619d4c5f4991ac6c39de9a7058181f2c6b1dbd1a08d72282fc196d0b1643.aFOD39BqPd7z2E0o5LcO0QuH-u_y5Eo9eC5vXHRt6J8
+        hash: v1.k794b7964.958943a4b79a13cf59689e8941913d80440a1ecfc68c831c6cb56755e2d0ead5.VjKfZVmkg3YgfMnaf2R2PA1uQDh1l0kSbGiYp9hHrYI
     scenes-app-inbox-signalsourcespanel--products-on-no-recent-data--dark:
-        hash: v1.k794b7964.f7e2b82fc929c83d24de2615c4c5fee6ba4f1588a95fd2c59258b452029222b7.tjwKh7VLzhwMkw9qNTl5DowACTnugEW2xTr8cTxqT0c
+        hash: v1.k794b7964.5b3028678503347879dd4ed92b9ed526b40b324a6ff86c112d7aefe4fe657249.-P8bje6GwAOSDtnlT1EQLJ3Ea33gJdc-USaz4oLOixM
     scenes-app-inbox-signalsourcespanel--products-on-no-recent-data--light:
-        hash: v1.k794b7964.1b9f6d3818076c1c4e4ad45d61af019739d80a4d2abd09d3f0c7b30485b1e114.OADuXVe7AHjh2hpmzW04hqOO5s0QPDlP7Jy_CdxVSZ8
+        hash: v1.k794b7964.d44ed3a6599c7361522eda67915e8901bf8d10b34d00c7359bbc351b9093cef7.qVwJIVLISVadUiuqUaomhGwbw_d213SZzHAYo0zAJmE
     scenes-app-inbox-signalsourcespanel--replay-vision-expanded--dark:
-        hash: v1.k794b7964.511e08623fcced57d221aefdae525351f176705e7fb05c7055ccb0c9a4e8cbbf.EdKWKqrddDSF9D5I-GchSL46n37W2YgsosAmidGN1Z8
+        hash: v1.k794b7964.b1206c20b0c43fabdab1270d1e2a07b24be0f315806d4698fcc521a7e32dcbb7.B3h5LM9LAK9KoaKavy07BaV44dizRkCDtCHeS23Nyoo
     scenes-app-inbox-signalsourcespanel--replay-vision-expanded--light:
-        hash: v1.k794b7964.492798d45d4b94b51562e0a1387ff4a4722046dcdf3079ad1b252e85aa31f217.Yh9JG6ocJT9Nsvl01aT1xWuBm2KQoedqk5UfYuedYSQ
+        hash: v1.k794b7964.09f15967a3f4136d47408e3d0db8ad66baa52fa3146a7634f72ac37aceba362b.BioaR8a5pONgNHIO3ih8eqktvqnp10Pb1asu3Hybh8Q
     scenes-app-inbox-signalsourcespanel--server-side-exceptions-only--dark:
-        hash: v1.k794b7964.105ae0aa2757615d0382ed469bf144c50cddd7ce4a3cda18f30a0722b371e6fe.rW1i1pQTYXfhcI4jbV4L1SwTnDrV0dKRKIA9CpbKAH0
+        hash: v1.k794b7964.7e9591a182bcf4259979a1b479e477db51943acd43b67d5600ad9112393dfa7d.Q1MPtAJvhkFcUwp1JkU_PWYLK-TgjenBYU71cnbrEKM
     scenes-app-inbox-signalsourcespanel--server-side-exceptions-only--light:
-        hash: v1.k794b7964.b17a619d4c5f4991ac6c39de9a7058181f2c6b1dbd1a08d72282fc196d0b1643.iiyP7ijQDhrG7Lhzf5qnyzBL1NZ846qpyVx-N1umb3U
+        hash: v1.k794b7964.958943a4b79a13cf59689e8941913d80440a1ecfc68c831c6cb56755e2d0ead5.SZyxc7fiD7ZBgt-PJMYTH4ihZlml5oM-sdZckkBg_SA
     scenes-app-inbox-signalsourcespanel--source-catalog-connect-step--dark:
-        hash: v1.k794b7964.a2450493dcc246c5364fadecbc076f8a6431fa3cb54a24ce8a43f0035755b3ee.-SefbiFHh2vb_iXB1G3qGt44u-4xuonKH1IKJTLRakg
+        hash: v1.k794b7964.e3c78ae6443ff32e603a12a939ab4eae9ad133d883473d782bd9a5e9fec01558.2Ky38errKsVnctfGMGXgCBhNH1zEUK3W_CaUdNFc3xc
     scenes-app-inbox-signalsourcespanel--source-catalog-connect-step--light:
-        hash: v1.k794b7964.28e1842012dfa855088912c8bed000371f0f09b715e9262140d07cd8e881abc4.2oNwX1CeRfidWC1ENlOQQRvuM_6cBG6R5ALLO_gYJc4
+        hash: v1.k794b7964.b5eab10173ba0cf204998e416fae00894efc77260cf05c33c4a41af1f2d80577.Gz8axvgMbH2dz51UzZgyJWXV4B_xvW09tsaLq5asyXo
     scenes-app-inbox-signalsourcespanel--source-catalog-open--dark:
-        hash: v1.k794b7964.2d397ce4347aadd97b4e2baad327b921c7c2010cc88dc4e11508806a405c5d78.wyrvp4I9i9p7m_VrTSj3TZdRouB8Zmp9q9mrgq1u4dw
+        hash: v1.k794b7964.518b0efd6690b403f4cf70051105475378ab6154ff8ce065f88de83e7d3eb585.ZZekrRpDhk1ekVThnuCKE2RfByfEx8kdIAUrzt00rgs
     scenes-app-inbox-signalsourcespanel--source-catalog-open--light:
-        hash: v1.k794b7964.6e91eac66df908a8a883f0dc2d26050f2f3f7e79ecd712a21127d86075275255.IHGjK77PkD_0Xlg1WNkBwLfqnR5MLpDn-04Coq5yNM8
+        hash: v1.k794b7964.6793599fcc034f569847d4f554092d430b9a86ded0e4a4992f2900d0d21d04c2.wwhRLeCqN5MxTW3FmwmV1xkkJQzVyEP0VsrNnhF4BmE
     scenes-app-inbox-signalsourcespanel--source-configs-unavailable--dark:
         hash: v1.k794b7964.92b8f268a6960dcae3191f35a90160ae2170c0f03e004fdc28952c0a904cc7fa.79B_OJa_MZq3NEfccSPuVfy1vWDdhkgqZ5tikDAJGwM
     scenes-app-inbox-signalsourcespanel--source-configs-unavailable--light:
