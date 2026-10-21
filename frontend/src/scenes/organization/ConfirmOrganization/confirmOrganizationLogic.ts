@@ -220,15 +220,18 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             }
             actions.setHasPrefilled()
 
+            // kea-router parses a query value that looks like a number into a number, so a name of
+            // only digits arrives as one. The form fields must hold strings, because the validators
+            // and the submit handler trim them.
             if (email) {
-                actions.setEmail(email)
+                actions.setEmail(String(email))
             }
             const prefill: DeepPartial<ConfirmOrganizationFormValues> = {}
             if (organization_name) {
-                prefill.organization_name = organization_name
+                prefill.organization_name = String(organization_name)
             }
             if (first_name) {
-                prefill.first_name = first_name
+                prefill.first_name = String(first_name)
             }
             if (Object.keys(prefill).length > 0) {
                 actions.setConfirmOrganizationValues(prefill)

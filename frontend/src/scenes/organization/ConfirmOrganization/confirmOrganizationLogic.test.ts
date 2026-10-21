@@ -19,22 +19,27 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('query params', () => {
-        it('prefills the form from the URL', async () => {
-            router.actions.push('/organization/confirm-creation', {
-                email: 'spike@spike.com',
-                first_name: 'Spike',
-                organization_name: 'Spikes Inc',
-            })
+        it.each([
+            ['Spike', 'Spikes Inc'],
+            // kea-router parses a query value of only digits into a number, which no validator can trim
+            ['3130', '2600'],
+        ])('prefills the form from the URL with the name %p', async (firstName, organizationName) => {
+            router.actions.push(
+                `/organization/confirm-creation?email=spike@spike.com&first_name=${firstName}&organization_name=${encodeURIComponent(organizationName)}`
+            )
 
             await expectLogic(logic)
                 .toDispatchActions(['setEmail', 'setConfirmOrganizationValues'])
                 .toMatchValues({
                     confirmOrganization: expect.objectContaining({
-                        first_name: 'Spike',
-                        organization_name: 'Spikes Inc',
+                        first_name: firstName,
+                        organization_name: organizationName,
                     }),
                     email: 'spike@spike.com',
                 })
+
+            expect(logic.values.confirmOrganizationValidationErrors.first_name).toBeUndefined()
+            expect(logic.values.confirmOrganizationValidationErrors.organization_name).toBeUndefined()
         })
 
         it('keeps user input when a later location change re-fires the handler', async () => {
