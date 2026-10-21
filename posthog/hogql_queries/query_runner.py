@@ -198,6 +198,7 @@ from posthog.models.event.new_events_schema import (
     get_new_events_cluster_host,
     native_events_async_enabled,
     new_events_cluster_host_scope,
+    strip_events_route,
     use_new_events_schema,
 )
 from posthog.models.instance_setting import get_instance_setting
@@ -2159,6 +2160,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def query_status_labels(self) -> list[str] | None:
         return None
 
+    def _reads_events_route(self) -> bool:
+        """Whether this query reads PostHog events, so its events route keys the cache and the queued payload."""
+        return True
+
     def enqueue_async_calculation(
         self,
         *,
@@ -3239,19 +3244,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
-        modifier_source: dict[str, Any] | None = query
-        while isinstance(modifier_source, dict):
-            if isinstance(modifier_source.get("modifiers"), dict):
-                modifier_source["modifiers"].pop("useNewEventsSchema", None)
-                modifier_source["modifiers"].pop("useNewEventsCluster", None)
-                if not modifier_source["modifiers"]:
-                    modifier_source.pop("modifiers")
-            modifier_source = modifier_source.get("source")
+        strip_events_route(query, drop_empty=True)
 
         cache_modifiers = to_dict(self.modifiers)
-        # A legacy-table query omits these default values, so its cache key does not depend on them. A
-        # direct-connection query reads no events table, so the events table never keys it.
-        if cache_modifiers.get("useNewEventsSchema") is False or getattr(self.query, "connectionId", None):
+        # A legacy-table query omits these default values, so its cache key does not depend on them. A query
+        # that reads no events table is never keyed by one.
+        if cache_modifiers.get("useNewEventsSchema") is False or not self._reads_events_route():
             cache_modifiers.pop("useNewEventsSchema", None)
         if not cache_modifiers.get("useNewEventsCluster"):
             cache_modifiers.pop("useNewEventsCluster", None)

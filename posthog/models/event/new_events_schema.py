@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -37,6 +37,31 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         yield
     finally:
         _query_host.reset(token)
+
+
+EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
+
+
+def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> list[dict[str, Any]]:
+    """Remove the events route modifiers from a serialized query and every source it wraps.
+
+    Returns the nodes that carry a modifiers field, outermost first. With drop_empty, a modifiers
+    field left empty is removed, and its node is not returned.
+    """
+    nodes: list[dict[str, Any]] = []
+    node: Any = query
+    while isinstance(node, dict):
+        if "modifiers" in node:
+            modifiers = node["modifiers"]
+            if isinstance(modifiers, dict):
+                for key in EVENTS_ROUTE_MODIFIER_KEYS:
+                    modifiers.pop(key, None)
+            if drop_empty and modifiers == {}:
+                node.pop("modifiers")
+            else:
+                nodes.append(node)
+        node = node.get("source")
+    return nodes
 
 
 _query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
