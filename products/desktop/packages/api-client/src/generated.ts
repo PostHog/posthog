@@ -12248,6 +12248,7 @@ export namespace Schemas {
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13652,7 +13653,8 @@ export namespace Schemas {
         | "GoogleAdMob"
         | "Klar"
         | "ConectoCRM"
-        | "CloudflareR2";
+        | "CloudflareR2"
+        | "Particle";
     /**
      * * `web` - web
      * * `api` - api
@@ -15066,6 +15068,7 @@ export namespace Schemas {
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
