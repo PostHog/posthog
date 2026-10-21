@@ -119,13 +119,13 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
     await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
     # error-specific recovery: revert on unknown table, else suspend the node after repeated failures
     if not inputs.update_node:
-        return
+        return None
     error = inputs.error
     saved_query = None
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
-            return
+            return None
 
         if "Unknown table" in error:
             await logger.ainfo(
@@ -166,3 +166,4 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
             await logger.aexception(
                 f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
             )
+    return None
