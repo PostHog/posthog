@@ -534,7 +534,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )
