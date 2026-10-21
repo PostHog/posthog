@@ -100,6 +100,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.assignment_service import (
+    AssignmentClaimConflict,
     AssignmentWriteError as ReviewerWriteError,
     ReportAssignmentService,
 )
@@ -5601,9 +5602,10 @@ class SignalReportArtefactViewSet(
             queryset = queryset.exclude(type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION)
         # Scoring rows are staff-only on every artefact route, not only in the log.
         if not self.request.user.is_staff:
-            queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
-        if self.action == "list":
-            queryset = queryset.exclude(type__in=SignalReportArtefact.INTERNAL_ARTEFACT_TYPES)
+            queryset = queryset.exclude(
+                type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
+                | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES
+            )
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
@@ -5830,7 +5832,10 @@ class SignalReportArtefactViewSet(
                 artefact = ReportAssignmentService(team=self.team, report_id=report_id).apply_compatibility_reviewers(
                     parsed_content,
                     actor=attribution,
+                    claim_id=str(claim_id) if claim_id else None,
                 )
+            except AssignmentClaimConflict as e:
+                return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
             except ReviewerWriteError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             self._schedule_suggested_reviewer_telemetry(content=parsed_content, report_id=report_id)

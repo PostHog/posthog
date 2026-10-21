@@ -18,12 +18,13 @@ class TestCleanupSignals(BaseTest):
     @override_settings(DEBUG=True)
     def test_cleanup_removes_assignment_records_only_for_the_selected_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        for team in (self.team, other_team):
-            report = SignalReport.objects.create(team=team, status="ready")
-            ReportAssignmentService(team=team, report_id=str(report.id)).edit_reviewers(
-                SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(self.user.uuid))]),
-                actor=ArtefactAttribution.from_user(self.user.id),
-            )
+        with patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True):
+            for team in (self.team, other_team):
+                report = SignalReport.objects.create(team=team, status="ready")
+                ReportAssignmentService(team=team, report_id=str(report.id)).edit_reviewers(
+                    SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(self.user.uuid))]),
+                    actor=ArtefactAttribution.from_user(self.user.id),
+                )
 
         with (
             patch("products.signals.backend.management.commands.cleanup_signals.sync_execute"),

@@ -28,6 +28,7 @@ from products.signals.backend.assignment_flags import (
     assignment_side_effects_enabled,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignmentRevision
+from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
@@ -43,6 +44,10 @@ class StaleAssignmentProposal(AssignmentWriteError):
 
 
 class AssignmentOperationConflict(AssignmentWriteError):
+    pass
+
+
+class AssignmentClaimConflict(AssignmentWriteError):
     pass
 
 
@@ -264,8 +269,11 @@ class ReportAssignmentService:
         *,
         actor: ArtefactAttribution,
         reevaluate_autostart: bool = False,
+        claim_id: str | None = None,
     ) -> AssignmentWrite:
-        request_hash = hashlib.sha256((proposal.model_dump_json() + repr(actor)).encode()).hexdigest()
+        request_hash = hashlib.sha256(
+            (proposal.model_dump_json() + repr(actor) + (claim_id or "")).encode()
+        ).hexdigest()
         writer_enabled = (
             assignment_agent_selection_enabled(self.team.id)
             if proposal.action == "automatic"
@@ -296,6 +304,14 @@ class ReportAssignmentService:
                     reviewers_artefact=existing.reviewers_artefact,
                     replayed=True,
                 )
+            if claim_id:
+                assignment = get_active_claim(team_id=self.team.id, report_id=self.report_id)
+                if (
+                    assignment is None
+                    or str(assignment.claim_id) != claim_id
+                    or not actor_owns_claim(assignment, actor)
+                ):
+                    raise AssignmentClaimConflict("Claim is stale or belongs to another actor.")
             snapshot = self._snapshot(report)
             if (
                 proposal.expected_revision != snapshot.revision
@@ -351,13 +367,18 @@ class ReportAssignmentService:
                 requires_reassessment=bool(ineligible) or proposal.outcome == "lookup_failed",
             )
             artefact = SignalReportArtefact.add_log(
-                team_id=self.team.id, report_id=self.report_id, content=decision, attribution=actor
+                team_id=self.team.id,
+                report_id=self.report_id,
+                content=decision,
+                attribution=actor,
+                claim_id=claim_id,
             )
             compatibility = SignalReportArtefact.append_status(
                 team_id=self.team.id,
                 report_id=self.report_id,
                 content=SuggestedReviewers(root=list(reviewers)),
                 attribution=actor,
+                claim_id=claim_id,
                 reevaluate_autostart=(proposal.action == "replace" or reevaluate_autostart) and side_effects_enabled,
                 assignment_writer=True,
             )
@@ -377,6 +398,7 @@ class ReportAssignmentService:
         reviewers: SuggestedReviewers,
         *,
         actor: ArtefactAttribution,
+        claim_id: str | None = None,
         source: str = "artefact_api",
     ) -> SignalReportArtefact:
         """Apply an existing reviewer API payload as an automatic assignment proposal."""
@@ -400,6 +422,7 @@ class ReportAssignmentService:
             ),
             actor=actor,
             reevaluate_autostart=True,
+            claim_id=claim_id,
         ).reviewers_artefact
 
     def edit_reviewers(
