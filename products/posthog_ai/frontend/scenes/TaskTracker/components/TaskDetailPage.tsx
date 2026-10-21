@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
+import { IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { urls } from 'scenes/urls'
 
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { nextTaskTitle } from '../../../lib/task-title'
@@ -29,7 +28,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
-    const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
+    const { activeCreation } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const skin = useThreadSkin()
@@ -71,18 +70,6 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             />
         ) : (
             <div className="flex flex-wrap items-center gap-2">
-                {hasDesktopAccess && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconExternal />}
-                        to={urls.codeTaskLink(task.id)}
-                        targetBlank
-                        className="hidden lg:inline-flex"
-                    >
-                        Open in PostHog Desktop
-                    </LemonButton>
-                )}
                 {prUrl && (
                     <LemonButton
                         type="secondary"

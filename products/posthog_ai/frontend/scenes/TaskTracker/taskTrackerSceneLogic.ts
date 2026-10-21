@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -16,12 +15,11 @@ import { urls } from 'scenes/urls'
 
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
-import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
+import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ClaudeTaskRunCreateSchemaApi,
     type CodexTaskRunCreateSchemaApi,
     InitialPermissionModeEnumApi,
-    type LegacyDesktopAccessResponseApi,
     type TasksTaskDefaultsApi,
     ModelAccessEnumApi,
     type ModelChoiceApi,
@@ -214,14 +212,11 @@ export interface taskTrackerSceneLogicValues {
     autoPublishCloudRuns: boolean
     composerAdapter: string
     consentBlocked: boolean
-    desktopAccess: LegacyDesktopAccessResponseApi | null
-    desktopAccessLoading: boolean
     displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
     displayModel: string
     effectiveComposerOverride: ComposerOverride | null
     effectiveRepositoryConfig: RepositoryConfig
-    hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
     isSubmittingTask: boolean
@@ -337,21 +332,6 @@ export interface taskTrackerSceneLogicActions {
     clearConsentBlock: () => {
         value: true
     }
-    loadDesktopAccess: () => any
-    loadDesktopAccessFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadDesktopAccessSuccess: (
-        desktopAccess: LegacyDesktopAccessResponseApi,
-        payload?: any
-    ) => {
-        desktopAccess: LegacyDesktopAccessResponseApi
-        payload?: any
-    }
     maybeAutoSelectIntegration: () => {
         value: true
     }
@@ -403,7 +383,6 @@ export interface taskTrackerSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         startsInPlanMode: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
         autoPublishCloudRuns: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
-        hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number, arg: string[] | undefined) => string
         effectiveComposerOverride: (
             composerOverride: ComposerOverride | null,
@@ -600,15 +579,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
-    loaders({
-        desktopAccess: [
-            null as LegacyDesktopAccessResponseApi | null,
-            {
-                loadDesktopAccess: async () => codeInvitesCheckAccessRetrieve(),
-            },
-        ],
-    }),
-
     selectors({
         startsInPlanMode: [
             (s) => [s.featureFlags, s.taskDefaults],
@@ -619,10 +589,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             (s) => [s.featureFlags, s.taskDefaults],
             (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null): boolean =>
                 !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!taskDefaults?.auto_publish_cloud_runs,
-        ],
-        hasDesktopAccess: [
-            (s) => [s.desktopAccess],
-            (desktopAccess: LegacyDesktopAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
         ],
         // Contextual headlines registered by the active scene (welcomeOverrideLogic) win over the
         // generic defaults; the seed keeps the pick stable across re-renders.
@@ -1189,7 +1155,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.startsInPlanMode && !values.permissionModePicked) {
                 actions.applyDefaultPermissionMode()
             }
-            actions.loadDesktopAccess()
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for
             // stable snapshots regardless of seed).
