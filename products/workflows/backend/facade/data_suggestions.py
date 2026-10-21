@@ -8,7 +8,6 @@ from products.workflows.backend.services.data_suggestions import service
 from products.workflows.backend.services.data_suggestions.premade import waiting_premade_count
 from products.workflows.backend.services.data_suggestions.service import (
     DESTINATION_SUGGESTION_FLAG_KEY,
-    FEATURE_FLAG_KEY,
     MAX_PICKED_EVENTS,
     build_caller,
     count_waiting_data_suggestions,
@@ -31,7 +30,6 @@ from products.workflows.backend.tasks.data_suggestions import (
 
 __all__ = [
     "DESTINATION_SUGGESTION_FLAG_KEY",
-    "FEATURE_FLAG_KEY",
     "MAX_PICKED_EVENTS",
     "build_caller",
     "count_waiting_data_suggestions",

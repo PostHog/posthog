@@ -3035,6 +3035,7 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "rdkafka",
+ "tracing",
 ]
 
 [[package]]
@@ -6369,6 +6370,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "prost 0.13.5",
  "rand 0.8.5",
  "rdkafka",

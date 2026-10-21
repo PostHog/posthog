@@ -65,9 +65,9 @@ from products.workflows.backend.services.data_suggestions.premade import (
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
+    STAGE_WEIGHTS,
     pick_one_per_stage,
     select_prompt_events,
-    suggestion_score,
 )
 from products.workflows.backend.services.data_suggestions.stages import (
     MAX_CLASSIFIED_EVENTS,
@@ -107,8 +107,6 @@ _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
 _EVENTS_BUILDING = EventWorkflowsBuild(status="building")
 _EVENTS_FAILED = EventWorkflowsBuild(status="failed")
-# pinned: feature flag key - the frontend gates the same surfaces on it
-FEATURE_FLAG_KEY = "workflows-data-suggestions"
 # pinned: feature flag key - the destination modal, the build_for_events endpoint and the MCP tool all read it
 DESTINATION_SUGGESTION_FLAG_KEY = "workflows-destination-suggestion"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
@@ -131,18 +129,6 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     return _read_cache(team) or _UNAVAILABLE
 
 
-def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
-    return bool(
-        user.distinct_id
-        and posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-    )
-
-
 def data_suggestions_acting_user(team: Team) -> User | None:
     """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
     membership = (
@@ -158,11 +144,9 @@ def data_suggestions_acting_user(team: Team) -> User | None:
     return membership.user if membership is not None else None
 
 
-def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
+def count_waiting_data_suggestions(*, team: Team) -> int:
     """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
     if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
-        return 0
-    if not is_data_suggestions_enabled(user, str(team.organization_id)):
         return 0
     result = get_data_suggestions(team=team)
     return len(result.suggestions) if result.status == "ready" else 0
@@ -895,7 +879,9 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
                 step_outline=outline,
             )
         )
-    ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
+    # The sort is stable, so within a stage the model's order wins. A busier event is not a better moment: a
+    # dismissed upgrade dialog fires more often than a started checkout.
+    ranked = sorted(suggestions, key=lambda item: STAGE_WEIGHTS[item.stage], reverse=True)
     return DataSuggestionsResult(
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),

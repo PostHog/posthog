@@ -105,7 +105,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-destination-suggestion': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
-        'workflows-data-suggestions': true,
         'workflows-mcp-onboarding': true,
         'insight-data-checks': true,
     }

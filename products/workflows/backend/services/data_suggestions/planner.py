@@ -167,6 +167,7 @@ Rules:
 - trigger_event must be copied exactly from the event list.
 {{focus_rules}}
 - Each idea must use a different trigger_event.
+- List the ideas best first. Within one lifecycle stage only the first idea is shown.
 - Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
 - Put a delay between two emails.
