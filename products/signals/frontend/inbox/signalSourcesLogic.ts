@@ -517,6 +517,7 @@ export interface signalSourcesLogicMeta {
                 | 'betterstack'
                 | 'bugsnag'
                 | 'canny'
+                | 'checkly'
                 | 'dixa'
                 | 'featurebase'
                 | 'firehydrant'
@@ -546,6 +547,7 @@ export interface signalSourcesLogicMeta {
                 | 'rapid7_insightvm'
                 | 'raygun'
                 | 'retently'
+                | 'roark'
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
@@ -555,6 +557,7 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'trigger_dev'
                 | 'uservoice'
                 | 'xmatters'
                 | 'zendesk',
