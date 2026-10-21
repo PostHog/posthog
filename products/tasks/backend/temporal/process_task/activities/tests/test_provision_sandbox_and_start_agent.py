@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import threading
 
@@ -5,7 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput
+from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
@@ -50,7 +51,7 @@ def boot_steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
 
 
 def _cleaned_sandbox_ids(cleanup: MagicMock) -> list[str]:
-    return [call.args[0].sandbox_id for call in cleanup.call_args_list if isinstance(call.args[0], CleanupSandboxInput)]
+    return [call.args[0].sandbox_id for call in cleanup.call_args_list]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -79,3 +80,31 @@ async def test_retry_cleans_up_the_sandbox_a_crashed_attempt_left_behind(
     )
 
     assert _cleaned_sandbox_ids(boot_steps["cleanup_sandbox_now"]) == ["sandbox-orphan"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_cancelled_boot_cleans_up_the_sandbox_it_created(task_context, boot_steps, monkeypatch):
+    monkeypatch.setattr(provision_sandbox_module.activity, "heartbeat", lambda: None)
+    entered, release = threading.Event(), threading.Event()
+    created = boot_steps["create_repository_sandbox"].return_value
+
+    def blocked_create(_input):
+        entered.set()
+        release.wait(timeout=10)
+        return created
+
+    boot_steps["create_repository_sandbox"].side_effect = blocked_create
+    boot = asyncio.create_task(
+        boot_module.provision_sandbox_and_start_agent(ProvisionSandboxAndStartAgentInput(context=task_context))
+    )
+    await asyncio.to_thread(entered.wait, 10)
+    boot.cancel()
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await boot
+
+    assert _cleaned_sandbox_ids(boot_steps["cleanup_sandbox_now"]) == ["sandbox-new"]

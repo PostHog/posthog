@@ -3096,6 +3096,7 @@ class TestProcessTaskWorkflowUnit:
             ("posthog/posthog-js", {}, False),
             (None, {"wizard_config": {}}, False),
             (None, {"snapshot_external_id": "im-abc123", "resume_from_run_id": "previous-run-id"}, False),
+            (None, {"snapshot_external_id": "im-abc123"}, False),
         ],
     )
     def test_only_runs_without_a_clone_wizard_or_resume_boot_in_one_activity(
@@ -3133,11 +3134,9 @@ class TestProcessTaskWorkflowUnit:
 
         sandbox_output, agent_server_output = await process_workflow._boot_in_one_activity()
 
-        assert (process_workflow._sandbox_id_for_cleanup, sandbox_output.sandbox_id, agent_server_output) == (
-            "sandbox-123",
-            "sandbox-123",
-            agent_server,
-        )
+        assert process_workflow._sandbox_id_for_cleanup == "sandbox-123"
+        assert sandbox_output.sandbox_id == "sandbox-123"
+        assert agent_server_output == agent_server
 
     async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         process_workflow = ProcessTaskWorkflow()

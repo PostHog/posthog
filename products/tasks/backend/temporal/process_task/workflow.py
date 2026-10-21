@@ -1965,7 +1965,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return (
             not self.context.repositories
             and self.context.wizard_config is None
-            and not self.context.is_snapshot_resume
+            and not (self.context.state or {}).get("snapshot_external_id")
             and workflow.patched(_PATCH_ID_SINGLE_ACTIVITY_BOOT)
         )
 
@@ -1982,12 +1982,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         created = booted.created
-        self._sandbox_id_for_cleanup = created.sandbox_id
-        self._sandbox_jwt_kid = created.jwt_kid
-        self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
-        self._record_sandbox_deadline(created)
-        if self._task_completed and booted.sandbox_creation_cancellable:
-            raise _TaskCompletedDuringSandboxCreation
+        self._adopt_created_sandbox(created, cancellable=booted.sandbox_creation_cancellable)
         await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
         used_snapshot = bool(created.used_snapshot)
         sandbox_output = GetSandboxForRepositoryOutput(
@@ -2005,6 +2000,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         return sandbox_output, booted.agent_server
 
+    def _adopt_created_sandbox(self, created: CreateSandboxForRepositoryOutput, *, cancellable: bool) -> None:
+        self._sandbox_id_for_cleanup = created.sandbox_id
+        self._sandbox_jwt_kid = created.jwt_kid
+        self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
+        self._record_sandbox_deadline(created)
+        if self._task_completed and cancellable:
+            raise _TaskCompletedDuringSandboxCreation
+
     async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
         prepared = await workflow.execute_activity(
             prepare_sandbox_for_repository,
@@ -2014,12 +2017,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
         created = await self._run_sandbox_creation_activity(prepared)
-        self._sandbox_id_for_cleanup = created.sandbox_id
-        self._sandbox_jwt_kid = created.jwt_kid
-        self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
-        self._record_sandbox_deadline(created)
-        if self._task_completed and prepared.sandbox_creation_cancellable:
-            raise _TaskCompletedDuringSandboxCreation
+        self._adopt_created_sandbox(created, cancellable=prepared.sandbox_creation_cancellable)
         used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
         if used_snapshot:
             await self._emit_progress(
@@ -2103,12 +2101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     wait=False,
                 )
                 created = await self._run_sandbox_creation_activity(prepared)
-                self._sandbox_id_for_cleanup = created.sandbox_id
-                self._sandbox_jwt_kid = created.jwt_kid
-                self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
-                self._record_sandbox_deadline(created)
-                if self._task_completed and prepared.sandbox_creation_cancellable:
-                    raise _TaskCompletedDuringSandboxCreation
+                self._adopt_created_sandbox(created, cancellable=prepared.sandbox_creation_cancellable)
                 used_snapshot = False
                 await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
 

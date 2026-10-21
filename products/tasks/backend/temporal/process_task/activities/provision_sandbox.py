@@ -4,6 +4,7 @@ import shlex
 import asyncio
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -57,6 +58,7 @@ from products.tasks.backend.logic.services.network_policy import (
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxBase,
+    SandboxClass,
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
@@ -1107,12 +1109,43 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     if not sandbox_class.supports_creation_cancellation:
         return await _create_sandbox_for_repository(input)
 
+    async def destroy_after_cancellation(creation_after_cancellation: CreateSandboxForRepositoryOutput | None) -> None:
+        if creation_after_cancellation is None:
+            return
+        sandbox = await asyncio.to_thread(
+            get_sandbox_class_for_sandbox_id(creation_after_cancellation.sandbox_id).get_by_id,
+            creation_after_cancellation.sandbox_id,
+        )
+        try:
+            await asyncio.to_thread(sandbox.destroy)
+        finally:
+            await asyncio.to_thread(
+                TaskRun.clear_sandbox_connection_state_atomic,
+                input.context.run_id,
+                creation_after_cancellation.sandbox_id,
+            )
+
+    return await run_with_creation_heartbeat(
+        sandbox_class,
+        lambda _cancel_event: _create_sandbox_for_repository(input),
+        run_id=input.context.run_id,
+        on_cancelled=destroy_after_cancellation,
+    )
+
+
+async def run_with_creation_heartbeat[T](
+    sandbox_class: SandboxClass,
+    start: Callable[[threading.Event], Awaitable[T]],
+    *,
+    run_id: str,
+    on_cancelled: Callable[[T | None], Awaitable[None]],
+) -> T:
     cancel_event = threading.Event()
-    creation_after_cancellation: CreateSandboxForRepositoryOutput | None = None
+    result_after_cancellation: T | None = None
     cancellation: asyncio.CancelledError | None = None
 
     with sandbox_class.creation_cancellation_scope(cancel_event):
-        creation_task = asyncio.create_task(_create_sandbox_for_repository(input))
+        creation_task = asyncio.ensure_future(start(cancel_event))
         try:
             while True:
                 activity.heartbeat()
@@ -1128,33 +1161,21 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
             # sync_to_async cannot stop its worker thread, so wait for the provider operation
             # to exit before Temporal can retry this activity against the same sandbox name.
             try:
-                creation_after_cancellation = await asyncio.wait_for(
+                result_after_cancellation = await asyncio.wait_for(
                     asyncio.shield(creation_task), timeout=SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS
                 )
             except TimeoutError:
                 logger.exception(
                     "sandbox_creation_cancellation_wait_timed_out",
-                    extra={"run_id": input.context.run_id},
+                    extra={"run_id": run_id},
                 )
             except Exception as error:
                 logger.debug(
                     "sandbox_creation_stopped_after_cancellation",
-                    extra={"run_id": input.context.run_id, "error_type": type(error).__name__},
+                    extra={"run_id": run_id, "error_type": type(error).__name__},
                 )
 
-    if creation_after_cancellation is not None:
-        sandbox = await asyncio.to_thread(
-            get_sandbox_class_for_sandbox_id(creation_after_cancellation.sandbox_id).get_by_id,
-            creation_after_cancellation.sandbox_id,
-        )
-        try:
-            await asyncio.to_thread(sandbox.destroy)
-        finally:
-            await asyncio.to_thread(
-                TaskRun.clear_sandbox_connection_state_atomic,
-                input.context.run_id,
-                creation_after_cancellation.sandbox_id,
-            )
+    await on_cancelled(result_after_cancellation)
 
     assert cancellation is not None
     raise cancellation

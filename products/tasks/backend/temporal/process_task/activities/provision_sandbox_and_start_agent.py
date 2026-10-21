@@ -1,7 +1,7 @@
-import asyncio
 import logging
 import threading
 from dataclasses import dataclass
+from functools import partial
 
 import posthoganalytics
 from temporalio import activity
@@ -22,11 +22,9 @@ from .provision_sandbox import (
     PrepareSandboxForRepositoryInput,
     create_repository_sandbox,
     prepare_repository_sandbox,
+    run_with_creation_heartbeat,
 )
 from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server_in_sandbox
-
-BOOT_HEARTBEAT_SECONDS = 1
-BOOT_CANCELLATION_WAIT_SECONDS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +74,14 @@ def _provision_sandbox_and_start_agent(
         _cleanup_recorded_sandbox(ctx.run_id)
 
     prepared = prepare_repository_sandbox(PrepareSandboxForRepositoryInput(context=ctx))
+    if cancel_event.is_set():
+        raise _BootCancelled
     created, sandbox = create_repository_sandbox(CreateSandboxForRepositoryInput(context=ctx, prepared=prepared))
     try:
         if cancel_event.is_set():
-            raise _BootCancelled(created.sandbox_id)
+            raise _BootCancelled
         if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
-            materialize_context_layer(MaterializeContextLayerInput(context=ctx, sandbox_id=created.sandbox_id))
+            materialize_context_layer(MaterializeContextLayerInput(context=ctx, sandbox_id=created.sandbox_id), sandbox)
         agent_server = start_agent_server_in_sandbox(
             StartAgentServerInput(
                 context=ctx,
@@ -111,28 +111,12 @@ def _provision_sandbox_and_start_agent(
 async def provision_sandbox_and_start_agent(
     input: ProvisionSandboxAndStartAgentInput,
 ) -> ProvisionSandboxAndStartAgentOutput:
-    sandbox_class = get_sandbox_class_for_run_backend(input.context.sandbox_backend)
-    cancel_event = threading.Event()
+    async def cleanup_after_cancellation(_booted: ProvisionSandboxAndStartAgentOutput | None) -> None:
+        await asyncify(_cleanup_recorded_sandbox)(input.context.run_id)
 
-    with sandbox_class.creation_cancellation_scope(cancel_event):
-        boot_task = asyncio.create_task(_provision_sandbox_and_start_agent(input, cancel_event))
-        try:
-            while True:
-                activity.heartbeat()
-                try:
-                    return await asyncio.wait_for(asyncio.shield(boot_task), timeout=BOOT_HEARTBEAT_SECONDS)
-                except TimeoutError:
-                    continue
-        except asyncio.CancelledError:
-            cancel_event.set()
-            try:
-                await asyncio.wait_for(asyncio.shield(boot_task), timeout=BOOT_CANCELLATION_WAIT_SECONDS)
-            except TimeoutError:
-                logger.exception("boot_sandbox_cancellation_wait_timed_out", extra={"run_id": input.context.run_id})
-            except Exception as error:
-                logger.debug(
-                    "boot_sandbox_stopped_after_cancellation",
-                    extra={"run_id": input.context.run_id, "error_type": type(error).__name__},
-                )
-            await asyncify(_cleanup_recorded_sandbox)(input.context.run_id)
-            raise
+    return await run_with_creation_heartbeat(
+        get_sandbox_class_for_run_backend(input.context.sandbox_backend),
+        partial(_provision_sandbox_and_start_agent, input),
+        run_id=input.context.run_id,
+        on_cancelled=cleanup_after_cancellation,
+    )
