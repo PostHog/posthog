@@ -736,7 +736,7 @@ export const BICalculatedMeasureEditor: Story = {
                 ...BIModeWorksheet.parameters?.msw.mocks,
                 post: {
                     ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLAutocomplete/': {
+                    '/api/projects/:team_id/query/HogQLAutocomplete/': {
                         suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
                         incomplete_list: false,
                     },
@@ -755,12 +755,25 @@ export const BICalculatedMeasureEditor: Story = {
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
         const expression = await modal.findByRole('textbox', { name: 'Calculated field expression' })
         expression.focus()
-        await userEvent.keyboard('{Control>}{Space}{/Control}')
-        await waitFor(() => {
-            const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
-            expect(suggestions).not.toBeNull()
-            expect(within(suggestions as HTMLElement).getByText('event', { exact: true })).toBeVisible()
-        })
+        // Monaco resolves keybindings from keyCode, and userEvent.keyboard sends keyCode 0
+        expression.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: ' ',
+                code: 'Space',
+                keyCode: 32,
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true,
+            })
+        )
+        await waitFor(
+            () => {
+                const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
+                expect(suggestions).not.toBeNull()
+                expect(within(suggestions as HTMLElement).getByText('event', { exact: true })).toBeVisible()
+            },
+            { timeout: 5000 }
+        )
         await userEvent.keyboard('{Escape}')
     },
 }
