@@ -43,6 +43,7 @@ import { RecipientTokensService } from './services/messaging/recipient-tokens.se
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
@@ -100,6 +101,7 @@ export interface CdpCoreServices {
     cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     capturedEventsService: CapturedEventsService
     /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
@@ -437,6 +439,7 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     const workflowEmailRateLimiter = deps.emailValidationValkey
@@ -466,6 +469,7 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
+        workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter
@@ -524,6 +528,7 @@ export function createCdpCoreServices(
     const recipientPreferencesService = new RecipientPreferencesService(
         recipientsManager,
         emailSuppressionService,
+        workflowsActivationReporter,
         deps.frequencyCapValkey
             ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
             : undefined
@@ -589,6 +594,7 @@ export function createCdpCoreServices(
         cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        workflowsActivationReporter,
         cdpUsageReporter,
         capturedEventsService,
         hogInvocationResultsService,

@@ -32,6 +32,7 @@ import { RecipientPreferencesService } from '../services/messaging/recipient-pre
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
@@ -74,6 +75,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
     emailService: EmailService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -105,6 +107,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService

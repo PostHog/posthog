@@ -27,6 +27,7 @@ describe('RecipientPreferencesService', () => {
     let service: RecipientPreferencesService
     let mockRecipientsManager: RecipientsManagerService
     let mockEmailSuppressionService: EmailSuppressionService
+    let workflowsActivationReporter: { report: jest.Mock }
     let mockRecipientsManagerGet: jest.SpyInstance
     let mockRecipientsManagerGetPreference: jest.SpyInstance
     let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.SpyInstance
@@ -43,7 +44,12 @@ describe('RecipientPreferencesService', () => {
         )
 
         mockEmailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-        service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
+        workflowsActivationReporter = { report: jest.fn() }
+        service = new RecipientPreferencesService(
+            mockRecipientsManager,
+            mockEmailSuppressionService,
+            workflowsActivationReporter
+        )
     })
 
     afterEach(async () => {
@@ -238,6 +244,60 @@ describe('RecipientPreferencesService', () => {
 
                 await expect(service.shouldSkipAction(invocation, action)).resolves.toBeNull()
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
+            })
+
+            it.each([
+                ['a marketing send', 'marketing', false, 1, 'rejects'],
+                ['a transactional send', 'transactional', false, 1, 'sends'],
+                ['a test send', 'marketing', true, 0, 'rejects'],
+            ] as const)(
+                'should report a recipient without an email address only for a real send: %s',
+                async (_name, categoryType, isTest, reports, outcome) => {
+                    const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000', categoryType)
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const skipReason = service.shouldSkipAction(invocation, action, isTest)
+
+                    if (outcome === 'rejects') {
+                        await expect(skipReason).rejects.toThrow('No recipient identifier found')
+                    } else {
+                        await expect(skipReason).resolves.toBeNull()
+                    }
+
+                    expect(workflowsActivationReporter.report.mock.calls).toEqual(
+                        Array(reports).fill([
+                            invocation.teamId,
+                            'workflows send failed',
+                            { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId },
+                        ])
+                    )
+                }
+            )
+
+            it('should report an address of only whitespace as a missing recipient', async () => {
+                const action = createEmailAction('   ', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+
+                await service.shouldSkipAction(invocation, action)
+
+                expect(workflowsActivationReporter.report).toHaveBeenCalledWith(
+                    invocation.teamId,
+                    'workflows send failed',
+                    { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId }
+                )
+            })
+
+            it('should report an address that resolves to a non-string as a missing recipient', async () => {
+                const action = createEmailAction(42 as unknown as string, '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+
+                await service.shouldSkipAction(invocation, action).catch(() => null)
+
+                expect(workflowsActivationReporter.report).toHaveBeenCalledWith(
+                    invocation.teamId,
+                    'workflows send failed',
+                    { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId }
+                )
             })
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
@@ -693,10 +753,12 @@ describe('RecipientPreferencesService', () => {
             frequencyCap = { max_messages: 2, window_days: 7 }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
-            cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
-                teamWorkflowsConfig,
-                valkey,
-            })
+            cappedService = new RecipientPreferencesService(
+                mockRecipientsManager,
+                mockEmailSuppressionService,
+                workflowsActivationReporter,
+                { teamWorkflowsConfig, valkey }
+            )
         })
 
         const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => {

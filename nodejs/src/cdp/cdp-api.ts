@@ -70,6 +70,7 @@ import {
     sameWatcherState,
     sameWatcherStates,
 } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -189,6 +190,7 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private workflowsActivationReporter: WorkflowsActivationReporter
     private resumeBatchJwt: ScopedServiceJwt
 
     constructor(
@@ -221,6 +223,7 @@ export class CdpApi {
         this.hogflowQueue = jobQueues.hogflowQueue
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -228,7 +231,8 @@ export class CdpApi {
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            services.emailSuppressionService
+            services.emailSuppressionService,
+            this.workflowsActivationReporter
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -1160,8 +1164,15 @@ export class CdpApi {
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
                 return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
             }
-            const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
+            const { isLimited, limitedBy } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
             if (isLimited) {
+                if (limitedBy === 'workflow_emails') {
+                    void this.workflowsActivationReporter.report(team.id, 'workflows send blocked', {
+                        reason: 'quota_limited',
+                        channel: 'email',
+                        workflow_id: hogFlow.id,
+                    })
+                }
                 return reply('quota_limited', 429, { error: 'quota_limited' })
             }
 

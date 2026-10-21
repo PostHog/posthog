@@ -48,6 +48,7 @@ describe('HogFlowInvocationPipeline', () => {
     let hogMasker: jest.Mocked<HogMaskerService>
     let hogFunctionMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let quotaLimiting: jest.Mocked<QuotaLimiting>
+    let workflowsActivationReporter: { report: jest.Mock }
     let pipeline: HogFlowInvocationPipeline
     let rateLimitGroupedMock: jest.Mock
 
@@ -82,6 +83,8 @@ describe('HogFlowInvocationPipeline', () => {
             isTeamQuotaLimited: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<QuotaLimiting>
 
+        workflowsActivationReporter = { report: jest.fn() }
+
         pipeline = new HogFlowInvocationPipeline(config, {
             hogFlowManager,
             hogFlowExecutor,
@@ -89,6 +92,7 @@ describe('HogFlowInvocationPipeline', () => {
             hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
+            workflowsActivationReporter,
             quotaLimiting,
             redis: {} as any,
             valkeyShadow: { writer: {} as any, reader: {} as any },
@@ -174,6 +178,11 @@ describe('HogFlowInvocationPipeline', () => {
 
         const result = await pipeline.buildInvocations([makeGlobals()])
         expect(result).toEqual([])
+        expect(workflowsActivationReporter.report).toHaveBeenCalledWith(inv.teamId, 'workflows send blocked', {
+            reason: 'quota_limited',
+            channel: 'email',
+            workflow_id: inv.functionId,
+        })
     })
 
     it('drops invocations for disabled hogflows', async () => {
