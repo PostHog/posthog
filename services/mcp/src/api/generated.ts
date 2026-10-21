@@ -44720,9 +44720,91 @@ export namespace Schemas {
       diagnostic_ref: string | null;
     }
 
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `no_metric` - No Metric
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NoMetric: 'no_metric',
+      ZeroExposures: 'zero_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    /**
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked
+     */
+    export type ExperimentHealthCheckStatusEnum = typeof ExperimentHealthCheckStatusEnum[keyof typeof ExperimentHealthCheckStatusEnum];
+
+
+    export const ExperimentHealthCheckStatusEnum = {
+      Passed: 'passed',
+      Finding: 'finding',
+      NotApplicable: 'not_applicable',
+      NotChecked: 'not_checked',
+    } as const;
+
+    export interface ExperimentHealthCheckResult {
+      /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `no_metric` - No Metric
+       * * `zero_exposures` - Zero Exposures
+       * * `srm` - Srm
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      key: ExperimentHealthCheckKeyEnum;
+      /** What the check looks at, for example 'Feature flag variants'. */
+      name: string;
+      /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+       *
+       * * `passed` - Passed
+       * * `finding` - Finding
+       * * `not_applicable` - Not Applicable
+       * * `not_checked` - Not Checked */
+      status: ExperimentHealthCheckStatusEnum;
+      /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
     export interface ExperimentHealth {
-      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
       findings: ExperimentHealthFinding[];
+      /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
+      checks: ExperimentHealthCheckResult[];
     }
 
     /**
@@ -44971,6 +45053,37 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
+
+
+    export const ExperimentExposureHealthCheckKey = {
+      ZeroExposures: 'zero_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
+
+
+    export const ExperimentExposureHealthCheckStatus = {
+      Passed: 'passed',
+      Finding: 'finding',
+      NotApplicable: 'not_applicable',
+      NotChecked: 'not_checked',
+    } as const;
+
+    export interface ExperimentExposureHealthCheck {
+      /** Stable identifier of the check. */
+      key: ExperimentExposureHealthCheckKey;
+      /** What the check looks at, as the health panel lists it. */
+      name: string;
+      /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
+      reason: string | null;
+      /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
+      status: ExperimentExposureHealthCheckStatus;
+    }
+
     /**
      * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
      */
@@ -45069,6 +45182,8 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+      health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
@@ -65290,12 +65405,12 @@ export namespace Schemas {
     }
 
     /**
-     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     * Product whose data the alert evaluates. It cannot change after the create.
      */
-    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+    export type LogsPlatformAlertConfigurationCreateSourceKind = typeof LogsPlatformAlertConfigurationCreateSourceKind[keyof typeof LogsPlatformAlertConfigurationCreateSourceKind];
 
 
-    export const LogsPlatformAlertConfigurationEditSourceKind = {
+    export const LogsPlatformAlertConfigurationCreateSourceKind = {
       Logs: 'logs',
     } as const;
 
@@ -65305,6 +65420,55 @@ export namespace Schemas {
       /** The bound the count is checked against. */
       condition: LogsPlatformAlertCondition;
     }
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface LogsPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: LogsPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const LogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -89631,6 +89795,8 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
+
     export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
@@ -94088,6 +94254,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative19 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+      health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
@@ -121869,6 +122037,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -121980,6 +122149,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
@@ -122077,6 +122247,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -122176,6 +122347,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
@@ -131560,6 +131732,10 @@ export namespace Schemas {
     } as const;
 
     export type PlatformAlertsListParams = {
+    /**
+     * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
+     */
+    legacy_configuration_id?: string;
     /**
      * Number of results to return per page.
      */
