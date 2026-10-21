@@ -143,6 +143,9 @@ jobs:
                         - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
+                        # Served to the replay stories through staticDirs, so it never
+                        # enters the module graph. WF013 checks each staticDirs source.
+                        - 'posthog/templates/replay_player_frame/**'
                         - '.storybook/**'
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
