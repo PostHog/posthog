@@ -4,54 +4,49 @@ import { useEffect, useId } from 'react'
 import { IconThumbsDown, IconThumbsUp, IconX } from '@posthog/icons'
 import { Button, Field, FieldLabel, Text, Textarea } from '@posthog/quill'
 
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import {
-    SURVEY_FEEDBACK_RATINGS,
-    SurveyFeedbackPromptLogicProps,
-    surveyFeedbackPromptLogic,
-} from 'lib/logic/surveyFeedbackPrompt/surveyFeedbackPromptLogic'
+import { DATA_CHECKS_FEEDBACK_RATINGS, dataChecksFeedbackLogic } from './dataChecksFeedbackLogic'
 
 const RATINGS = [
-    { value: SURVEY_FEEDBACK_RATINGS.UP, label: 'Useful', icon: <IconThumbsUp /> },
-    { value: SURVEY_FEEDBACK_RATINGS.DOWN, label: 'Not useful', icon: <IconThumbsDown /> },
+    { value: DATA_CHECKS_FEEDBACK_RATINGS.USEFUL, label: 'Useful', icon: <IconThumbsUp /> },
+    { value: DATA_CHECKS_FEEDBACK_RATINGS.NOT_USEFUL, label: 'Not useful', icon: <IconThumbsDown /> },
 ]
 
-export function DataChecksFeedback({ logicProps }: { logicProps: SurveyFeedbackPromptLogicProps }): JSX.Element | null {
+export function DataChecksFeedback({ userId }: { userId: string }): JSX.Element | null {
     const questionId = useId()
-    const detailId = useId()
-    const logic = surveyFeedbackPromptLogic(logicProps)
-    const { visible, survey, prompt, answer, detail, completed, submitting, error } = useValues(logic)
-    const { dismissPrompt, recordImpression, setDetail, submitResponse } = useActions(logic)
-    const { isVisible: pageVisible } = usePageVisibility()
+    const noteId = useId()
+    const logic = dataChecksFeedbackLogic({ userId })
+    const { survey, visible, shownReported, rating, note, noteSent } = useValues(logic)
+    const { reportShown, rate, setNote, submitNote, dismiss } = useActions(logic)
 
     useEffect(() => {
-        if (visible && pageVisible) {
-            recordImpression()
+        if (visible && !shownReported) {
+            reportShown()
         }
-    }, [visible, pageVisible, recordImpression])
+    }, [visible, shownReported, reportShown])
 
     if (!visible || !survey) {
         return null
     }
 
+    const [ratingQuestion, noteQuestion] = survey.questions
+
     return (
         <div className="flex flex-col gap-2 border-t border-(--border) pt-2" data-attr="insight-data-checks-feedback">
-            {completed ? (
+            {noteSent ? (
                 <Text size={null} variant="muted" role="status">
                     Thanks for your feedback.
                 </Text>
-            ) : answer ? (
+            ) : rating ? (
                 <>
                     <Field>
-                        <FieldLabel htmlFor={detailId}>{prompt.followUpQuestion}</FieldLabel>
+                        <FieldLabel htmlFor={noteId}>{noteQuestion?.question}</FieldLabel>
                         <Textarea
-                            id={detailId}
-                            value={detail}
-                            onChange={(event) => setDetail(event.target.value)}
+                            id={noteId}
+                            value={note}
+                            onChange={(event) => setNote(event.target.value)}
                             rows={2}
                             maxLength={2000}
                             autoFocus
-                            disabled={submitting}
                             data-attr="insight-data-checks-feedback-detail"
                         />
                     </Field>
@@ -59,33 +54,31 @@ export function DataChecksFeedback({ logicProps }: { logicProps: SurveyFeedbackP
                         variant="outline"
                         size="sm"
                         className="self-start"
-                        loading={submitting}
-                        onClick={() => submitResponse(answer, true)}
+                        onClick={submitNote}
                         data-attr="insight-data-checks-feedback-submit"
                     >
-                        {detail.trim() ? 'Send feedback' : 'Done'}
+                        {note.trim() ? 'Send feedback' : 'Done'}
                     </Button>
                 </>
             ) : (
                 <div className="flex items-center justify-between gap-2">
                     <Text id={questionId} size={null}>
-                        {prompt.question}
+                        {ratingQuestion?.question}
                     </Text>
                     <div className="flex items-center gap-1">
                         <div className="flex items-center gap-1" role="group" aria-labelledby={questionId}>
-                            {RATINGS.map((rating) => (
+                            {RATINGS.map(({ value, label, icon }) => (
                                 <Button
-                                    key={rating.value}
+                                    key={value}
                                     variant="outline"
                                     size="icon-sm"
-                                    loading={submitting}
-                                    aria-label={rating.label}
-                                    tooltip={rating.label}
-                                    onClick={() => submitResponse(rating.value, false)}
+                                    aria-label={label}
+                                    tooltip={label}
+                                    onClick={() => rate(value)}
                                     data-attr="insight-data-checks-feedback-answer"
-                                    data-feedback-rating={rating.value}
+                                    data-feedback-rating={value}
                                 >
-                                    {rating.icon}
+                                    {icon}
                                 </Button>
                             ))}
                         </div>
@@ -93,18 +86,13 @@ export function DataChecksFeedback({ logicProps }: { logicProps: SurveyFeedbackP
                             size="icon-sm"
                             aria-label="Dismiss"
                             tooltip="Dismiss"
-                            onClick={dismissPrompt}
+                            onClick={dismiss}
                             data-attr="insight-data-checks-feedback-dismiss"
                         >
                             <IconX />
                         </Button>
                     </div>
                 </div>
-            )}
-            {error && (
-                <Text size="xs" variant="destructive" role="alert">
-                    Couldn't send your feedback. Please try again.
-                </Text>
             )}
         </div>
     )

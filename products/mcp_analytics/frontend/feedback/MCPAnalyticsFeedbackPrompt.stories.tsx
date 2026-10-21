@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import posthog, { Survey, SurveyType, SurveyQuestionType } from 'posthog-js'
 import { useEffect } from 'react'
 
-import { surveyFeedbackPromptLogic } from 'lib/logic/surveyFeedbackPrompt/surveyFeedbackPromptLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -13,8 +12,8 @@ import {
     MCP_ANALYTICS_USEFULNESS_SURVEY_ID,
     MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
     MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT,
-    MCP_ANALYTICS_FEEDBACK_COOLDOWN_STORAGE_KEY,
 } from './constants'
+import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 import { MCPAnalyticsFeedbackPrompt } from './MCPAnalyticsFeedbackPrompt'
 
 const survey: Survey = {
@@ -65,9 +64,7 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
     decorators: [
         (Story, context) => {
             const { user } = useValues(userLogic)
-            const logic = surveyFeedbackPromptLogic({
-                surveyId: MCP_ANALYTICS_USEFULNESS_SURVEY_ID,
-                cooldownStorageKey: MCP_ANALYTICS_FEEDBACK_COOLDOWN_STORAGE_KEY,
+            const logic = mcpAnalyticsFeedbackLogic({
                 userId: user?.uuid ?? '',
                 contextKey: 'example-session',
                 prompt: context.args.prompt ?? MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
@@ -161,9 +158,8 @@ export const ContextualCopy: Story = {
     ...Narrow,
     args: {
         prompt: {
-            surface: 'mcp_analytics',
             entryPoint: 'tool_review_prompt',
-            properties: { mcp_analytics_tab: 'tools' },
+            tab: 'tools',
             version: 1,
             question: 'Did this tool breakdown help you find what you needed?',
             followUpQuestion: 'What did you find, or what was missing?',

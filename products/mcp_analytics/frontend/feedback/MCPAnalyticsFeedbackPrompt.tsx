@@ -6,18 +6,14 @@ import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import {
-    SURVEY_FEEDBACK_RATINGS,
-    SurveyFeedbackPromptConfig,
-    surveyFeedbackPromptLogic,
-} from 'lib/logic/surveyFeedbackPrompt/surveyFeedbackPromptLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { MCP_ANALYTICS_FEEDBACK_COOLDOWN_STORAGE_KEY, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
+import { MCPAnalyticsFeedbackPromptConfig, MCP_ANALYTICS_FEEDBACK_RATINGS } from './constants'
+import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 
 const thumbRatings = [
-    { value: SURVEY_FEEDBACK_RATINGS.UP, label: 'Thumbs up', icon: <IconThumbsUp /> },
-    { value: SURVEY_FEEDBACK_RATINGS.DOWN, label: 'Thumbs down', icon: <IconThumbsDown /> },
+    { value: MCP_ANALYTICS_FEEDBACK_RATINGS.UP, label: 'Thumbs up', icon: <IconThumbsUp /> },
+    { value: MCP_ANALYTICS_FEEDBACK_RATINGS.DOWN, label: 'Thumbs down', icon: <IconThumbsDown /> },
 ]
 
 export function MCPAnalyticsFeedbackPrompt({
@@ -26,15 +22,13 @@ export function MCPAnalyticsFeedbackPrompt({
     eligible = true,
 }: {
     contextKey: string
-    prompt: SurveyFeedbackPromptConfig
+    prompt: MCPAnalyticsFeedbackPromptConfig
     eligible?: boolean
 }): JSX.Element | null {
     const questionId = useId()
     const detailId = useId()
     const { user } = useValues(userLogic)
-    const logic = surveyFeedbackPromptLogic({
-        surveyId: MCP_ANALYTICS_USEFULNESS_SURVEY_ID,
-        cooldownStorageKey: MCP_ANALYTICS_FEEDBACK_COOLDOWN_STORAGE_KEY,
+    const logic = mcpAnalyticsFeedbackLogic({
         userId: user?.uuid ?? '',
         contextKey,
         eligible,
