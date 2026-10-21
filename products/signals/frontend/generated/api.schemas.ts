@@ -3381,6 +3381,72 @@ export interface BetterstackIncidentSignalExtraApi {
     started_at: string | null
 }
 
+export interface SleekplanFeedbackSignalExtraApi {
+    status: string | null
+    type: string | null
+    total_up: string | null
+    created: string | null
+}
+
+export interface BettermodeFeedbackSignalExtraApi {
+    status: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface DiscourseFeedbackSignalExtraApi {
+    topic_id: string | null
+    category_id: string | null
+    created_at: string | null
+}
+
+export interface MintlifyFeedbackSignalExtraApi {
+    path: string | null
+    helpful: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface LangsmithFeedbackSignalExtraApi {
+    key: string | null
+    score: string | null
+    value: string | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: string | null
+}
+
+export interface SprigFeedbackSignalExtraApi {
+    question_type: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface GainsightPxFeedbackSignalExtraApi {
+    score: string | null
+    question_type: string | null
+    content_type: string | null
+    engagement_id: string | null
+    date: string | null
+}
+
+export interface TrustpilotReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface OkendoReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    product_name: string | null
+    is_recommended: string | null
+    date_created: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3447,6 +3513,15 @@ export type SignalExtraApi =
     | GrafanaIrmIncidentSignalExtraApi
     | XmattersIncidentSignalExtraApi
     | BetterstackIncidentSignalExtraApi
+    | SleekplanFeedbackSignalExtraApi
+    | BettermodeFeedbackSignalExtraApi
+    | DiscourseFeedbackSignalExtraApi
+    | MintlifyFeedbackSignalExtraApi
+    | LangsmithFeedbackSignalExtraApi
+    | SprigFeedbackSignalExtraApi
+    | GainsightPxFeedbackSignalExtraApi
+    | TrustpilotReviewSignalExtraApi
+    | OkendoReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */

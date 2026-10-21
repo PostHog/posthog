@@ -154,6 +154,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
@@ -163,6 +164,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
     from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
+    from products.signals.backend.emission.discourse_posts import DISCOURSE_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
@@ -170,6 +172,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
+    from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
@@ -183,7 +186,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
+    from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
+    from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
@@ -199,10 +205,13 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
+    from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
     from products.signals.backend.emission.snyk_issues import SNYK_CONFIG
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
+    from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
+    from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -272,6 +281,17 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    # Community, survey and docs feedback (record kind: feedback)
+    register_signal_source(ExternalDataSourceType.SLEEKPLAN, "Posts", SLEEKPLAN_CONFIG)
+    register_signal_source(ExternalDataSourceType.BETTERMODE, "posts", BETTERMODE_CONFIG)
+    register_signal_source(ExternalDataSourceType.DISCOURSE, "posts", DISCOURSE_CONFIG)
+    register_signal_source(ExternalDataSourceType.MINTLIFY, "feedback", MINTLIFY_CONFIG)
+    register_signal_source(ExternalDataSourceType.LANGSMITH, "feedback", LANGSMITH_CONFIG)
+    register_signal_source(ExternalDataSourceType.SPRIG, "Responses", SPRIG_CONFIG)
+    register_signal_source(ExternalDataSourceType.GAINSIGHTPX, "survey_responses", GAINSIGHT_PX_CONFIG)
+    # Business and product reviews (record kind: review)
+    register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
+    register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
 
 
 _register_all_emitters()
