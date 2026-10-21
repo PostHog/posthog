@@ -32342,6 +32342,7 @@ export namespace Schemas {
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33748,6 +33749,7 @@ export namespace Schemas {
       GoogleAdMob: 'GoogleAdMob',
       Klar: 'Klar',
       ConectoCRM: 'ConectoCRM',
+      CloudflareR2: 'CloudflareR2',
     } as const;
 
     /**
@@ -35167,7 +35169,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -35828,6 +35831,18 @@ export namespace Schemas {
       /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
       deployed_merged_pr_count: number;
     }
+
+    /**
+     * * `native` - Native
+     * * `hog_function` - HogFunction
+     */
+    export type DeliveryPathEnum = typeof DeliveryPathEnum[keyof typeof DeliveryPathEnum];
+
+
+    export const DeliveryPathEnum = {
+      Native: 'native',
+      HogFunction: 'hog_function',
+    } as const;
 
     /**
      * * `open_to_gate` - Open To Gate
@@ -37876,7 +37891,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -50009,7 +50025,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -51449,7 +51466,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -64118,6 +64136,29 @@ export namespace Schemas {
       Pagerduty: 'pagerduty',
     } as const;
 
+    /**
+     * How a logs alert splits its results into instances.
+     */
+    export interface LogsAlertGrouping {
+      /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+       *
+       * * `single` - Single
+       * * `by_result_labels` - By result labels */
+      mode: GroupingModeEnum;
+      /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+      keys?: string[];
+      /**
+         * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_instances?: number;
+      /** What happens to groups past max_instances. degrade_visible names how many were left out.
+       *
+       * * `degrade_visible` - Degrade visible */
+      on_overflow?: OnOverflowEnum;
+    }
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -64203,6 +64244,10 @@ export namespace Schemas {
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
+      /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+      grouping?: LogsAlertGrouping;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -64368,6 +64413,10 @@ export namespace Schemas {
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
+      /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+      grouping?: LogsAlertGrouping;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -64427,6 +64476,25 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationResponse {
       hog_function_ids: string[];
+    }
+
+    export interface LogsAlertDestinationSend {
+      /** The HogFunction the message was sent for. It names the lifecycle event that was sent. */
+      hog_function_id: string;
+      /** When the send started. */
+      sent_at: string;
+      /** Which delivery path sent it. `native` is the stock message sent by the alerts platform. `hog_function` is the destination's HogFunction.
+       *
+       * * `native` - Native
+       * * `hog_function` - HogFunction */
+      path: DeliveryPathEnum;
+      /** Whether the destination accepted the message. */
+      succeeded: boolean;
+      /**
+         * Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, whose reason is in the HogFunction's own logs.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
@@ -83815,6 +83883,10 @@ export namespace Schemas {
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
+      /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+      grouping?: LogsAlertGrouping;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      readonly platform_owned?: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -89560,6 +89632,19 @@ export namespace Schemas {
     }
 
     export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
+
+    export interface PlatformAlertGroupSnooze {
+      /**
+         * Key of the group to snooze, as the grouping_key of one of the alert's instances.
+         * @maxLength 255
+         */
+      grouping_key: string;
+      /**
+         * Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+         * @nullable
+         */
+      snooze_until: string | null;
+    }
 
     /**
      * * `running` - Running
@@ -106503,7 +106588,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -107974,7 +108060,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -109412,7 +109499,8 @@ export namespace Schemas {
        * * `Testomatio` - Testomatio
        * * `GoogleAdMob` - GoogleAdMob
        * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM */
+       * * `ConectoCRM` - ConectoCRM
+       * * `CloudflareR2` - CloudflareR2 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -130072,6 +130160,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type LogsAlertsDestinationsSendsListParams = {
+    /**
+     * HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[];
     };
 
     export type LogsAlertsEventsListParams = {

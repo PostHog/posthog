@@ -1142,13 +1142,13 @@ Today (7): `aggregated_resources`, `config_rules`, `conformance_pack_compliance_
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/config/2014-11-12/service-2.json>
 
-- [ ] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
+- [x] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
 - [x] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
-- [ ] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
+- [x] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
 - [x] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
 - [x] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
-- [ ] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
-- [ ] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
+- [x] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
+- [x] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. Current tables contain regional snapshots and rule summaries; history and detailed evaluations require calls for each resource or rule. Aggregated resource queries require aggregator discovery and separate traversal. JSON RPC reads use POST /; recorder settings, delivery channels, and stored queries were excluded.
 
@@ -1182,7 +1182,7 @@ Note: Compared the official botocore operation model with the static table map a
 
 ## AWS Glue Data Catalog — **thin**
 
-Today (11): `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `table_versions`, `tables`, `workflow_runs`
+Today (14): `column_statistics`, `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `sessions`, `table_optimizer_runs`, `table_versions`, `tables`, `workflow_runs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
@@ -1191,9 +1191,9 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Table versions (GetTableVersions, POST /)` — preserves schema and metadata history for existing catalog tables (medium)
 - [x] `Crawler history (ListCrawls, POST /)` — tracks crawl duration, failures, catalog changes, and compute use beyond the latest crawler result (medium)
 - [x] `Workflow runs (GetWorkflowRuns, POST /)` — measures complete pipeline duration and failures across related jobs and crawlers (medium)
-- [ ] `Table column statistics (GetColumnStatisticsForTable, POST /)` — provides column distributions, null counts, and cardinality for data profiling (medium)
-- [ ] `Table optimizer runs (ListTableOptimizerRuns, POST /)` — tracks compaction and cleanup execution history, failures, and resource use for catalog tables (medium)
-- [ ] `Interactive sessions (ListSessions, POST /)` — measures interactive ETL session duration, status, and compute use alongside scheduled job runs (medium)
+- [x] `Table column statistics (GetColumnStatisticsForTable, POST /)` — provides column distributions, null counts, and cardinality for data profiling (medium)
+- [x] `Table optimizer runs (ListTableOptimizerRuns, POST /)` — tracks compaction and cleanup execution history, failures, and resource use for catalog tables (medium)
+- [x] `Interactive sessions (ListSessions, POST /)` — measures interactive ETL session duration, status, and compute use alongside scheduled job runs (medium)
 
 Note: Compared the official botocore operation model with the static table map and extraction code; reads use POST /. Existing traversal already covers database tables, table partitions, and job runs. Data quality results require GetDataQualityResult hydration; workflow runs require ListWorkflows discovery and calls for each workflow. Table history, statistics, and optimizer runs require table traversal; connection settings, security configuration, and write operations were excluded.
 
@@ -6312,11 +6312,11 @@ Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 - [x] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
 - [x] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium). Added as `stock_counts` (header rows only; per-product counts and variances live in `sheets`, which needs `include=sheets`, not requested yet).
 - [x] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
-- [ ] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium)
-- [ ] `/{companyId}/adjustment-reasons` — lookup resolving the reason code on each stock adjustment - without it adjustments cannot be categorized (medium)
+- [x] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium). Added as `product_groups` (list only; the per-group `quantities` route is not synced, because `products` already carries `totalQuantityOnHand`; per-location `inventoryLines` need `include=inventoryLines`, not requested yet).
+- [x] `/{companyId}/adjustment-reasons` — lookup resolving the reason code on each stock adjustment - without it adjustments cannot be categorized (medium)
 - [x] `/{companyId}/tax-codes and /{companyId}/taxing-schemes` — lookups resolving tax IDs on order lines, needed to reconcile order totals (medium)
-- [ ] `/{companyId}/currencies` — lookup with exchange rates, required to normalize multi-currency order totals (medium)
-- [ ] `/{companyId}/team-members` — lookup resolving the user IDs that created or own orders, for per-rep performance reporting (medium)
+- [x] `/{companyId}/currencies` — lookup with exchange rates, required to normalize multi-currency order totals (medium)
+- [x] `/{companyId}/team-members` — lookup resolving the user IDs that created or own orders, for per-rep performance reporting (medium)
 
 Note: inFlow publishes a clean ReDoc/Swagger spec and even advertises it in a static header for scrapers, so this diff is exact. Also present but lower value and omitted: payment-terms, pricing-schemes, operation-types, stockroom-users, stockroom-scans, custom-field-definitions / custom-field-dropdown-options, report-settings. Webhooks and batch-job excluded as plumbing. Every path is company-scoped ({companyId} prefix), so the source already resolves a company ID and adding tables is mechanical.
 
@@ -10157,9 +10157,9 @@ Today (12): `custom_domains`, `deploys`, `disks`, `env_groups`, `environments`, 
 
 Diffed against: <https://api-docs.render.com/reference/introduction>
 
-- [ ] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
-- [ ] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
-- [ ] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
+- [x] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
+- [x] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
+- [x] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
 - [ ] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
 - [ ] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
 - [ ] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium)
