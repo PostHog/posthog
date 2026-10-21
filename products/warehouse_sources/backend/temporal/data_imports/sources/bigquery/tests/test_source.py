@@ -1724,7 +1724,7 @@ def test_bigquery_impersonation_precheck_failure_is_reported_and_retried_only_on
     assert message == expected_message
     mock_client.assert_not_called()
     assert mock_verify.called is expect_ownership_checked
-    assert error_message_matches(message, BigQuerySource().get_non_retryable_errors()) is expect_non_retryable
+    assert error_message_matches(expected_message, BigQuerySource().get_non_retryable_errors()) is expect_non_retryable
 
 
 @pytest.mark.django_db
