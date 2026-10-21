@@ -100,7 +100,7 @@ You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **S
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

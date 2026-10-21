@@ -32,24 +32,17 @@ from .skill_serializers import LLMSkillSerializer, LLMSkillVersionSummarySeriali
 from .skill_services import get_active_skill_queryset, get_skill_by_name_from_db
 
 if TYPE_CHECKING:
+    from rest_framework.viewsets import GenericViewSet
+
     from products.signals.backend.facade.api import ScoutTrialSkill
 
-    class _SkillViewBase:
-        """What LLMSkillViewSet supplies to the endpoint mixins.
-
-        Read-only declarations, so the concrete viewset's own properties stay compatible with them.
-        """
-
-        @property
-        def request(self) -> Request: ...
+    class _SkillViewBase(GenericViewSet[LLMSkill]):
         @property
         def team(self) -> Team: ...
         @property
         def organization(self) -> Organization: ...
         @property
         def user_access_control(self) -> UserAccessControl: ...
-        def check_object_permissions(self, request: Request, obj: Any) -> None: ...
-        def get_serializer_context(self) -> dict[str, Any]: ...
 
 else:
     _SkillViewBase = object

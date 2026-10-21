@@ -844,6 +844,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
+        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
 
     @parameterized.expand(
         [
@@ -1377,6 +1378,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
+                "is_imported": False,
                 "experiment_create_deprecated_fields": ["filters"],
             },
         )
@@ -4985,6 +4987,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,
+                "is_imported": False,
                 "allow_unknown_events": True,
                 "experiment_create_deprecated_fields": [],
             },

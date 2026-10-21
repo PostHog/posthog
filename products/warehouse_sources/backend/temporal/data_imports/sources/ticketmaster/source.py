@@ -137,5 +137,5 @@ class TicketmasterSource(ResumableSource[TicketmasterSourceConfig, TicketmasterR
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

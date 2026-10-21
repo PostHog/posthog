@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
@@ -41,6 +42,7 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_covered_by_legacy_fallback,
     scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
@@ -830,6 +832,32 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     return None
 
 
+LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
+
+
+def _capture_legacy_scope_fallback(request: Request, view: APIView, required_scope: str, legacy_scope: str) -> None:
+    """Record that a legacy scope satisfied a required scope. The events show which credentials and
+    OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
+    client = get_authenticator_client(request.successful_authenticator)
+    distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
+    view_name = type(view).__name__
+    # At most one event per caller, client, scope and view each interval, because this runs on every request.
+    throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
+    if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
+        return
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="api scope fallback used",
+        properties={
+            "required_scope": required_scope,
+            "legacy_scope": legacy_scope,
+            "credential_type": client["credential_type"],
+            "client_id": client["client_id"],
+            "view": view_name,
+        },
+    )
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -907,9 +935,14 @@ class APIScopePermission(ScopeBasePermission):
             return True
 
         missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
+        missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
         if missing_scopes:
             self.message = f"API key missing required scope '{missing_scopes[0]}'"
             return False
+
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
 
         return True
 
