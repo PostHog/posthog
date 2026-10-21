@@ -49,7 +49,8 @@ use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_run::{Admitted, OffsetSpan, SeedGroup, SeedKind, SeedOffset, SeedRun};
 use crate::workers::stage2_path::{
-    commit_stage2_writes, diff_single_leaf_registers, FoldedLeaf, RegisterDiff, Stage2Recompute,
+    commit_stage2_writes, composed_rows_missing, diff_single_leaf_registers, FoldedLeaf,
+    RegisterDiff, Stage2Recompute,
 };
 use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
 use crate::workers::worker::{
@@ -479,6 +480,12 @@ impl TouchedPersons {
         self.entry(team_id, person, run).leaves.insert(leaf);
     }
 
+    fn admits(&self, team_id: TeamId, person: Uuid, leaf: LeafStateKey) -> bool {
+        self.per_person
+            .get(&(team_id, person))
+            .is_some_and(|touch| touch.leaves.contains(&leaf))
+    }
+
     fn is_empty(&self) -> bool {
         self.per_person.is_empty()
     }
@@ -708,7 +715,8 @@ impl Folded {
 
     /// One [`diff_single_leaf_registers`] per team. Every person the diff emits a change or a write
     /// for joins `recompose`: a lagging register is its own reason to recompose, and nothing the
-    /// fold saw would admit it — the redelivery of a failed produce mints no transition.
+    /// fold saw would admit it — the redelivery of a failed produce mints no transition. A composed
+    /// cohort with no row for a person the run evaluated joins too, see [`composed_rows_missing`].
     async fn diff_registers(
         mut self,
         deps: ApplyDeps<'_>,
@@ -748,6 +756,34 @@ impl Folded {
                         leaf.run_id,
                         leaf.leaf_state_key,
                     );
+                }
+            }
+            if deps.merge.person_seed.repair_missing_composed_rows {
+                // Only leaves nothing above admitted, so a tile run, which recomposes every tile it
+                // folds, reads nothing more.
+                let unadmitted = leaves.iter().filter(|leaf| {
+                    !self
+                        .recompose
+                        .admits(team_id, leaf.person_id, leaf.leaf_state_key)
+                });
+                let missing = composed_rows_missing(
+                    deps.partition_id,
+                    deps.handle,
+                    filters,
+                    unadmitted,
+                    ReadLane::Maintenance,
+                )
+                .await
+                .map_err(SeedHold::store(ApplyStage::RegisterDiff))?;
+                for leaf in leaves {
+                    if missing.contains(&(leaf.person_id, leaf.leaf_state_key)) {
+                        self.recompose.touch_lagging(
+                            team_id,
+                            leaf.person_id,
+                            leaf.run_id,
+                            leaf.leaf_state_key,
+                        );
+                    }
                 }
             }
             diff.extend(team_diff);

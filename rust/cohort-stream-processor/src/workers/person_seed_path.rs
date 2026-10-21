@@ -49,6 +49,10 @@ pub struct PersonSeedDeps {
     /// Covers ClickHouse replication lag plus client-clock skew; see
     /// [`crate::stage1::person_record::person_seed_verdict`].
     pub live_margin_ms: i64,
+    /// Recompose a composed cohort that has no row for a person the run evaluated, even when the
+    /// seed changed nothing. Off only as a kill switch: without it a cohort added over leaves an
+    /// earlier run seeded never gets rows, and its run completes with no members.
+    pub repair_missing_composed_rows: bool,
 }
 
 impl Default for PersonSeedDeps {
@@ -56,6 +60,7 @@ impl Default for PersonSeedDeps {
         Self {
             enabled: false,
             live_margin_ms: 900_000,
+            repair_missing_composed_rows: true,
         }
     }
 }
@@ -416,10 +421,12 @@ impl RecordUpdate {
 
 /// Whether stage 2 has to be recomposed for this seed.
 ///
-/// A merge that changed nothing leaves stage 2 already consistent with stage 1, and skipping the
-/// recompose keeps a non-matching dormant person to a single point read instead of a composition
-/// over every cohort its hashes touch — the dominant message shape of a scan that emits
-/// non-matchers. Two outcomes still have to recompose:
+/// A merge that changed nothing leaves stage 2 consistent with stage 1 for every cohort that already
+/// has a row; a composed cohort without one is the register diff's to admit, see
+/// [`crate::workers::stage2_path::composed_rows_missing`]. Skipping the recompose keeps a
+/// non-matching dormant person to a single point read instead of a composition over every cohort its
+/// hashes touch — the dominant message shape of a scan that emits non-matchers. Two outcomes still
+/// have to recompose:
 ///
 /// - `SkipLiveFresh` may be the redelivery of an attempt that committed stage 1 and then failed its
 ///   produce. The replay merges to `Unchanged` and mints no transition, and a live event that
@@ -714,6 +721,7 @@ mod tests {
                 person_seed: PersonSeedDeps {
                     enabled: true,
                     live_margin_ms: MARGIN_MS,
+                    ..PersonSeedDeps::default()
                 },
                 seed_budget: crate::workers::seed_run::RunBudget::default(),
             };
@@ -1841,6 +1849,78 @@ mod tests {
         assert_eq!(changes[1].status, MembershipStatus::Entered);
         assert!(shell.stage2(partition_id, person, 3).unwrap().in_cohort);
         assert_eq!(shell.committable(partition_id), Some(2));
+    }
+
+    /// The composed half of the same case. The seed asserts what the record already holds and no
+    /// single-leaf register lags, so only the missing composed row can admit the recompose; without
+    /// it the cohort's backfill completes with no members.
+    #[tokio::test]
+    async fn a_composed_cohort_added_over_an_existing_record_composes_on_the_next_unchanged_seed() {
+        for (member, repair, expected) in [
+            (true, true, Some(true)),
+            // A non-member's row stays absent, so the next run reads it again and writes nothing.
+            (false, true, None),
+            (true, false, None),
+        ] {
+            let (person, partition_id) = dormant_person();
+            let single_leaf = vec![
+                (1, wrap(vec![person_leaf(PERSON_HASH)])),
+                (4, wrap(vec![behavioral_leaf()])),
+            ];
+            let mut shell = Shell::new(single_leaf.clone());
+            shell.deps.person_seed.repair_missing_composed_rows = repair;
+            if member {
+                shell.live_pageview(partition_id, person, None);
+            }
+            // An earlier run's result, stamped old enough that this seed applies as an ordinary
+            // Unchanged merge rather than a live-fresh skip.
+            shell.put_record(
+                partition_id,
+                person,
+                &PersonRecord {
+                    last_seen_ms: now_ms(),
+                    stamp: Stamp::new(now_ms() - 2 * MARGIN_MS, 0),
+                    props_fingerprint: PropsFingerprint::of(r#"{"email":"a@b.com"}"#),
+                    catalog_fingerprint: shell.filters.catalog_fingerprint,
+                    matched: MatchedSet::from_iter([hash(PERSON_HASH).as_bytes()]),
+                    applied_offsets: AppliedOffsets::default(),
+                    redirect_dedup: Default::default(),
+                },
+            );
+            shell.put_register(partition_id, person, 1, true);
+
+            // Cohort 2 composes both leaves, neither of them new to the store.
+            let mut cohorts = single_leaf;
+            cohorts.push((2, wrap(vec![person_leaf(PERSON_HASH), behavioral_leaf()])));
+            shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+                TEAM,
+                build_filters(&cohorts),
+            )])));
+            let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+            shell.run(partition_id, &seed, 0).await;
+
+            let case = format!("member={member} repair={repair}");
+            assert_eq!(
+                shell
+                    .sink
+                    .changes()
+                    .iter()
+                    .map(|change| (change.cohort_id, change.status))
+                    .collect::<Vec<_>>(),
+                expected
+                    .map(|_| vec![(2, MembershipStatus::Entered)])
+                    .unwrap_or_default(),
+                "{case}",
+            );
+            assert_eq!(
+                shell
+                    .stage2(partition_id, person, 2)
+                    .map(|state| state.in_cohort),
+                expected,
+                "{case}",
+            );
+            assert_eq!(shell.committable(partition_id), Some(1), "{case}");
+        }
     }
 
     #[tokio::test]

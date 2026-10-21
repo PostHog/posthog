@@ -15,8 +15,8 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 use crate::observability::metrics::{
-    SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR,
-    STAGE2_TRANSITIONS,
+    SEED_COMPOSED_ROWS_MISSING_TOTAL, SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED,
+    STAGE2_STATE_DECODE_ERROR, STAGE2_TRANSITIONS,
 };
 use crate::producer::{ChangeOrigin, CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
@@ -441,6 +441,73 @@ pub(crate) async fn diff_single_leaf_registers(
         },
         stage1_writes,
     })
+}
+
+/// The `(person, leaf)` pairs among `folded` whose leaf feeds a composed cohort that holds no
+/// readable stage-2 row for the person.
+///
+/// A composed cohort recomposes only when a seed touches one of its leaves, and a person seed that
+/// asserts what the record already holds touches nothing. A cohort added over leaves an earlier run
+/// already seeded would then never get a row, and reconcile, which walks only existing rows, would
+/// certify it with no members. So a missing row is its own reason to recompose, as a lagging register
+/// is for the single-leaf half. A non-member's row stays absent after the recompose, so a later run
+/// reads it again but writes and emits nothing.
+///
+/// One batched `cf_stage2` read on `lane`. Leaves with no composed cohort keyed on them cost nothing.
+pub(crate) async fn composed_rows_missing<'a>(
+    partition_id: u16,
+    handle: &StoreHandle,
+    filters: &TeamFilters,
+    folded: impl IntoIterator<Item = &'a FoldedLeaf>,
+    lane: ReadLane,
+) -> Result<BTreeSet<(Uuid, LeafStateKey)>, StoreError> {
+    let mut wanted: BTreeMap<Stage2Key, Vec<(Uuid, LeafStateKey)>> = BTreeMap::new();
+    for leaf in folded {
+        let Some(cohort_ids) = filters
+            .by_lsk_to_composable_cohorts
+            .get(&leaf.leaf_state_key)
+        else {
+            continue;
+        };
+        for cohort_id in cohort_ids {
+            let Some(tree) = filters.cohorts.get(cohort_id) else {
+                continue;
+            };
+            let key = Stage2Key {
+                partition_id,
+                team_id: tree.team_id.0 as u64,
+                cohort_id: cohort_id.0 as u64,
+                person_id: leaf.person_id,
+            };
+            wanted
+                .entry(key)
+                .or_default()
+                .push((leaf.person_id, leaf.leaf_state_key));
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+
+    let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
+    let stored = handle.multi_get_stage2(keys, lane).await?;
+
+    let mut missing = BTreeSet::new();
+    let (mut absent, mut corrupt) = (0u64, 0u64);
+    for (pairs, bytes) in wanted.into_values().zip(stored) {
+        match read_register(bytes) {
+            StoredRegister::Present(_) => continue,
+            StoredRegister::Absent => absent += 1,
+            StoredRegister::Corrupt => corrupt += 1,
+        }
+        missing.extend(pairs);
+    }
+    for (count, found) in [(absent, "absent"), (corrupt, "corrupt")] {
+        if count > 0 {
+            counter!(SEED_COMPOSED_ROWS_MISSING_TOTAL, "found" => found).increment(count);
+        }
+    }
+    Ok(missing)
 }
 
 /// One `(single-leaf cohort, person)` the fold decided, before its stored row is read.

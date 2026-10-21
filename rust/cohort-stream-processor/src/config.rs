@@ -285,6 +285,12 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
 
+    /// Recompose a composed cohort that has no row for a person a seed run evaluated, even when the
+    /// seed changed nothing. Default on. Turn off only as a kill switch: while off, a composed cohort
+    /// added over leaves an earlier run seeded completes its backfill with no members.
+    #[envconfig(from = "COHORT_SEED_COMPOSED_ROW_REPAIR_ENABLED", default = "true")]
+    pub cohort_seed_composed_row_repair_enabled: bool,
+
     /// Seeds one partition worker applies as a single run. `1` limits each run to one seed through
     /// the same apply pipeline; it does not restore a different implementation.
     #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
@@ -1376,6 +1382,7 @@ mod tests {
             cohort_seed_reconcile_tick_interval_ms: 2_000,
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
+            cohort_seed_composed_row_repair_enabled: true,
             cohort_seed_apply_batch_max: 256,
             cohort_seed_apply_batch_max_rows: 4096,
             cohort_seed_live_lag_pause_ms: 120_000,

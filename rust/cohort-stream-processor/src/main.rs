@@ -430,6 +430,7 @@ async fn async_main(config: Config) -> Result<()> {
         person_seed: PersonSeedDeps {
             enabled: config.cohort_seed_person_apply_enabled,
             live_margin_ms: config.cohort_seed_person_live_margin_ms,
+            repair_missing_composed_rows: config.cohort_seed_composed_row_repair_enabled,
         },
         seed_budget: config.seed_run_budget(),
     });
