@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0066_remove_dashboardprivilege"),
-        ("posthog", "1405_scimprovisioneduser_scimrequestlog"),
+        ("posthog", "1406_scimprovisioneduser_scimrequestlog"),
     ]
 
     operations = [
