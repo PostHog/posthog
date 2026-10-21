@@ -145,6 +145,42 @@ const billingProductsSummaryGet = (): ToolBase<
     },
 })
 
+const BillingProjectFeaturesGetSchema = () => z.object({})
+
+const billingProjectFeaturesGet = (): ToolBase<
+    ReturnType<typeof BillingProjectFeaturesGetSchema>,
+    Schemas.BillingFeatures
+> => ({
+    name: 'billing-project-features-get',
+    schema: BillingProjectFeaturesGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectFeaturesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingFeatures>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/features/`,
+        })
+        return result
+    },
+})
+
+const BillingProjectProductsSummaryGetSchema = () => z.object({})
+
+const billingProjectProductsSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingProjectProductsSummaryGetSchema>,
+    Schemas.BillingProductsSummary
+> => ({
+    name: 'billing-project-products-summary-get',
+    schema: BillingProjectProductsSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectProductsSummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingProductsSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/products/summary/`,
+        })
+        return result
+    },
+})
+
 const BillingProjectSpendTimeseriesGetSchema = () => {
     const BillingProjectSpendTimeseriesRetrieveQueryParams =
         orvalSchemas.BillingProjectSpendTimeseriesRetrieveQueryParams()
@@ -179,6 +215,24 @@ const billingProjectSpendTimeseriesGet = (): ToolBase<
                 start_date: params.start_date,
                 usage_types: params.usage_types,
             },
+        })
+        return result
+    },
+})
+
+const BillingProjectUsageStatusGetSchema = () => z.object({})
+
+const billingProjectUsageStatusGet = (): ToolBase<
+    ReturnType<typeof BillingProjectUsageStatusGetSchema>,
+    Schemas.BillingUsageStatus
+> => ({
+    name: 'billing-project-usage-status-get',
+    schema: BillingProjectUsageStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectUsageStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingUsageStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/usage/status/`,
         })
         return result
     },
@@ -548,7 +602,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
     'billing-products-summary-get': billingProductsSummaryGet,
+    'billing-project-features-get': billingProjectFeaturesGet,
+    'billing-project-products-summary-get': billingProjectProductsSummaryGet,
     'billing-project-spend-timeseries-get': billingProjectSpendTimeseriesGet,
+    'billing-project-usage-status-get': billingProjectUsageStatusGet,
     'billing-project-usage-summary-get': billingProjectUsageSummaryGet,
     'billing-project-usage-timeseries-get': billingProjectUsageTimeseriesGet,
     'billing-projects-list': billingProjectsList,

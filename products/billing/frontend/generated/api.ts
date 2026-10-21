@@ -1068,6 +1068,42 @@ export const billingUsageTimeseriesRetrieve = async (
     )
 }
 
+export const getBillingProjectFeaturesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/features/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the features the project's organization has
+ */
+export const billingProjectFeaturesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BillingFeaturesApi> => {
+    return apiMutator<BillingFeaturesApi>(getBillingProjectFeaturesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectProductsSummaryRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/products/summary/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary for the project's organization
+ */
+export const billingProjectProductsSummaryRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BillingProductsSummaryApi> => {
+    return apiMutator<BillingProductsSummaryApi>(getBillingProjectProductsSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getBillingProjectSpendExportDownloadUrl = (
     projectId: string,
     params?: BillingProjectSpendExportDownloadParams
@@ -1186,6 +1222,24 @@ export const billingProjectUsageExportDownload = async (
     options?: RequestInit
 ): Promise<Blob> => {
     return apiMutator<Blob>(getBillingProjectUsageExportDownloadUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectUsageStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/usage/status/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the project's organization's usage against limits, without the counts
+ */
+export const billingProjectUsageStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BillingUsageStatusApi> => {
+    return apiMutator<BillingUsageStatusApi>(getBillingProjectUsageStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

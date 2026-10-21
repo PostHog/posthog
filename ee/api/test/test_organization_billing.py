@@ -928,6 +928,36 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(json.loads(mock_get.call_args.kwargs["params"]["team_ids"]), [self.team.id])
 
+    @parameterized.expand(
+        [
+            (path, credential, allowed)
+            for path in ("features/", "products/summary/", "usage/status/")
+            for credential, allowed in (
+                ("session", True),
+                ("personal_key_for_this_project", True),
+                ("personal_key_for_another_project", False),
+                ("project_secret_key_for_this_project", False),
+            )
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_organization_reads_keep_the_credentials_project_scope(self, path, credential, allowed, mock_get):
+        mock_get.return_value = _response({"available_product_features": [], "products": []})
+        response = self.client.get(self._project_url(path), **self._credential(credential))
+        if not allowed:
+            self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+            mock_get.assert_not_called()
+            return
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        billing_path = "products/catalog/" if path == "products/summary/" else path
+        self.assertTrue(
+            mock_get.call_args.args[0].endswith(f"/api/v2/billing/{billing_path}"), mock_get.call_args.args[0]
+        )
+        token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(token, options={"verify_signature": False})
+        expected_projects = [self.team.id] if credential == "personal_key_for_this_project" else None
+        self.assertEqual(claims["projects"], expected_projects)
+
     @parameterized.expand([("usage",), ("spend",)])
     @patch("ee.billing.billing_manager.http_session.get")
     async def test_project_export_sends_billing_only_the_project_in_the_path(self, kind, mock_get):

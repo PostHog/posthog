@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -416,6 +416,30 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
 
 /**
  * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the features the project's organization has
+ */
+export const BillingProjectFeaturesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary for the project's organization
+ */
+export const BillingProjectProductsSummaryRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary A project's share of spend over time
  */
 export const BillingProjectSpendTimeseriesRetrieveParams = () => zod.object({
@@ -459,6 +483,18 @@ export const BillingProjectSpendTimeseriesRetrieveQueryParams = () => zod.object
  * @summary Get a project's usage so far this billing period
  */
 export const BillingProjectUsageRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the project's organization's usage against limits, without the counts
+ */
+export const BillingProjectUsageStatusRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

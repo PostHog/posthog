@@ -1048,6 +1048,9 @@ describe('Tool Filtering - Feature Flags', () => {
             'billing-project-usage-summary-get',
             'billing-project-usage-timeseries-get',
             'billing-project-spend-timeseries-get',
+            'billing-project-features-get',
+            'billing-project-products-summary-get',
+            'billing-project-usage-status-get',
         ]
         const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
         for (const tool of gated) {
