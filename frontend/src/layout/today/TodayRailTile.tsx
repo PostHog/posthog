@@ -6,10 +6,11 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SEVERITY_INDICATOR, TodayRailSeverity } from './todayRailSeverity'
 
+// The frontend's Tailwind has no quill status fills, so the dot reads the quill variables directly.
 const DOT_CLASS = {
-    default: 'bg-primary',
-    warning: 'bg-warning-foreground',
-    destructive: 'bg-destructive-foreground',
+    default: 'bg-[var(--primary)]',
+    warning: 'bg-[var(--warning-foreground)]',
+    destructive: 'bg-[var(--destructive-foreground)]',
 } as const
 
 export interface TodayRailTileProps extends Omit<React.HTMLAttributes<HTMLElement>, 'onClick'> {
