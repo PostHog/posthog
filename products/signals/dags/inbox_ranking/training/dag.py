@@ -897,8 +897,8 @@ inbox_ranking_training_job = dagster.define_asset_job(
     ],
     tags={
         **owner_tags,
-        # The job fits nothing: it copies models, reads one day of scoring events and grades up to
-        # 15 days of scores objects against one labels snapshot.
+        # The job fits nothing: it copies models, reads one day of scoring events and grades the
+        # scores objects back to the longest head horizon against one labels snapshot.
         "dagster/max_runtime": str(60 * 60),
         "dagster-k8s/config": {
             "container_config": {
