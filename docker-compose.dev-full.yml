@@ -18,6 +18,7 @@ services:
         depends_on:
             - replay-capture
             - capture
+            - capture-ai
             - feature-flags
             - hypercache-server
             - web
@@ -150,6 +151,16 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis7
+            - kafka
+
+    capture-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
         environment:
             - DEBUG=1
         depends_on:
