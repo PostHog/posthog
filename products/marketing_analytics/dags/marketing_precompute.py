@@ -54,7 +54,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, sync_execute
-from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_DATA_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
@@ -167,9 +166,9 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
         # lc_* columns and sorts by query start hour, so the window prunes by time. A scan of
         # system.query_log on every replica parses log_comment per row and exceeds the timeout.
         rows = sync_execute(
-            f"""
+            """
             SELECT DISTINCT team_id
-            FROM {QUERY_LOG_ARCHIVE_DATA_TABLE}
+            FROM query_log_archive
             WHERE type != 'QueryStart'
               AND initial_query_start_time > now() - toIntervalDay(%(days)s)
               AND lc_query_type IN (
