@@ -5641,14 +5641,14 @@ Note: The Content API documents exactly five endpoints: content (/search), tags,
 
 ## Gumroad — gaps
 
-Today (8): `custom_fields`, `offer_codes`, `payouts`, `product_reviews`, `products`, `sales`, `subscribers`, `variant_categories`
+Today (13): `custom_fields`, `earnings`, `emails`, `offer_codes`, `payouts`, `product_reviews`, `products`, `sales`, `subscribers`, `upcoming_payouts`, `variant_categories`, `workflow_emails`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/antiwork/gumroad/main/app/javascript/pages/Public/Api.tsx>
 
-- [ ] `Earnings (GET /v2/earnings)` — reconcile annual net income, tax totals, fees, and affiliate credits with the Tax Center (high)
-- [ ] `Upcoming payouts (GET /v2/payouts/upcoming)` — forecast pending cash receipts and compare payable balances with settled payouts (medium)
-- [ ] `Emails (GET /v2/emails)` — analyze audience outreach, delivered recipient counts, publishing dates, and product targeting alongside sales (medium)
-- [ ] `Workflows (GET /v2/workflows; GET /v2/workflows/{id})` — compare automated email sequences, delivery statistics, and product targeting with subscriber and sales outcomes (medium)
+- [x] `Earnings (GET /v2/earnings)` — reconcile annual net income, tax totals, fees, and affiliate credits with the Tax Center (high)
+- [x] `Upcoming payouts (GET /v2/payouts/upcoming)` — forecast pending cash receipts and compare payable balances with settled payouts (medium)
+- [x] `Emails (GET /v2/emails)` — analyze audience outreach, delivered recipient counts, publishing dates, and product targeting alongside sales (medium)
+- [x] `Workflows (GET /v2/workflows; GET /v2/workflows/{id})` — compare automated email sequences, delivery statistics, and product targeting with subscriber and sales outcomes (medium)
 
 Note: Read the current API page source, its endpoint modules, and shared response definitions from Gumroad's official repository. Product responses already include variant options, so separate variant reads add no missing collection. The existing payout stream excludes upcoming payouts, whose null identifiers need a different key. Earnings require US Tax Center access; email and workflow reads require additional scopes.
 
