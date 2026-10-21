@@ -85,8 +85,8 @@ export function WorkflowBatchOverview({ id }: { id: string }): JSX.Element {
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted" data-attr="workflow-batch-overview-comparison">
                         {previousRun
-                            ? `Compared with the run on ${dayjs(previousRun.created_at).format('MMM D, HH:mm')}`
-                            : 'First run, so there is nothing to compare with'}
+                            ? `Each card shows this run and the previous run, on ${dayjs(previousRun.created_at).format('MMM D, HH:mm')}`
+                            : 'This is the first run, so there is no previous run to show'}
                     </span>
                     <LemonSelect
                         size="small"

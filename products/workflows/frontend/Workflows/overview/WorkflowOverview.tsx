@@ -74,6 +74,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
     const logicKey = run ? `hog-flow-overview-${id}-run-${run.id}` : `hog-flow-overview-${id}`
     const appSourceId = run?.id
     const period = run ? 'in this run' : 'in this date range'
+    const previousLabel = previousRun ? `Previous run (${dayjs(previousRun.created_at).format('MMM D')})` : undefined
     const { getSingleTrendSeries: trendSeries, appMetricsTrendsLoading } = useValues(
         appMetricsLogic({
             logicKey,
@@ -181,6 +182,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                     }
                     loading={appMetricsTrendsLoading}
                     timeSeries={started}
+                    previousLabel={previousLabel}
                     previousPeriodTimeSeries={withDisplayName(
                         getSingleTrendSeries('triggered', true),
                         'Workflows started'
@@ -195,6 +197,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                         description={`${sentSummaryLabel} by this workflow ${period}.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={sent}
+                        previousLabel={previousLabel}
                         previousPeriodTimeSeries={sentFor(true)}
                         color={METRIC_COLORS[sentSummaryLabel]}
                         seriesColors={METRIC_COLORS}
@@ -208,6 +211,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                         description={`Opens recorded ${period}. Only tracked emails can record opens.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={opened}
+                        previousLabel={previousLabel}
                         previousPeriodTimeSeries={openedFor(true)}
                         color={METRIC_COLORS['Opened']}
                         seriesColors={OPENED_SERIES_COLORS}
@@ -222,6 +226,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                         description={`Email link clicks recorded ${period}.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={clicked}
+                        previousLabel={previousLabel}
                         previousPeriodTimeSeries={withDisplayName(
                             getSingleTrendSeries('email_link_clicked', true),
                             'Link clicked'
@@ -238,6 +243,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                         description={`Conversions recorded ${period} against the workflow's goal.`}
                         loading={appMetricsTrendsLoading}
                         timeSeries={converted}
+                        previousLabel={previousLabel}
                         previousPeriodTimeSeries={withDisplayName(
                             getSingleTrendSeries('conversion', true),
                             'Workflows converted'
