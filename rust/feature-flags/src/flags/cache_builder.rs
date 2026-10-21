@@ -256,6 +256,7 @@ pub fn compute_flag_dependencies(flags: &[FeatureFlag]) -> Result<EvaluationMeta
         dependency_stages: result.stages,
         flags_with_missing_deps: result.nodes_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     })
 }
 
