@@ -16,16 +16,13 @@ const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
 export interface FacetRailProps<T extends FacetGroupItem> {
-    /** The product whose custom facets the add button pins. */
     product: CustomFacetsProduct
-    /** The facets to show, in order. Each group renders under its own header. */
     facets: T[]
     /** Renders one facet. A facet that the name search hides still renders, so its logic stays mounted. */
     renderFacet: (facet: T, hidden: boolean) => JSX.Element
     facetNameSearch: string
     onFacetNameSearchChange: (value: string) => void
     onCollapsedChange: (collapsed: boolean) => void
-    /** The taxonomic groups the add button offers, one for each custom facet source type. */
     addFacetGroupTypes: { attribute: TaxonomicFilterGroupType; resourceAttribute: TaxonomicFilterGroupType }
     /** Persisted width keys. Frozen: a change resets every user's saved rail width. */
     resizerLogicKey: string
