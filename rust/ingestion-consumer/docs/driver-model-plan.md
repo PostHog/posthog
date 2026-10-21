@@ -101,14 +101,14 @@ A change that adds metrics lists their names.
 | 22 | 8 decoupled commits | Cleanup | Delete the per-poll completion path |
 | 23 | 9 bounded replay | Implement | Add the budget accounting |
 | 24 | 9 bounded replay | Switchover | Enable the budget |
-| 25a | 9 bounded replay | Prepare | Put polling behind a strategy |
-| 25b | 9 bounded replay | Implement | Build the continuous polling strategy |
-| 25c | 9 bounded replay | Switchover | Poll continuously |
-| 25d | 9 bounded replay | Cleanup | Delete the capped polling strategy |
-| 26 | 10 clean handoff | Prepare | Add revoke and drained markers |
-| 27 | 10 clean handoff | Implement | Build the drain |
-| 28 | 10 clean handoff | Switchover | Enable the drain |
-| 29 | 10 clean handoff | Cleanup | Delete the no-drain path |
+| 25 | 9 bounded replay | Prepare | Put polling behind a strategy |
+| 26 | 9 bounded replay | Implement | Build the continuous polling strategy |
+| 27 | 9 bounded replay | Switchover | Poll continuously |
+| 28 | 9 bounded replay | Cleanup | Delete the capped polling strategy |
+| 29 | 10 clean handoff | Prepare | Add revoke and drained markers |
+| 30 | 10 clean handoff | Implement | Build the drain |
+| 31 | 10 clean handoff | Switchover | Enable the drain |
+| 32 | 10 clean handoff | Cleanup | Delete the no-drain path |
 
 ## Cycle 1: one send origin
 
@@ -587,7 +587,7 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
 - Rollback is the switch back to `poll`.
-- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle gives the pacer an interval: it keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`, and a zero interval is today's immediate pacer. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. `ingestion_consumer_committed_offset` is set when a commit is submitted to the client, so a frontier the pacer still holds is not reported as committed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. One `CommitPacer` with an interval covers both granularities; `poll` runs it at zero. The commit sentinel and the commit monitor retire here. The sentinel's contiguity check compared the span a poll delivered against the previous commit; at `group` granularity a take no longer maps to one poll's slice, and the ledger already rejects a redelivered offset at charge (`kafka_consumer_ledger_errors_total`) and counts the offsets a frontier walks over (`kafka_consumer_ledger_gap_offsets_total`). The monitor's broker comparison duplicated kminion's per-partition consumer group lag. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
+- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle gives the pacer an interval: it keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`, and a zero interval is today's immediate pacer. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. `ingestion_consumer_committed_offset` is set when a commit is submitted to the client, so a frontier the pacer still holds is not reported as committed. On revoke the pacer forgets the partition; the drain in change 30 commits what the pacer still holds at shutdown. One `CommitPacer` with an interval covers both granularities; `poll` runs it at zero. The commit sentinel and the commit monitor retire here. The sentinel's contiguity check compared the span a poll delivered against the previous commit; at `group` granularity a take no longer maps to one poll's slice, and the ledger already rejects a redelivered offset at charge (`kafka_consumer_ledger_errors_total`) and counts the offsets a frontier walks over (`kafka_consumer_ledger_gap_offsets_total`). The monitor's broker comparison duplicated kminion's per-partition consumer group lag. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
 
 **Interfaces:**
 
@@ -605,7 +605,7 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 **Interfaces:**
 
 - Remove `PollSettlement` and the completion granularity from `Config`.
-- Keep the in-flight poll queue and its per-poll aggregation from change 7. The capped polling strategy waits on the oldest poll until change 25d deletes it.
+- Keep the in-flight poll queue and its per-poll aggregation from change 7. The capped polling strategy waits on the oldest poll until change 28 deletes it.
 
 ## Cycle 9: replay exposure is bounded per partition
 
@@ -645,7 +645,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 - A charts values PR sets the budget lane by lane. The admission cap and the budget both bound work during the transition.
 - Derive the first values from the current config: the cap times the batch size, divided by the partitions a pod holds, for events; the byte bound likewise for bytes. The per-pod bound then does not change at the switchover.
 - Pause a partition when its outstanding charge reaches the budget on either axis. Resume it only when its charge is back at or under the low watermark on both axes. A pause purges that partition's fetched messages from librdkafka's queue and a resume refetches them, so a gate that reopens on the first refund refetches on every crossing.
-- Keep polling while some partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. While every partition is paused, the loop waits on completions without polling Kafka, as it already does when the cap is full; the continuous polling strategy (change 25b) removes that wait. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned: a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
+- Keep polling while some partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. While every partition is paused, the loop waits on completions without polling Kafka, as it already does when the cap is full; the continuous polling strategy (change 26) removes that wait. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned: a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
 - Watch the paused-partitions gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
 
 - The budget is a fixed amount per partition, not a share of a pod-wide amount. A rebalance changes how many partitions a pod holds, not how much each one may expose, so the value does not move at rebalances.
@@ -659,7 +659,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 - Add `ingestion_consumer_budget_paused_partitions` (gauge) and `ingestion_consumer_budget_pauses_total{topic,partition}` (counter).
 
-### 25a. Put polling behind a strategy (prepare)
+### 25. Put polling behind a strategy (prepare)
 
 **Task:** Move the poll-and-wait loop behind a polling strategy, unchanged. The existing loop becomes the capped strategy.
 
@@ -667,7 +667,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 - The loop and the cap change together. The loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget. So the loop, not only the cap, goes behind the seam.
 - The strategy decides how the loop waits: when to collect, which completions to wait for, and when the loop is done. It returns one step at a time. The consumer carries out each step: it charges and submits a poll, submits a commit and resumes its partitions, starts the batcher's shutdown, or fails the process. The Kafka client and the batcher stay with the consumer, and the settlement is shared.
-- Collection builds a poll message by message in a poll builder. The capped strategy runs a collection to the end before it waits, as it does now. The continuous strategy keeps its builder between turns of its loop (change 25b).
+- Collection builds a poll message by message in a poll builder. The capped strategy runs a collection to the end before it waits, as it does now. The continuous strategy keeps its builder between turns of its loop (change 26).
 - Charging moves from the end of a collection to the submit. The order does not change: a poll is charged, then submitted.
 
 **Interfaces:**
@@ -676,7 +676,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 - Add `PollBuilder`: one poll's messages and per-partition deliveries, built one message at a time.
 - Modify `IngestionConsumerOptions`: `polling` replaces `max_in_flight_batches`.
 
-### 25b. Build the continuous polling strategy (implement)
+### 26. Build the continuous polling strategy (implement)
 
 **Task:** Add a strategy that polls Kafka continuously and applies completions as they arrive. Config selects it per lane. The capped strategy stays the default.
 
@@ -700,7 +700,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 - Add `ingestion_consumer_in_flight_events` and `ingestion_consumer_in_flight_bytes` (gauges), and `ingestion_consumer_in_flight_limit_reached_total` (counter, one per time the loop stops reading at the limit).
 
-### 25c. Poll continuously (switchover)
+### 27. Poll continuously (switchover)
 
 **Task:** After the budget is stable on all lanes, select the continuous strategy lane by lane, with an in-flight limit.
 
@@ -709,7 +709,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 - A charts values PR sets the strategy and the limit per lane. Rollback is selecting `capped`.
 - Watch `ingestion_lag_ms`, the paused-partitions gauge, the in-flight gauges, and the limit counter. A limit counter that rises in steady state means the limit is too low.
 
-### 25d. Delete the capped polling strategy (cleanup)
+### 28. Delete the capped polling strategy (cleanup)
 
 **Task:** Remove the capped strategy after the continuous strategy is stable on all lanes.
 
@@ -725,11 +725,11 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 3.
 Until this cycle, revocation keeps today's behavior: no drain, uncommitted work replays on the new owner, and the old owner's in-flight sends finish as duplicate work. Nothing in cycles 1 to 9 changes that.
 
-**Verify:** rebalance tests with the drain on, then the canary rebalance in change 28.
+**Verify:** rebalance tests with the drain on, then the canary rebalance in change 31.
 rdkafka's `MockCluster` runs cooperative rebalances with no broker container, so the drain ordering is testable in the crate. The mock coordinator delays the first join by 3 s and every later round by `session.timeout.ms` minus one second, so test consumers need a session timeout above 3 s.
 Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the deadline, and `ingestion_consumer_drain_dropped_messages_total` matches the expected replay volume.
 
-### 26. Add revoke and drained markers (prepare)
+### 29. Add revoke and drained markers (prepare)
 
 **Task:** Extend the batcher boundary with a revoke marker in and a drained marker out. Nothing consumes them yet.
 
@@ -739,7 +739,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `Batcher`: add the marker types to the submit and completion channels. `GroupCompletion` does not change shape.
 
-### 27. Build the drain (implement)
+### 30. Build the drain (implement)
 
 **Task:** Implement the drain sequence from section 4 of the design doc, behind a config switch that ships off.
 
@@ -770,7 +770,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 - Add `ingestion_consumer_drain_duration_seconds` (histogram) and `ingestion_consumer_drain_dropped_messages_total` (counter): drain time and replay volume per revocation.
 - Add `ingestion_consumer_partition_stalls_total` (counter): stall-deadline expiries.
 
-### 28. Enable the drain (switchover)
+### 31. Enable the drain (switchover)
 
 **Task:** Turn the drain on. Canary one lane through a rebalance.
 
@@ -782,7 +782,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `Config`: enable the drain.
 
-### 29. Delete the no-drain path (cleanup)
+### 32. Delete the no-drain path (cleanup)
 
 **Task:** Remove the no-drain revoke path after the drain is stable on all lanes.
 
