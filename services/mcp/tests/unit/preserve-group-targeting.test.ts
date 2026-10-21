@@ -618,9 +618,37 @@ describe('preserveGroupTargetingFilters', () => {
             operator: 'regex',
             expected: { type: 'person' },
         },
+        {
+            name: 'the edit omits the operator and a person candidate uses exact',
+            stored: groupAndPersonCandidates,
+            operator: undefined,
+            value: 'pro',
+            expected: { type: 'person' },
+        },
+        {
+            name: 'a person candidate omits the operator and the edit uses exact',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'icontains', value: 'acme' },
+                { key: 'name', type: 'person', value: 'acme' },
+            ],
+            operator: 'exact',
+            value: 'pro',
+            expected: { type: 'person' },
+        },
+        {
+            name: 'the edit sends a group index and two group candidates differ only in index',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            index: 1,
+            expected: { type: 'group', group_type_index: 1 },
+        },
     ])(
         'chooses a duplicate-key type, or none, by operator and value when $name',
-        ({ stored = personAndCohortCandidates, aggregation, operator, value = 'acme', expected }) => {
+        ({ stored = personAndCohortCandidates, aggregation, operator, value = 'acme', index, expected }) => {
             const existing = {
                 ...(aggregation === undefined ? {} : { aggregation_group_type_index: aggregation }),
                 groups: [{ properties: stored, rollout_percentage: 100 }],
@@ -628,7 +656,14 @@ describe('preserveGroupTargetingFilters', () => {
             const incoming = {
                 groups: [
                     {
-                        properties: [{ key: 'name', operator, value }],
+                        properties: [
+                            {
+                                key: 'name',
+                                operator,
+                                value,
+                                ...(index === undefined ? {} : { group_type_index: index }),
+                            },
+                        ],
                         rollout_percentage: 100,
                     },
                 ],

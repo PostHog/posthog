@@ -369,15 +369,23 @@ function hasSameTypeAndGroupIndex(a: FlagProperty, b: FlagProperty): boolean {
 
 /**
  * Prefers the candidates that match the incoming filter, then the ones with its operator, then all
- * of them. Returns undefined when those candidates hold more than one typing. The result therefore
- * never depends on the order of the stored filters.
+ * of them. A missing operator reads as `exact`. Returns undefined when those candidates hold more
+ * than one typing. The result therefore never depends on the order of the stored filters. A group
+ * index that the incoming filter sends replaces the stored index. Only the types must then agree.
  */
 function pickCandidate(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
+    const operator = incoming.operator ?? 'exact'
     const matching = usable.filter((candidate) => matchesFilter(candidate, incoming))
-    const sameOperator = incoming.operator ? usable.filter((candidate) => candidate.operator === incoming.operator) : []
+    const sameOperator = usable.filter((candidate) => (candidate.operator ?? 'exact') === operator)
     const remaining = [matching, sameOperator, usable].find((tier) => tier.length > 0) ?? []
     const first = remaining[0]
-    return first && remaining.every((candidate) => hasSameTypeAndGroupIndex(candidate, first)) ? first : undefined
+    if (!first) {
+        return undefined
+    }
+    const agrees = isPresentGroupIndex(incoming.group_type_index)
+        ? (candidate: FlagProperty) => candidate.type === first.type
+        : (candidate: FlagProperty) => hasSameTypeAndGroupIndex(candidate, first)
+    return remaining.every(agrees) ? first : undefined
 }
 
 function unambiguousPersonCandidates(
