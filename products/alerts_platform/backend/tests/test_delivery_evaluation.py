@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -510,16 +511,22 @@ class TestDeliveryPath(APIBaseTest):
         owned_by_platform: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
         emitter: Any = None,
+        groups: tuple[AlertDestinationGroup, ...] = (),
     ) -> Any:
+        # A Slack destination made of a HogFunction, the kind the HogFunction path serves.
+        slack = AlertDestinationGroup(hog_function_ids=(uuid4(),), data=SLACK, fully_enabled=True)
         with (
             patch(
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 return_value=True,
             ),
             patch(f"{_MODULE}.announcement", return_value=announced),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[slack, *groups]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
+            patch.dict(
+                f"{_MODULE}._TRANSPORTS",
+                {DestinationType.SLACK: RecordingTransport, DestinationType.EMAIL: RecordingTransport},
+            ),
             patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}),
             patch.object(delivery_paths, "_chooser", chooser),
         ):
@@ -559,6 +566,17 @@ class TestDeliveryPath(APIBaseTest):
 
         assert (len(self.emitted), len(RecordingTransport.sends)) == expected
         assert outcome.emitted == expected[0]
+
+    def test_a_destination_with_no_hog_function_hears_what_the_hog_function_path_took(self) -> None:
+        email = AlertDestinationGroup(
+            hog_function_ids=(), data=cast(AlertDestinationData, {"type": DestinationType.EMAIL}), fully_enabled=True
+        )
+
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), self._chooses(DeliveryPath.HOG_FUNCTION), groups=(email,)
+        )
+
+        assert (len(self.emitted), len(RecordingTransport.sends)) == (1, 1)
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         self._run(

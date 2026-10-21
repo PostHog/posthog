@@ -113,6 +113,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "Chrome": AlertEventKind.FIRING,
             "Firefox": AlertEventKind.FIRING,
         }
+        assert {group.source_detail["breaches"][0] for group in fired.groups} == {"above 100"}
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
@@ -294,6 +295,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+        # The error message names and links the insight, as a firing's does.
+        assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:
