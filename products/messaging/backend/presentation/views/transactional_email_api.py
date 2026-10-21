@@ -23,6 +23,7 @@ from products.messaging.backend.facade.transactional_email import (
     TransactionalEmailError,
     send_transactional_email,
 )
+from products.messaging.backend.presentation.send_source import SendSource, mark_organization_migrated
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.workflows import get_workflow
 
@@ -259,7 +260,12 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         return queued
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
-        self._report_api_usage(request, "transactional email api send", properties)
+        send_source = SendSource.from_headers(request.headers)
+        if properties.get("outcome") == "queued":
+            mark_organization_migrated(str(self.organization.id), send_source)
+        self._report_api_usage(
+            request, "transactional email api send", {**send_source.as_event_properties(), **properties}
+        )
 
     def _report_api_usage(self, request: Any, event: str, properties: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.

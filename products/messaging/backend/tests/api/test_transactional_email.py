@@ -400,6 +400,73 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("direct_api_call", {"HTTP_USER_AGENT": "curl/8.7.1"}, "api", None, None),
+            ("posthog_node", {"HTTP_USER_AGENT": "posthog-node/5.30.0"}, "sdk", "5.30.0", None),
+            ("posthog_edge", {"HTTP_USER_AGENT": "posthog-edge/5.30.0"}, "sdk", "5.30.0", None),
+            ("sdk_lookalike", {"HTTP_USER_AGENT": "posthog-node-proxy/1.0.0"}, "api", None, None),
+            ("sdk_behind_a_proxy", {"HTTP_USER_AGENT": "posthog-node/5.30.0 gateway/2.1"}, "sdk", "5.30.0", None),
+            (
+                "sdk_call_site_migrated_from_resend",
+                {"HTTP_USER_AGENT": "posthog-node/5.30.0", "HTTP_X_POSTHOG_MIGRATED_FROM": "Resend"},
+                "sdk",
+                "5.30.0",
+                "resend",
+            ),
+            ("fetch_call_site_migrated_from_resend", {"HTTP_X_POSTHOG_MIGRATED_FROM": "resend"}, "api", None, "resend"),
+            ("unknown_migration_source", {"HTTP_X_POSTHOG_MIGRATED_FROM": "<script>"}, "api", None, None),
+        ]
+    )
+    def test_reports_where_each_send_came_from(
+        self, mock_post, _flag, capture, _name, headers, expected_source, expected_sdk_version, expected_migrated_from
+    ):
+        self._cdp_accepts(mock_post)
+
+        response = self._psak_client(["hog_flow:write"]).post(self.url, self.body, format="json", **headers)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        properties = capture.call_args.kwargs["properties"]
+        assert {key: properties.get(key) for key in ("source", "sdk_version", "migrated_from")} == {
+            "source": expected_source,
+            "sdk_version": expected_sdk_version,
+            "migrated_from": expected_migrated_from,
+        }
+
+    @patch("posthoganalytics.group_identify")
+    def test_the_first_migrated_send_marks_the_organization_once(self, group_identify, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        client = self._psak_client(["hog_flow:write"])
+
+        client.post(self.url, self.body, format="json")
+        group_identify.assert_not_called()
+        for _ in range(2):
+            response = client.post(self.url, self.body, format="json", HTTP_X_POSTHOG_MIGRATED_FROM="resend")
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        group_identify.assert_called_once_with(
+            "organization", str(self.organization.id), properties={"email_migrated_from": "resend"}
+        )
+
+    @parameterized.expand(
+        [
+            ("analytics_raises", RuntimeError("analytics is down")),
+            ("analytics_drops_the_event", None),
+        ]
+    )
+    @patch("posthoganalytics.group_identify")
+    def test_a_failed_organization_mark_still_sends_and_retries_on_the_next_send(
+        self, _name, failure, group_identify, mock_post, _flag, _capture
+    ):
+        group_identify.side_effect = [failure, "event-uuid"]
+        self._cdp_accepts(mock_post)
+
+        for _ in range(2):
+            response = self.client.post(self.url, self.body, format="json", HTTP_X_POSTHOG_MIGRATED_FROM="resend")
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        assert group_identify.call_count == 2
+
+    @parameterized.expand(
+        [
             ("send", "messaging_templates/{id}/send/"),
             ("make_transactional", "messaging_templates/{id}/make_transactional/"),
             ("send_email", "messaging/send/email/"),
