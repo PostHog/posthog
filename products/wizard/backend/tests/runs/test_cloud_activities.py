@@ -1,4 +1,3 @@
-import logging
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -16,6 +15,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
+from structlog.testing import capture_logs
 from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
 from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, CancelledError
 from temporalio.testing import ActivityEnvironment
@@ -322,9 +322,7 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
         ),
     ),
 )
-def test_execute_wizard_maps_worker_error(
-    worker_error: Exception, error_type: str, non_retryable: bool, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: str, non_retryable: bool) -> None:
     workspace = PreparedGitRepositoryWorkspace(
         team_id=7,
         run_id=uuid4(),
@@ -347,10 +345,10 @@ def test_execute_wizard_maps_worker_error(
             side_effect=worker_error,
         ) as execute,
         pytest.raises(ApplicationError) as error,
+        capture_logs() as logs,
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
-        caplog.set_level(logging.WARNING, logger="products.wizard.backend.observability.service")
         async_to_sync(_run_traced_execute_wizard)(workspace)
 
     provider.shutdown()
@@ -370,15 +368,16 @@ def test_execute_wizard_maps_worker_error(
     assert error.value.__cause__ is None
     assert error.value.__context__ is None
     assert not error.value.details
-    failure_logs = [record for record in caplog.records if record.getMessage() == "wizard_execution_failed"]
+    failure_logs = [log for log in logs if log["event"] == "wizard_execution_failed"]
     if isinstance(worker_error, WizardWorkerExecutionError):
         assert len(failure_logs) == 1
         expected_error = worker_error.wizard_error
-        assert failure_logs[0].__dict__["wizard_error_code"] == (expected_error.code if expected_error else None)
-        assert failure_logs[0].__dict__["wizard_error_message"] == (expected_error.message if expected_error else None)
+        assert failure_logs[0]["log_level"] == "warning"
+        assert failure_logs[0]["wizard_error_code"] == (expected_error.code if expected_error else None)
+        assert failure_logs[0]["wizard_error_message"] == (expected_error.message if expected_error else None)
     else:
         assert not failure_logs
-    assert "fake-wizard-api-key-for-test" not in caplog.text
+    assert "fake-wizard-api-key-for-test" not in str(logs)
     if isinstance(worker_error, ApplicationError):
         assert error.value.next_retry_delay == worker_error.next_retry_delay
         assert error.value.category == worker_error.category
