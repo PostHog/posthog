@@ -1,3 +1,9 @@
+import datetime as dt
+
+from posthog.hogql import ast
+from posthog.hogql.ast import JoinExpr, SelectQuery
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import METRICS_TO_METRIC_SERIES
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -8,6 +14,8 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     IntegerArrayDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
     MapStringDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -15,6 +23,8 @@ from posthog.hogql.database.models import (
     Table,
     UnknownDatabaseField,
 )
+from posthog.hogql.errors import ResolutionError
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.workload import Workload
 
@@ -101,6 +111,15 @@ class MetricsTable(Table):
             name="has_labels",
             nullable=False,
             description="True when the ingested record carried the series labels; only such records write `metric_series` and `metric_attributes` rows.",
+        ),
+        "series": LazyJoin(
+            from_field=["series_fingerprint"],
+            join_table="posthog.metric_series",
+            resolver=METRICS_TO_METRIC_SERIES,
+            description=(
+                "The metric's series (label set), joined from `metric_series` on `series_fingerprint`. "
+                "Read labels as `series.attributes['key']` and `series.resource_attributes['key']`."
+            ),
         ),
     }
 
@@ -340,6 +359,192 @@ class MetricAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "metric_attributes"
+
+
+# `last_seen` is the ReplacingMergeTree version column, so `max` picks the row FINAL would keep.
+# `time_bucket` is the hour of `last_seen`, and `original_expiry_timestamp` is the series TTL. Both
+# also move forward between versions.
+_MAX_FIELDS = frozenset({"last_seen", "time_bucket", "original_expiry_timestamp"})
+
+# Not inputs to the series fingerprint, so a re-ingested series can change them between duplicate
+# rows; `any()` could return the stale version. `argMax(field, last_seen)` takes them from the newest.
+_ARGMAX_FIELDS = frozenset({"unit", "aggregation_temporality", "is_monotonic", "instrumentation_scope"})
+
+# Buffer subtracted from a pushed-down time lower bound, mirroring `_SERIES_LAST_SEEN_BUFFER` in
+# products.metrics.backend.metric_query_runner — the same margin the Viewer's own series reads use
+# for delayed series updates. Duplicated here rather than imported: core hogql cannot depend on the
+# product module (tach boundary).
+_SERIES_LAST_SEEN_BUFFER = dt.timedelta(hours=1)
+
+_TIME_LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
+
+# Alias of metric_series inside the join subquery. Each aggregate there is aliased with its source
+# field's name, and HogQL resolves SELECT aliases before columns, so every source field reference
+# must carry this qualifier or it would resolve to the aggregate.
+_SERIES_SOURCE_ALIAS = "metric_series_source"
+
+
+def _outer_metrics_column(expr: ast.Expr, from_table: str, context: HogQLContext) -> str | None:
+    """Resolve an expression to a column name on the outer (metrics) table.
+
+    Accepts an optional leading table qualifier (`metrics.timestamp` or bare `timestamp`) and
+    verifies via the resolved FieldType that the field is that column of a MetricsTable. A field on
+    another joined table, or a SELECT alias that shadows a column name, is never captured.
+    """
+    field = expr.expr if isinstance(expr, ast.Alias) else expr
+    if not isinstance(field, ast.Field):
+        return None
+    chain = list(field.chain)
+    if chain and chain[0] == from_table:
+        chain = chain[1:]
+    if len(chain) != 1 or not isinstance(chain[0], str):
+        return None
+    field_type = field.type
+    if not isinstance(field_type, ast.FieldType) or field_type.name != chain[0]:
+        return None
+    if not isinstance(field_type.table_type, ast.BaseTableType):
+        return None
+    if not isinstance(field_type.table_type.resolve_database_table(context), MetricsTable):
+        return None
+    return chain[0]
+
+
+def _is_column_free(expr: ast.Expr) -> bool:
+    """True when the expression reads no column, so its value is the same for every row."""
+    if isinstance(expr, ast.Constant):
+        return True
+    if isinstance(expr, ast.ArithmeticOperation):
+        return _is_column_free(expr.left) and _is_column_free(expr.right)
+    if isinstance(expr, ast.Call):
+        return all(_is_column_free(arg) for arg in [*expr.args, *(expr.params or [])])
+    return False
+
+
+def _series_source_field(name: str) -> ast.Field:
+    return ast.Field(chain=[_SERIES_SOURCE_ALIAS, name])
+
+
+def _series_pushdown_where(node: SelectQuery, from_table: str, context: HogQLContext) -> ast.Expr | None:
+    """Extract reductive bounds from the outer WHERE into the metric_series subquery.
+
+    Two shapes, both semantics-preserving on the join key:
+
+    - `metric_name = <constant>` / `IN (<constants>)`: metric_name is an input to the series
+      fingerprint, so every series row for a fingerprint carries the same metric_name, and it is
+      the sort-key prefix of metric_series — the bound becomes a primary-key range read.
+    - `timestamp > / >= <column-free expression>` (a constant, or a rolling window such as
+      `now() - INTERVAL 1 HOUR`): a series last seen before the window (minus the one-hour buffer
+      the Viewer's own series reads use for delayed updates) can have no points in it. Rewritten
+      to `last_seen >= bound - buffer`.
+
+    Fails open: OR terms, comparisons that read a column, aliases, and fields on other tables are
+    ignored, and the outer WHERE is left untouched (the join is LEFT, so over-selecting in the
+    subquery is always safe; under-selecting is not).
+    """
+    if node.where is None:
+        return None
+
+    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
+        # The parser produces nested ast.And; the printer may emit and(...) calls. Handle both.
+        if isinstance(expr, ast.And):
+            return [t for sub in expr.exprs for t in flatten_and(sub)]
+        if isinstance(expr, ast.Call) and expr.name == "and":
+            return [t for sub in expr.args for t in flatten_and(sub)]
+        return [expr]
+
+    pushed: list[ast.Expr] = []
+    for term in flatten_and(node.where):
+        if not isinstance(term, ast.CompareOperation):
+            continue
+        column = _outer_metrics_column(term.left, from_table, context)
+        if column == "metric_name":
+            if term.op == ast.CompareOperationOp.Eq and isinstance(term.right, ast.Constant):
+                push = True
+            elif term.op == ast.CompareOperationOp.In and isinstance(term.right, ast.Array | ast.Tuple):
+                push = all(isinstance(arg, ast.Constant) for arg in term.right.exprs)
+            else:
+                push = False
+            if push:
+                pushed.append(
+                    ast.CompareOperation(
+                        op=term.op,
+                        left=_series_source_field("metric_name"),
+                        right=clone_expr(term.right, clear_types=True, clear_locations=True),
+                    )
+                )
+        elif column == "timestamp" and term.op in _TIME_LOWER_BOUND_OPS:
+            if not _is_column_free(term.right):
+                continue
+            bound = ast.Call(name="toDateTime", args=[clone_expr(term.right, clear_types=True, clear_locations=True)])
+            pushed.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=_series_source_field("last_seen"),
+                    right=ast.Call(
+                        name="minus",
+                        args=[
+                            # DateTime is unsigned, so the buffer would wrap a bound near the epoch to 2106.
+                            ast.Call(name="toDateTime64", args=[bound, ast.Constant(value=6)]),
+                            ast.Call(
+                                name="toIntervalHour",
+                                args=[ast.Constant(value=int(_SERIES_LAST_SEEN_BUFFER.total_seconds() // 3600))],
+                            ),
+                        ],
+                    ),
+                )
+            )
+    if not pushed:
+        return None
+    return pushed[0] if len(pushed) == 1 else ast.Call(name="and", args=pushed)
+
+
+def join_metrics_with_metric_series_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+) -> JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from metric_series")
+
+    # Deduplicate metric_series to one row per fingerprint so the join can't fan out the metrics rows.
+    # team_id is added by HogQL's automatic team scoping on the subquery. The outer WHERE's
+    # metric_name/time bounds are pushed in so the subquery doesn't aggregate every series the
+    # team has before the outer filters apply.
+    inner_select = ast.SelectQuery(
+        select=[
+            ast.Alias(alias="series_fingerprint", expr=_series_source_field("series_fingerprint")),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "metric_series"]), alias=_SERIES_SOURCE_ALIAS),
+        where=_series_pushdown_where(node, join_to_add.from_table, context),
+        group_by=[_series_source_field("series_fingerprint")],
+    )
+    for field_name, field_chain in join_to_add.fields_accessed.items():
+        # series_fingerprint is already selected as the join key.
+        if field_name == "series_fingerprint":
+            continue
+        # Everything else (labels, metric_type, service_name) is an input to the fingerprint, so every
+        # duplicate of one series agrees on it and `any()` cannot return a stale value.
+        field = ast.Field(chain=[_SERIES_SOURCE_ALIAS, *field_chain])
+        if field_name in _MAX_FIELDS:
+            aggregate = ast.Call(name="max", args=[field])
+        elif field_name in _ARGMAX_FIELDS:
+            aggregate = ast.Call(name="argMax", args=[field, _series_source_field("last_seen")])
+        else:
+            aggregate = ast.Call(name="any", args=[field])
+        inner_select.select.append(ast.Alias(alias=field_name, expr=aggregate))
+
+    join_expr = ast.JoinExpr(table=inner_select)
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[join_to_add.from_table, "series_fingerprint"]),
+            right=ast.Field(chain=[join_to_add.to_table, "series_fingerprint"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
 
 
 class MetricsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
