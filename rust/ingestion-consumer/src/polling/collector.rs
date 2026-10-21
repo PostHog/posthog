@@ -97,11 +97,9 @@ impl Collector {
         poll.add(message, &self.ledger);
     }
 
-    /// The byte bound counts only messages already added: a poll therefore
-    /// always carries at least one message — a single payload larger than the
-    /// whole bound still moves rather than wedging the partition — and
-    /// overshoot is at most one message, itself bounded by
-    /// `fetch.message.max.bytes`.
+    /// The byte bound counts only messages already added, so a poll always
+    /// carries one message, even one larger than the bound. The overshoot is
+    /// at most one message, which `fetch.message.max.bytes` bounds.
     pub(crate) fn is_full(&self, poll: &PollBuilder) -> bool {
         if poll.message_count() >= self.limits.batch_size {
             return true;

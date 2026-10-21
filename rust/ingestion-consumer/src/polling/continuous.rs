@@ -206,8 +206,7 @@ impl ContinuousPolling {
         (poll.message_count() > 0).then(|| Step::Submit(poll.finish()))
     }
 
-    /// The uncommitted charge plus the poll in progress, whose messages the
-    /// process holds too.
+    /// Counts the poll in progress too: it is charged only when it is submitted.
     fn pending(&self) -> Charge {
         let building = self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge);
         self.uncommitted.total() + building
