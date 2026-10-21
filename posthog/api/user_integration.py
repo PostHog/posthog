@@ -129,6 +129,16 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
             "mint tokens for it; `connected` otherwise."
         ),
     )
+    needs_reauthorization = serializers.BooleanField(
+        help_text=(
+            "True when GitHub rejected the stored credentials and PostHog dropped them. The installation is "
+            "still on GitHub, but PostHog cannot act as the user until they authorize it again."
+        ),
+    )
+    needs_reauthorization_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the stored credentials stopped working, or null while they still work.",
+    )
     created_at = serializers.DateTimeField(help_text="When this integration row was created.")
 
 
@@ -1026,6 +1036,8 @@ def _serialize_github_integration(
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "installation_shared": installation_shared,
         "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+        "needs_reauthorization": github.needs_reauthorization,
+        "needs_reauthorization_at": github.needs_reauthorization_at,
         "created_at": integration.created_at,
     }
 

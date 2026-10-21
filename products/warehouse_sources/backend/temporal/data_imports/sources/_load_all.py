@@ -280,6 +280,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudflare_r2.source import CloudflareR2Source
 from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
@@ -303,6 +304,7 @@ from .commission_junction.source import CommissionJunctionSource
 from .commslayer.source import CommslayerSource
 from .companycam.source import CompanycamSource
 from .concord.source import ConcordSource
+from .conecto_crm.source import ConectoCRMSource
 from .conekta.source import ConektaSource
 from .configcat.source import ConfigCatSource
 from .confluence.source import ConfluenceSource
@@ -423,6 +425,7 @@ from .eurostat.source import EurostatSource
 from .eventbrite.source import EventbriteSource
 from .eventee.source import EventeeSource
 from .eventzilla.source import EventzillaSource
+from .everflow.source import EverflowSource
 from .everhour.source import EverhourSource
 from .exact_online.source import ExactOnlineSource
 from .exchange_rates_api.source import ExchangeRatesApiSource
@@ -541,6 +544,7 @@ from .goldcast.source import GoldcastSource
 from .gologin.source import GoLoginSource
 from .gong.source import GongSource
 from .google_ad_manager.source import GoogleAdManagerSource
+from .google_admob.source import GoogleAdMobSource
 from .google_ads.source import GoogleAdsSource
 from .google_adsense.source import GoogleAdSenseSource
 from .google_analytics.source import GoogleAnalyticsSource
@@ -677,6 +681,7 @@ from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
 from .kissmetrics.source import KissmetricsSource
+from .klar.source import KlarSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
@@ -723,7 +728,10 @@ from .linkedin_pages.source import LinkedinPagesSource
 from .linkrunner.source import LinkrunnerSource
 from .linnworks.source import LinnworksSource
 from .linode.source import LinodeSource
+from .listmonk.source import ListmonkSource
+from .litellm.source import LiteLLMSource
 from .liveblocks.source import LiveblocksSource
+from .livestorm.source import LivestormSource
 from .llama_cloud.source import LlamaCloudSource
 from .lob.source import LobSource
 from .lodgify.source import LodgifySource
@@ -754,6 +762,7 @@ from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
 from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
+from .megaphone.source import MegaphoneSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
@@ -1034,6 +1043,7 @@ from .resend.source import ResendSource
 from .retail_express.source import RetailExpressSource
 from .retell_ai.source import RetellAISource
 from .retently.source import RetentlySource
+from .retreaver.source import RetreaverSource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource
@@ -1073,6 +1083,7 @@ from .savvycal.source import SavvyCalSource
 from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
+from .scarf.source import ScarfSource
 from .schematic.source import SchematicSource
 from .scrunch.source import ScrunchSource
 from .search_ads_360.source import SearchAds360Source
@@ -1257,6 +1268,7 @@ from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
 from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
+from .trafficstars.source import TrafficStarsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource

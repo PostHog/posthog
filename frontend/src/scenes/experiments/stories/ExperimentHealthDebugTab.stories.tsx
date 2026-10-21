@@ -38,6 +38,12 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'E3',
         },
     ],
+    checks: [
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'finding', reason: null },
+        { key: 'flag_state', name: 'Feature flag rollout', status: 'passed', reason: null },
+        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+    ],
 }
 
 // Typed as the generated response, so a new required field on the serializer breaks the typecheck here.
@@ -91,6 +97,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         calls: 4200,
         remotely_evaluated_calls: 4116,
+        people_assigned_outside: 0,
     },
     reader_access: { can_read_flag_history: true, can_query_events: true, denied_event_properties: [] },
     exposures: {

@@ -23,6 +23,7 @@ class ReportPriority(StrEnum):
 class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
+    MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
 
 
@@ -98,6 +99,7 @@ class SignalSourceProduct(StrEnum):
     BUGSNAG = "bugsnag"
     HONEYBADGER = "honeybadger"
     RAYGUN = "raygun"
+    DATADOG = "datadog"
     # Tier-2 security scanners (record kind: scanner_finding)
     SNYK = "snyk"
     SONARQUBE = "sonarqube"
@@ -190,6 +192,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.BUGSNAG: "Bugsnag",
     SignalSourceProduct.HONEYBADGER: "Honeybadger",
     SignalSourceProduct.RAYGUN: "Raygun",
+    SignalSourceProduct.DATADOG: "Datadog",
     SignalSourceProduct.SNYK: "Snyk",
     SignalSourceProduct.SONARQUBE: "SonarQube",
     SignalSourceProduct.SEMGREP: "Semgrep",

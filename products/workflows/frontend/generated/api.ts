@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    BroadcastConversionCandidatesApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
     DataSuggestionGenerateRequestApi,
@@ -23,6 +24,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowConvertedToBroadcastApi,
     HogFlowInFlightApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
@@ -68,6 +70,7 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    PatchedWorkflowSendingRulesApi,
     PeopleImportApi,
     PeopleImportCreateApi,
     SendCalendarFlowApi,
@@ -78,6 +81,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSendingRulesApi,
     WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
@@ -498,6 +502,25 @@ export const hogFlowsBatchJobsCancelCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getHogFlowsConvertToBroadcastUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/convert_to_broadcast/`
+}
+
+/**
+ * Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+ * in the broadcast editor. This cannot be undone.
+ */
+export const hogFlowsConvertToBroadcast = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowConvertedToBroadcastApi> => {
+    return apiMutator<HogFlowConvertedToBroadcastApi>(getHogFlowsConvertToBroadcastUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
@@ -1224,6 +1247,27 @@ export const hogFlowsSchedulesDestroy = async (
     })
 }
 
+export const getHogFlowsBroadcastConversionCandidatesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/broadcast_conversion_candidates/`
+}
+
+/**
+ * List the workflows that could become broadcasts: one email to a batch audience, with nothing the
+ * broadcast editor would drop. Only workflows the caller may edit are listed.
+ */
+export const hogFlowsBroadcastConversionCandidatesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BroadcastConversionCandidatesApi> => {
+    return apiMutator<BroadcastConversionCandidatesApi>(
+        getHogFlowsBroadcastConversionCandidatesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getHogFlowsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/bulk_delete/`
 }
@@ -1466,6 +1510,43 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSendingRulesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowSendingRulesPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesPartialUpdate = async (
+    projectId: string,
+    patchedWorkflowSendingRulesApi?: NonReadonly<PatchedWorkflowSendingRulesApi>,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkflowSendingRulesApi),
     })
 }
 

@@ -213,10 +213,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()
@@ -286,13 +283,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             [
-                'resets the stored sort for a non-staff user',
+                'keeps a stored model sort for a non-staff user with the flag',
                 'ranking_action',
                 true,
                 false,
-                'recommended',
-                'recommended',
-                'asc',
+                'ranking_action',
+                'ranking_action',
+                'desc',
             ],
             [
                 'falls back to the default for a stored head the menu no longer offers',
