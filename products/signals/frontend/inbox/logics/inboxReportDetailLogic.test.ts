@@ -34,7 +34,6 @@ const REVIEWER_CONTROL: ReviewerControlResponseApi = {
     state: { reviewers_id: 'reviewer-version-1', control_id: 'control-version-1' },
     control: 'human',
     enabled: true,
-    automatic_enabled: true,
     issues: [],
     retry_reason: null,
 }

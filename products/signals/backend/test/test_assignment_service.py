@@ -282,22 +282,17 @@ class TestReportAssignmentService(BaseTest):
         assert str(result.reviewers_artefact.claim_id) == str(claim.id)
         assert self.report.artefacts.get(type="assignment_decision").claim_id == claim.id
 
-    @parameterized.expand([(False, False, False), (True, False, False), (True, True, False), (True, True, True)])
-    def test_delivery_gates_survive_writer_rollback(self, versioned: bool, effects: bool, github: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_delivery_gate_survives_writer_rollback(self, versioned: bool, effects: bool) -> None:
         if versioned:
             self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
         with (
             patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=effects),
-            patch(
-                "products.signals.backend.assignment_flags.assignment_github_application_enabled", return_value=github
-            ),
+            patch("products.signals.backend.assignment_flags.assignment_writer_enabled", return_value=False),
         ):
             assert assignment_side_effects_allowed(team_id=self.team.id, report_id=str(self.report.id)) == (
                 not versioned or effects
             )
-            assert assignment_side_effects_allowed(
-                team_id=self.team.id, report_id=str(self.report.id), github=True
-            ) == (not versioned or (effects and github))
 
 
 class TestAssignmentReleaseControls(SimpleTestCase):

@@ -161,7 +161,9 @@ The `signals-assignment-writer` flag enables the shared rules for an organizatio
 The existing `suggested_reviewers` artefact remains the authoritative list. `SignalReportSuggestedReviewer` remains its derived read index.
 The current row is the greatest `(created_at, id)` pair in both readers.
 
-A human edit saves the complete chosen list and a `reviewer_control` status with mode `human` in one transaction under the report lock.
+Before the first human edit, background processes can update the reviewer list.
+A human edit permanently protects the complete list from background replacement.
+The writer saves that list and a `reviewer_control` record in one transaction under the report lock.
 An empty human choice is also protected. Automatic proposals cannot replace it.
 The writer always checks the existing human-edit history. A later control record cannot cancel a human correction.
 Only another human edit can replace the chosen list. There is no action to return it to automatic selection.
@@ -184,13 +186,13 @@ Generic artefact PATCH and DELETE cannot change protected reviewer history.
 
 ### Rollout and rollback
 
-| Control                                 | Allows                                                                                                     |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `signals-assignment-writer`             | Shared rules for all reviewer writers, including permanent protection for human corrections.               |
-| `signals-assignment-side-effects`       | Existing Slack delivery and automatic task start for reports enrolled in the writer.                       |
-| `signals-assignment-github-application` | Existing GitHub owner, review-request, and ready-state operations. Also requires the side-effects control. |
+| Control                           | Allows                                                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `signals-assignment-writer`       | Shared rules for all reviewer writers, including permanent protection for human corrections.                                             |
+| `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for reports using the writer. |
 
-All controls require explicit enablement and support organization targeting.
+Both flags require explicit enablement and support organization targeting.
+Enable the writer and keep side effects disabled to test real assignment changes without those delivery actions.
 With external effects disabled, local activity logs, scoped correction notes, and reviewer measurements remain active.
 The delivery checks use enrollment, so they still apply after the writer flag is disabled and when queued work runs.
 To stop the trial, disable delivery and the writer. Automatic writes stop on enrolled reports, while human corrections remain usable.

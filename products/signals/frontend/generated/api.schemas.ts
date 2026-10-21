@@ -842,15 +842,13 @@ export interface ReviewerIssueApi {
 export interface ReviewerControlResponseApi {
     /** Pass this state unchanged with the next automatic reviewer proposal. */
     state: ReviewerStateApi
-    /** Who controls the complete reviewer list.
+    /** A human edit permanently protects the complete list. Before any human edit, background updates are allowed.
      *
      * * `human` - Human
      * * `automatic` - Automatic */
     control: ReviewerControlModeEnumApi
     /** Whether this report uses the protected writer. */
     enabled: boolean
-    /** Whether automatic reviewer writes are enabled. */
-    automatic_enabled: boolean
     /** Recipient validation results from the latest write attempt. */
     issues: ReviewerIssueApi[]
     /**

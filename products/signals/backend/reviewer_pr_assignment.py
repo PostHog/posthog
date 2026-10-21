@@ -88,7 +88,7 @@ def schedule_reviewer_pr_assignment(
     on a worker instead of holding up a claim, a PR sync, or a reviewer edit. `robust=True` keeps a
     broker outage from failing a write that already committed.
     """
-    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id, github=True):
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
         return
 
     # A null state reads as unknown, the same way the rest of the assignment code reads the column,
@@ -307,7 +307,7 @@ def _add_assignees(
     """
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
-        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id, github=True):
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return None
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
@@ -358,7 +358,7 @@ def _request_reviews(
         return []
 
     try:
-        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id, github=True):
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return []
         result = github.request_pull_request_reviews(parsed.repository, parsed.number, wanted)
     except Exception:
@@ -465,7 +465,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     so a person somebody assigned by hand stays on the pull request. Returns an empty list when
     there is nothing to do or the call failed, and raises nothing.
     """
-    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id, github=True):
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
         return []
 
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
