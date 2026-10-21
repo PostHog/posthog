@@ -148,6 +148,9 @@ class UniqueKeyTracker:
         # Each check is awaited before the next starts, but asyncio.to_thread may choose another thread.
         self._spill = sqlite3.connect(Path(directory) / "keys.sqlite3", check_same_thread=False)
         self._resources.callback(self._spill.close)
+        # The index is discarded with the run, so journaling and fsync buy nothing.
+        self._spill.execute("PRAGMA journal_mode=OFF")
+        self._spill.execute("PRAGMA synchronous=OFF")
         self._spill.execute("CREATE TABLE unique_keys (key TEXT PRIMARY KEY) WITHOUT ROWID")
         if self._seen is not None:
             self._check_disk(self._seen)
