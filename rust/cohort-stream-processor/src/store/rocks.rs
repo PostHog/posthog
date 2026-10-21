@@ -83,8 +83,7 @@ const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
 const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
 
 /// RocksDB keeps the active info `LOG` and the newest rolled ones, `DEFAULT_KEEP_LOG_FILE_NUM` files
-/// in total, so the info logs use at most about 10 × 256 MiB of the store volume. At every open it
-/// deletes the older ones, which frees a volume that collected logs under an earlier build.
+/// in total, so the info logs use at most about 10 × 256 MiB of the store volume.
 const DEFAULT_MAX_LOG_FILE_SIZE_BYTES: NonZeroUsize = NonZeroUsize::new(256 * 1024 * 1024).unwrap();
 const DEFAULT_KEEP_LOG_FILE_NUM: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 

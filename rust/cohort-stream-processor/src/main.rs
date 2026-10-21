@@ -23,6 +23,7 @@ use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_files::StoreFilesSweeper;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
@@ -554,14 +555,21 @@ async fn async_main(config: Config) -> Result<()> {
     tokio::spawn(run_sweep_loop(
         StoreStatsSweeper::new(
             handle_for_stats,
-            DiskProbe::new(
-                PathBuf::from(&config.store_path),
-                PathBuf::from(&config.checkpoint_local_dir),
-                disk_state.clone(),
-            ),
+            DiskProbe::new(PathBuf::from(&config.store_path), disk_state.clone()),
         ),
         config.stats_publish_interval(),
         "store_stats",
+        consumer_handle.shutdown_token(),
+    ));
+    tokio::spawn(run_sweep_loop(
+        StoreFilesSweeper::new(
+            PathBuf::from(&config.store_path),
+            config
+                .checkpoint_enabled
+                .then(|| PathBuf::from(&config.checkpoint_local_dir)),
+        ),
+        config.stats_publish_interval(),
+        "store_files",
         consumer_handle.shutdown_token(),
     ));
     tokio::spawn(

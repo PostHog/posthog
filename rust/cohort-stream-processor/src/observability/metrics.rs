@@ -222,9 +222,9 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
-/// Bytes on the store volume, labelled by file `kind` (`sst`|`wal`|`info_log`|`manifest`|`other`|
-/// `checkpoint`) (gauge). `checkpoint` counts only the local checkpoint files that the live store
-/// does not share.
+/// Bytes in the store directory and the local checkpoints, labelled by file `kind`
+/// (`sst`|`wal`|`info_log`|`manifest`|`other`|`checkpoint`) (gauge). `checkpoint` counts only the
+/// local checkpoint files that the live store does not share.
 pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
