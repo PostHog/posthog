@@ -9,11 +9,11 @@ use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
+use personhog_coordination::follow::Follower;
 use personhog_coordination::types::{ChangelogConfig, Generation};
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::buffer::BufferedPerson;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
-use personhog_writer::follow::Follower;
 use personhog_writer::kafka::{PersonConsumer, Source};
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::{
