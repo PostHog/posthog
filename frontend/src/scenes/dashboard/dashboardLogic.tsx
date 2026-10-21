@@ -5356,7 +5356,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .length ?? 0,
             })
 
-            if (values.canAutoPreview) {
+            // The builtin placement has no Preview button, so a selection there always applies.
+            if (values.canAutoPreview || values.placement === DashboardPlacement.Builtin) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
