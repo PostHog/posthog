@@ -231,6 +231,44 @@ Generic artefact PATCH and DELETE cannot change reviewer history, and clients ca
 If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
 The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
 
+### GitHub PR ownership
+
+With `signals-research-reviewer-selection`, `signals-assignment-writer`, and `signals-pr-dri-assignee` enabled,
+`reviewer_pr_assignment.py` consumes a PR-specific relevance decision instead of shuffling an owning team.
+Existing GitHub assignees and manual unassignment take precedence. A human claimant gets first choice;
+an unavailable claimant does not cause assignment to someone else. A human-protected Inbox list constrains
+the owner to that list, including an empty list. A conflicting claim stops automatic assignment.
+These protections also apply when relevance selection is disabled.
+
+For automatic lists, suitable candidates who opted in come first, in relevance order, followed by other
+suitable candidates in relevance order. Owning-team membership supplies candidates, not a priority class.
+GitHub-only team members remain eligible for PR ownership, subject to current membership and assignability.
+Account-backed candidates also need active project access and a verified linked GitHub identity.
+
+`pr_owner_evidence.py` collects the actual PR paths, current ownership, cached code history, report findings,
+verified identities, and scoped corrections. `pr_owner_selection.py` runs one bounded model assessment through
+the existing Signals LLM client on the assignment worker, without mutation tools. The first assessment needs
+the PR's actual scope; retries reuse it. Repository content and corrections are evidence, never application rules.
+A correction on another report is scoped evidence, not a project-wide exclusion.
+
+`PROwnerDecisionService` stores a server-only `pr_owner_selection` artefact with the captured inputs, their hash,
+the report reviewer state and evidence version, PR head/base SHAs, ordered candidates, reasons, and evidence references.
+It performs model and network calls outside database locks. A short report lock rejects concurrent edits before saving.
+Before the GitHub call, the worker rechecks report and PR versions, human control, access, preferences, and delivery gates.
+The PR decision never rewrites Inbox recipients or grants task-start permission. Review requests still use the current Inbox list.
+
+An explicit `no_suitable_owner` leaves an unassigned PR unassigned. Missing evidence, failed identity lookups,
+and malformed model outputs record `lookup_failed`; they do not fall back to random assignment.
+Successful and empty decisions are reused for the same report/PR version. Failed decisions can be reassessed
+after ten minutes on a later delivery attempt. This is not a retry queue or continuous reassessment service.
+Logs distinguish reuse, validation rejection, human protection, stale state, lookup failure, legacy policy,
+and GitHub application failure. Existing LLM tracing records the assessment.
+
+The offline `signals/eval_pr_owner_selection` suite compares both policies on identical saved inputs without
+constructing assignment, notification, task-start, or PR-creation clients. Its invented regression snapshots and
+controlled-output replay check policy rules, not real assignment accuracy. Recipient-reviewed labels and a live-model
+comparison of suitability, unresolved results, failures, latency, and cost remain prerequisites to a production trial.
+
 ### Rollout and rollback
 
 | Control                           | Allows                                                                                                                           |

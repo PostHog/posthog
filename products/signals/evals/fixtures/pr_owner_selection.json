@@ -1,0 +1,549 @@
+[
+  {
+    "name": "current_owner",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/payments.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Bob maintains the payments service. Alice made many old mechanical commits."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "Bob maintains the payments service. Alice made many old mechanical commits.",
+      "candidates": [
+        {
+          "login": "bob",
+          "reason": "Bob maintains the payments service. Alice made many old mechanical commits.",
+          "evidence_refs": [
+            "owners.yaml"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "bob"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "ownership_changed",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/payments.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "CODEOWNERS now names Bob for payments. Alice owned it before the handover."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "CODEOWNERS now names Bob for payments. Alice owned it before the handover.",
+      "candidates": [
+        {
+          "login": "bob",
+          "reason": "CODEOWNERS now names Bob for payments. Alice owned it before the handover.",
+          "evidence_refs": [
+            "owners.yaml"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "bob"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "related_correction",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/payments.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Payments team members are Alice and Bob."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        },
+        {
+          "ref": "correction:prior",
+          "kind": "correction",
+          "content": "On an earlier payments retry report, a human replaced Alice with Bob because Bob maintains retry handling."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "Payments team members are Alice and Bob.",
+      "candidates": [
+        {
+          "login": "bob",
+          "reason": "Payments team members are Alice and Bob.",
+          "evidence_refs": [
+            "owners.yaml",
+            "correction:prior"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "bob"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "unrelated_correction",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/search.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Alice maintains search. Bob maintains payments."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        },
+        {
+          "ref": "correction:prior",
+          "kind": "correction",
+          "content": "A payments report was reassigned from Alice to Bob. It concerned billing retries, not search."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "Alice maintains search. Bob maintains payments.",
+      "candidates": [
+        {
+          "login": "alice",
+          "reason": "Alice maintains search. Bob maintains payments.",
+          "evidence_refs": [
+            "owners.yaml",
+            "correction:prior"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "alice"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "changed_pr_scope",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/search.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Bob maintains search; Alice maintains payments."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        },
+        {
+          "ref": "correction:prior",
+          "kind": "correction",
+          "content": "The report concerned a payment failure. Research selected Alice. The actual fix changes the search adapter."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "Bob maintains search; Alice maintains payments.",
+      "candidates": [
+        {
+          "login": "bob",
+          "reason": "Bob maintains search; Alice maintains payments.",
+          "evidence_refs": [
+            "owners.yaml",
+            "correction:prior"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "bob"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "no_suitable_owner",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "vendor/generated.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": "22222222-2222-4222-8222-222222222222",
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Alice and Bob are in the broad platform team. Neither maintains the generated vendor package."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "no_suitable_owner",
+      "reason": "Alice and Bob are in the broad platform team. Neither maintains the generated vendor package.",
+      "candidates": []
+    },
+    "acceptable_owners": [],
+    "label_source": "synthetic-rule-expectation"
+  },
+  {
+    "name": "github_only_owner",
+    "inputs": {
+      "repository": "example/project",
+      "pr_number": 10,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "report_state": {},
+      "report_version": "synthetic-v1",
+      "paths": [
+        "src/payments.py"
+      ],
+      "identities": [
+        {
+          "login": "alice",
+          "user_uuid": "11111111-1111-4111-8111-111111111111",
+          "teams": [
+            "platform"
+          ]
+        },
+        {
+          "login": "bob",
+          "user_uuid": null,
+          "teams": [
+            "platform"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "ref": "owners.yaml",
+          "kind": "ownership",
+          "content": "Bob maintains payments and is a verified member of its GitHub team, without a PostHog account."
+        },
+        {
+          "ref": "history:payments",
+          "kind": "history",
+          "content": "Alice has 30 old formatting commits. Bob has two recent changes to payment retry behavior."
+        },
+        {
+          "ref": "research:report",
+          "kind": "research",
+          "content": "The report reviewer order is Alice, Bob. Report scope: src/payments.py."
+        }
+      ]
+    },
+    "baseline": {
+      "claimant": null,
+      "opted_in": [],
+      "team_slug": "platform",
+      "team_logins": [
+        "alice",
+        "bob"
+      ],
+      "reviewers": [
+        "alice",
+        "bob"
+      ]
+    },
+    "recorded_decision": {
+      "outcome": "selected",
+      "reason": "Bob maintains payments and is a verified member of its GitHub team, without a PostHog account.",
+      "candidates": [
+        {
+          "login": "bob",
+          "reason": "Bob maintains payments and is a verified member of its GitHub team, without a PostHog account.",
+          "evidence_refs": [
+            "owners.yaml"
+          ]
+        }
+      ]
+    },
+    "acceptable_owners": [
+      "bob"
+    ],
+    "label_source": "synthetic-rule-expectation"
+  }
+]
