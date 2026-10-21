@@ -791,6 +791,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        EventDefinition.objects.create(
+            team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
+        )
         flag = FeatureFlag.objects.create(
             team=self.team,
             key=f"health-findings-{_name}",
