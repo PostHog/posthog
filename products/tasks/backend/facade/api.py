@@ -110,6 +110,14 @@ from products.tasks.backend.feature_flags import (
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.log_slice import (
+    LogPart,
+    LogPartSummary,
+    log_entries,
+    slice_log_parts_tail,
+    slice_log_tail,
+    summarize_log_part,
+)
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
@@ -5253,6 +5261,41 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
     return "".join(parts)
 
 
+_LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
+
+
+def _conversation_log_part(log_url: str, *, settled: bool) -> LogPart:
+    """One run's log as a slice part. A settled log (an ancestor's) caches its summary by object size, so
+    paging through older turns stops rereading every ancestor; the newest log is summarized from what this
+    request reads, so its count always matches its entries."""
+    from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    read: list[list[str]] = []
+
+    def entries() -> list[str]:
+        if not read:
+            read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
+        return read[0]
+
+    def summary() -> LogPartSummary:
+        if not settled:
+            return summarize_log_part(entries())
+        head = object_storage.head_object(log_url)
+        size = int(head.get("ContentLength", 0)) if head else 0
+        key = f"tasks:log-part-summary:v1:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
+        cached = cache.get(key) if size else None
+        if isinstance(cached, LogPartSummary):
+            return cached
+        result = summarize_log_part(entries())
+        if size:
+            cache.set(key, result, timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+        return result
+
+    return LogPart(entries=entries, summary=summary)
+
+
 def read_task_run_conversation_log_slice(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -5261,15 +5304,26 @@ def read_task_run_conversation_log_slice(
     tail_bytes: int,
     before: int | None = None,
 ) -> contracts.TaskRunLogSliceDTO | None:
-    """The latest turns of the conversation log that end before index ``before``, at least ``tail_bytes`` long."""
-    from products.tasks.backend.logic.log_slice import (
-        slice_log_tail,  # noqa: PLC0415 — keep log parsing off the api import path
-    )
+    """The latest turns of the conversation log that end before index ``before``, at least ``tail_bytes`` long.
 
-    content = read_task_run_conversation_logs(run_id, task_id, team_id)
-    if content is None:
+    Reads only the run logs that overlap the returned window. A Pi chain interleaves run markers between
+    its runs, so it reads the whole conversation log as before.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
         return None
-    sliced = slice_log_tail(content, tail_bytes, before)
+    chain = run.get_history_chain()
+    if len(chain) >= 2 and run.task.runtime == Task.Runtime.PI:
+        content = read_task_run_conversation_logs(run_id, task_id, team_id)
+        if content is None:
+            return None
+        sliced = slice_log_tail(content, tail_bytes, before)
+    else:
+        parts = [
+            _conversation_log_part(ancestor.log_url, settled=index < len(chain) - 1)
+            for index, ancestor in enumerate(chain)
+        ]
+        sliced = slice_log_parts_tail(parts, tail_bytes, before)
     return contracts.TaskRunLogSliceDTO(
         content=sliced.content, offset=sliced.offset, count=sliced.count, preamble=sliced.preamble
     )

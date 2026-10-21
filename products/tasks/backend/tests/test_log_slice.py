@@ -4,7 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.logic.log_slice import slice_log_tail
+from products.tasks.backend.logic.log_slice import (
+    LogPart,
+    log_entries,
+    slice_log_parts_tail,
+    slice_log_tail,
+    summarize_log_part,
+)
 
 
 def _line(method: str, params: dict | None = None) -> str:
@@ -70,8 +76,10 @@ class TestSliceLogTail(SimpleTestCase):
     def test_preamble_keeps_the_state_that_still_holds_at_the_cut(self) -> None:
         head = [
             _line("_posthog/run_started", {"runId": "old"}),
+            _line("session/new", {"_meta": {"permissionMode": "bypassPermissions"}}),
             _line("_posthog/run_started", {"runId": "current"}),
-            _line("_posthog/usage_update", {"used": {"inputTokens": 5}}),
+            _line("_posthog/usage_update", {"used": {"inputTokens": 5}, "cost": 0.1}),
+            _line("_posthog/usage_update", {"breakdown": {"tools": 3}}),
             _line("_posthog/permission_request", {"requestId": "open"}),
             _line("_posthog/permission_request", {"requestId": "answered"}),
             _line("_posthog/permission_resolved", {"requestId": "answered"}),
@@ -84,8 +92,31 @@ class TestSliceLogTail(SimpleTestCase):
         self.assertEqual(
             [(item["method"], item["params"].get("runId") or item["params"].get("requestId")) for item in preamble],
             [
+                ("session/new", None),
                 ("_posthog/run_started", "current"),
+                ("_posthog/usage_update", None),
                 ("_posthog/usage_update", None),
                 ("_posthog/permission_request", "open"),
             ],
         )
+
+    def test_reads_only_the_runs_the_window_overlaps(self) -> None:
+        runs = [
+            [_line("_posthog/run_started", {"runId": "older"}), *_turn("older", 4, 100)],
+            [_line("_posthog/run_started", {"runId": "newer"}), *_turn("first", 4, 100), *_turn("second", 4, 100)],
+        ]
+        reads: list[int] = []
+
+        def part(index: int) -> LogPart:
+            entries = log_entries("".join(f"{line}\n" for line in runs[index]))
+            summary = summarize_log_part(entries)
+            return LogPart(entries=lambda: reads.append(index) or entries, summary=lambda: summary)
+
+        sliced = slice_log_parts_tail([part(0), part(1)], 1000)
+
+        self.assertEqual(reads, [1])
+        self.assertEqual((sliced.offset, sliced.count), (len(runs[0]) + 11, len(runs[0]) + len(runs[1])))
+        preamble = [
+            json.loads(line)["notification"]["params"] for line in sliced.content.splitlines()[: sliced.preamble]
+        ]
+        self.assertEqual(preamble, [{"runId": "newer"}])

@@ -5274,6 +5274,11 @@ describe('runStreamLogic', () => {
 
             expect(recovered.offset).toEqual(0)
             expect(recovered.entries.map((entry) => entry.event_id)).toEqual(['e-1', 'e-2', 'e-3', 'e-4', 'e-5'])
+
+            const disjoint = mergeHistoryWindow(loaded, 'run-1', page([reply('d', 'e-9')], 8, 9))
+
+            expect(disjoint.offset).toEqual(8)
+            expect(disjoint.entries.map((entry) => entry.event_id)).toEqual(['e-9'])
         })
 
         it('loads an older page in front of the thread without changing the rows it already shows', async () => {
