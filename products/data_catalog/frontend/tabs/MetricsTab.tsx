@@ -15,7 +15,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import { METRIC_BULK_MAX, humanizeDefinitionKind, metricCount } from '../common'
+import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
@@ -152,27 +152,32 @@ export function MetricsTab(): JSX.Element {
                     }
                 />
             ),
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            sorter: (a, b) => compareText(a.display_name || a.name, b.display_name || b.name),
         },
         {
             title: 'Status',
             key: 'status',
             render: (_, metric) => <StatusTag metric={metric} />,
+            sorter: (a, b) => compareText(a.status, b.status) || Number(a.is_drifted) - Number(b.is_drifted),
         },
         {
             title: 'Definition',
             key: 'definition_kind',
             render: (_, metric) => <LemonTag type="option">{humanizeDefinitionKind(metric.definition_kind)}</LemonTag>,
+            sorter: (a, b) =>
+                compareText(humanizeDefinitionKind(a.definition_kind), humanizeDefinitionKind(b.definition_kind)),
         },
         {
             title: 'Source',
             key: 'created_source',
             render: (_, metric) => <SourceTag metric={metric} />,
+            sorter: (a, b) => compareText(a.created_source, b.created_source),
         },
         {
             title: 'Owner',
             key: 'owner',
             render: (_, metric) => metric.owner || <span className="text-secondary">Unassigned</span>,
+            sorter: (a, b) => compareText(a.owner, b.owner),
         },
         createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number],
         {
@@ -254,6 +259,7 @@ export function MetricsTab(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                id="data-catalog-metrics"
                 data-attr="data-catalog-metrics-table"
                 dataSource={metrics}
                 rowKey="name"
@@ -262,6 +268,7 @@ export function MetricsTab(): JSX.Element {
                 pagination={{ pageSize: 20 }}
                 emptyState={allMetrics.length === 0 ? 'No metrics defined yet.' : 'No metrics match your filters.'}
                 nouns={['metric', 'metrics']}
+                onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
                 bulkSelection={{
                     // Key on the stable id, not the name: a name is freed for reuse when a metric is
                     // deleted or renamed, so a name-keyed selection could target a different metric
