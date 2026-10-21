@@ -1,12 +1,13 @@
 use std::collections::{HashMap, VecDeque};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, GroupCompletion, Offset, TopicPartition};
 use lifecycle::Handle;
 use metrics::{counter, gauge};
 use tokio::sync::mpsc;
-use tokio::time::{Interval, MissedTickBehavior};
+use tokio::time::{Interval, MissedTickBehavior, Sleep};
 use tracing::{info, warn};
 
 use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries, PollBuilder};
@@ -29,14 +30,11 @@ pub(crate) struct ContinuousPolling {
     in_flight: InFlight,
     limits: ChargeLimit,
     at_limit: bool,
-    poll: Option<PollInProgress>,
+    poll: Option<PollBuilder>,
+    /// The poll's batch timeout, from its first message. One timer serves
+    /// every turn of the loop until the poll is submitted.
+    poll_deadline: Pin<Box<Sleep>>,
     accepting_new_batches: bool,
-}
-
-struct PollInProgress {
-    builder: PollBuilder,
-    /// The batch timeout runs from the poll's first message.
-    deadline: tokio::time::Instant,
 }
 
 enum Woke {
@@ -45,7 +43,8 @@ enum Woke {
     Error(Option<String>),
     Tick,
     Deadline,
-    Received,
+    /// Carries the receive time when the message started a new poll.
+    Received(Option<tokio::time::Instant>),
     Failed(anyhow::Error),
 }
 
@@ -77,6 +76,7 @@ impl ContinuousPolling {
             limits,
             at_limit: false,
             poll: None,
+            poll_deadline: Box::pin(tokio::time::sleep(Duration::ZERO)),
             accepting_new_batches: true,
         }
     }
@@ -97,36 +97,31 @@ impl ContinuousPolling {
             if !self.accepting_new_batches && self.in_flight.is_empty() {
                 return Step::Stop;
             }
-            if self
-                .poll
-                .as_ref()
-                .is_some_and(|poll| poll.deadline <= tokio::time::Instant::now())
-            {
+            if self.poll.is_some() && self.poll_deadline.deadline() <= tokio::time::Instant::now() {
                 if let Some(step) = self.take_poll() {
                     return step;
                 }
             }
 
             let reading = self.accepting_new_batches && !self.reached_limit(self.pending());
-            let deadline = self.poll.as_ref().map(|poll| poll.deadline);
-            let batch_timeout = self.collector.batch_timeout();
+            let building = self.poll.is_some();
             let woke = tokio::select! {
                 _ = self.handle.shutdown_recv(), if self.accepting_new_batches => Woke::Shutdown,
                 completion = self.completions.recv() => Woke::Completion(completion),
                 failure = self.errors.recv() => Woke::Error(failure),
                 _ = self.commit_tick.tick() => Woke::Tick,
-                _ = tokio::time::sleep_until(deadline.unwrap_or_else(tokio::time::Instant::now)),
-                    if deadline.is_some() => Woke::Deadline,
+                _ = &mut self.poll_deadline, if building => Woke::Deadline,
                 received = self.collector.receive(), if reading => match received {
                     Ok(Some(message)) => {
-                        let poll = self.poll.get_or_insert_with(|| PollInProgress {
-                            builder: PollBuilder::new(),
-                            deadline: tokio::time::Instant::now() + batch_timeout,
-                        });
-                        self.collector.add(&mut poll.builder, &message);
-                        Woke::Received
+                        let started = self
+                            .poll
+                            .is_none()
+                            .then(tokio::time::Instant::now);
+                        let poll = self.poll.get_or_insert_with(PollBuilder::new);
+                        self.collector.add(poll, &message);
+                        Woke::Received(started)
                     }
-                    Ok(None) => Woke::Received,
+                    Ok(None) => Woke::Received(None),
                     Err(err) => Woke::Failed(err),
                 },
             };
@@ -176,11 +171,15 @@ impl ContinuousPolling {
                         return step;
                     }
                 }
-                Woke::Received => {
+                Woke::Received(started) => {
+                    if let Some(started) = started {
+                        let deadline = started + self.collector.batch_timeout();
+                        self.poll_deadline.as_mut().reset(deadline);
+                    }
                     let full = self
                         .poll
                         .as_ref()
-                        .is_some_and(|poll| self.collector.is_full(&poll.builder));
+                        .is_some_and(|poll| self.collector.is_full(poll));
                     if full || self.limits.reached(self.pending()) {
                         if let Some(step) = self.take_poll() {
                             return step;
@@ -198,16 +197,13 @@ impl ContinuousPolling {
 
     fn take_poll(&mut self) -> Option<Step> {
         let poll = self.poll.take()?;
-        (poll.builder.message_count() > 0).then(|| Step::Submit(poll.builder.finish()))
+        (poll.message_count() > 0).then(|| Step::Submit(poll.finish()))
     }
 
     /// The in-flight charge plus the poll in progress, whose messages the
     /// process holds too.
     fn pending(&self) -> Charge {
-        let building = self
-            .poll
-            .as_ref()
-            .map_or(Charge::ZERO, |poll| poll.builder.charge());
+        let building = self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge);
         self.in_flight.held() + building
     }
 
