@@ -1,8 +1,6 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from django.db.models import OuterRef, Subquery
-
 import structlog
 import posthoganalytics
 
@@ -21,7 +19,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.engineering_analytics.backend.facade.contracts import MATERIALIZED_VIEWS_FEATURE_FLAG, CIDataFreshness
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import ci_rows, depot_ci, workflow_jobs, workflow_runs
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.api import import_started_before
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
@@ -94,8 +92,10 @@ class MaterializedCI:
             return None
 
         # Read completion and its published table in one snapshot, so publication cannot race readiness.
+        # A refresh publishes only on completion, so a running or failed one leaves the previous build readable.
         jobs = DataModelingJob.objects.filter(
             team_id=team.id,
+            status=DataModelingJob.Status.COMPLETED,
             engine=DataModelingJob.Engine.CLICKHOUSE,
             saved_query__team_id=team.id,
             saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
@@ -124,7 +124,6 @@ class MaterializedCI:
             view = job.saved_query if job is not None else None
             if (
                 job is None
-                or job.status != DataModelingJob.Status.COMPLETED
                 or view is None
                 or view.table is None
                 or view.table.team_id != team.id
@@ -158,21 +157,7 @@ class MaterializedCI:
         runs_at = materialized_at[ci_rows.RUNS_VIEW_NAME]
         jobs_at = materialized_at[ci_rows.JOBS_VIEW_NAME]
         # Later source syncs do not make an older stored result more current.
-        completed_import = ExternalDataJob.objects.filter(
-            team_id=team.id,
-            pipeline_id=OuterRef("source_id"),
-            schema_id=OuterRef("id"),
-            status=ExternalDataJob.Status.COMPLETED,
-        ).order_by("-finished_at")
-        schemas = ExternalDataSchema.objects.filter(
-            team_id=team.id, table__name__in=raw_tables, deleted=False, should_sync=True
-        )
-        consumed_schemas = schemas.annotate(
-            consumed_sync=Subquery(
-                completed_import.filter(finished_at__lte=min(started_at.values())).values("created_at")[:1]
-            )
-        )
-        frontiers: dict[str, datetime | None] = dict(consumed_schemas.values_list("table__name", "consumed_sync"))
+        frontiers = import_started_before(team.id, raw_tables, min(started_at.values()))
 
         def synced_at(table: str) -> datetime | None:
             names = [table, *([depot.table] if depot else [])]
