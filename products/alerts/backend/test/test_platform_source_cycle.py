@@ -112,6 +112,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "Chrome": AlertEventKind.FIRING,
             "Firefox": AlertEventKind.FIRING,
         }
+        assert {group.source_detail["breaches"][0] for group in fired.groups} == {"above 100"}
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
