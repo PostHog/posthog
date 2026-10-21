@@ -56,11 +56,10 @@ The host comes from the environment of the pod that runs the code, in [`get_kwar
 - `OFFLINE` connects to `CLICKHOUSE_OFFLINE_CLUSTER_HOST` when the deployment sets it, and to `CLICKHOUSE_HOST` when it does not.
 - `LOGS`, `ENDPOINTS`, and `NEW_EVENTS_CLUSTER` connect to their own hosts.
 
-Temporal workers and Dagster set `CLICKHOUSE_HOST` to the offline endpoint and `CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`.
-So `ONLINE` and `OFFLINE` from those pods both run on the offline replicas.
+A background worker deployment can point `CLICKHOUSE_HOST` at the offline replicas and set `CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`.
+Then `ONLINE` and `OFFLINE` from those pods both run on the offline replicas.
 Passing `ONLINE` there does not move the query to the online replicas.
 It only tags an offline query as online, which hides it from per-workload capacity numbers.
-A worker that must reach the online replicas, such as the Max AI worker, points `CLICKHOUSE_HOST` at the online endpoint in its deployment values.
 Moving a query between clusters is a deployment change, not a code change.
 
 ## Check where queries land
