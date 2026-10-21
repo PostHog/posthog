@@ -217,6 +217,18 @@ jobs:
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
                       posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
 
+            # Starts the pushed image on each platform it ships. This catches a missing
+            # binary, a wrong BIN or ENTRYPOINT, a missing shared library, and a wrong-arch
+            # binary before the deploy. The sqlx-migrate entrypoint runs migrations, so it is skipped.
+            - name: Smoke test image
+              if: inputs.push && matrix.dockerfile == './rust/Dockerfile'
+              env:
+                  IMAGE: ghcr.io/posthog/posthog/${{ matrix.image }}@${{ steps.docker_build.outputs.digest }}
+              run: |
+                  for platform in linux/arm64 linux/amd64; do
+                      docker run --rm --platform "$platform" "$IMAGE" --version
+                  done
+
             - name: Build failure properties
               if: failure()
               id: failure-props

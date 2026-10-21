@@ -21,6 +21,7 @@ pub const DEFAULT_KEYS_PER_PERSON: u64 = 64;
 #[derive(Parser)]
 #[command(
     name = "personhog-test-harness",
+    version,
     about = "Load, consistency, and e2e correctness harness for the personhog leader path"
 )]
 pub struct Cli {

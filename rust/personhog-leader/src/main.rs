@@ -54,6 +54,10 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     // Install a process-wide rustls CryptoProvider before any TLS use. kube's
     // HTTPS client (controller discovery) uses rustls 0.23, which can't
     // auto-pick a provider with both aws-lc-rs and ring compiled in — it

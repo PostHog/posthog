@@ -148,6 +148,10 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     // Without this, the first TLS handshake to Valkey panics the task that made it.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()

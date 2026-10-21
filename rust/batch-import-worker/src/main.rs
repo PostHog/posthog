@@ -56,6 +56,10 @@ async fn pause_job_on_init_error(model: &mut JobModel, context: Arc<AppContext>,
 
 #[tokio::main]
 pub async fn main() -> Result<(), Error> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     setup_tracing();
     info!("Starting up...");
 

@@ -45,6 +45,10 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)

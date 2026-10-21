@@ -142,7 +142,8 @@ WORKDIR /app
 USER nobody
 
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
-ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
+# Forwards container args to the binary, so CI can smoke test the image with `--version`.
+ENTRYPOINT ["/bin/sh", "-c", "exec /usr/local/bin/$BIN \"$@\"", "--"]
 
 # Opt-in stage for jumphost images (see bin/rust-jumphost) — not used by
 # request-path services, which keep building the smaller `runtime` stage.

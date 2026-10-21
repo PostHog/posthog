@@ -40,6 +40,10 @@ const SERVICE_NAME: &str = "cohort-seeder";
 const PARTITION_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let config = Config::init_from_env().context("loading cohort-seeder configuration")?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

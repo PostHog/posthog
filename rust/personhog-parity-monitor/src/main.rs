@@ -23,6 +23,10 @@ const EVENT_QUEUE: usize = 10_000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let config = Config::init_from_env().context("reading the configuration")?;
     tracing_subscriber::registry()
         .with(fmt::layer().with_target(true).with_level(true))

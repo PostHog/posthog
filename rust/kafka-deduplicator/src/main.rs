@@ -192,6 +192,10 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
 }
 
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     // Load configuration first (sync) so we can use worker_threads to size the runtime
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
