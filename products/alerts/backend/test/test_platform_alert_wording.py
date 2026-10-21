@@ -53,6 +53,7 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     ),
                     context=("Insight: Signups",),
                     data_link=LINK,
+                    image=MessageImage(url="https://example.com/chart.png", alt_text="Insight chart"),
                 ),
             ),
             # The platform states a failure in its own words, so only the insight's name and link are added.
