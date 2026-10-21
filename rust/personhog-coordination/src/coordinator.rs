@@ -881,6 +881,7 @@ impl Coordinator {
         mut request_stream: WatchStream,
     ) -> Result<()> {
         let _gauge = migration::PhaseGauge;
+        migration::register_transition_metrics();
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
