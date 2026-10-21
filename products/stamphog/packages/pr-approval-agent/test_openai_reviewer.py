@@ -27,6 +27,8 @@ def checkout(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
     (root / "src" / "app.py").write_text("def handler():\n    return 1\n")
+    (root / "src" / "deep").mkdir()
+    (root / "src" / "deep" / "inner.py").write_text("nested = True\n")
     (tmp_path / "secret.txt").write_text(SECRET)
     (root / "src" / "link.txt").symlink_to(tmp_path / "secret.txt")
     (root / "src" / "linkdir").symlink_to(tmp_path)
@@ -77,12 +79,60 @@ def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: s
             id="ignored-pipeline-diff",
         ),
         pytest.param({"pattern": "(unclosed", "path": None, "glob": None}, "error:", id="bad-pattern"),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "*.ts"}, "(no matches)", id="file-outside-glob"
+        ),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "src/*.py"},
+            "src/app.py:1:def handler():",
+            id="file-in-glob",
+        ),
+        pytest.param(
+            {"pattern": "nested", "path": "src/deep/inner.py", "glob": "src/*.py"},
+            "(no matches)",
+            id="star-stays-in-segment",
+        ),
+        pytest.param(
+            {"pattern": "nested", "path": "src/deep/inner.py", "glob": "**/*.py"},
+            "src/deep/inner.py:1:nested = True",
+            id="double-star-spans-segments",
+        ),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "src/app.py/**"},
+            "(no matches)",
+            id="trailing-double-star-excludes-the-prefix",
+        ),
     ],
 )
 def test_grep_finds_untracked_files_and_reports_bad_patterns(checkout: Path, arguments: dict, expected: str) -> None:
     output = RepoTools(checkout).call("grep", json.dumps(arguments))
 
     assert output.startswith(expected)
+
+
+def test_grep_glob_with_many_double_stars_finishes_on_a_deep_path(checkout: Path) -> None:
+    deep = checkout.joinpath(*["d"] * 40)
+    deep.mkdir(parents=True)
+    (deep / "zz.py").write_text("x = 1\n")
+    path = deep.relative_to(checkout).joinpath("zz.py").as_posix()
+
+    output = RepoTools(checkout).call(
+        "grep", json.dumps({"pattern": "x", "path": path, "glob": "/".join(["**"] * 8 + ["nomatch"])})
+    )
+
+    assert output == "(no matches)"
+
+
+def test_read_file_refuses_when_the_ignore_check_times_out(checkout: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow_git(command: list[str], **kwargs: Any) -> None:
+        raise subprocess.TimeoutExpired(command, timeout=10)
+
+    monkeypatch.setattr(openai_reviewer.subprocess, "run", slow_git)
+
+    output = RepoTools(checkout).call("read_file", json.dumps({"path": ".env", "offset": None, "limit": None}))
+
+    assert output.startswith("error:")
+    assert SECRET not in output
 
 
 def test_grep_returns_clipped_output_when_a_broad_pattern_matches_too_much(checkout: Path) -> None:

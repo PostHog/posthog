@@ -15,8 +15,7 @@ import { Experiment } from '~/types'
 /**
  * Status line for an in-flight recalculation. Renders only while a run is actually executing
  * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
- * carry their own loading and error affordances. Only rendered behind
- * EXPERIMENTS_METRICS_RECALCULATION (see ExperimentView).
+ * carry their own loading and error affordances. ExperimentView renders it once the experiment has metrics.
  */
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
     const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(

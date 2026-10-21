@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
+    codebase_detection = detect(env=("^(LIGHTSPEED_RETAIL|LIGHTSPEEDRETAIL)_",))
+
     supported_versions = (
         LIGHTSPEED_RETAIL_API_VERSION_2_0,
         LIGHTSPEED_RETAIL_API_VERSION_2026_01,
@@ -100,7 +103,7 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
 Your domain prefix is the first part of your store URL — for `mystore.retail.lightspeed.app` enter `mystore`. An admin can create a personal token in Setup > Personal Tokens (available on the Plus plan and above).""",
             iconPath="/static/services/lightspeed_retail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/lightspeed-retail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

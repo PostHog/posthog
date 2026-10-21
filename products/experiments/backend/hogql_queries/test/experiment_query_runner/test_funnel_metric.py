@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import cast
 
@@ -14,7 +13,6 @@ from posthog.test.base import (
 from django.test import override_settings
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -30,7 +28,6 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -160,6 +157,56 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Check that we have the correct data for rendering the funnel chart
         self.assertEqual(control_variant.step_counts, [8])  # contains data for funnel chart
+
+    @parameterized.expand(
+        [
+            # A pre-cutoff experiment reads $feature_flag_called with its same-timestamp
+            # $experiment_exposure copy, so the copy must not add a second exposure.
+            ("purchase_step_direct", False, "purchase"),
+            ("purchase_step_precomputed", True, "purchase"),
+            # With the flag call as the step, the copy must not act as the exposure and the call as its conversion.
+            ("flag_call_step_direct", False, "$feature_flag_called"),
+            ("flag_call_step_precomputed", True, "$feature_flag_called"),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_funnel_metric_with_exposure_copies(self, _name: str, use_precomputation: bool, step_event: str) -> None:
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        metric = ExperimentFunnelMetric(series=[EventsNode(event=step_event)])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        # Only user_control_returns converts: it is exposed again an hour later and purchases then.
+        for user, variant, returns in [
+            ("user_control_returns", "control", True),
+            ("user_control_once", "control", False),
+            ("user_test_once", "test", False),
+            ("user_test_once_2", "test", False),
+        ]:
+            _create_person(distinct_ids=[user], team_id=self.team.pk)
+            for timestamp in ["2020-01-02T12:00:00Z", "2020-01-02T13:00:00Z"] if returns else ["2020-01-02T12:00:00Z"]:
+                for event in ["$feature_flag_called", "$experiment_exposure"]:
+                    _create_event(
+                        team=self.team,
+                        event=event,
+                        distinct_id=user,
+                        timestamp=timestamp,
+                        properties={"$feature_flag_response": variant, "$feature_flag": feature_flag.key},
+                    )
+            if returns:
+                _create_event(team=self.team, event="purchase", distinct_id=user, timestamp="2020-01-02T13:00:00Z")
+        flush_persons_and_events()
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        result = cast(ExperimentQueryResponse, ExperimentQueryRunner(query=query, team=self.team).calculate())
+
+        assert result.baseline is not None and result.variant_results is not None
+        self.assertEqual((result.baseline.number_of_samples, result.baseline.sum), (2, 1))
+        self.assertEqual((result.variant_results[0].number_of_samples, result.variant_results[0].sum), (2, 0))
 
     @parameterized.expand(
         [
@@ -628,47 +675,25 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.team.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        if expected_results is None:
-            with self.assertRaises(ValidationError) as context:
-                query_runner.calculate()
+        result = query_runner.calculate()
 
-            if "person_id_override_properties_joined_filter_laterevent" in name:
-                expected_errors = json.dumps(
-                    {
-                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
-                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                    }
-                )
-            else:
-                expected_errors = json.dumps(
-                    {
-                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                    }
-                )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-        else:
-            result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-            assert result.variant_results is not None
-            self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-            control_variant = result.baseline
-            assert control_variant is not None
-            test_variant = result.variant_results[0]
-            assert test_variant is not None
-
-            self.assertEqual(
-                {
-                    "control_success": int(control_variant.sum),
-                    "control_failure": int(control_variant.number_of_samples - control_variant.sum),
-                    "test_success": int(test_variant.sum),
-                    "test_failure": int(test_variant.number_of_samples - test_variant.sum),
-                },
-                expected_results,
-            )
+        self.assertEqual(
+            {
+                "control_success": int(control_variant.sum),
+                "control_failure": int(control_variant.number_of_samples - control_variant.sum),
+                "test_success": int(test_variant.sum),
+                "test_failure": int(test_variant.number_of_samples - test_variant.sum),
+            },
+            expected_results,
+        )
 
     @parameterized.expand(
         [

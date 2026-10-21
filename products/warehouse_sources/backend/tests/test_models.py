@@ -28,15 +28,18 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     DUPLICATE_PRIMARY_KEYS_RAW_ERROR,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEYS_RAW_ERROR,
+    PREFIX_PROMOTION_KEY,
     REPARTITION_HOLD_MAX_AGE,
     STAGED_CURSOR_PENDING_LIMIT,
     ExternalDataSchema,
     apply_incremental_lookback,
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     staged_handoff_resume_point,
     staged_handoff_resume_value,
+    staged_run_last_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1527,6 +1530,106 @@ class TestStagedIncrementalCursor:
         assert result is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
 
+    @parameterized.expand(
+        [
+            (
+                "live_slot_of_a_later_attempt",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a2", "last_value": 7},
+                [],
+                7,
+                [],
+            ),
+            (
+                "highest_across_live_and_parked_attempts",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a3", "earliest_value": 1},
+                [{"run_uuid": "wf-1-a1", "last_value": 42}, {"run_uuid": "wf-1-a2", "last_value": 9}],
+                42,
+                [],
+            ),
+            (
+                "another_run_is_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-2-a1", "last_value": 42},
+                [],
+                None,
+                [],
+            ),
+            (
+                "a_run_id_that_merely_shares_a_prefix_is_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-10-a1", "last_value": 42},
+                [{"run_uuid": "wf-1-a1", "last_value": 3}],
+                3,
+                [],
+            ),
+            (
+                "malformed_attempt_suffixes_are_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-ax", "last_value": 90},
+                [
+                    {"run_uuid": "wf-1", "last_value": 91},
+                    {"run_uuid": "wf-1-a", "last_value": 92},
+                    {"run_uuid": "wf-1-a2-retry", "last_value": 93},
+                    {"run_uuid": 1, "last_value": 94},
+                    {"run_uuid": "wf-1-a1", "last_value": 5},
+                ],
+                5,
+                [],
+            ),
+            (
+                "earliest_only_is_not_a_high_water_mark",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a1", "earliest_value": 5},
+                [],
+                None,
+                [],
+            ),
+            (
+                "unparseable_value_is_skipped",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "not-a-date"},
+                [{"run_uuid": "wf-1-a1", "last_value": "2026-01-09T00:00:00+00:00"}],
+                datetime(2026, 1, 9, tzinfo=UTC),
+                ["staged_run_last_value_unparseable"],
+            ),
+            (
+                "epoch_and_iso_values_order_by_time",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "2026-01-01T00:00:00+00:00"},
+                [{"run_uuid": "wf-1-a1", "last_value": 1768000000}],
+                1768000000,
+                [],
+            ),
+            (
+                "unordered_pair_keeps_the_newest_attempt",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "2026-01-01T00:00:00"},
+                [{"run_uuid": "wf-1-a1", "last_value": "2026-01-09T00:00:00+00:00"}],
+                datetime(2026, 1, 1),
+                ["staged_run_last_value_unordered"],
+            ),
+        ]
+    )
+    def test_staged_run_last_value(
+        self,
+        _name: str,
+        field_type: IncrementalFieldType,
+        live: dict[str, Any],
+        parked: list[dict[str, Any]],
+        expected: Any,
+        warnings: list[str],
+    ) -> None:
+        config = {
+            "incremental_field_type": field_type,
+            "incremental_staged": live,
+            "incremental_staged_pending": parked,
+        }
+        with patch("products.warehouse_sources.backend.models.external_data_schema.logger") as mock_logger:
+            assert staged_run_last_value(config, "wf-1") == expected
+        assert [call.args[0] for call in mock_logger.warning.call_args_list] == warnings
+
     def test_promote_rejects_wrong_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
         with self._staged_in_memory(schema):
@@ -1573,11 +1676,112 @@ class TestStagedIncrementalCursor:
         schema = self._make_schema(
             incremental_staged={"run_uuid": "run-1", "last_value": 42},
             incremental_staged_pending=[{"run_uuid": "run-0", "last_value": 1}],
+            **{PREFIX_PROMOTION_KEY: {"job_id": "job-1", "run_uuid": "run-1", "value": 30, "rows_synced": 7}},
         )
         with _merge_in_memory(schema):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
         assert "incremental_staged_pending" not in schema.sync_type_config
+        assert PREFIX_PROMOTION_KEY not in schema.sync_type_config
+
+    def _promote_prefix(self, schema: ExternalDataSchema, value: Any, *, field: str = "id") -> bool:
+        with self._staged_in_memory(schema):
+            return schema.promote_loaded_prefix_value(
+                run_uuid="run-1", job_id="job-1", field=field, value=value, job_rows_synced=7
+            )
+
+    @parameterized.expand(
+        [
+            ("no_watermark_yet", {}, 30),
+            ("above_the_watermark", {"incremental_field_last_value": 10}, 30),
+            (
+                "parked_staged_cursor",
+                {
+                    "incremental_staged": {"run_uuid": "run-2", "last_value": 5},
+                    "incremental_staged_pending": [{"run_uuid": "run-1", "last_value": 50}],
+                },
+                30,
+            ),
+        ]
+    )
+    def test_promote_loaded_prefix_moves_the_watermark_up(self, _name: str, config: dict, value: Any) -> None:
+        schema = self._make_schema(
+            incremental_field="id", **{"incremental_staged": {"run_uuid": "run-1", "last_value": 50}, **config}
+        )
+
+        assert self._promote_prefix(schema, value) is True
+
+        assert schema.sync_type_config["incremental_field_last_value"] == value
+        assert schema.sync_type_config[PREFIX_PROMOTION_KEY] == {
+            "job_id": "job-1",
+            "run_uuid": "run-1",
+            "value": value,
+            "rows_synced": 7,
+        }
+
+    @parameterized.expand(
+        [
+            # A newer run already moved the watermark past this run's prefix.
+            ("newer_run_is_ahead", {"incremental_field_last_value": 40}, "id", 30),
+            ("equal_to_the_watermark", {"incremental_field_last_value": 30}, "id", 30),
+            # A reset dropped the staged cursors, so the loaded rows belong to the deleted table.
+            ("reset_dropped_the_staged_cursor", {"incremental_staged": None}, "id", 30),
+            (
+                "staged_cursor_of_another_run_only",
+                {"incremental_staged": {"run_uuid": "run-2", "last_value": 50}},
+                "id",
+                30,
+            ),
+            ("value_above_what_the_run_read", {}, "id", 60),
+            ("incremental_field_changed", {}, "updated_at", 30),
+            (
+                "values_cannot_be_ordered",
+                {"incremental_field_type": IncrementalFieldType.ObjectID, "incremental_field_last_value": "abc"},
+                "id",
+                "65f0c0c0a1b2c3d4e5f60001",
+            ),
+        ]
+    )
+    def test_promote_loaded_prefix_keeps_the_watermark(self, _name: str, config: dict, field: str, value: Any) -> None:
+        schema = self._make_schema(
+            incremental_field="id", **{"incremental_staged": {"run_uuid": "run-1", "last_value": 50}, **config}
+        )
+        if schema.sync_type_config["incremental_staged"] is None:
+            del schema.sync_type_config["incremental_staged"]
+        watermark_before = schema.sync_type_config.get("incremental_field_last_value")
+
+        assert self._promote_prefix(schema, value, field=field) is False
+
+        assert schema.sync_type_config.get("incremental_field_last_value") == watermark_before
+        assert PREFIX_PROMOTION_KEY not in schema.sync_type_config
+
+    def test_final_promotion_still_moves_the_watermark_to_the_full_value_after_a_prefix(self) -> None:
+        schema = self._make_schema(incremental_field="id", incremental_staged={"run_uuid": "run-1", "last_value": 50})
+
+        assert self._promote_prefix(schema, 30) is True
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+
+        assert schema.sync_type_config["incremental_field_last_value"] == 50
+
+    @parameterized.expand(
+        [
+            ("same_job_and_watermark", "job-1", 30, 7),
+            ("another_job", "job-2", 30, None),
+            # A later promotion moved the watermark, so this attempt does not start at the prefix.
+            ("watermark_moved_since", "job-1", 45, None),
+        ]
+    )
+    def test_prefix_promotion_rows_synced(self, _name: str, job_id: str, watermark: Any, expected: int | None) -> None:
+        config = {
+            "incremental_field_last_value": watermark,
+            PREFIX_PROMOTION_KEY: {"job_id": "job-1", "run_uuid": "run-1", "value": 30, "rows_synced": 7},
+        }
+
+        assert prefix_promotion_rows_synced(config, job_id) == expected
+
+    def test_prefix_promotion_rows_synced_without_a_promotion(self) -> None:
+        assert prefix_promotion_rows_synced({"incremental_field_last_value": 30}, "job-1") is None
 
 
 class TestStagedIncrementalCursorStaleWriters(BaseTest):

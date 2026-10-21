@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from collections.abc import Sequence
 from functools import partial
@@ -27,8 +28,10 @@ from products.posthog_ai.eval_harness.engines.types import (
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
+from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
+from products.tasks.backend.facade.agents import TurnPollTimeout
 
 
 class _StubReporter:
@@ -36,9 +39,32 @@ class _StubReporter:
         self.done: list[tuple[str, str]] = []
         self.started: list[tuple[str, int]] = []
         self.summaries: list[tuple[str, Any, int]] = []
-        self.posthog_urls: list[tuple[str, str]] = []
 
-    async def case_done(self, experiment_name: str, case_name: str, duration_seconds: float, status: str) -> None:
+    async def case_started(self, experiment: str, name: str, trial_id: str, trial_index: int) -> dict[str, float]:
+        return {}
+
+    async def case_phase(self, trial_id: str, phase: str) -> None:
+        pass
+
+    async def case_scored(self, trial_id: str, *, error: str | None = None) -> None:
+        pass
+
+    async def finish_cases(self, trial_ids: Sequence[str]) -> None:
+        pass
+
+    async def finish_experiment(self, experiment: str) -> None:
+        pass
+
+    async def case_done(
+        self,
+        experiment_name: str,
+        case_name: str,
+        duration_seconds: float,
+        status: str,
+        trial_id: str | None = None,
+        error_type: str | None = None,
+        error_detail: str | None = None,
+    ) -> None:
         self.done.append((case_name, status))
 
     async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
@@ -48,9 +74,6 @@ class _StubReporter:
         self, experiment_name: str, summary: Any, error_count: int, trial_stats: Sequence[ScorerTrialStats] = ()
     ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
-
-    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
-        self.posthog_urls.append((experiment_name, experiment_id))
 
 
 class _StubEngine:
@@ -81,7 +104,6 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         case_filter=case_filter,
         demo_data=None,
         posthog_client=None,
-        posthog_evaluation_client=None,
         sandbox_slots=None,
         team_setup_slots=asyncio.Semaphore(1),
         one_shot_slots=asyncio.Semaphore(one_shot_slots),
@@ -94,11 +116,13 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
     )
 
 
-def _build_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: EvalContext, task_fn: Any) -> _OneShotEvalRun:
+def _build_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: EvalContext, task_fn: Any, case_name: str = "c1"
+) -> _OneShotEvalRun:
     monkeypatch.setattr("products.posthog_ai.eval_harness.base.build_case_dir", lambda *_: tmp_path)
     return _OneShotEvalRun(
         experiment_name="one-shot-test",
-        cases=[BaseEvalCase(name="c1", prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
+        cases=[BaseEvalCase(name=case_name, prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
         scorers=[],
         ctx=ctx,
         is_public=False,
@@ -120,28 +144,56 @@ def test_execute_case_backfills_prompt_and_writes_logs(tmp_path: Path, monkeypat
     assert (tmp_path / "c1.summary.txt").exists()
 
 
-def test_task_scores_timeout_as_output_not_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("poll_timeout", [False, True, "cleanup_cancelled"])
+def test_task_scores_timeout_as_output_not_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, poll_timeout: bool | str
+) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
-        await asyncio.sleep(30)
+        if poll_timeout:
+            error = TurnPollTimeout(
+                "Poll budget expired",
+                stage="no_turn_output",
+                elapsed=5,
+                stale_seconds=5,
+                total_lines=0,
+                turn_relevant_lines=0,
+            )
+            if poll_timeout == "cleanup_cancelled":
+                hooks.metadata["poll_timeout"] = error.diagnostics()
+                raise TimeoutError
+            raise error
+        await asyncio.Event().wait()
         return {}
 
     ctx = _build_ctx(timeout_seconds=1)
     run = _build_run(tmp_path, monkeypatch, ctx, task)
-    output = asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
+    hooks = NullCaseHooks()
+    output = asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=hooks))
 
-    assert output == {"timeout": True, "error": "case timeout after 1s"}
+    assert output is not None and output["timeout"] is True
+    assert output["error"] == "case timeout after 1s"
+    saved = json.loads((tmp_path / f"c1.trial-{hooks.metadata['trial_id']}.artifacts.json").read_text())
+    assert saved == output
+    if poll_timeout:
+        assert hooks.metadata["poll_timeout"]["poll_timeout_stage"] == "no_turn_output"
+        assert output["poll_timeout"] == hooks.metadata["poll_timeout"]
+        if poll_timeout is True:
+            assert output["stderr"] == "Poll budget expired"
     assert ctx.reporter.done == [("c1", "timeout")]  # type: ignore[attr-defined]
 
 
-def test_task_reraises_infra_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("error_type", [ValueError, asyncio.CancelledError])
+def test_task_reraises_infra_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[BaseException]
+) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
-        raise ValueError("boom")
+        raise error_type("boom")
 
     ctx = _build_ctx()
     run = _build_run(tmp_path, monkeypatch, ctx, task)
-    with pytest.raises(ValueError):
+    with pytest.raises(error_type):
         asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
-    assert ctx.reporter.done == [("c1", "error")]  # type: ignore[attr-defined]
+    assert ctx.reporter.done == ([] if error_type is asyncio.CancelledError else [("c1", "error")])  # type: ignore[attr-defined]
 
 
 def test_one_shot_slots_bound_concurrency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +279,7 @@ def test_run_routes_through_the_engine(
     ):
         harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
         with harness._stack:
-            harness._bootstrap(frozenset())
+            harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
             for run in runs:
@@ -242,22 +294,9 @@ def test_run_routes_through_the_engine(
             assert ctx.posthog_client.disabled
             ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
 
-        assert create_client.call_count == 2
-        assert ctx.posthog_evaluation_client is not None
-        assert ctx.posthog_evaluation_client.capture(event="$ai_evaluation", distinct_id="after-shutdown") is None
+        assert create_client.call_count == 1
 
-    if no_send_logs:
-        batch_post.assert_not_called()
-        assert reporter.posthog_urls == []
-    else:
-        assert batch_post.call_count == 2
-        for run, upload_call in zip(runs, batch_post.call_args_list):
-            event = upload_call.kwargs["batch"][0]
-            assert event["event"] == "$ai_evaluation"
-            assert event["properties"]["$ai_metric_name"] == "correctness"
-            assert event["properties"]["$ai_score"] == 1.0
-            assert event["properties"]["$ai_experiment_id"] == run.experiment_id
-        assert reporter.posthog_urls == [("one-shot-test", run.experiment_id) for run in runs]
+    batch_post.assert_not_called()
 
     assert len(engine.calls) == 2
     for experiment in engine.calls:
@@ -272,3 +311,60 @@ def test_run_routes_through_the_engine(
         assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
+
+
+@pytest.mark.parametrize("case_name", ["c1", "c1" * 110, "c1" * 200])
+def test_concurrent_trials_keep_their_own_logs_and_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case_name: str
+) -> None:
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
+    monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
+    monkeypatch.chdir(tmp_path)
+    started = 0
+    all_started = asyncio.Event()
+    finished = [asyncio.Event() for _ in range(3)]
+    completion_order: list[int] = []
+
+    async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
+        nonlocal started
+        index = started
+        value = index / 2
+        started += 1
+        if started == 3:
+            all_started.set()
+        await all_started.wait()
+        if index < 2:
+            await finished[index + 1].wait()
+        completion_order.append(index)
+        finished[index].set()
+        return {"answer": value, "last_message": str(value)}
+
+    def score(output: dict[str, Any], **kwargs: Any) -> float:
+        return output["answer"]
+
+    ctx = _build_ctx(one_shot_slots=3, case_filter=case_name)
+    ctx.trials = 3
+    run = _build_run(tmp_path, monkeypatch, ctx, task, case_name=case_name)
+    run.active_scorers = [score]
+    result = asyncio.run(run.run())
+
+    assert len(result.results) == 3
+    assert completion_order == [2, 1, 0]
+    assert {row.metadata["trial_index"] for row in result.results} == {0, 1, 2}
+    assert len(list(tmp_path.glob("*.summary.txt"))) == 3
+    assert len({row.metadata["trial_id"] for row in result.results}) == 3
+    assert {row.input["name"] for row in result.results} == {case_name}
+    exports = [json.loads(line) for line in (tmp_path / "case_results.jsonl").read_text().splitlines()]
+    for row in result.results:
+        trial_id = row.metadata["trial_id"]
+        summary_path = next(tmp_path.glob(f"*.trial-{trial_id}.summary.txt"))
+        prefix = summary_path.with_name(summary_path.name.removesuffix(".summary.txt"))
+        assert json.loads(prefix.with_name(prefix.name + ".jsonl").read_text()) == row.output
+        assert prefix.with_name(prefix.name + ".artifacts.json").exists()
+        summary = summary_path.read_text()
+        assert f"case: {case_name}\n" in summary
+        assert f"trial_id: {trial_id}" in summary
+        assert json.loads(summary.split("=== scores ===\n")[1]) == row.scores
+        exported = next(item for item in exports if item["trial_id"] == trial_id)
+        assert exported["trial_index"] == row.metadata["trial_index"] == row.output["answer"] * 2
+        assert exported["scores"] == row.scores

@@ -1,5 +1,6 @@
 import re
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -75,6 +76,8 @@ class PlanetScalePostgresSource(PostgresSource):
     see `planetscale_mysql`.
     """
 
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://planetscale.com/docs/postgres"
 
     def __init__(self):
@@ -121,7 +124,7 @@ class PlanetScalePostgresSource(PostgresSource):
             iconPath="/static/services/planetscale.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/planetscale",
             fields=fields,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

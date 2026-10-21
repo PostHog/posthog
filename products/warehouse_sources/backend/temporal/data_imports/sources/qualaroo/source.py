@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]):
+    codebase_detection = detect(env=("^QUALAROO_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://help.qualaroo.com/hc/en-us/sections/200469946-API-Documentation"
@@ -52,7 +55,7 @@ class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]
             name=ExternalDataSourceType.QUALAROO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualaroo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Qualaroo API key and secret to pull your survey (nudge) data into the PostHog Data warehouse.
 
 You can find your API key and secret under **Settings → API** in [Qualaroo](https://app.qualaroo.com/). They authenticate the REST Reporting API with read access to your nudges.

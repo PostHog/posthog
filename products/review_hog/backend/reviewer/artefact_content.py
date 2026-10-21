@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from products.review_hog.backend.facade.contracts import ReviewIssueCategory
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -35,20 +36,6 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     TaskRunArtefact,
 )
-
-# Mirrors `IssueValidation.category` (the live LLM contract); redefined here so the durable
-# artefact shape doesn't drift with the regenerated review-tool schema.
-ReviewIssueCategory = Literal[
-    "bug",
-    "security",
-    "performance",
-    "code_quality",
-    "best_practice",
-    "documentation",
-    "testing",
-    "accessibility",
-    "compatibility",
-]
 
 
 class ReviewIssueFinding(BaseModel):
@@ -327,7 +314,10 @@ class PRSnapshotArtefact(BaseModel):
     )
     merge_base_sha: str | None = Field(
         default=None,
-        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+        description="The commit GitHub computes the PR diff against. None when GitHub did not return it.",
+    )
+    skipped_paths: list[str] = Field(
+        default_factory=list, description="The changed files the review left out (lock, generated, test files)."
     )
 
 
@@ -347,6 +337,38 @@ class TurnMarkerArtefact(BaseModel):
     fingerprint_inputs: dict[str, Any] = Field(
         default_factory=dict, description="The payload the fingerprint hashes (prompt and skill texts as hashes)."
     )
+    # The fields below are None on markers written before they existed.
+    publishes: bool | None = Field(default=None, description="Whether the turn posts its result to the PR.")
+    base_branch: str | None = Field(default=None, description="The base branch the reviewed diff was taken against.")
+    base_sha: str | None = Field(default=None, description="The merge base the reviewed diff was taken against.")
+    skipped_paths: list[str] | None = Field(
+        default=None, description="The changed files the turn left out of the review."
+    )
+    review_design: str | None = Field(
+        default=None, description="The design the turn ran on (pipeline or single_agent)."
+    )
+
+
+RUN_OUTCOME_NOTE_AUTHOR = "review_hog_run_outcome"
+
+
+class RunOutcomeNote(NoteArtefact):
+    """Content for a `note` artefact that records a review turn or resolution run that ended without a result.
+
+    A completed turn leaves a `turn_marker` and a stamped report, and a resolution run leaves its
+    closing note. A failed turn, a dropped Standard request, and a skipped resolution run leave
+    nothing else, so a status reader cannot tell them from a request that is still waiting. It stays
+    a `note` so that no new artefact type (and no migration) is needed: readers that parse it as a
+    plain `NoteArtefact` ignore the extra fields.
+    """
+
+    author: str | None = Field(default=RUN_OUTCOME_NOTE_AUTHOR, description="Always `review_hog_run_outcome`.")
+    stage: Literal["review", "resolution"] = Field(description="Which run ended: a review turn or a resolution run.")
+    outcome: Literal["skipped", "failed"] = Field(description="How the run ended.")
+    reason: str = Field(description="Short reason code, e.g. flash_after_full, review_failed, pr_not_open.")
+    run_index: int | None = Field(default=None, description="The review turn (1-based) for a review run.")
+    review_mode: str | None = Field(default=None, description="The review mode (full or flash) for a review run.")
+    head_sha: str | None = Field(default=None, description="The PR head the run targeted, when known.")
 
 
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
@@ -386,7 +408,11 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "pr_snapshot": PRSnapshotArtefact,
     "turn_marker": TurnMarkerArtefact,
 }
-_ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
+_ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {
+    **{model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()},
+    # A note subtype: it persists as `note`, and `note` rows still parse as the plain NoteArtefact.
+    RunOutcomeNote: "note",
+}
 
 
 def artefact_type_for(content: BaseModel) -> str:

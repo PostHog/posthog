@@ -6,6 +6,7 @@ import time
 import uuid
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from temporalio.client import WorkflowFailureError
@@ -16,9 +17,11 @@ from posthog.temporal.common.client import async_connect
 from products.tasks.backend.facade.agents import (
     CustomPromptSandboxContext,
     MultiTurnSession,
+    TurnPollTimeout,
     create_task_and_trigger,
     poll_for_turn,
 )
+from products.tasks.backend.facade.api import TaskOriginProduct
 from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
 from .config import AgentArtifacts, SandboxedEvalCase
@@ -26,6 +29,8 @@ from .harness.providers import SandboxProviderStrategy
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
+
+    from products.tasks.backend.models import TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +42,11 @@ __all__ = ["run_eval_case"]
 TEST_TITLE_RE = re.compile(r"\b(pytest|tests?)\b")
 LINT_TITLE_RE = re.compile(r"\b(ruff|lint)\b")
 
+EVAL_ORIGIN_PRODUCT = TaskOriginProduct.POSTHOG_AI
+
 WORKFLOW_COMPLETION_GRACE_SECONDS = 60
 WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
+CASE_FINALIZATION_RESERVE_SECONDS = 120
 
 
 class AgentNeverRanError(RuntimeError):
@@ -117,11 +125,22 @@ class EvalCaseResult:
     lines could not be split (malformed lines); scorers self-skip on it."""
 
 
+async def _report_cleanup(on_cleanup: Callable[[], Awaitable[None]] | None) -> None:
+    if on_cleanup is not None:
+        try:
+            await on_cleanup()
+        except Exception:
+            logger.warning("Could not report eval cleanup progress", exc_info=True)
+
+
 async def run_eval_case(
     case: SandboxedEvalCase,
     context: CustomPromptSandboxContext,
     *,
     provider: SandboxProviderStrategy,
+    on_cleanup: Callable[[], Awaitable[None]] | None = None,
+    timeout_seconds: float | None = None,
+    on_poll_timeout: Callable[[TurnPollTimeout], None] | None = None,
 ) -> EvalCaseResult:
     """Run an eval case using the full Task -> temporal workflow -> log polling pipeline.
 
@@ -133,6 +152,11 @@ async def run_eval_case(
     trace_id = str(uuid.uuid4())
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
+    poll_deadline = (
+        start + timeout_seconds - min(CASE_FINALIZATION_RESERVE_SECONDS, timeout_seconds / 4)
+        if timeout_seconds is not None
+        else None
+    )
     # The helpers mutate this in place as they provision, so the except/finally
     # blocks can finish the workflow and clean up the task even when a turn
     # raises before the helpers return.
@@ -142,19 +166,22 @@ async def run_eval_case(
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
         if case.followups:
-            full_log, turn_logs = await _run_multi_turn_case(case, context, state)
+            full_log, turn_logs = await _run_multi_turn_case(
+                case, context, state, provider=provider, poll_deadline=poll_deadline
+            )
         else:
-            full_log, turn_logs = await _run_single_turn_case(case, context, state)
+            full_log, turn_logs = await _run_single_turn_case(
+                case, context, state, provider=provider, poll_deadline=poll_deadline
+            )
         # Both helpers set task_id and handle before their first poll, so a clean
         # return guarantees they are populated.
         assert state.task_id is not None and state.handle is not None
-        # Register the task so the end-of-run sweep stays scoped to this run's sandboxes.
-        provider.register_task(str(state.task_id))
 
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
         completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
+        await _report_cleanup(on_cleanup)
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
             raise WorkflowCleanupError(
@@ -166,18 +193,24 @@ async def run_eval_case(
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
+        if isinstance(e, TurnPollTimeout) and on_poll_timeout is not None:
+            on_poll_timeout(e)
         cleanup_confirmed = False
-        if completion_task is not None:
-            # A case timeout can arrive while successful workflow cleanup is
-            # already running. Let that bounded task settle instead of sending a
-            # conflicting failed completion signal.
-            cleanup_confirmed = await asyncio.shield(completion_task)
-        elif state.handle is not None and not isinstance(e, WorkflowCleanupError):
-            cleanup_confirmed = await asyncio.shield(
+        # A case timeout can arrive while successful workflow cleanup is
+        # already running. Let that bounded task settle instead of sending a
+        # conflicting failed completion signal.
+        if completion_task is None and state.handle is not None and not isinstance(e, WorkflowCleanupError):
+            completion_task = asyncio.create_task(
                 _finish_workflow(state.handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
             )
-        if state.handle is not None and not cleanup_confirmed:
-            logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
+        try:
+            if not isinstance(e, asyncio.CancelledError):
+                await _report_cleanup(on_cleanup)
+        finally:
+            if completion_task is not None:
+                cleanup_confirmed = await asyncio.shield(completion_task)
+            if state.handle is not None and not cleanup_confirmed:
+                logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
         raise
     finally:
         if state.task_id is not None:
@@ -201,33 +234,62 @@ class _CaseRunState:
 
 
 async def _run_single_turn_case(
-    case: SandboxedEvalCase, context: CustomPromptSandboxContext, state: _CaseRunState
+    case: SandboxedEvalCase,
+    context: CustomPromptSandboxContext,
+    state: _CaseRunState,
+    *,
+    provider: SandboxProviderStrategy,
+    poll_deadline: float | None = None,
 ) -> tuple[str, list[str] | None]:
     """The historical one-prompt path: create, poll once, return the full log."""
-    task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+    task_run = await create_task_and_trigger(
+        case.prompt, context, step_name=case.name, origin_product=EVAL_ORIGIN_PRODUCT
+    )
     state.task_id = task_run.task_id
+    provider.register_task(str(task_run.task_id))
     # Handle to the case's workflow so a timeout/error can shut the agent down.
     client = await async_connect()
     state.handle = client.get_workflow_handle(task_run.workflow_id)
-    turn = await poll_for_turn(task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg))
+    turn = await poll_for_turn(
+        task_run,
+        verbose=True,
+        output_fn=lambda msg: logger.info("agent: %s", msg),
+        workflow_handle=state.handle,
+        poll_deadline=poll_deadline,
+    )
     logger.info("Eval case '%s' turn 1/1: last_message=%.200s", case.name, turn.last_message or "(none)")
     return turn.full_log or "", None
 
 
 async def _run_multi_turn_case(
-    case: SandboxedEvalCase, context: CustomPromptSandboxContext, state: _CaseRunState
+    case: SandboxedEvalCase,
+    context: CustomPromptSandboxContext,
+    state: _CaseRunState,
+    *,
+    provider: SandboxProviderStrategy,
+    poll_deadline: float | None = None,
 ) -> tuple[str, list[str] | None]:
     """Run ``case.prompt`` plus every follow-up in one agent session.
 
     ``session.end()`` only signals completion, so the caller still finishes the
     workflow through ``_finish_workflow`` like any other case.
     """
+
+    async def task_created(task_run: TaskRun) -> None:
+        state.task_id = task_run.task_id
+        provider.register_task(str(task_run.task_id))
+        client = await async_connect()
+        state.handle = client.get_workflow_handle(task_run.get_workflow_id(task_run.task_id, task_run.id))
+
     session, _ = await MultiTurnSession.start_raw(
         prompt=case.prompt,
         context=context,
         step_name=case.name,
+        origin_product=EVAL_ORIGIN_PRODUCT,
         verbose=True,
         output_fn=lambda msg: logger.info("agent: %s", msg),
+        poll_deadline=poll_deadline,
+        on_task_run_created=task_created,
     )
     state.task_id = session.task.id
     state.handle = session.workflow_handle

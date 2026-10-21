@@ -8,6 +8,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { ScoutGroupKey, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutExemptionBadge } from './ScoutBadges'
+import { ScoutToolsTag } from './ScoutToolsTag'
 import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
@@ -36,6 +37,7 @@ export function ScoutNameCell({
                     {scoutDisplayName(config)}
                 </Link>
                 <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} compact={compact} />
+                <ScoutToolsTag allowedTools={config.allowed_mcp_tools} compact={compact} />
                 <ScoutExemptionBadge config={config} group={group} />
             </div>
             {subtitle && (

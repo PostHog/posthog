@@ -9,6 +9,7 @@ use super::key_queues::{KeyRun, ReadyRun};
 pub struct RequestClass {
     pub assignment_epoch: u64,
     pub replay: bool,
+    pub unbudgeted: bool,
 }
 
 #[derive(Debug)]
@@ -21,13 +22,18 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn from_run(ready: ReadyRun) -> Self {
+    pub fn from_runs(class: RequestClass, runs: Vec<ReadyRun>) -> Self {
+        let oldest_arrival = runs
+            .iter()
+            .map(|ready| ready.first_arrival)
+            .min()
+            .expect("a request holds at least one run");
         Self {
-            class: ready.class,
-            message_count: ready.run.messages.len(),
-            bytes: ready.bytes,
-            oldest_arrival: ready.first_arrival,
-            runs: vec![ready.run],
+            class,
+            message_count: runs.iter().map(|ready| ready.run.messages.len()).sum(),
+            bytes: runs.iter().map(|ready| ready.bytes).sum(),
+            oldest_arrival,
+            runs: runs.into_iter().map(|ready| ready.run).collect(),
         }
     }
 }

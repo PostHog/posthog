@@ -45,6 +45,7 @@ import {
     IconMegaphone,
     IconMessage,
     IconNotebook,
+    IconPalette,
     IconNotification,
     IconPageChart,
     IconPencil,
@@ -110,6 +111,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
+    },
+    canvas: {
+        icon: <IconPalette />,
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
     },
     llm_analytics: {
         icon: <IconLlmAnalytics />,
@@ -485,7 +490,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
 }
 
-const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
@@ -644,11 +649,6 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
-
-export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
-    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
-        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

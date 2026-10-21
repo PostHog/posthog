@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResumeConfig]):
+    codebase_detection = detect(env=("^(PROMPT_WATCH|PROMPTWATCH)_",), script_hosts=("ingest.promptwatch.com",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -103,7 +106,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Promptwatch",
             iconPath="/static/services/promptwatch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create a read-only API key in Promptwatch under Settings > API Keys. "
                 "Requires the Explore plan or higher. Syncs use your account's API units (hourly request quota). "

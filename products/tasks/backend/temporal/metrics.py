@@ -1,16 +1,23 @@
 import os
 import time
+import inspect
 import datetime as dt
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, ContextDecorator
+from functools import wraps
+from typing import Any, TypeVar, cast
 
 import posthoganalytics
+from opentelemetry import trace
+from opentelemetry.trace import Span
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 
 Attributes = dict[str, str | int | float | bool]
+tracer = trace.get_tracer(__name__)
+F = TypeVar("F", bound=Callable[..., object])
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
@@ -454,6 +461,62 @@ def record_sandbox_created(
         pass
 
 
+def record_startup_step_event(
+    step: str,
+    duration_ms: int,
+    attributes: Attributes,
+    *,
+    started_at: dt.datetime | None = None,
+) -> None:
+    try:
+        context = posthoganalytics.get_tags()
+        run_id = context.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return
+        properties: dict[str, object] = {
+            "$process_person_profile": False,
+            **{
+                key: context[key]
+                for key in (
+                    "run_id",
+                    "task_id",
+                    "origin_product",
+                    "run_environment",
+                    "mode",
+                    "run_source",
+                    "runtime_adapter",
+                    "provider",
+                )
+                if key in context
+            },
+            **attributes,
+            "step": step,
+            "duration_ms": duration_ms,
+        }
+        if started_at is not None:
+            properties["started_at"] = started_at.isoformat()
+            properties["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+        if activity.in_activity():
+            info = activity.info()
+            properties.update(
+                {
+                    "temporal_activity_id": info.activity_id,
+                    "temporal_activity_type": info.activity_type,
+                    "temporal_attempt": info.attempt,
+                    "temporal_workflow_id": info.workflow_id,
+                    "temporal_workflow_run_id": info.workflow_run_id,
+                }
+            )
+        posthoganalytics.capture(
+            "task_startup_step_completed",
+            distinct_id=run_id,
+            properties=properties,
+            send_feature_flags=False,
+        )
+    except Exception:
+        pass
+
+
 def record_agent_server_session_init_ms(
     session_init_ms: int,
     boot_path: str | None = None,
@@ -479,6 +542,7 @@ def record_agent_server_session_init_ms(
         ).record(dt.timedelta(milliseconds=session_init_ms))
     except Exception:
         pass
+    record_startup_step_event("agent_server_session_init", session_init_ms, attributes)
 
 
 def record_agent_server_step_ms(
@@ -509,6 +573,7 @@ def record_agent_server_step_ms(
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+    record_startup_step_event(step, duration_ms, attributes)
 
 
 def record_agent_server_boot_phases_ms(
@@ -618,7 +683,18 @@ def record_agent_boot_milestone_ms(
         pass
 
 
-class StepTimer:
+class StepTimer(ContextDecorator):
+    def __call__(self, func: F) -> F:
+        if not inspect.iscoroutinefunction(func):
+            return super().__call__(func)
+
+        @wraps(func)
+        async def timed(*args: object, **kwargs: object) -> object:
+            with self._recreate_cm():
+                return await func(*args, **kwargs)
+
+        return cast(F, timed)
+
     def __init__(
         self,
         step: str,
@@ -628,6 +704,7 @@ class StepTimer:
         origin_product: str | None = None,
         runtime: str | None = None,
         sandbox_backend: str | None = None,
+        status_tag: str | None = None,
     ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
@@ -635,15 +712,32 @@ class StepTimer:
         self.origin_product = origin_product
         self.runtime = runtime
         self.sandbox_backend = sandbox_backend
+        self.status_tag = status_tag
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
         self._start_counter: float | None = None
+        self._started_at: dt.datetime | None = None
+        self._span: AbstractContextManager[Span] | None = None
+
+    def _recreate_cm(self) -> "StepTimer":
+        return StepTimer(
+            self.step,
+            used_snapshot=self.used_snapshot,
+            boot_path=self.boot_path,
+            origin_product=self.origin_product,
+            runtime=self.runtime,
+            sandbox_backend=self.sandbox_backend,
+            status_tag=self.status_tag,
+        )
 
     def set_used_snapshot(self, used_snapshot: bool) -> None:
         self.used_snapshot = used_snapshot
 
     def __enter__(self) -> "StepTimer":
+        self._span = tracer.start_as_current_span("tasks.step." + self.step)
+        self._span.__enter__()
+        self._started_at = dt.datetime.now(dt.UTC)
         self._start_counter = time.perf_counter()
         return self
 
@@ -653,21 +747,29 @@ class StepTimer:
 
         delta_ms = int((time.perf_counter() - self._start_counter) * 1000)
         self.elapsed_ms = delta_ms
+        if self._span is not None:
+            self._span.__exit__(exc_type, exc_value, traceback)
+            self._span = None
         delta = dt.timedelta(milliseconds=delta_ms)
 
+        context = posthoganalytics.get_tags()
+        used_snapshot = self.used_snapshot if self.used_snapshot is not None else context.get("used_snapshot")
         attributes: Attributes = {
             "step": self.step,
-            "used_snapshot": _bool_label(self.used_snapshot),
+            "used_snapshot": _bool_label(used_snapshot if isinstance(used_snapshot, bool) else None),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
-        if self.boot_path is not None:
-            attributes["boot_path"] = self.boot_path
-        if self.origin_product is not None:
-            attributes["origin_product"] = self.origin_product
-        if self.runtime is not None:
-            attributes["runtime"] = self.runtime
-        if self.sandbox_backend is not None:
-            attributes["sandbox_backend"] = self.sandbox_backend
+        if self.status_tag is not None and exc_value is None:
+            attributes["status"] = str(context.get(self.status_tag, "FAILED"))
+        for key, explicit in (
+            ("boot_path", self.boot_path),
+            ("origin_product", self.origin_product),
+            ("runtime", self.runtime),
+            ("sandbox_backend", self.sandbox_backend),
+        ):
+            value = explicit if explicit is not None else context.get(key)
+            if isinstance(value, str):
+                attributes[key] = value
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(
@@ -678,4 +780,5 @@ class StepTimer:
         except Exception:
             pass
 
+        record_startup_step_event(self.step, delta_ms, attributes, started_at=self._started_at)
         self._start_counter = None

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]):
+    codebase_detection = detect(
+        env=("^INVOICED_",),
+        pypi=("invoiced",),
+        composer=("invoiced/invoiced",),
+        go=("github.com/Invoiced/invoiced-go",),
+        maven=("com.invoiced:invoiced", "com.invoiced:invoiced-java"),
+        rubygems=("invoiced",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://developer.invoiced.com/api"
@@ -50,7 +60,7 @@ class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]
             name=ExternalDataSourceType.INVOICED,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Invoiced",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Invoiced API key to pull your accounts receivable and billing data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Developers → API Keys** in [Invoiced](https://www.invoiced.com). The key grants read access to your customers, invoices, payments, credit notes, credit balance adjustments, estimates, subscriptions, billing catalog, tax rates, collection tasks, and events.

@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -57,7 +58,7 @@ def _experiment_metric(uuid: str, name: str) -> dict[str, Any]:
     }
 
 
-class TestExperimentWidgetConfigs(APIBaseTest):
+class TestExperimentWidgetConfigs(SimpleTestCase):
     def test_experiments_list_config_defaults(self) -> None:
         validated = validate_widget_config(EXPERIMENTS_LIST_WIDGET_TYPE, {})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
@@ -474,21 +475,9 @@ class TestExperimentWidgetsViaRunWidgetsEndpoint(APIBaseTest):
             _InlineExecutor,
         )
         self.executor_patcher.start()
-        self.widgets_flag_patcher = patch(
-            "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widget_create_flag_patcher = patch(
-            "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widgets_flag_patcher.start()
-        self.widget_create_flag_patcher.start()
 
     def tearDown(self) -> None:
         self.executor_patcher.stop()
-        self.widget_create_flag_patcher.stop()
-        self.widgets_flag_patcher.stop()
         super().tearDown()
 
     def _run(self, dashboard_id: int, tile_ids: list[int]) -> dict[str, Any]:

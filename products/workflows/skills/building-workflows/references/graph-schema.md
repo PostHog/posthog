@@ -159,6 +159,45 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
 - Required: `distinctId`, `channels`, `title`. Optional: `body`, `image`, `data`, `ttlSeconds`, `android_*`, `ios_*` (retrieve the `inputs_schema` for the full set).
 - Never hand-author `bytecode` — the server compiles it from `value`. Omit `order` too: the editor lays fields out in the template's `inputs_schema` order (fixed and consistent), not by the `order` on your inputs, so leaving it off doesn't change the form. Push has no delivered/opened/clicked signal (FCM/APNs respond synchronously), so a successful send means "accepted for delivery", nothing more.
 
+### Replay Vision step
+
+Replay Vision is PostHog's AI that watches session recordings. It replays a session as video, together with its events, and answers a question about it. Each scan uses credits from the project's Replay Vision quota.
+
+A `function` node with `template_id: "template-posthog-replay-vision"` scans the trigger event's session and waits for the answer. Use it when the next step depends on what happened in the session, which event properties alone can't tell, for example to add session context to a Slack alert or to branch on whether the user struggled. The project must record sessions, and the trigger event must carry a `$session_id`.
+
+```json
+{
+  "id": "vision_1",
+  "name": "Did checkout fail?",
+  "type": "function",
+  "config": {
+    "template_id": "template-posthog-replay-vision",
+    "inputs": {
+      "analysis": { "value": { "type": "monitor", "prompt": "Did the user hit an error during checkout?" } }
+    }
+  },
+  "output_variable": { "key": "replay_vision" }
+}
+```
+
+- **`analysis` is a literal object, not a template.** Never set `"templating"` on it, and never put `{...}` expressions in it. Its `value` takes one of these shapes:
+
+  | `type`       | Required keys                                   | What the step answers                                     |
+  | ------------ | ----------------------------------------------- | --------------------------------------------------------- |
+  | `monitor`    | `prompt`                                        | A yes/no verdict on the question in `prompt`.             |
+  | `classifier` | `prompt`, `tags` (1 to 100 category strings)    | Which of the categories in `tags` fit the session.        |
+  | `scorer`     | `prompt`, `scale: {"min": <num>, "max": <num>}` | A score on the scale. `max` must be greater than `min`.   |
+  | `summarizer` | `prompt`                                        | A title, a summary, and chapters.                         |
+  | `scanner`    | `scanner_id` (a saved scanner's UUID)           | The saved scanner's answer, with its own type and prompt. |
+
+- The inline types take the same optional settings as a saved scanner of that type. See the `creating-replay-vision-scanners` skill. Find saved scanners with the `vision-scanners` tools. The step refuses an experiment scanner, because it samples the experiment's variants evenly, which one triggered session can't do.
+- `session_id` defaults to `{event.properties.$session_id}`. Leave it unset unless the session ID is in another property.
+- `wait_for_session_end` defaults to `true`, which scans the recording after the session has been quiet for 35 minutes. Set it to `false` only when the trigger event comes after the session ended.
+- The step result is `{"state", "output", "warnings"}`. `state` is `succeeded`, `failed`, `skipped`, `ineligible` or `lost`. `output` is the scanner's answer: `verdict`, `tags` or `score` with `reasoning` for a monitor, classifier or scorer, and `title`, `summary` and `chapters` for a summarizer. Every type also returns `confidence`. Use `output_variable` to keep the result, then branch on it. When `output` is null, `warnings` says why: used-up credits, a session too short or too long to scan, or a failed scan.
+- **Main environment only.** The server refuses the step in a child environment of a project.
+- **Daily caps.** Each workflow can start 100 scans a day, and the project 500, unless the project settings change `replay_vision_scan_rate_limit_per_day` and `replay_vision_scan_team_rate_limit_per_day`. Past a cap the step returns `state: "skipped"` and the workflow continues.
+- **Access.** The token needs `session_recording:read` (or `:write`) and `replay_scanner:write`, and the user needs access to recordings and to the saved scanner. Without them, the save fails with a message that names what is missing.
+
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
 Must match `^\d*\.?\d+[dhms]$` — a number plus unit `s` | `m` | `h` | `d`. Examples: `30s`, `30m`, `2h`, `1d`, `1.5d` (=36h).
@@ -216,3 +255,4 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
 - [ ] Every `delay` sets exactly one of `delay_duration` and `delay_until`, and no `delay_until` carries hand-written `bytecode`.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
+- [ ] A Replay Vision step's `analysis` value is a literal object of one of the five shapes, with no `templating`.

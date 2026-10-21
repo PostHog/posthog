@@ -307,6 +307,47 @@ def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -
     return None if table.name == companion_name != table_name else table
 
 
+def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
+    """A live table with the schema's table name that no schema owns.
+
+    Two schema names can resolve to one table name, so the table must have no owning schema.
+    """
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    return DataWarehouseTable.objects.filter(
+        team_id=schema.team_id,
+        name=build_table_name(source, names.table_storage_name),
+        external_data_source_id=source.id,
+        deleted=False,
+        externaldataschema__isnull=True,
+    ).first()
+
+
+def relink_orphan_table(
+    schema: ExternalDataSchema, source: ExternalDataSource, logger: FilteringBoundLogger
+) -> DataWarehouseTable | None:
+    """Link an unlinked schema to its orphan table before extraction. Returns the schema's table.
+
+    The extract side treats a schema with no table as a first sync, and the loader then rebuilds
+    the table from empty. An orphan holds the rows of earlier runs, so the run must merge into it.
+    """
+    # A cdc_only schema links to its `_cdc` companion, so a table with the consolidated name is not its own.
+    if schema.table_id is not None or (schema.is_cdc and schema.cdc_table_mode == "cdc_only"):
+        return schema.table
+
+    orphan = find_orphan_table(schema, source)
+    if orphan is None:
+        return None
+
+    schema.table = orphan
+    schema.save(update_fields=["table", "updated_at"])
+    logger.warning(
+        "Relinked an orphaned table to its schema before extraction",
+        table_id=str(orphan.id),
+        schema_id=str(schema.id),
+    )
+    return orphan
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
@@ -337,7 +378,7 @@ async def validate_schema_and_update_table(
             last registered (together with the projection inputs), the ClickHouse introspection and
             the column write are skipped; the pointer flip and the row count still happen.
         live_row_count: The row count of the published files, read from the Delta log. When given,
-            it replaces the count of those files that a table needs when `row_count` is not its size.
+            it is the table size. `row_count` is the fallback, and can be only the last attempt's rows.
         live_size_mib: The size of the published files, read from the Delta log. When given, it is
             recorded as the table's size and the change is added to the job's `storage_delta_mib`.
             When None, the recorded size stays as it is.
@@ -366,14 +407,17 @@ async def validate_schema_and_update_table(
         new_url_pattern = job.url_pattern_by_schema(names.folder_name)
 
         try:
-            logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
+            logger.info(
+                f"Run row count for {_schema_name} ({_schema_id}) is {row_count}, "
+                f"Delta log row count is {live_row_count}"
+            )
 
             table_params = {
                 "name": table_name,
                 "format": table_format,
                 "url_pattern": new_url_pattern,
                 "team_id": team_id,
-                "row_count": row_count,
+                "row_count": live_row_count if live_row_count is not None else row_count,
                 "queryable_folder": queryable_folder,
             }
 
@@ -387,15 +431,8 @@ async def validate_schema_and_update_table(
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for
-                # that orphan before the skip decides no table exists. Two schema names can resolve
-                # to one table name, so require that no schema owns the row.
-                table_created = DataWarehouseTable.objects.filter(
-                    team_id=team_id,
-                    name=table_name,
-                    external_data_source_id=job.pipeline.id,
-                    deleted=False,
-                    externaldataschema__isnull=True,
-                ).first()
+                # that orphan before the skip decides no table exists.
+                table_created = find_orphan_table(external_data_schema, job.pipeline)
                 if table_created is not None:
                     logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
 
@@ -413,11 +450,15 @@ async def validate_schema_and_update_table(
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                if live_row_count is not None:
+                    table.row_count = live_row_count
+                elif external_data_schema.table_row_count_is_cumulative or row_count == 0:
                     # A reported 0 can under-count a real write (see above), so read the true count
                     # from the just-published files rather than zero a table we are republishing.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
+                    # A count of the files on each full refresh costs more than this statistic is
+                    # worth, so a run that resumed stores only the rows of its last attempt here.
                     table.row_count = row_count
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
@@ -446,11 +487,6 @@ async def validate_schema_and_update_table(
                 )
                 _record_storage_delta(job, _storage_delta_mib(None, live_size_mib))
                 _record_query_folder_pointer(_schema_id, team_id, None, queryable_folder, run_id, logger)
-                if row_count == 0:
-                    # table_params holds 0 for a table an earlier attempt already filled. get_count()
-                    # can block long enough for the pooled connection to go stale, as above.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
-                    retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
                 table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None

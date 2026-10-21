@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 
 @pytest.mark.ee
@@ -111,6 +113,56 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._history(),
         ]
 
+    def test_history_filters_experiment_tags_before_pagination(self) -> None:
+        ResourceTags.set(self.experiment, ["quality", "production"])
+        for index, tags in enumerate((["quality"], []), start=1):
+            timestamp = self.experiment.started_at - timedelta(hours=index)
+            experiment = OfflineExperiment.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                name=f"Earlier run {index}",
+                started_at=timestamp,
+                created_at=timestamp,
+                finished_at=timestamp,
+                status="completed",
+                submission_fingerprint="a" * 64,
+            )
+            ResourceTags.set(experiment, tags)
+            item = OfflineExperimentItem.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                experiment=experiment,
+                submission_fingerprint="b" * 64,
+            )
+            OfflineEvaluationResult.objects.for_team(self.team.id).create(
+                team=self.team,
+                item=item,
+                scorer_definition=self.definition,
+                scorer_version=self.version,
+                status="ok",
+                boolean_value=True,
+                submission_fingerprint="c" * 64,
+            )
+        for tags, mode, expected_count in (
+            (["quality", "production"], "any", 2),
+            (["quality", "production"], "all", 1),
+            (["missing"], "any", 0),
+            ([], "all", 3),
+        ):
+            with self.subTest(tags=tags, mode=mode):
+                query: dict[str, str | int] = {"tags": json.dumps(tags), "tag_match": mode, "limit": 1}
+                response = self.client.get(self._history(), query)
+                assert response.status_code == 200, response.data
+                assert response.data["count"] == expected_count
+                if expected_count:
+                    assert response.data["results"][0]["experiment"]["tags"] == ["production", "quality"]
+                seen = [point["experiment"]["id"] for point in response.data["results"]]
+                while response.data["next_cursor"]:
+                    response = self.client.get(self._history(), {**query, "cursor": response.data["next_cursor"]})
+                    assert response.status_code == 200, response.data
+                    seen.extend(point["experiment"]["id"] for point in response.data["results"])
+                assert len(seen) == len(set(seen)) == expected_count
+
     def _authenticate(
         self, auth_kind: str, scopes: list[str], user: User | None = None, team: Team | None = None
     ) -> None:
@@ -172,6 +224,31 @@ class TestOfflineExperimentReads(APIBaseTest):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, expected_status, response.data)
+
+    @parameterized.expand(
+        [
+            ("editor_session", "session", [], "editor", status.HTTP_200_OK),
+            ("viewer_session", "session", [], "viewer", status.HTTP_403_FORBIDDEN),
+            ("editor_key", "personal_key", ["evaluation:write"], "editor", status.HTTP_200_OK),
+            ("reader_key", "personal_key", ["evaluation:read"], "editor", status.HTTP_403_FORBIDDEN),
+            (
+                "ingestion_key",
+                "personal_key",
+                ["offline_evaluation_ingestion:write"],
+                "editor",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_tag_updates_require_evaluation_editor_access(
+        self, _name: str, auth_kind: str, scopes: list[str], access: str, expected_status: int
+    ) -> None:
+        membership = self._member(evaluation_access=access)
+        self._authenticate(auth_kind, scopes, user=membership.user)
+        response = self.client.patch(self._endpoint(f"{self.experiment.id}/"), {"tags": ["quality"]}, format="json")
+        assert response.status_code == expected_status, response.data
+        assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
 
     def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
         self._authenticate("personal_key", ["evaluation:read"])
