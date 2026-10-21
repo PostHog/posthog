@@ -18,11 +18,18 @@ from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
+from products.alerts.backend.facade.destinations import choose_delivery_path
 from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_source_cycle import platform_upsert_of
+from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import HandbackRefusal, PlatformOwnershipHandover
+from products.alerts_platform.backend.facade.contracts import (
+    DeliveryPath,
+    HandbackRefusal,
+    PlatformOwnershipHandover,
+    SourceKind,
+)
+from products.alerts_platform.backend.facade.delivery import has_legacy_event_emitter
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
 # A firing never moves, so only these states are carried over.
@@ -57,6 +64,9 @@ class CutoverSkip(StrEnum):
     CHECK_DUE = "check_due"
     # A team on live delivery can have the platform copy inside a firing of its own.
     PLATFORM_FIRING = "platform_firing"
+    # Its destinations need the HogFunction path, and nothing emits the insight events that path
+    # sends, so the platform would deliver it natively and lose what its destinations add.
+    NO_HOG_FUNCTION_PATH = "no_hog_function_path"
 
 
 @frozen
@@ -93,6 +103,20 @@ def _is_threshold_alert(alert: AlertConfiguration) -> bool:
     return not alert.detector_config and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
+def delivers_as_it_does_today(alert: AlertConfiguration) -> bool:
+    """Whether the platform can deliver the alert the way its destinations expect: natively, or
+    through its HogFunctions when the insight events those listen on are emitted."""
+    if has_legacy_event_emitter(SourceKind.INSIGHT):
+        return True
+    path = choose_delivery_path(
+        source=SourceKind.INSIGHT,
+        team_id=alert.team_id,
+        alert_id=str(alert.id),
+        allowed_event_ids=DELIVERY_EVENT_IDS,
+    )
+    return path == DeliveryPath.NATIVE
+
+
 def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
         # `of` keeps the lock off the nullable threshold join, which PostgreSQL refuses to lock.
@@ -110,6 +134,8 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
             return CutoverSkip.NOT_ON_PLATFORM
         if alert.investigation_agent_enabled:
             return CutoverSkip.INVESTIGATION
+        if not delivers_as_it_does_today(alert):
+            return CutoverSkip.NO_HOG_FUNCTION_PATH
         if alert.state == AlertState.FIRING:
             return CutoverSkip.FIRING
         if _insight_check_owed(team_id, alert.id, at):
