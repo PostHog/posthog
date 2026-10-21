@@ -17672,6 +17672,11 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BetterstackIncidentSignalExtra {
+      url: string | null;
+      started_at: string | null;
+    }
+
     export interface BiasRisk {
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
@@ -24140,9 +24145,27 @@ export namespace Schemas {
     export interface CohortUsedInCohortsBlock {
       /** Cohorts that include this cohort as a criterion, capped at 100 results */
       results: CohortUsedInCohort[];
-      /** Total number of cohorts referencing this cohort, before truncation */
+      /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more cohorts exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInEnvironment {
+      /** Environment (team) database ID */
+      id: number;
+      /** Environment display name */
+      name: string;
+    }
+
+    export interface CohortUsedInEnvironmentsBlock {
+      /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+      results: CohortUsedInEnvironment[];
+      /** Total number of environments using this cohort in their test account filters, before truncation */
+      total: number;
+      /** True when more environments exist beyond the truncation cap */
       has_more: boolean;
     }
 
@@ -24156,13 +24179,17 @@ export namespace Schemas {
          * @nullable
          */
       name: string | null;
+      /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+      archived: boolean;
     }
 
     export interface CohortUsedInFlagsBlock {
       /** Feature flags referencing this cohort, capped at 100 results */
       results: CohortUsedInFlag[];
-      /** Total number of feature flags referencing this cohort, before truncation */
+      /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more feature flags exist beyond the truncation cap */
       has_more: boolean;
     }
@@ -24179,8 +24206,10 @@ export namespace Schemas {
     export interface CohortUsedInInsightsBlock {
       /** Insights referencing this cohort, capped at 100 results */
       results: CohortUsedInInsight[];
-      /** Total number of insights referencing this cohort, before truncation */
+      /** Total number of insights referencing this cohort that the caller can view, before truncation */
       total: number;
+      /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
       /** True when more insights exist beyond the truncation cap */
       has_more: boolean;
     }
@@ -24212,6 +24241,8 @@ export namespace Schemas {
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
+      /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+      test_account_filters: CohortUsedInEnvironmentsBlock;
       /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
       workflows: CohortUsedInWorkflowsBlock;
     }
@@ -41542,10 +41573,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
 
 
-    export const IncludeEnum = {
+    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -41587,7 +41618,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: IncludeEnum[];
+      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -53790,6 +53821,14 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantIncidentSignalExtra {
+      severity: string | null;
+      priority: string | null;
+      current_milestone: string | null;
+      incident_url: string | null;
+      created_at: string | null;
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -55002,6 +55041,12 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmIncidentSignalExtra {
+      status: string | null;
+      severity_label: string | null;
+      created_time: string | null;
     }
 
     /**
@@ -61026,6 +61071,67 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
+     * * `dynatrace` - Dynatrace
+     * * `statuspage` - Statuspage
+     * * `cronitor` - Cronitor
+     * * `instatus` - Instatus
+     * * `asana` - Asana
+     * * `monday` - monday.com
+     * * `plane` - Plane
+     * * `azure_devops` - Azure DevOps
+     * * `helpscout` - Help Scout
+     * * `decagon` - Decagon
+     * * `vitally` - Vitally
+     * * `usersnap` - Usersnap
+     * * `typeform` - Typeform
+     * * `qualtrics` - Qualtrics
+     * * `surveymonkey` - SurveyMonkey
+     * * `formbricks` - Formbricks
+     * * `survicate` - Survicate
+     * * `surveysparrow` - SurveySparrow
+     * * `lacework` - Lacework
+     * * `orca_security` - Orca Security
+     * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+     * * `google_play_console` - Google Play Console
+     * * `azure_application_insights` - Azure Application Insights
+     * * `appsignal` - AppSignal
+     * * `cursor` - Cursor
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -61082,6 +61188,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -61105,6 +61272,7 @@ export namespace Schemas {
      * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
      * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -61130,6 +61298,7 @@ export namespace Schemas {
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
+      Incident: 'incident',
     } as const;
 
     export interface InboxOnboardingSource {
@@ -61185,7 +61354,68 @@ export namespace Schemas {
        * * `intercom` - Intercom
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
-       * * `google_search_console` - Google Search Console */
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX
+       * * `dynatrace` - Dynatrace
+       * * `statuspage` - Statuspage
+       * * `cronitor` - Cronitor
+       * * `instatus` - Instatus
+       * * `asana` - Asana
+       * * `monday` - monday.com
+       * * `plane` - Plane
+       * * `azure_devops` - Azure DevOps
+       * * `helpscout` - Help Scout
+       * * `decagon` - Decagon
+       * * `vitally` - Vitally
+       * * `usersnap` - Usersnap
+       * * `typeform` - Typeform
+       * * `qualtrics` - Qualtrics
+       * * `surveymonkey` - SurveyMonkey
+       * * `formbricks` - Formbricks
+       * * `survicate` - Survicate
+       * * `surveysparrow` - SurveySparrow
+       * * `lacework` - Lacework
+       * * `orca_security` - Orca Security
+       * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+       * * `google_play_console` - Google Play Console
+       * * `azure_application_insights` - Azure Application Insights
+       * * `appsignal` - AppSignal
+       * * `cursor` - Cursor */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -61208,7 +61438,8 @@ export namespace Schemas {
        * * `ci_flaky_check` - CI flaky check
        * * `ci_broken_default_branch` - CI broken default branch
        * * `ci_duration_regression` - CI duration regression
-       * * `search_opportunity` - Search opportunity */
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
       source_type: SignalSourceConfigSourceTypeEnum;
       /** Whether this source should be enabled at activation. */
       enabled: boolean;
@@ -61416,6 +61647,14 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoIncidentSignalExtra {
+      severity_name: string | null;
+      status_name: string | null;
+      mode: string | null;
+      permalink: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -65340,6 +65579,211 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute
+     */
+    export type LogsContextAnchorTypeEnum = typeof LogsContextAnchorTypeEnum[keyof typeof LogsContextAnchorTypeEnum];
+
+
+    export const LogsContextAnchorTypeEnum = {
+      Trace: 'trace',
+      Log: 'log',
+      Attribute: 'attribute',
+    } as const;
+
+    /**
+     * * `spans` - Spans
+     */
+    export type LogsContextIncludeEnum = typeof LogsContextIncludeEnum[keyof typeof LogsContextIncludeEnum];
+
+
+    export const LogsContextIncludeEnum = {
+      Spans: 'spans',
+    } as const;
+
+    export interface _LogsContextAttributeAnchor {
+      /** Log attribute key, e.g. "workflow_run_id". */
+      key: string;
+      /** Exact attribute value to follow. */
+      value: string;
+    }
+
+    export interface _LogsContextAnchor {
+      /** uuid of one log line. Needs `timestamp`. */
+      logUuid?: string;
+      /** ISO 8601 timestamp of the `logUuid` log line. */
+      timestamp?: string;
+      /** Trace id, 32 hex characters or base64. */
+      traceId?: string;
+      /** Follow every log with this attribute value. */
+      attribute?: _LogsContextAttributeAnchor;
+      /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+      around?: string;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type LogsSeverityLevelEnum = typeof LogsSeverityLevelEnum[keyof typeof LogsSeverityLevelEnum];
+
+
+    export const LogsSeverityLevelEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsContextBody {
+      /** Exactly one anchor: a log line, a trace, or an attribute value. */
+      anchor: _LogsContextAnchor;
+      /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+      padding?: string;
+      /** Keep only these severities in the timeline. */
+      severityLevels?: LogsSeverityLevelEnum[];
+      /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+      serviceNames?: string[];
+      /** "spans" adds spans_summary for a trace anchor. */
+      include?: LogsContextIncludeEnum[];
+      /**
+         * Maximum timeline rows.
+         * @minimum 1
+         * @maximum 500
+         */
+      limit?: number;
+      /** `next_cursor` of a previous call with the same anchor. */
+      after?: string;
+    }
+
+    export interface LogsContextRequest {
+      /** The context query. */
+      query: _LogsContextBody;
+    }
+
+    export interface _LogsContextAnchorSummary {
+      /** The anchor kind.
+       *
+       * * `trace` - Trace
+       * * `log` - Log
+       * * `attribute` - Attribute */
+      type: LogsContextAnchorTypeEnum;
+      /**
+         * Trace id (hex) of the anchor, when there is one.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Reference time (UTC) that `t_offset_ms` counts from. */
+      timestamp: string;
+      /**
+         * Trace start or first matching log (UTC).
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * Trace end or last matching log (UTC).
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * end - start in milliseconds.
+         * @nullable
+         */
+      duration_ms: number | null;
+      /** Services of the anchor. */
+      services: string[];
+    }
+
+    export interface _LogsContextCorrelationKey {
+      /** Id-like attribute of the anchor log. */
+      key: string;
+      /** Its value on the anchor log. */
+      value: string;
+      /** Logs in the window, any service, with this value. */
+      log_count: number;
+    }
+
+    export interface _LogsContextTimelineRow {
+      /** Milliseconds from the anchor reference time. */
+      t_offset_ms: number;
+      /** Log timestamp (UTC). */
+      timestamp: string;
+      /** Service that emitted the line. */
+      service: string;
+      /** Severity of the line. */
+      severity: string;
+      /** Log body, cut to 300 characters. */
+      body: string;
+      /** k=v attributes that differ from the anchor log, without noise keys. */
+      attrs: string;
+      /** Log uuid, usable with `timestamp` as a log anchor. */
+      uuid: string;
+    }
+
+    export interface _LogsContextSpan {
+      /** Span id (hex). */
+      span_id: string;
+      /** Span name. */
+      name: string;
+      /** Service of the span. */
+      service: string;
+      /** Milliseconds from the trace start. */
+      start_offset_ms: number;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans. */
+      self_time_ms: number;
+      /** "error" or "ok". */
+      status: string;
+    }
+
+    export interface _LogsContextSpansSummary {
+      /** Spans read. */
+      span_count: number;
+      /** True when the trace has more spans than were read. */
+      truncated: boolean;
+      /** Services with spans in the trace. */
+      services: string[];
+      /** The root span, null when it never arrived. */
+      root: _LogsContextSpan | null;
+      /** Up to 10 spans with an error status. */
+      error_spans: _LogsContextSpan[];
+      /** The 5 longest spans. */
+      slowest: _LogsContextSpan[];
+    }
+
+    export interface LogsContextResponse {
+      /** Absolute UTC bounds the logs were read from. */
+      window: LogsAgentWindow;
+      /** The resolved anchor. */
+      anchor: _LogsContextAnchorSummary;
+      /** Id-like attributes of the anchor log, with counts. */
+      correlation_keys: _LogsContextCorrelationKey[];
+      /** Log lines, earliest first. */
+      timeline: _LogsContextTimelineRow[];
+      /** Set for a trace anchor with include ["spans"]. */
+      spans_summary: _LogsContextSpansSummary | null;
+      /** True when more rows exist past `limit`. */
+      truncated: boolean;
+      /**
+         * Pass as `after` for the next page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Prefilled follow-up calls. */
+      next: LogsAgentNextCall[];
+      /** Caveats about the window. */
+      notes: string[];
+    }
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -65622,26 +66066,6 @@ export namespace Schemas {
       dateRange?: _LogsNaturalLanguageDateRange;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface _LogsNaturalLanguageCandidateFilter {
       /** Attribute key, or "message" for the log body text. */
       key: string;
@@ -65661,7 +66085,7 @@ export namespace Schemas {
       /** Date range of this reading. */
       dateRange: _LogsNaturalLanguageDateRange;
       /** Severity levels to keep. Empty means all levels. */
-      severityLevels: SeverityLevelsEnum[];
+      severityLevels: LogsSeverityLevelEnum[];
       /** Services to keep. Empty means all services. */
       serviceNames: string[];
       /** Attribute and message filters, combined with AND. */
@@ -71392,6 +71816,14 @@ export namespace Schemas {
       iteration_budget?: number;
     }
 
+    export interface OpsgenieAlertSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `latest` - latest
      * * `earliest` - earliest
@@ -72271,6 +72703,13 @@ export namespace Schemas {
       kind: PRTimelineSegmentKindEnum;
       /** Average seconds per merged pull request attributed to this cause. */
       seconds_per_merged_pr: number;
+    }
+
+    export interface PagerdutyIncidentSignalExtra {
+      status: string | null;
+      urgency: string | null;
+      html_url: string | null;
+      created_at: string | null;
     }
 
     export interface PaginatedAEOPromptList {
@@ -93260,6 +93699,36 @@ export namespace Schemas {
       results: ProjectUsageItem[];
     }
 
+    /**
+     * The person's properties as that event recorded them.
+     */
+    export type PropertiesTimelinePointProperties = { [key: string]: unknown };
+
+    export interface PropertiesTimelinePoint {
+      /** The time of the first event in the window that has this combination of key property values. */
+      timestamp: string;
+      /** The person's properties as that event recorded them. */
+      properties: PropertiesTimelinePointProperties;
+      /** The number of the person's events in the window from this point until the next point. */
+      relevant_event_count: number;
+    }
+
+    export interface PropertiesTimelineRequest {
+      /** The actors query of the insight data point, as the persons modal sends it. The timeline reads the person's events in the data point's time window, and tracks the person properties that the series, the insight's filters and its breakdown use. The source must be a Trends query, and the selected series must be an events or actions series. */
+      query: InsightActorsQuery;
+    }
+
+    export interface PropertiesTimelineResponse {
+      /** One point for each change of the key property values, oldest first. */
+      points: PropertiesTimelinePoint[];
+      /** The key person properties: those the insight's query uses. Empty when it uses none. */
+      crucial_property_keys: string[];
+      /** The start of the window, in the project's time zone. */
+      effective_date_from: string;
+      /** The end of the window, in the project's time zone. */
+      effective_date_to: string;
+    }
+
     export interface Property {
       /**
        *  You can use a simplified version:
@@ -98230,6 +98699,67 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
+     * * `dynatrace` - dynatrace
+     * * `statuspage` - statuspage
+     * * `cronitor` - cronitor
+     * * `instatus` - instatus
+     * * `asana` - asana
+     * * `monday` - monday
+     * * `plane` - plane
+     * * `azure_devops` - azure_devops
+     * * `helpscout` - helpscout
+     * * `decagon` - decagon
+     * * `vitally` - vitally
+     * * `usersnap` - usersnap
+     * * `typeform` - typeform
+     * * `qualtrics` - qualtrics
+     * * `surveymonkey` - surveymonkey
+     * * `formbricks` - formbricks
+     * * `survicate` - survicate
+     * * `surveysparrow` - surveysparrow
+     * * `lacework` - lacework
+     * * `orca_security` - orca_security
+     * * `tenable_vulnerability_management` - tenable_vulnerability_management
+     * * `google_play_console` - google_play_console
+     * * `azure_application_insights` - azure_application_insights
+     * * `appsignal` - appsignal
+     * * `cursor` - cursor
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -98286,6 +98816,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -98312,6 +98903,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -98340,6 +98932,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      Incident: 'incident',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -98463,7 +99056,39 @@ export namespace Schemas {
       created_date: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
+    export interface SquadcastIncidentSignalExtra {
+      status: string | null;
+      priority: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ServicenowIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      urgency: string | null;
+      impact: string | null;
+      category: string | null;
+      sys_created_on: string | null;
+    }
+
+    export interface SolarwindsServiceDeskIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface XmattersIncidentSignalExtra {
+      incident_identifier: string | null;
+      severity: string | null;
+      status: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -98531,7 +99156,68 @@ export namespace Schemas {
        * * `intercom` - intercom
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
-       * * `google_search_console` - google_search_console */
+       * * `google_search_console` - google_search_console
+       * * `pagerduty` - pagerduty
+       * * `opsgenie` - opsgenie
+       * * `incident_io` - incident_io
+       * * `firehydrant` - firehydrant
+       * * `squadcast` - squadcast
+       * * `servicenow` - servicenow
+       * * `solarwinds_service_desk` - solarwinds_service_desk
+       * * `grafana_irm` - grafana_irm
+       * * `xmatters` - xmatters
+       * * `betterstack` - betterstack
+       * * `newrelic` - newrelic
+       * * `trigger_dev` - trigger_dev
+       * * `checkly` - checkly
+       * * `roark` - roark
+       * * `monte_carlo` - monte_carlo
+       * * `bigeye` - bigeye
+       * * `aws_security_hub` - aws_security_hub
+       * * `aws_guardduty` - aws_guardduty
+       * * `aws_inspector` - aws_inspector
+       * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+       * * `clickup` - clickup
+       * * `wrike` - wrike
+       * * `trello` - trello
+       * * `bugherd` - bugherd
+       * * `dynamics365` - dynamics365
+       * * `zoho_crm` - zoho_crm
+       * * `planhat` - planhat
+       * * `trustpilot` - trustpilot
+       * * `okendo` - okendo
+       * * `sleekplan` - sleekplan
+       * * `bettermode` - bettermode
+       * * `discourse` - discourse
+       * * `mintlify` - mintlify
+       * * `langsmith` - langsmith
+       * * `sprig` - sprig
+       * * `gainsight_px` - gainsight_px
+       * * `dynatrace` - dynatrace
+       * * `statuspage` - statuspage
+       * * `cronitor` - cronitor
+       * * `instatus` - instatus
+       * * `asana` - asana
+       * * `monday` - monday
+       * * `plane` - plane
+       * * `azure_devops` - azure_devops
+       * * `helpscout` - helpscout
+       * * `decagon` - decagon
+       * * `vitally` - vitally
+       * * `usersnap` - usersnap
+       * * `typeform` - typeform
+       * * `qualtrics` - qualtrics
+       * * `surveymonkey` - surveymonkey
+       * * `formbricks` - formbricks
+       * * `survicate` - survicate
+       * * `surveysparrow` - surveysparrow
+       * * `lacework` - lacework
+       * * `orca_security` - orca_security
+       * * `tenable_vulnerability_management` - tenable_vulnerability_management
+       * * `google_play_console` - google_play_console
+       * * `azure_application_insights` - azure_application_insights
+       * * `appsignal` - appsignal
+       * * `cursor` - cursor */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -98557,7 +99243,8 @@ export namespace Schemas {
        * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
-       * * `check_failed` - check_failed */
+       * * `check_failed` - check_failed
+       * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -118843,7 +119530,7 @@ export namespace Schemas {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -118871,7 +119558,7 @@ export namespace Schemas {
          */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. Applied before bucketing. */
       serviceNames?: string[];
       /** Full-text search across log bodies. Applied before bucketing. */
@@ -118921,7 +119608,7 @@ export namespace Schemas {
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names (ignored when faceting on service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -118961,7 +119648,7 @@ export namespace Schemas {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before grouping. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict grouping to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before grouping. */
@@ -119105,7 +119792,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -119122,7 +119809,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -119288,7 +119975,7 @@ export namespace Schemas {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Order results by timestamp.
@@ -119413,7 +120100,7 @@ export namespace Schemas {
       /** Date range for the services aggregation. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict the aggregation to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -119513,7 +120200,7 @@ export namespace Schemas {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -132208,6 +132895,18 @@ export namespace Schemas {
 
 
     export const PersonsPropertiesTimelineRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsPropertiesTimelineCreateParams = {
+    format?: PersonsPropertiesTimelineCreateFormat;
+    };
+
+    export type PersonsPropertiesTimelineCreateFormat = typeof PersonsPropertiesTimelineCreateFormat[keyof typeof PersonsPropertiesTimelineCreateFormat];
+
+
+    export const PersonsPropertiesTimelineCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
