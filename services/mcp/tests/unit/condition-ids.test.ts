@@ -148,7 +148,7 @@ describe('condition ids', () => {
 
     it.each([
         { name: 'key', change: { key: 'tier' } },
-        { name: 'type', change: { type: 'person', group_type_index: undefined } },
+        { name: 'type', change: { type: 'person' } },
         { name: 'group_type_index', change: { group_type_index: 1 } },
         { name: 'value', change: { value: 'enterprise' } },
         { name: 'operator', change: { operator: 'icontains' } },
@@ -312,6 +312,26 @@ describe('condition ids', () => {
             expected: [
                 [null, ['person', undefined], ['person', undefined], [undefined, undefined]],
                 [null, ['group', 1]],
+            ],
+        },
+        {
+            name: 'a kept group set gains a key that a stored person set holds as a person property',
+            stored: [
+                { ...planOn(0, 'enterprise'), aggregation_group_type_index: 0 },
+                { ...personPlan('free'), aggregation_group_type_index: null },
+            ],
+            sent: (stored) => [
+                echoWithId(stored[0]!, {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'enterprise' },
+                        { key: 'country', operator: 'exact', value: 'US' },
+                    ],
+                }),
+                echoWithId(stored[1]!),
+            ],
+            expected: [
+                [0, ['group', 0], ['person', undefined]],
+                [null, ['person', undefined], ['person', undefined]],
             ],
         },
         {

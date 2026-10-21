@@ -7,10 +7,10 @@
  *
  * The read tools add a `condition_id` to each condition set (see conditionIds.ts). When the payload
  * carries any condition_id, each set takes the stored set with the same ID as its source, at any
- * position. A set without an ID is then new. The merge refuses an ID that matches no stored set. The
- * flag usually changed after the agent read it. A property whose key its source does not
- * hold is typed as in a set without a source. The rules below that pair sets by position and by
- * content apply only to a payload without IDs.
+ * position. A set without an ID is then new. The merge refuses an ID that matches no stored set.
+ * Such an ID usually means that the flag changed after the agent read it. A property whose key its
+ * source does not hold is typed as in a set without a source. The rules below that pair sets by
+ * position and by content apply only to a payload without IDs.
  *
  * An incoming condition set takes the stored set at its own index as its source when every stored
  * set keeps its property keys at its index. New sets may only follow the stored ones. On a flag
