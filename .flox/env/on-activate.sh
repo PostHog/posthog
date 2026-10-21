@@ -353,63 +353,6 @@ _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
 _BG_PHROCS_PID=$!
 _BG_PHROCS_START=$(date +%s)
 
-# CodeRabbit CLI, downloaded from the vendor's release server. The flox catalog
-# build omits x86_64-darwin, and the vendor install script edits the user's shell
-# profile, so neither is used. One store per machine and version serves every
-# checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
-# A failed install must not break activation: the CLI is only needed at PR-open
-# time, and the reviewing-with-coderabbit skill opens the PR without it.
-_CODERABBIT_VERSION="0.8.0"
-_CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
-_CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
-
-# Release asset suffix for this host, empty when the host cannot install it.
-# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS.
-_CODERABBIT_PLATFORM=""
-_CODERABBIT_SHA256=""
-if command -v unzip >/dev/null 2>&1; then
-  case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64)
-      _CODERABBIT_PLATFORM="darwin-arm64"
-      _CODERABBIT_SHA256="748271195b85cc245613f2affabacd4189c721f3839fb14d3efceccffdb382f5" ;;
-    Darwin-x86_64)
-      _CODERABBIT_PLATFORM="darwin-x64"
-      _CODERABBIT_SHA256="ccebc6335fd7fe0bbe2ad595aa57f684890551ff03114c8cc2403952d9c7ac52" ;;
-    Linux-aarch64 | Linux-arm64)
-      _CODERABBIT_PLATFORM="linux-arm64"
-      _CODERABBIT_SHA256="570fd0569239371de6b7cb1004c760052c507d1fbb3189b692988d7f3804ee6d" ;;
-    Linux-x86_64 | Linux-amd64)
-      _CODERABBIT_PLATFORM="linux-x64"
-      _CODERABBIT_SHA256="e60aa408266c3e2350aae890b239ab8d1c12b3f607f4475e1c2ddd4529af1d71" ;;
-  esac
-fi
-
-_install_coderabbit() {
-  mkdir -p "$_CODERABBIT_STORE"
-  # A temp dir inside the store keeps the final mv an atomic rename, so a
-  # concurrent or interrupted install never leaves a partial binary behind.
-  tmp=$(mktemp -d "$_CODERABBIT_STORE/.tmp.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
-  # The release path carries no leading "v", unlike the vendor script's example.
-  curl -fsSL --connect-timeout 10 --max-time 300 \
-    "https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$_CODERABBIT_PLATFORM.zip" \
-    -o "$tmp/coderabbit.zip"
-  [[ "$(_sha256_file "$tmp/coderabbit.zip")" == "$_CODERABBIT_SHA256" ]]
-  unzip -qo "$tmp/coderabbit.zip" -d "$tmp"
-  chmod +x "$tmp/coderabbit"
-  mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN"
-}
-
-_CODERABBIT_SKIP=0
-[[ -x "$_CODERABBIT_BIN" ]] && _CODERABBIT_SKIP=1
-if [[ "$_CODERABBIT_SKIP" -eq 0 && -n "$_CODERABBIT_PLATFORM" ]]; then
-  _BG_CODERABBIT_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_CODERABBIT_LOG")
-  ( _install_coderabbit ) >"$_BG_CODERABBIT_LOG" 2>&1 &
-  _BG_CODERABBIT_PID=$!
-  _BG_CODERABBIT_START=$(date +%s)
-fi
-
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
@@ -456,20 +399,6 @@ if [[ "$_PNPM_SKIP" -eq 1 ]]; then
   done_step "Node packages (cached)"
 else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
-fi
-
-# ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──
-if [[ "$_CODERABBIT_SKIP" -eq 1 ]]; then
-  done_step "CodeRabbit CLI (cached)"
-elif [[ -z "$_CODERABBIT_PLATFORM" ]]; then
-  warn_step "CodeRabbit CLI skipped  ${C_DIM}(no release for this host, or unzip is missing)${C_RESET}"
-else
-  wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
-    || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
-fi
-if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
-  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
