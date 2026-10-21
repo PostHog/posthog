@@ -71,6 +71,38 @@ class TestChunkScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         with pytest.raises(team_scan.ScanError, match="pass resume"):
             team_scan.run_chunk(scan_dir, 0, resume=False)
 
+    def test_a_deleted_team_reports_its_clickhouse_leftovers_without_repairs(self):
+        keys = self._build_team()
+        scan_dir = self.scan_root / "scan"
+        with patch.object(team_scan.Team.objects, "filter") as team_filter:
+            team_filter.return_value.exists.return_value = False
+            team_scan.create_plan(scan_dir, self.team.pk)
+
+        team_scan.run_chunk(scan_dir, 0, resume=False)
+
+        rows = _chunk_rows(scan_dir, 1)
+        # Five persons and three mappings, all ClickHouse-only once Postgres is not read.
+        assert len(rows) == 8
+        assert {keys["stale"], keys["deleted"], keys["ghost"], "moved", "lost", "fine-1"} <= rows.keys()
+        assert set(rows.values()) == {("ghost", "team_gone", None)}
+
+    def test_a_second_run_of_a_running_chunk_is_refused(self):
+        self._build_team()
+        scan_dir = self.scan_root / "scan"
+        team_scan.create_plan(scan_dir, self.team.pk, ch_page_rows=2)
+        refusals: list[str] = []
+
+        def start_a_second_run(message: str) -> None:
+            if "page" in message and not refusals:
+                with pytest.raises(team_scan.ScanError, match="in use by another run") as refused:
+                    team_scan.run_chunk(scan_dir, 0, resume=True)
+                refusals.append(str(refused.value))
+
+        cursor = team_scan.run_chunk(scan_dir, 0, resume=False, log=start_a_second_run)
+
+        assert len(refusals) == 1 and cursor.phase == team_scan.DONE
+        assert team_scan.run_chunk(scan_dir, 0, resume=True).phase == team_scan.DONE
+
     def test_chunked_paged_and_interrupted_scan_gives_the_same_rows_as_one_run(self):
         self._build_team()
         whole = self.scan_root / "whole"

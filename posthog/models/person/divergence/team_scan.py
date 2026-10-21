@@ -12,6 +12,7 @@ import os
 import json
 import stat
 import time
+import fcntl
 import hashlib
 import dataclasses
 from collections import Counter
@@ -291,6 +292,18 @@ class _RunWriter:
         self.files = files
         self.cursor = cursor
         self._handles: dict[str, Any] = {}
+        # A second run would truncate the files under this one. The cursor file is replaced on every page, so the
+        # lock needs its own file; the OS releases it when the process dies.
+        self._lock = files.cursor.with_suffix(".lock").open("w")
+        try:
+            fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self._lock.close()
+            raise ScanError(f"{files.cursor.name} is in use by another run") from None
+        on_disk = load_cursor(files.cursor)
+        if on_disk is not None and on_disk != cursor:
+            self._lock.close()
+            raise ScanError(f"{files.cursor.name} changed while this run started; run it again")
         for name, path, offset in (
             ("rows", files.rows, cursor.rows_bytes),
             ("person_keys", files.person_keys, cursor.person_keys_bytes),
@@ -341,6 +354,7 @@ class _RunWriter:
     def close(self) -> None:
         for handle in self._handles.values():
             handle.close()
+        self._lock.close()
 
 
 def _state(state: Any) -> dict[str, Any] | None:
@@ -433,20 +447,21 @@ def _classify_mappings_page(plan: ScanPlan, after: str, last: str, first: bool) 
     distinct_ids = list(ch)
     pg = observe.pg_mapping_rows(plan.team_id, distinct_ids) if plan.team_exists and distinct_ids else {}
     # Only ghost and diverged mappings need their ClickHouse owner's Postgres state.
-    owners = sorted(
-        {
-            state.winner_person_uuid
-            for distinct_id, state in ch.items()
-            if pg.get(distinct_id) is None or pg[distinct_id].person_uuid != state.winner_person_uuid
-        }
-    )
+    needs_owner = {
+        distinct_id
+        for distinct_id, state in ch.items()
+        if pg.get(distinct_id) is None or pg[distinct_id].person_uuid != state.winner_person_uuid
+    }
+    owners = sorted({ch[distinct_id].winner_person_uuid for distinct_id in needs_owner})
     owner_states = observe.pg_person_states(plan.team_id, owners) if plan.team_exists and owners else {}
     rows: list[dict[str, Any]] = []
     counts: Counter[str] = Counter()
     for distinct_id, ch_state in ch.items():
         pg_row = pg.get(distinct_id)
-        owner_state = observe.person_pg_state(owner_states, ch_state.winner_person_uuid)
-        verdict = classify_mapping(pg_row, ch_state, ch_owner_pg_state=owner_state)
+        owner_state = (
+            observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if distinct_id in needs_owner else None
+        )
+        verdict = classify_mapping(pg_row, ch_state, ch_owner_pg_state=owner_state, team_exists=plan.team_exists)
         counts[_count_key("mapping", verdict)] += 1
         if _reported(verdict):
             rows.append(
