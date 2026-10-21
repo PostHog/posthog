@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -126,7 +126,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         attachment_url = mock_create_issue.call_args.args[0]
         assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/fingerprint/fp%2Fwith%23chars")
         assert reference.external_id == "LIN-1"
         assert reference.title == "Checkout TypeError"
 
@@ -155,7 +155,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/{issue.id}")
 
     @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
     @patch("products.error_tracking.backend.logic.external_references.JiraIntegration.create_issue")
@@ -205,7 +205,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_create_issue.assert_not_called()
         linked_issue_id, attachment_url = mock_create_attachment.call_args.args
         assert linked_issue_id == "ENG-42"
-        assert f"/project/{self.team.id}/error_tracking/" in attachment_url
+        assert f"/project/{self.team.id}/error-tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
         assert reference.external_id == "ENG-42"
         assert reference.title == "Checkout TypeError"
@@ -570,14 +570,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
             expected_user_id = self.user.id
         else:
-            role = Role.objects.create(name=f"Role for {assignment_kind}", organization=self.organization)
+            role_id = create_role(organization_id=self.organization.id, name=f"Role for {assignment_kind}")
             if assignment_kind == "role_assignment_with_member":
-                role.members.add(self.user)
+                add_role_member(role_id=role_id, user_id=self.user.id)
                 expected_role_member_user_ids = [self.user.id]
 
-            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role=role)
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=role_id)
             expected_user_id = None
-            expected_role_id = role.id
+            expected_role_id = role_id
 
         result = api.get_issue_assignment_for_notification(assignment_id=assignment.id)
 

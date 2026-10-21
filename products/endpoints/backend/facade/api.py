@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from products.endpoints.backend import rate_limit
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 from . import contracts
@@ -154,6 +155,16 @@ def is_materialized_request(team_id: int, endpoint_name: str, version: int | Non
     return rate_limit.check_materialized_request(team_id, endpoint_name, version, request_data)
 
 
+def record_throttled_request(
+    team_id: int | None, endpoint_name: str | None, version: int | None, *, materialized: bool, scope: str
+) -> None:
+    """Record a run request refused by a request-rate throttle."""
+    reason = EndpointRateLimitReason.MATERIALIZED_RATE if materialized else EndpointRateLimitReason.INLINE_RATE
+    record_endpoint_rate_limited(
+        team_id=team_id, endpoint_name=endpoint_name, version=version, reason=reason, scope=scope
+    )
+
+
 __all__ = [
     "REWRITE_CONTRACT",
     "EndpointCrudService",
@@ -168,6 +179,7 @@ __all__ = [
     "is_materialization_ready",
     "is_materialized_request",
     "list_endpoints",
+    "record_throttled_request",
     "live_materialization_conditions_source",
     "materialization_fix_enabled",
     "suggest_materialization_fix",

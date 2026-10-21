@@ -2,7 +2,7 @@
 
 A notebook editor that uses markdown as its storage format. The document model is parsed from and serialized back to markdown on every edit, so the markdown string is always the source of truth.
 
-See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags) and [TODO.md](./TODO.md) for open work.
+See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags).
 
 ## Module layout
 
@@ -81,7 +81,9 @@ The shell only handles keys that happened inside its own DOM. A block that rende
 
 ## Jupyter mode
 
-The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene passes it behind the `notebook-jupyter-mode` flag, and each user can turn it off from the notebook's View menu.
+The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene enables it when notebook kernels are available through `revamped-py-notebooks`, and each user can turn it off from the notebook's View menu.
+
+`Shift+Enter` inside markdown text inserts a line break within the text cell. `Escape` selects the markdown cell in command mode, where `Shift+Enter` advances to the next cell and inserts a code cell if there is none. Python and SQL editors keep `Shift+Enter` as run and advance.
 
 - The notebook is a list of cells (`getNotebookJupyterCells` in `jupyterCells.ts`). Each component tag in `cellTagNames` is a code cell with an `In [n]:` prompt. A run of text blocks that share a card is one markdown cell, the way a Jupyter markdown cell holds several paragraphs. Every other block (an insight, a divider) is a cell of its own and reads as rich output. A cell is named by its first node's id.
 - A selected cell is in command mode, and a cell whose source holds the caret is in edit mode. A code cell's shell takes focus in command mode. Text never takes focus itself, because the canvas is the editing host, so a markdown cell in command mode puts focus on an invisible sink (`MarkdownNotebook__jupyter-command-sink`). Without it, letter keys would type into the text.

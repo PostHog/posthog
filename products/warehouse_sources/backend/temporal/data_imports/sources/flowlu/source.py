@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 @SourceRegistry.register
 class FlowluSource(ResumableSource[FlowluSourceConfig, FlowluResumeConfig]):
+    codebase_detection = detect(env=("^FLOWLU_",))
+
     api_docs_url = "https://www.flowlu.com/api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -58,7 +61,7 @@ class FlowluSource(ResumableSource[FlowluSourceConfig, FlowluResumeConfig]):
             name=ExternalDataSourceType.FLOWLU,
             category=DataWarehouseSourceCategory.CRM,
             label="Flowlu",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Flowlu API key and account subdomain to pull your CRM, project, task, and finance data into the PostHog Data warehouse.
 
 You can create an API key under **Portal Settings → API Settings** in Flowlu. Your subdomain is the first part of your portal URL — for `acme.flowlu.com` the subdomain is `acme`.""",

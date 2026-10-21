@@ -32,6 +32,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.models import Team
 
@@ -425,7 +426,29 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn('(members.membership).tier AS "membership.tier"', sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
-    def test_generate_sql_for_direct_postgres_connection_metadata_function(self):
+    @parameterized.expand(
+        [
+            (
+                "visible_function",
+                {"available_functions": ["date_bin"]},
+                "date_bin(toIntervalHour(1), now(), now())",
+                "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+            ),
+            (
+                "pgcrypto",
+                {"pgcrypto_schema": "crypto"},
+                "sha1('abc')",
+                "encode(crypto.digest(convert_to(%(hogql_val_0)s, 'UTF8'), 'sha1'), 'hex')",
+            ),
+            (
+                "visible_sha1_overload",
+                {"available_functions": ["sha1"]},
+                "sha1('abc', 'hex')",
+                "sha1(%(hogql_val_0)s, %(hogql_val_1)s)",
+            ),
+        ]
+    )
+    def test_generate_sql_for_direct_postgres_connection_metadata_function(self, _name, metadata, expression, expected):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -442,7 +465,7 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "password": "postgres",
                 "schema": "ph3",
             },
-            connection_metadata={"available_functions": ["date_bin"]},
+            connection_metadata=metadata,
         )
 
         DataWarehouseTable.objects.create(
@@ -455,14 +478,14 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         executor = HogQLQueryExecutor(
-            query="SELECT date_bin(toIntervalHour(1), now(), now()) FROM without_team_id",
+            query=f"SELECT {expression} FROM without_team_id",
             team=self.team,
             connection_id=str(source.id),
         )
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())", sql)
+        self.assertIn(expected, sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_custom_connection_metadata_function(self):
@@ -1095,10 +1118,14 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+        with (
+            patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution,
+            query_stats_scope() as stats,
+        ):
             response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
+        self.assertEqual(stats.direct_source_ids, {str(source.id)})
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)

@@ -33,14 +33,17 @@ from products.tasks.backend.logic.services.process_killed import (
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamGenerationMismatch,
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
 from products.tasks.backend.metrics import observe_sandbox_process_killed, observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
@@ -144,16 +147,18 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         return True
 
     try:
-        claims = await _authorize_event_ingest_request(scope, route)
+        claims, use_dedicated = await _authorize_event_ingest_request(scope, route)
     except EventIngestHTTPError as error:
         await _send_json(send, error.status_code, error.payload)
         return True
 
     redis_stream = TaskRunRedisStream(
         get_task_run_stream_key(claims.run_id),
+        use_dedicated=use_dedicated,
         presence_gated=claims.presence_gated,
         thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
+        expected_generation=claims.stream_generation or TASK_RUN_STREAM_INITIAL_GENERATION,
     )
 
     try:
@@ -173,6 +178,9 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         return True
     except EventIngestCaptureError:
         await _send_json(send, 503, {"error": "Failed to capture RTK savings; retry the request"})
+        return True
+    except TaskRunStreamGenerationMismatch as error:
+        await _send_json(send, 403, {"error": str(error), "code": "stream_generation_mismatch"})
         return True
     except TaskRunStreamSequenceGap as error:
         await _send_json(send, 409, {"error": str(error), "last_accepted_seq": error.last_accepted_seq})
@@ -608,7 +616,7 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         return
 
     activity_started = False
-    if _is_session_update(event) or is_agent_generation_event(event):
+    if is_agent_generation_event(event):
         activity_started = not await redis_stream.set_agent_active(True)
         agent_active = True
     else:
@@ -684,7 +692,7 @@ def _dispatch_turn_failed_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
-    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error")
 
 
 def _is_session_update(event: dict) -> bool:
@@ -694,18 +702,18 @@ def _is_session_update(event: dict) -> bool:
     return isinstance(notification, dict) and notification.get("method") == "session/update"
 
 
-def _task_run_exists_sync(run_id: str, task_id: str, team_id: int) -> bool:
+def _task_run_state_sync(run_id: str, task_id: str, team_id: int) -> dict | None:
     if not settings.TEST:
         close_old_connections()
-    return TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists()
+    return TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).values_list("state", flat=True).first()
 
 
-async def _task_run_exists(run_id: str, task_id: str, team_id: int) -> bool:
+async def _task_run_state(run_id: str, task_id: str, team_id: int) -> dict | None:
     """Existence check on a sync_to_async thread whose pooled connection Django never
     health-checks. `close_old_connections()` clears a stale connection before the read; a
     single retry recovers a transparent reconnect since this is a side-effect-free read.
     An uncaught OperationalError here would otherwise crash the whole ingest request."""
-    run_check = sync_to_async(_task_run_exists_sync, thread_sensitive=True)
+    run_check = sync_to_async(_task_run_state_sync, thread_sensitive=True)
     try:
         return await run_check(run_id, task_id, team_id)
     except (OperationalError, InterfaceError):
@@ -738,7 +746,7 @@ def _match_event_ingest_route(path: str) -> EventIngestRoute | None:
 
 async def _authorize_event_ingest_request(
     scope: ASGIMessage, route: EventIngestRoute
-) -> SandboxEventIngestTokenPayload:
+) -> tuple[SandboxEventIngestTokenPayload, bool]:
     token = _get_bearer_token(scope)
     if token is None:
         raise EventIngestHTTPError(401, {"error": "Missing authorization bearer token"})
@@ -756,10 +764,11 @@ async def _authorize_event_ingest_request(
     if route.project_id != "@current" and (not route.project_id.isdigit() or int(route.project_id) != claims.team_id):
         raise EventIngestHTTPError(403, {"error": "Token does not match project"})
 
-    if not await _task_run_exists(claims.run_id, claims.task_id, claims.team_id):
+    state = await _task_run_state(claims.run_id, claims.task_id, claims.team_id)
+    if state is None:
         raise EventIngestHTTPError(404, {"error": "Task run not found"})
 
-    return claims
+    return claims, run_uses_dedicated_stream(state)
 
 
 def _get_header(scope: ASGIMessage, header_name: bytes) -> str | None:

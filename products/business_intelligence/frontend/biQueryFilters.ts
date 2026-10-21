@@ -45,6 +45,11 @@ export function normalizeBIDates(config: BIConfig): BIConfig {
 }
 
 export function getBIFiltersPlaceholder(config: BIConfig): string {
+    const placeholder = buildBIFiltersPlaceholder(config)
+    return config.comparisonPeriod === 'previous' ? placeholder.replace('{filters', '{filters.previous') : placeholder
+}
+
+function buildBIFiltersPlaceholder(config: BIConfig): string {
     const dateField = getBIDateField(config)
     if (usesNativeBIFilters(config.source)) {
         return dateField?.expression === NATIVE_DATE_FIELDS[config.source!.table]

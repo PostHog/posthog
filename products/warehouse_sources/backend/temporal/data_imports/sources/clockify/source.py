@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClockifySource(ResumableSource[ClockifySourceConfig, ClockifyResumeConfig]):
+    codebase_detection = detect(env=("^CLOCKIFY_",))
+
     api_docs_url = "https://docs.clockify.me"
 
     @property
@@ -47,7 +50,7 @@ class ClockifySource(ResumableSource[ClockifySourceConfig, ClockifyResumeConfig]
             name=ExternalDataSourceType.CLOCKIFY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Clockify",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Clockify API key to sync your Clockify data into the PostHog Data warehouse.
 
 You can generate an API key on your [Clockify profile settings](https://app.clockify.me/user/settings) page.

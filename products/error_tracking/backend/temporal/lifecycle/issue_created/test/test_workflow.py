@@ -16,8 +16,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
-from products.error_tracking.backend.logic.severity_inference import build_severity_state
+from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
@@ -42,7 +43,9 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     SeveritySource,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
+from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionGatewayError,
@@ -204,6 +207,27 @@ def test_embedding_failure_classification_and_capture(
     assert capture_exception.called is expect_captured
 
 
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    render_stacktrace.return_value = "TypeError: boom"
+    generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
+
+    result = generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert result.embedding is not None
+    assert result.embedding.merge_inputs.content == "TypeError: boom"
+
+
 def _decision(choice: str) -> DecisionResult:
     return DecisionResult(
         model="severity-model",
@@ -213,9 +237,10 @@ def _decision(choice: str) -> DecisionResult:
 
 
 @pytest.mark.parametrize(
-    "enabled,decide_outcome,expected_result,expected_error_type",
+    "enabled,ai_approved,decide_outcome,expected_result,expected_error_type",
     [
         (
+            False,
             False,
             _decision("critical"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DISABLED),
@@ -223,11 +248,27 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
+            None,
+        ),
+        (
+            True,
+            None,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
+            None,
+        ),
+        (
+            True,
+            True,
             _decision("critical"),
             IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
             None,
         ),
         (
+            True,
             True,
             _decision("catastrophic"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER),
@@ -235,19 +276,21 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            True,
             DecisionsDisabledError(1),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE),
             None,
         ),
         (
             True,
+            True,
             DecisionGatewayError(422, "bad request"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.GATEWAY_REJECTED),
             None,
         ),
-        (True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
     ],
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
@@ -256,7 +299,7 @@ def _decision(choice: str) -> DecisionResult:
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.logger")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.apply_inferred_severity")
-@patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide")
+@patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide_when_available")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.select_related")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.severity_inference_enabled")
@@ -270,12 +313,13 @@ def test_severity_inference_outcomes(
     inference_outcomes: MagicMock,
     capture_exception: MagicMock,
     enabled: bool,
+    ai_approved: bool | None,
     decide_outcome: DecisionResult | Exception,
     expected_result: IssueSeverityInferenceResult | None,
     expected_error_type: str | None,
 ) -> None:
     severity_inference_enabled.return_value = enabled
-    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = True
+    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = ai_approved
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     if isinstance(decide_outcome, Exception):
         decide.side_effect = decide_outcome
@@ -306,6 +350,12 @@ def test_severity_inference_outcomes(
     inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
     inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
+    if enabled and not ai_approved:
+        fetch_event_properties.assert_not_called()
+        decide.assert_not_called()
+    elif enabled and isinstance(decide_outcome, DecisionResult):
+        assert decide.call_args.args[0].model == SEVERITY_INFERENCE_MODEL
+        assert decide.call_args.args[0].privacy_mode is True
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
@@ -349,6 +399,21 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
     inferred_issue_ids: list[str] = []
+    reopened_alerts: list[IssueReopenedWorkflowInputs] = []
+    reopened_events: list[IssueReopenedWorkflowInputs] = []
+    reopened_signals: list[IssueReopenedWorkflowInputs] = []
+    reopened_target = AutoMergeReopenedTarget(
+        notification_id=str(uuid.uuid4()),
+        issue_id=str(uuid.uuid4()),
+        issue=LifecycleIssueSnapshot(
+            name="TypeError",
+            description="Something failed",
+            status="active",
+            created_at="2026-07-01T12:00:00Z",
+            severity="high",
+        ),
+        assignee='{"type":"user","id":7}',
+    )
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
@@ -379,7 +444,9 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
 
     @activity.defn(name="merge_issue_created_fingerprint_activity")
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
+        if inputs.fingerprint == "merged-into-resolved":
+            return FingerprintEmbeddingMergeResult(merged_count=1, reopened_target=reopened_target)
+        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint.startswith("merged")))
 
     @activity.defn(name="infer_issue_created_severity_activity")
     async def infer_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
@@ -401,6 +468,18 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         event_issue_ids.append(inputs.issue_id)
         event_severities[inputs.issue_id] = inputs.issue.severity
 
+    @activity.defn(name="dispatch_issue_reopened_alert_activity")
+    async def dispatch_reopened_alert(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_alerts.append(inputs)
+
+    @activity.defn(name="emit_issue_reopened_internal_event_activity")
+    async def emit_reopened_event(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_events.append(inputs)
+
+    @activity.defn(name="emit_issue_reopened_signal_activity")
+    async def emit_reopened_signal(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_signals.append(inputs)
+
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
         signal_attempts[inputs.issue_id] = signal_attempts.get(inputs.issue_id, 0) + 1
@@ -414,7 +493,18 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, persist, merge, infer_severity, dispatch_alert, emit_event, emit_signal],
+            activities=[
+                generate,
+                persist,
+                merge,
+                infer_severity,
+                dispatch_alert,
+                emit_event,
+                emit_signal,
+                dispatch_reopened_alert,
+                emit_reopened_event,
+                emit_reopened_signal,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             merged_inputs = _inputs("merged")
@@ -440,6 +530,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )
+            reopened_inputs = _inputs("merged-into-resolved")
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 merged_inputs,
@@ -455,6 +546,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             embedding_unavailable_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 embedding_unavailable_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+            reopened_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                reopened_inputs,
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
@@ -485,3 +582,20 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert event_severities[rule_inputs.issue_id] == "high"
     assert event_severities[inference_unavailable_inputs.issue_id] == "high"
     assert event_severities[severity_changed_inputs.issue_id] == "low"
+
+    # A merge onto a dormant issue notifies about the reopen, not about the source issue
+    # that auto-merge just deleted.
+    assert reopened_result == IssueCreatedWorkflowResult(merged=True, notified=True)
+    expected_reopened = IssueReopenedWorkflowInputs(
+        notification_id=reopened_target.notification_id,
+        team_id=reopened_inputs.team_id,
+        issue_id=reopened_target.issue_id,
+        issue=reopened_target.issue,
+        fingerprint=reopened_inputs.fingerprint,
+        event_uuid=reopened_inputs.event_uuid,
+        event_timestamp=reopened_inputs.event_timestamp,
+        assignee=reopened_target.assignee,
+    )
+    assert reopened_alerts == [expected_reopened]
+    assert reopened_events == [expected_reopened]
+    assert reopened_signals == [expected_reopened]

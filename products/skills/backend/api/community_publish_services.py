@@ -20,8 +20,11 @@ import yaml
 import requests
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
@@ -504,8 +507,11 @@ def _publisher_app_jwt() -> str | None:
     cannot sign: a key GitHub would reject is a deployment nobody can retry their way out of, so it
     has to read as "this instance cannot publish" rather than as a GitHub outage.
     """
-    client_id = settings.COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID
-    private_key = settings.COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY
+    values = get_many_or_settings(
+        ["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"], CredentialsCaller.SKILLS
+    )
+    client_id = values["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID"]
+    private_key = values["COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"]
     if not client_id or not private_key:
         return None
 
@@ -544,6 +550,7 @@ def _publisher_app_request(
         timeout=10,
         # requests omits the body entirely when json is None
         json=json_body,
+        priority=Priority.CRITICAL,
     )
 
 
@@ -620,7 +627,7 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         sensitive_config={"access_token": token},
     )
     # The same source as the App-JWT calls above, so every publish request lands under one label.
-    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE, priority=Priority.CRITICAL)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:

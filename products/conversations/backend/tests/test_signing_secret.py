@@ -36,6 +36,19 @@ class TestSigningSecret(BaseTest):
         self.assertEqual(row.secret, self.team.secret_api_token)
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
 
+    def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
+        # A legacy rotation syncing over an independent secret silently breaks verification.
+        self.team.secret_api_token = "phs_previous_secret"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team, defaults={"secret": "an_independent_secret", "rotated_independently": True}
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.secret, "an_independent_secret")
+
     def test_failed_signing_secret_write_rolls_the_rotation_back(self):
         # The two stores must never diverge: if the signing-secret copy fails, the
         # legacy column must keep its old value instead of rotating alone.
@@ -65,7 +78,9 @@ class TestSigningSecret(BaseTest):
         assert cached is not None
         self.assertEqual(cached.secret_api_token, "phs_previous_secret")
         self.assertEqual(cached.secret_api_token_backup, "phs_expired_backup")
-        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
+        # The rollback also discarded the mirror row minted for the new token.
+        mirror_rows = list(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("pk", flat=True))
+        self.assertEqual(mirror_rows, [backup_row.pk])
 
     def test_failed_backup_cleanup_rolls_the_deletion_back(self):
         self.team.secret_api_token = "phs_current_primary_value"

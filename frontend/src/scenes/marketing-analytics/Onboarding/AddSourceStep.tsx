@@ -65,7 +65,15 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
             intent_context: ProductIntentContext.MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED,
             metadata: { source_type: sourceId },
         })
-        router.actions.push(urls.dataWarehouseSourceNew(sourceId, urls.marketingAnalyticsApp(), 'Marketing analytics'))
+        router.actions.push(
+            urls.dataWarehouseSourceNew(
+                sourceId,
+                urls.marketingAnalyticsApp(),
+                'Marketing analytics',
+                undefined,
+                'marketing_analytics_onboarding'
+            )
+        )
     }
 
     const nativeSources = allSources.filter((s) => s.category === 'native')

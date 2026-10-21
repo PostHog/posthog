@@ -36,3 +36,7 @@ export function buildBIPropertyFields(field: BIField, definitions: EnterprisePro
                     : 'string',
     }))
 }
+
+export function matchesBIFieldSearch(field: BIField, search: string): boolean {
+    return field.name.toLowerCase().includes(search.trim().toLowerCase()) || !!getBIPropertyTarget(field)
+}

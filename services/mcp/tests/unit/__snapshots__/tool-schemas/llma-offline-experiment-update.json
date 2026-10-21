@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "required": ["id", "tags"],
+    "type": "object"
+}

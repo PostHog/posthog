@@ -33,6 +33,7 @@ import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlToo
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
+import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { RunButton } from './RunButton'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
@@ -62,6 +63,8 @@ interface QueryWindowProps {
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    hideVariables?: boolean
+    hideFilters?: boolean
 }
 
 export function QueryWindow({
@@ -82,6 +85,8 @@ export function QueryWindow({
     hideRunButton,
     onShareTab,
     autoFocusQueryPane,
+    hideVariables,
+    hideFilters,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -97,6 +102,8 @@ export function QueryWindow({
         selectedConnectionId,
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
+        placeholderValues,
+        singleStatementDisabledReason,
     } = useValues(logic)
 
     const {
@@ -117,7 +124,9 @@ export function QueryWindow({
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
-    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
+    const canSendRawQuery =
+        sourceQuery.source.executionTarget === 'managed_trino' ||
+        (!!selectedConnectionId && selectedConnectionSupportsHogQL)
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -198,7 +207,7 @@ export function QueryWindow({
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
-            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+            <Tooltip title="Send the query directly to the selected connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
@@ -264,11 +273,11 @@ export function QueryWindow({
             {showQueryPanel ? (
                 <div
                     className={cn(
-                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                        'flex flex-row flex-wrap gap-y-1 justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
                         isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
                 >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
@@ -279,7 +288,9 @@ export function QueryWindow({
                             <RunButton
                                 onRunQuery={onRunQuery}
                                 runQueryLoading={runQueryLoading}
-                                runQueryDisabledReason={runQueryDisabledReason}
+                                runQueryDisabledReason={
+                                    runQueryDisabledReason ?? singleStatementDisabledReason ?? undefined
+                                }
                                 runQueryTooltip={runQueryTooltip}
                                 onCancelQuery={onCancelQuery}
                                 cancelQueryLoading={cancelQueryLoading}
@@ -287,10 +298,13 @@ export function QueryWindow({
                         )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         <LemonDivider vertical />
-                        <QueryVariablesMenu
-                            disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                        />
-                        <QueryFiltersMenu />
+                        {!hideVariables ? (
+                            <QueryVariablesMenu
+                                disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                            />
+                        ) : null}
+                        {!hideFilters ? <QueryFiltersMenu /> : null}
+                        <QueryPlaceholdersMenu />
                         {editingView ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
@@ -350,6 +364,7 @@ export function QueryWindow({
                     editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
+                        ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
                         queryKey: codeEditorKey,
                         autoFocus: autoFocusQueryPane ?? true,
                         // Bind the editor to the tab's persistent Monaco model and keep it
@@ -363,6 +378,8 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        // Lets error checking resolve the host's placeholders instead of flagging them
+                        globals: placeholderValues ?? undefined,
                         onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')

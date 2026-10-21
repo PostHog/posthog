@@ -27,6 +27,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -180,8 +181,11 @@ class CDCExtractActivity:
     level steps; private methods implement individual phases.
     """
 
-    def __init__(self, inputs: CDCExtractInput) -> None:
+    def __init__(self, inputs: CDCExtractInput, should_stop: Callable[[], bool] | None = None) -> None:
         self.inputs = inputs
+        # Asks the read to stop at the next page boundary, for example because the worker shuts down.
+        self._should_stop = should_stop
+        self.stopped_before_backlog_drained: bool = False
         self.log: structlog.types.FilteringBoundLogger = logger.bind(
             team_id=inputs.team_id, source_id=str(inputs.source_id)
         )
@@ -835,7 +839,20 @@ class CDCExtractActivity:
             # page that returns rows always commits something and advances. Were that ever to not
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
-            if not self._drain_and_advance_page():
+            advanced = self._drain_and_advance_page()
+
+            # Checked after the page advance, so the slot is already past every change this run wrote
+            # to the buffer and the next run starts at the first unread change.
+            if self._should_stop is not None and self._should_stop():
+                self.stopped_before_backlog_drained = True
+                self.log.info(
+                    "cdc_read_stopped_for_worker_shutdown",
+                    events_so_far=self.event_count,
+                    position=self.last_confirmed_lsn,
+                )
+                return
+
+            if not advanced:
                 limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
 
     def _drain_and_advance_page(self) -> bool:
@@ -1471,7 +1488,14 @@ class CDCExtractActivity:
 @activity.defn
 def cdc_extract_activity(inputs: CDCExtractInput) -> None:
     """Core CDC extraction activity. Thin wrapper around CDCExtractActivity."""
-    CDCExtractActivity(inputs).run()
+    with ShutdownMonitor() as shutdown_monitor:
+        extraction = CDCExtractActivity(inputs, should_stop=shutdown_monitor.is_worker_shutdown)
+        extraction.run()
+        # The run ended cleanly at a page boundary with its position saved, but with backlog left.
+        # Raise so that Temporal continues the read on another worker now. Without a retry left the
+        # raise would fail the workflow, so the next scheduled run reads the remaining backlog.
+        if extraction.stopped_before_backlog_drained and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS:
+            raise WorkerShuttingDownError.from_activity_context()
 
 
 @activity.defn

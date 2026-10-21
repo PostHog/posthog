@@ -41,12 +41,15 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
-    rolling_check_lookback_minutes,
 )
+from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
 )
+from products.logs.backend.alert_event_properties import failure_event_properties, threshold_event_properties
+from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
+from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -57,9 +60,12 @@ from products.logs.backend.alert_state_machine import (
     AlertState,
     CheckResult,
     ControlPlaneOutcome,
+    IncidentCloseReason,
+    IncidentEdge,
     NotificationAction,
     apply_outcome,
     evaluate_alert_check,
+    incident_edge,
 )
 from products.logs.backend.alert_utils import (
     advance_next_check_at,
@@ -67,7 +73,6 @@ from products.logs.backend.alert_utils import (
     due_alerts_q,
     next_allowed_check_at,
 )
-from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
@@ -285,16 +290,29 @@ class _DispatchedAlert:
 
     `produce_result` is the pending Kafka delivery for this alert's
     notification (None when no notification was attempted or the enqueue itself
-    failed). `produce()` only buffers locally, so `notification_failed` isn't
-    final until `_resolve_notification_deliveries` flushes the producer and
-    folds delivery failures in — persisting before that point would record
-    "notified" for a message that may never reach the broker.
+    failed). `incident_produce_result` is the same for the incident edge event,
+    and a failed delivery of either rolls the state back. `produce()` only
+    buffers locally, so `notification_failed` isn't final until
+    `_resolve_notification_deliveries` flushes the producer and folds delivery
+    failures in — persisting before that point would record "notified" for a
+    message that may never reach the broker.
+
+    Delivery is therefore at least once. For an alert with both an incident
+    destination and a message destination, a lost incident event also resends a
+    notification the broker already took. Retrying only the incident event would
+    need the pending edge stored on the alert row.
     """
 
     evaluation: _AlertEvaluation
     notification_failed: bool
     produce_result: ProduceResult | None = None
+    incident_produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
+    shadowed: bool = False
+
+    @property
+    def produced(self) -> bool:
+        return self.produce_result is not None or self.incident_produce_result is not None
 
     @property
     def committed_outcome(self) -> AlertCheckOutcome:
@@ -483,11 +501,26 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
     invalid and can never succeed. Runs in the same sync DB pool as discovery —
     each call is its own short transaction so a failure on one row doesn't
     roll back the others.
+
+    A firing alert with an incident destination closes its incident first. Discovery skips BROKEN
+    alerts, so the close must be delivered before the transition commits. When it is not, the alert
+    keeps its state, and the next discovery cycle finds the same bad config and tries again.
     """
     try:
+        state_seen = LogsAlertConfiguration.objects.values_list("state", flat=True).get(pk=alert_id)
+        if state_seen == LogsAlertConfiguration.State.BROKEN:
+            return
+        if incident_edge(state_seen, AlertState.BROKEN) == IncidentEdge.CLOSED:
+            alert_for_close = LogsAlertConfiguration.objects.get(pk=alert_id)
+            if has_incident_destination(alert_for_close) and not close_incident(
+                alert_for_close, IncidentCloseReason.BROKEN, flush_timeout_seconds=NOTIFICATION_FLUSH_TIMEOUT_SECONDS
+            ):
+                logger.warning("Deferring BROKEN until the incident close is delivered", alert_id=alert_id)
+                return
         with transaction.atomic():
             alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
-            if alert.state == LogsAlertConfiguration.State.BROKEN:
+            if alert.state != state_seen:
+                # The state moved after the close decision, so decide again on the next cycle.
                 return
             state_before = alert.state
             outcome = ControlPlaneOutcome(
@@ -701,7 +734,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 delivery_slo_handles: dict[str, SloHandle] = {}
                 for evaluation in evaluations:
                     delivery_action = evaluation.outcome.notification
-                    if delivery_action != NotificationAction.NONE:
+                    # A shadowed alert sends nothing, so it has no delivery to measure.
+                    if delivery_action != NotificationAction.NONE and not evaluation.alert.platform_owned:
                         alert_id = str(evaluation.alert.id)
                         delivery_slo_handles[alert_id] = slo_stack.enter_context(
                             alert_delivery_slo(
@@ -748,7 +782,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 # back and get retried next cycle. flush() blocks, so run it off
                 # the event loop, and only when something was actually produced,
                 # sparing quiet cohorts the thread hop.
-                if any(d.produce_result is not None for d in dispatched):
+                if any(d.produced for d in dispatched):
                     dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
 
                 for dispatched_alert in dispatched:
@@ -841,10 +875,15 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
     heartbeats, and per-emit isolation — mirrors the data_imports signal pipeline.
     Returns the number of signals successfully emitted.
     """
-    if not input.notified:
+    return await emit_notified_alert_signals(input.notified)
+
+
+async def emit_notified_alert_signals(notified: list[NotifiedAlert]) -> int:
+    """Emits one signal per alert, for whichever logs alerting path notified it. Never raises."""
+    if not notified:
         return 0
 
-    team_ids = {na.team_id for na in input.notified}
+    team_ids = {na.team_id for na in notified}
     teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
 
     semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
@@ -867,7 +906,7 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
                 temporalio.activity.heartbeat()
             return ok
 
-    results = await asyncio.gather(*(_bounded(na) for na in input.notified))
+    results = await asyncio.gather(*(_bounded(na) for na in notified))
     return sum(1 for ok in results if ok)
 
 
@@ -1062,16 +1101,53 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 suppressed_by_quiet_hours=True,
             )
 
-    produce_result = _dispatch_notification(
-        evaluation.outcome,
-        evaluation.alert,
-        evaluation.check_result,
-        now,
-        date_from=evaluation.date_from,
-        date_to=evaluation.date_to,
-    )
-    enqueue_failed = evaluation.outcome.notification != NotificationAction.NONE and produce_result is None
-    return _DispatchedAlert(evaluation=evaluation, notification_failed=enqueue_failed, produce_result=produce_result)
+        # Decided and enqueued under the row lock a cutover also takes, so a cutover cannot land
+        # between the two. Counted as delivered, so state and cooldown move as they would have. An
+        # owner change since the check read the alert also sends nothing: the row now carries the
+        # other stack's state, which this check never saw, and the save skips it too.
+        if current_alert.platform_owned or current_alert.owner_changed_at != evaluation.alert.owner_changed_at:
+            return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
+
+        produce_result = _dispatch_notification(
+            evaluation.outcome,
+            evaluation.alert,
+            evaluation.check_result,
+            now,
+            date_from=evaluation.date_from,
+            date_to=evaluation.date_to,
+        )
+        edge = incident_edge(evaluation.state_before, evaluation.outcome.new_state)
+        incident_expected = edge is not None and has_incident_destination(evaluation.alert)
+        incident_produce_result = _dispatch_incident_edge(edge, evaluation, now) if edge and incident_expected else None
+        enqueue_failed = (evaluation.outcome.notification != NotificationAction.NONE and produce_result is None) or (
+            incident_expected and incident_produce_result is None
+        )
+        return _DispatchedAlert(
+            evaluation=evaluation,
+            notification_failed=enqueue_failed,
+            produce_result=produce_result,
+            incident_produce_result=incident_produce_result,
+        )
+
+
+def _dispatch_incident_edge(edge: IncidentEdge, evaluation: _AlertEvaluation, now: datetime) -> ProduceResult | None:
+    alert = evaluation.alert
+    if edge == IncidentEdge.OPENED:
+        return _emit_alert_event(
+            alert,
+            LOGS_ALERT_INCIDENT_OPENED_EVENT,
+            evaluation.check_result,
+            now,
+            date_from=evaluation.date_from,
+            date_to=evaluation.date_to,
+        )
+    else:
+        reason = (
+            IncidentCloseReason.BROKEN
+            if evaluation.outcome.new_state == AlertState.BROKEN
+            else IncidentCloseReason.RESOLVED
+        )
+        return _emit_incident_closed_event(alert, reason, now)
 
 
 def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list[_DispatchedAlert]:
@@ -1088,25 +1164,30 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     with rolled-back state beats no save at all — the cohort erroring out here
     would skip the save entirely.
     """
-    if all(d.produce_result is None for d in dispatched):
+    if not any(d.produced for d in dispatched):
         return dispatched
 
     flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
 
     resolved: list[_DispatchedAlert] = []
     for d in dispatched:
-        if d.produce_result is None:
-            resolved.append(d)
-            continue
-        if alert_internal_event_delivered(
-            d.produce_result,
-            team_id=d.evaluation.alert.team_id,
-            alert_id=str(d.evaluation.alert.id),
-            event_name=d.evaluation.outcome.notification.value,
-        ):
-            resolved.append(d)
-        else:
-            resolved.append(dataclasses.replace(d, notification_failed=True))
+        alert = d.evaluation.alert
+        edge = incident_edge(d.evaluation.state_before, d.evaluation.outcome.new_state)
+        incident_event = (
+            LOGS_ALERT_INCIDENT_OPENED_EVENT if edge == IncidentEdge.OPENED else LOGS_ALERT_INCIDENT_CLOSED_EVENT
+        )
+        deliveries = (
+            (d.produce_result, d.evaluation.outcome.notification.value),
+            (d.incident_produce_result, incident_event),
+        )
+        delivered = all(
+            alert_internal_event_delivered(
+                produce_result, team_id=alert.team_id, alert_id=str(alert.id), event_name=event_name
+            )
+            for produce_result, event_name in deliveries
+            if produce_result is not None
+        )
+        resolved.append(d if delivered else dataclasses.replace(d, notification_failed=True))
     return resolved
 
 
@@ -1210,20 +1291,28 @@ def _save_cohort_outcomes(
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
+    superseded: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
-            current_restrictions = dict(
-                LogsAlertConfiguration.objects.select_for_update()
+            current = {
+                alert_id: (restriction, owner_changed_at)
+                for alert_id, restriction, owner_changed_at in LogsAlertConfiguration.objects.select_for_update()
                 .filter(id__in=[d.evaluation.alert.id for d in dispatched])
-                .values_list("id", "schedule_restriction")
-            )
+                .values_list("id", "schedule_restriction", "owner_changed_at")
+            }
 
             # The worker can evaluate an alert while a user saves quiet hours. Locking
             # before staging makes either write order safe: this worker uses the saved
             # restriction, or the API waits and then reschedules after this check.
             staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
             for d in dispatched:
-                d.evaluation.alert.schedule_restriction = current_restrictions.get(d.evaluation.alert.id)
+                restriction, owner_changed_at = current.get(d.evaluation.alert.id, (None, None))
+                # A cutover or rollback carried another stack's state onto this row after the check
+                # read it, so this check's state and schedule are stale and are not saved.
+                if owner_changed_at != d.evaluation.alert.owner_changed_at:
+                    superseded.append(d)
+                    continue
+                d.evaluation.alert.schedule_restriction = restriction
                 update_fields, event = _stage_alert_for_save(d, now)
                 staged.append((d, update_fields, event))
 
@@ -1248,6 +1337,7 @@ def _save_cohort_outcomes(
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
         saved, failed = _save_staged_per_alert(staged)
+        saved += superseded
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1275,9 +1365,17 @@ def _save_staged_per_alert(
     for d, update_fields, event in staged:
         try:
             with transaction.atomic():
-                if event is not None:
-                    event.save()
-                d.evaluation.alert.save(update_fields=update_fields)
+                # The bulk attempt's locks are gone, so an owner change can have landed since.
+                current_owner_changed_at = (
+                    LogsAlertConfiguration.objects.select_for_update()
+                    .filter(id=d.evaluation.alert.id)
+                    .values_list("owner_changed_at", flat=True)
+                    .first()
+                )
+                if current_owner_changed_at == d.evaluation.alert.owner_changed_at:
+                    if event is not None:
+                        event.save()
+                    d.evaluation.alert.save(update_fields=update_fields)
             saved.append(d)
         except Exception as e:
             logger.exception(
@@ -1344,7 +1442,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
     """
     notified: list[NotifiedAlert] = []
     for d in saved:
-        if d.notification_failed:
+        if d.notification_failed or d.shadowed:
             continue
         mapping = signal_action_and_weight(d.evaluation.outcome.notification)
         if mapping is None:
@@ -1499,20 +1597,19 @@ def _emit_alert_event(
     date_from: datetime,
     date_to: datetime,
 ) -> ProduceResult | None:
-    properties: dict = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "threshold_count": alert.threshold_count,
-        "threshold_operator": alert.threshold_operator,
-        "window_minutes": alert.window_minutes,
-        "result_count": check_result.result_count,
-        "filters": alert.filters,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
-        "triggered_at": now.isoformat(),
-    }
+    properties = threshold_event_properties(
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        team_id=alert.team_id,
+        threshold_count=alert.threshold_count,
+        threshold_operator=alert.threshold_operator,
+        window_minutes=alert.window_minutes,
+        result_count=check_result.result_count,
+        filters=alert.filters,
+        date_from=date_from,
+        date_to=date_to,
+        triggered_at=now,
+    )
     return _produce_alert_internal_event(alert, event_name, properties, now)
 
 
@@ -1521,15 +1618,14 @@ def _base_failure_properties(
     outcome: AlertCheckOutcome,
     now: datetime,
 ) -> dict:
-    return {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "consecutive_failures": outcome.consecutive_failures,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "triggered_at": now.isoformat(),
-    }
+    return failure_event_properties(
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        team_id=alert.team_id,
+        consecutive_failures=outcome.consecutive_failures,
+        filters=alert.filters,
+        triggered_at=now,
+    )
 
 
 def _emit_auto_disabled_event(
@@ -1542,6 +1638,15 @@ def _emit_auto_disabled_event(
         "last_error_message": outcome.error_message or "",
     }
     return _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
+
+
+def _emit_incident_closed_event(
+    alert: LogsAlertConfiguration,
+    reason: IncidentCloseReason,
+    now: datetime,
+) -> ProduceResult | None:
+    properties = incident_closed_properties(alert, reason, now)
+    return _produce_alert_internal_event(alert, LOGS_ALERT_INCIDENT_CLOSED_EVENT, properties, now)
 
 
 def _emit_alert_errored_event(

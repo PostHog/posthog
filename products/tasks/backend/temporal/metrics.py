@@ -1,21 +1,29 @@
 import os
 import time
+import inspect
 import datetime as dt
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, ContextDecorator
+from functools import wraps
+from typing import Any, TypeVar, cast
 
 import posthoganalytics
+from opentelemetry import trace
+from opentelemetry.trace import Span
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 
 Attributes = dict[str, str | int | float | bool]
+tracer = trace.get_tracer(__name__)
+F = TypeVar("F", bound=Callable[..., object])
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
     "tasks_process_snapshot_create_latency",
     "tasks_boot_total_latency",
+    "tasks_agent_boot_milestone_latency",
 )
 TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,
@@ -123,6 +131,21 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
 
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
+
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_cpu_pressure_ratio",)
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS = TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS
+
+TASKS_NETWORK_BYTES_HISTOGRAM_METRICS = ("tasks_sandbox_network_bytes",)
+TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS = [
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    67_108_864.0,
+    268_435_456.0,
+    1_073_741_824.0,
+    4_294_967_296.0,
+    17_179_869_184.0,
+]
 
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
@@ -380,6 +403,36 @@ def record_memory_peak_ratio(ratio: float) -> None:
         pass
 
 
+def increment_sandbox_exit_status(status: str, runtime: str) -> None:
+    try:
+        _metric_meter({"status": status, "runtime": runtime}).create_counter(
+            "tasks_sandbox_exit_status",
+            "Sandbox exit status read at cleanup, running when the sandbox was still alive, unknown when the poll failed",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_sandbox_network_bytes(direction: str, value: int) -> None:
+    try:
+        _metric_meter({"direction": direction}).create_histogram(
+            "tasks_sandbox_network_bytes",
+            "Sandbox network bytes over non-loopback interfaces, read at teardown",
+        ).record(value)
+    except Exception:
+        pass
+
+
+def record_sandbox_cpu_pressure_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_cpu_pressure_ratio",
+            "Fraction of sandbox uptime with some task stalled on CPU, read at teardown",
+        ).record(ratio)
+    except Exception:
+        pass
+
+
 def increment_tool_call_only_heartbeat() -> None:
     try:
         _metric_meter().create_counter(
@@ -453,6 +506,62 @@ def record_sandbox_created(
         pass
 
 
+def record_startup_step_event(
+    step: str,
+    duration_ms: int,
+    attributes: Attributes,
+    *,
+    started_at: dt.datetime | None = None,
+) -> None:
+    try:
+        context = posthoganalytics.get_tags()
+        run_id = context.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return
+        properties: dict[str, object] = {
+            "$process_person_profile": False,
+            **{
+                key: context[key]
+                for key in (
+                    "run_id",
+                    "task_id",
+                    "origin_product",
+                    "run_environment",
+                    "mode",
+                    "run_source",
+                    "runtime_adapter",
+                    "provider",
+                )
+                if key in context
+            },
+            **attributes,
+            "step": step,
+            "duration_ms": duration_ms,
+        }
+        if started_at is not None:
+            properties["started_at"] = started_at.isoformat()
+            properties["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+        if activity.in_activity():
+            info = activity.info()
+            properties.update(
+                {
+                    "temporal_activity_id": info.activity_id,
+                    "temporal_activity_type": info.activity_type,
+                    "temporal_attempt": info.attempt,
+                    "temporal_workflow_id": info.workflow_id,
+                    "temporal_workflow_run_id": info.workflow_run_id,
+                }
+            )
+        posthoganalytics.capture(
+            "task_startup_step_completed",
+            distinct_id=run_id,
+            properties=properties,
+            send_feature_flags=False,
+        )
+    except Exception:
+        pass
+
+
 def record_agent_server_session_init_ms(
     session_init_ms: int,
     boot_path: str | None = None,
@@ -478,6 +587,7 @@ def record_agent_server_session_init_ms(
         ).record(dt.timedelta(milliseconds=session_init_ms))
     except Exception:
         pass
+    record_startup_step_event("agent_server_session_init", session_init_ms, attributes)
 
 
 def record_agent_server_step_ms(
@@ -508,6 +618,7 @@ def record_agent_server_step_ms(
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+    record_startup_step_event(step, duration_ms, attributes)
 
 
 def record_agent_server_boot_phases_ms(
@@ -586,7 +697,49 @@ def record_boot_total_ms(
         pass
 
 
-class StepTimer:
+def record_agent_boot_milestone_ms(
+    since_agent_ready_ms: int,
+    *,
+    milestone: str,
+    origin_product: str | None,
+    boot_path: str | None,
+    runtime: str,
+    sandbox_backend: str | None,
+    runtime_adapter: str | None,
+    prewarmed: bool,
+) -> None:
+    """Prometheus twin of the boot milestone analytics events, plotted next to `tasks_boot_total_latency`."""
+    try:
+        attributes: Attributes = {
+            "milestone": milestone,
+            "origin_product": origin_product or "unknown",
+            "boot_path": boot_path or "unknown",
+            "runtime": runtime,
+            "sandbox_backend": sandbox_backend or "unknown",
+            "runtime_adapter": _runtime_adapter_label(runtime_adapter),
+            "prewarmed": _bool_label(prewarmed),
+        }
+        workflow.metric_meter().with_additional_attributes(attributes).create_histogram_timedelta(
+            "tasks_agent_boot_milestone_latency",
+            "Latency from agent-server ready to the first agent boot milestone",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=since_agent_ready_ms))
+    except Exception:
+        pass
+
+
+class StepTimer(ContextDecorator):
+    def __call__(self, func: F) -> F:
+        if not inspect.iscoroutinefunction(func):
+            return super().__call__(func)
+
+        @wraps(func)
+        async def timed(*args: object, **kwargs: object) -> object:
+            with self._recreate_cm():
+                return await func(*args, **kwargs)
+
+        return cast(F, timed)
+
     def __init__(
         self,
         step: str,
@@ -596,6 +749,7 @@ class StepTimer:
         origin_product: str | None = None,
         runtime: str | None = None,
         sandbox_backend: str | None = None,
+        status_tag: str | None = None,
     ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
@@ -603,15 +757,32 @@ class StepTimer:
         self.origin_product = origin_product
         self.runtime = runtime
         self.sandbox_backend = sandbox_backend
+        self.status_tag = status_tag
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
         self._start_counter: float | None = None
+        self._started_at: dt.datetime | None = None
+        self._span: AbstractContextManager[Span] | None = None
+
+    def _recreate_cm(self) -> "StepTimer":
+        return StepTimer(
+            self.step,
+            used_snapshot=self.used_snapshot,
+            boot_path=self.boot_path,
+            origin_product=self.origin_product,
+            runtime=self.runtime,
+            sandbox_backend=self.sandbox_backend,
+            status_tag=self.status_tag,
+        )
 
     def set_used_snapshot(self, used_snapshot: bool) -> None:
         self.used_snapshot = used_snapshot
 
     def __enter__(self) -> "StepTimer":
+        self._span = tracer.start_as_current_span("tasks.step." + self.step)
+        self._span.__enter__()
+        self._started_at = dt.datetime.now(dt.UTC)
         self._start_counter = time.perf_counter()
         return self
 
@@ -621,21 +792,29 @@ class StepTimer:
 
         delta_ms = int((time.perf_counter() - self._start_counter) * 1000)
         self.elapsed_ms = delta_ms
+        if self._span is not None:
+            self._span.__exit__(exc_type, exc_value, traceback)
+            self._span = None
         delta = dt.timedelta(milliseconds=delta_ms)
 
+        context = posthoganalytics.get_tags()
+        used_snapshot = self.used_snapshot if self.used_snapshot is not None else context.get("used_snapshot")
         attributes: Attributes = {
             "step": self.step,
-            "used_snapshot": _bool_label(self.used_snapshot),
+            "used_snapshot": _bool_label(used_snapshot if isinstance(used_snapshot, bool) else None),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
-        if self.boot_path is not None:
-            attributes["boot_path"] = self.boot_path
-        if self.origin_product is not None:
-            attributes["origin_product"] = self.origin_product
-        if self.runtime is not None:
-            attributes["runtime"] = self.runtime
-        if self.sandbox_backend is not None:
-            attributes["sandbox_backend"] = self.sandbox_backend
+        if self.status_tag is not None and exc_value is None:
+            attributes["status"] = str(context.get(self.status_tag, "FAILED"))
+        for key, explicit in (
+            ("boot_path", self.boot_path),
+            ("origin_product", self.origin_product),
+            ("runtime", self.runtime),
+            ("sandbox_backend", self.sandbox_backend),
+        ):
+            value = explicit if explicit is not None else context.get(key)
+            if isinstance(value, str):
+                attributes[key] = value
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(
@@ -646,4 +825,5 @@ class StepTimer:
         except Exception:
             pass
 
+        record_startup_step_event(self.step, delta_ms, attributes, started_at=self._started_at)
         self._start_counter = None

@@ -10,11 +10,19 @@ from requests import PreparedRequest, Response, Session
 from requests.adapters import BaseAdapter
 from requests.structures import CaseInsensitiveDict
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
+from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    AnnouncedTransition,
+    IncidentAction,
+    MessageDetail,
+    MessageLink,
+    SourceKind,
+)
 
 EPISODE_STARTED = datetime(2026, 9, 30, 9, tzinfo=UTC)
 OCCURRED = datetime(2026, 9, 30, 10, tzinfo=UTC)
+ALERT_URL = "https://app.example.com/project/1/platform-alerts/cfg-1"
 
 
 def announced_transition(kind: AlertEventKind = AlertEventKind.FIRING, **overrides: Any) -> AnnouncedTransition:
@@ -38,13 +46,23 @@ def alert_message(
     details: tuple[MessageDetail, ...] = (),
     transition: AnnouncedTransition | None = None,
     alert_name: str = "API errors",
+    incident_action: IncidentAction | None = None,
+    symbol: str = "\U0001f534",
+    context: tuple[str, ...] = (),
+    data_link: MessageLink | None = None,
 ) -> AlertMessage:
     return AlertMessage(
         headline=headline,
+        symbol=symbol,
         details=details,
         configuration_id="cfg-1",
         alert_name=alert_name,
+        source=SourceKind.LOGS,
+        alert_url=ALERT_URL,
         transition=transition or announced_transition(),
+        context=context,
+        data_link=data_link,
+        incident_action=incident_action,
     )
 
 
@@ -92,6 +110,6 @@ def pinned_post(
     session = Session()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    with patch("products.alerts_platform.backend.delivery.webhook_url.pinned_session") as pinned_session:
+    with patch("products.alerts_platform.backend.delivery.wire.pinned_session") as pinned_session:
         pinned_session.return_value.__enter__.return_value = session
         yield adapter

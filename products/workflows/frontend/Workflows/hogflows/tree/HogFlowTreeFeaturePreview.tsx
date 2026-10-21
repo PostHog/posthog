@@ -13,7 +13,7 @@ export function HogFlowTreeFeaturePreview(): JSX.Element {
             surface="workflow_tree_editor"
             dismissKey="workflow-tree-feature-preview"
             prompt="We’re trialling a new list based workflow view. What do you think?"
-            modalTitle="Help shape the new workflow view"
+            feedbackTitle="Help shape the new workflow view"
             feedbackPlaceholder="Tell us what works, what doesn’t, or what you’d change"
             data-attr="workflow-tree-feature-preview"
         />

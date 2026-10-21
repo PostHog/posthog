@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -310,5 +311,58 @@ export function getDashboardFilterChanges(
         })
     }
 
+    if (!dashboardFilterValuesEqual(previousFilters.compareFilter, currentFilters.compareFilter)) {
+        const previousHasCompareSetting = previousFilters.compareFilter != null
+        const currentHasCompareSetting = currentFilters.compareFilter != null
+        changes.push({
+            label: 'Compare',
+            previousValue: previousHasCompareSetting ? [compareFilterLabel(previousFilters.compareFilter)] : [],
+            value: currentHasCompareSetting ? [compareFilterLabel(currentFilters.compareFilter)] : [],
+            status: getChangeStatus(previousHasCompareSetting, currentHasCompareSetting),
+        })
+    }
+
+    if (!dashboardFilterValuesEqual(previousFilters.metricFilters, currentFilters.metricFilters)) {
+        const previousLabels = formatMetricFilters(previousFilters)
+        const currentLabels = formatMetricFilters(currentFilters)
+        changes.push({
+            label: 'Metric labels',
+            previousValue: previousLabels,
+            value: currentLabels,
+            status: getChangeStatus(previousLabels.length > 0, currentLabels.length > 0),
+        })
+    }
+
+    if (!dashboardFilterValuesEqual(previousFilters.metricVariables, currentFilters.metricVariables)) {
+        const previousLabels = formatMetricVariables(previousFilters)
+        const currentLabels = formatMetricVariables(currentFilters)
+        changes.push({
+            label: 'Metric variables',
+            previousValue: previousLabels,
+            value: currentLabels,
+            status: getChangeStatus(previousLabels.length > 0, currentLabels.length > 0),
+        })
+    }
+
     return changes
+}
+
+const METRIC_FILTER_OP_LABELS: Record<NonNullable<DashboardFilter['metricFilters']>[number]['op'], string> = {
+    eq: '=',
+    neq: '!=',
+    regex: '=~',
+    not_regex: '!~',
+}
+
+function formatMetricFilters(filters: DashboardFilter): string[] {
+    return (filters.metricFilters ?? []).map(
+        (filter) => `${filter.key} ${METRIC_FILTER_OP_LABELS[filter.op]} ${filter.value}`
+    )
+}
+
+function formatMetricVariables(filters: DashboardFilter): string[] {
+    return (filters.metricVariables ?? []).map((variable) => {
+        const value = variable.current?.all ? 'All' : (variable.current?.values ?? []).join(', ')
+        return `$${variable.name} = ${value || 'no value'}`
+    })
 }

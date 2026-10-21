@@ -133,12 +133,6 @@ class TestBufferedDispatch:
         modes = [lane.cdc_write_mode for lane in response.lanes or []]
         assert modes == ["incremental_merge", "scd2_append"]
 
-    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
-        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
-        # fail rather than consume without recording a load position.
-        with pytest.raises(ValueError, match="requires v3"):
-            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
-
     def test_a_missing_job_row_fails_the_run(self):
         # Every lane reads its resume point off its own Delta table, which needs the job row.
         with pytest.raises(ValueError, match="no job row"):
@@ -173,9 +167,18 @@ class TestBufferedDispatch:
 
         retire.assert_called_once()
 
-    def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
-        with pytest.raises(ValueError, match="cdc_mode='snapshot'"):
-            _dispatch(_schema(), _inputs(reset_pipeline=True))
+    def test_a_reset_on_a_streaming_buffered_schema_is_handed_to_capture(self):
+        hand_reset, clear = MagicMock(), MagicMock()
+        schema = _schema(cdc_table_mode="both")
+        inputs = _inputs(reset_pipeline=True)
+
+        response = _dispatch(schema, inputs, hand_reset=hand_reset, clear_listing=clear)
+
+        assert hand_reset.call_args_list == [call(schema, ANY, start_capture=False)]
+        assert response.reset_handed_over is True
+        assert response.lanes is None
+        assert list(response.items()) == []
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)
 
     @pytest.mark.parametrize(
         "proof_days_ago, expired, reset",

@@ -1,11 +1,13 @@
 import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { ProjectTreeRef, UserBasicType } from '~/types'
 
@@ -475,6 +477,32 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
+/**
+ * Whether a row's type is open to this person. A file system type can carry a feature flag; its rows
+ * come from the API regardless, so the tree drops them while the flag is off.
+ */
+// The backend files Today-only types under these folders; without the flag they would show empty.
+const TODAY_UNFILED_FOLDERS: ReadonlySet<string> = new Set(['Unfiled/Canvases'])
+
+/**
+ * Whether a row's type belongs in the tree for this person. Only the types the Today navigation brings into
+ * the file system hide behind its flag: other flagged types kept their rows before, and their pages gate
+ * themselves, so hiding them here would change the tree for everyone.
+ */
+export function isFileSystemEntryTypeEnabled(
+    entry: Pick<FileSystemEntry, 'type'> & { path?: string },
+    featureFlags: Record<string, unknown>
+): boolean {
+    if (entry.type === 'folder') {
+        return !TODAY_UNFILED_FOLDERS.has(entry.path ?? '') || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+    }
+    const baseType = entry.type?.split('/')[0] ?? ''
+    const flag = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as { flag?: string }).flag
+        : undefined
+    return flag !== FEATURE_FLAGS.TODAY_RAIL_NAV || !!featureFlags[flag]
+}
+
 export function splitPath(path: string | null | undefined): string[] {
     if (!path) {
         return []

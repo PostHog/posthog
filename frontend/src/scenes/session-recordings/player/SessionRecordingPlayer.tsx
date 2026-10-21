@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
+import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { DebugReplayButton } from './player-meta/DebugReplayButton'
@@ -115,7 +115,7 @@ function SessionRecordingPlayerInternal({
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                 {visionSurfaceShown(logicProps) && (
-                    <ObservationsDock
+                    <SummarizeRecordingBar
                         // The player modal covers the side panel, so the conversation would open out of sight.
                         extraActions={
                             showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null

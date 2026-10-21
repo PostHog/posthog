@@ -24,7 +24,10 @@ Parity with v2 is intentional, with two deliberate deviations:
 
 from datetime import datetime
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
 from posthog.models.team import Team
@@ -302,6 +305,33 @@ def _base_placeholders() -> dict[str, ast.Expr]:
     }
 
 
+# Same ceilings as the legacy pre-aggregation job (`WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS`), whose
+# tables these replace. One UTC day of a very large team's events, grouped by every fixed dimension,
+# outgrows the default 42 GiB limit in the step that merges the shards' partial aggregates.
+DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
+    "max_memory_usage": 140 * 1024**3,
+    "max_bytes_before_external_group_by": 70 * 1024**3,
+    "distributed_aggregation_memory_efficient": 1,
+    "max_execution_time": 2200,
+    # Spread the sessions-table reads over every replica, like the legacy job. `in_order` sends every
+    # one of these heavy reads to the first replica.
+    "load_balancing": "random",
+}
+
+# HogQL filters the sessions table by the time in the session id, which comes from the device
+# clock, while event timestamps are corrected at capture. A device clock that runs slow gives a
+# session id earlier than the session's real start, so the buffer is the clock skew we tolerate.
+# 25 hours matches the legacy pre-aggregation job and avoids the default 3 days on each side,
+# which makes these inserts read about twice as many sessions.
+DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
+
+
+def _insert_modifiers(team: Team) -> HogQLQueryModifiers:
+    return create_default_modifiers_for_team(
+        team, HogQLQueryModifiers(sessionTimestampBufferMinutes=DIMENSIONAL_SESSION_BUFFER_MINUTES)
+    )
+
+
 def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
@@ -317,6 +347,8 @@ def ensure_web_stats_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
         read_after_write=False,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=_insert_modifiers(team),
     )
 
 
@@ -335,4 +367,6 @@ def ensure_web_bounces_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
         read_after_write=False,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=_insert_modifiers(team),
     )

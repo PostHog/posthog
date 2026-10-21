@@ -9,6 +9,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
@@ -502,11 +507,19 @@ class TestGithubSource:
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
 
-    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
-        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
-        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
-        # skip rather than let it escape and be captured as error-tracking noise, and its message
-        # must not echo the integration id back to the caller (it surfaces in the API response).
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda source, config, url, team_id: source.delete_webhook(config, url, team_id),
+            lambda source, config, url, team_id: source.get_external_webhook_info(config, url, team_id),
+        ],
+        ids=["delete_webhook", "get_external_webhook_info"],
+    )
+    def test_webhook_calls_skip_gracefully_when_integration_deleted(self, call):
+        # The OAuth integration can be deleted while the source still references it (on source deletion,
+        # or when the account is disconnected); get_oauth_integration then raises "Integration not found".
+        # Webhook calls must report that rather than let it escape and be captured as error-tracking
+        # noise, and the message must not echo the integration id back (it surfaces in the API response).
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
             repository="owner/repo",
@@ -515,10 +528,10 @@ class TestGithubSource:
         with mock.patch.object(
             self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
         ):
-            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+            result = call(self.source, config, "https://ph.example/webhook", self.team_id)
 
-        assert result.success is False
-        assert "42" not in (result.error or "")
+        assert result.error
+        assert "42" not in result.error
 
     @pytest.mark.parametrize(
         "selection,expected_message",
@@ -771,20 +784,13 @@ class TestGithubSource:
             (None, "2026-03-10"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
+    def test_source_for_pipeline_threads_resolved_api_version(self, pin, expected):
         config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "issues"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "issues"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
+        result = SourceDriver(self.source, config).run("issues", [ScriptedResponse(json=[])], api_version=pin)
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_github_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.paths == ["/repos/legacy/repo/issues"]
+        assert result.requests[0].headers["x-github-api-version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):
@@ -818,3 +824,31 @@ class TestGithubSource:
         assert result.error is not None and "c/d: boom" in result.error
         # The repo that did get a hook verifies against this secret, so it must still persist.
         assert result.extra_inputs.get("signing_secret")
+
+    @pytest.mark.parametrize(
+        "rejection, expected_message",
+        [
+            (
+                ScriptedResponse(
+                    status=422,
+                    json={
+                        "message": "Validation Failed",
+                        "errors": [{"resource": "Hook", "message": 'The "push" event cannot have more than 20 hooks'}],
+                    },
+                ),
+                "This repository has reached GitHub's webhook limit.",
+            ),
+            (
+                ScriptedResponse(status=422, json={"message": "Validation Failed", "errors": [{"code": "custom"}]}),
+                "GitHub couldn't create the webhook.",
+            ),
+        ],
+    )
+    def test_create_webhook_rejection_shows_a_clean_message(self, rejection, expected_message):
+        with scripted_network([ScriptedResponse(status=200, json=[]), rejection]):
+            result = self.source.create_webhook(_pat_config(repository="o/r"), "https://hooks/x", self.team_id)
+
+        assert result.success is False
+        assert result.error is not None and expected_message in result.error
+        assert "422" not in result.error
+        assert "Validation Failed" not in result.error

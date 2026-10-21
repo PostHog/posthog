@@ -31,6 +31,44 @@ const tables = {
 }
 
 describe('BI connections', () => {
+    it('resolves aliases from a table named __proto__', () => {
+        const protoTable = table('__proto__', [
+            field('person', 'lazy_table', { table: 'persons' }),
+            field('alias', 'field_traverser', { chain: ['person'] }),
+        ])
+        const catalog = new Proxy(tables, {
+            get: (target, name, receiver) => (name === '__proto__' ? protoTable : Reflect.get(target, name, receiver)),
+        })
+        const connections = buildBIConnections({ ...source, table: '__proto__' }, catalog, [], {}, true)
+        expect(connections.map((connection) => connection.name)).toEqual(['alias', 'person'])
+    })
+
+    it('drags nested dimensions and measures using paths from the original source', () => {
+        const catalog = new Proxy(tables, {
+            ownKeys: () => {
+                throw new Error('Connection traversal must not enumerate the full table catalog')
+            },
+        })
+        const [person] = buildBIConnections(source, catalog, ['["person"]', '["person","company"]'], {}, true)
+        const [company] = person.connections
+
+        expect(company.connections).toEqual([])
+        const dimension = company.fields.dimensions[0]
+        const measure = company.fields.measures[0]
+        expect(dimension).toMatchObject({ name: 'person.company.name', expression: 'person.company.name', source })
+        expect(measure).toMatchObject({ name: 'person.company.annual_revenue', type: 'decimal', source })
+        const value = getBIDropTarget(measure, 'rows').field as BIField
+        const query = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source,
+            rows: [dimension],
+            values: [{ field: value, aggregation: 'sum' }],
+        })
+        expect(query?.query).toContain('person.company.name')
+        expect(query?.query).toContain('sum(person.company.annual_revenue)')
+        expect(query?.query).toContain('FROM events')
+    })
+
     it.each([
         ['events', 'person'],
         ['stripe_charges', 'customer'],
@@ -103,6 +141,20 @@ describe('BI connections', () => {
             expect(person.connections).toEqual([])
         }
     )
+
+    it('keeps native property groups searchable without treating warehouse JSON as PostHog properties', () => {
+        const catalog = {
+            ...tables,
+            persons: table('persons', [field('properties', 'json'), field('email', 'string')]),
+        }
+        for (const rootSource of [{ table: 'events' }, source]) {
+            const connections = buildBIConnections(rootSource, catalog, ['["person"]'], {}, true)
+            const filtered = filterBIConnections(connections, '$browser')
+            expect(filtered.flatMap((connection) => connection.fields.dimensions.map((field) => field.name))).toEqual(
+                rootSource.connectionId ? [] : ['person.properties']
+            )
+        }
+    })
 
     it('uses the PostHog table ID for hydration and status', () => {
         const catalog = { ...tables, persons: { ...table('persons', []), id: 'person-table-id' } }
@@ -181,10 +233,11 @@ describe('BI connections', () => {
         expect(person).toMatchObject({ state: 'ready', tableName: undefined, connections: [] })
         expect(person.fields.dimensions).toEqual([
             expect.objectContaining({ name: 'person.created_at', type: 'unknown', source }),
-            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
             expect.objectContaining({ name: 'person.properties', type: 'unknown', source }),
         ])
-        expect(person.fields.measures).toEqual([])
+        expect(person.fields.measures).toEqual([
+            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
+        ])
         expect(getPendingBIConnectionTables([person])).toEqual([])
     })
 

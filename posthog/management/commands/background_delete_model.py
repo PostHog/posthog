@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from posthog.tasks.tasks import background_delete_model_task
+from posthog.tasks.tasks import background_delete_model_task, ensure_not_persons_db_model
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -15,7 +15,7 @@ class Command(BaseCommand):
     help = "Start a background deletion task for a model with team_id field"
 
     def add_arguments(self, parser):
-        parser.add_argument("model_name", type=str, help="Django model name (e.g., 'posthog.Person', 'posthog.Event')")
+        parser.add_argument("model_name", type=str, help="Django model name (e.g., 'posthog.Tag')")
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to filter records for deletion")
         parser.add_argument(
             "--batch-size", type=int, default=10000, help="Number of rows to delete per batch (default: 10000)"
@@ -55,6 +55,11 @@ class Command(BaseCommand):
             raise CommandError(f"Model name must be in format 'app_label.model_name', got: {model_name}")
         except LookupError as e:
             raise CommandError(f"Model not found: {e}")
+
+        try:
+            ensure_not_persons_db_model(model)
+        except ValueError as e:
+            raise CommandError(str(e))
 
         # Check if model has team_id field
         team_field = None

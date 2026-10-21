@@ -15,6 +15,12 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import {
+    cleanTagFilters,
+    restoreTagFilters,
+    saveTagFilters,
+    type ResourceTagFilters,
+} from '../components/resourceTagFilters'
+import {
     llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList,
     llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate,
 } from '../generated/api'
@@ -27,9 +33,10 @@ import { getApiErrorDetail, getCurrentProjectId } from './scoreDefinitionModalUt
 
 export const SCORE_DEFINITIONS_PER_PAGE = 30
 
-export interface ScoreDefinitionFilters {
+export interface ScoreDefinitionFilters extends ResourceTagFilters {
     page: number
     search: string
+    created_by: number | null
     kind: ScoreDefinitionKind | ''
     archived: '' | 'true' | 'false'
     order_by: string
@@ -56,8 +63,13 @@ function cleanFilters(values: ScoreDefinitionFilterInput): ScoreDefinitionFilter
     const orderBy = values.order_by && ALLOWED_ORDER_BY_VALUES.has(values.order_by) ? values.order_by : 'name'
 
     return {
+        ...cleanTagFilters(values),
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
+        created_by:
+            Number.isSafeInteger(Number(values.created_by)) && Number(values.created_by) > 0
+                ? Number(values.created_by)
+                : null,
         kind:
             values.kind === 'categorical' || values.kind === 'numeric' || values.kind === 'boolean' ? values.kind : '',
         archived:
@@ -76,8 +88,11 @@ function cleanFilters(values: ScoreDefinitionFilterInput): ScoreDefinitionFilter
 
 function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown> {
     return {
+        tags: filters.tags,
+        tag_match: filters.tag_match,
         page: filters.page === 1 ? undefined : filters.page,
         search: filters.search || undefined,
+        created_by: filters.created_by || undefined,
         kind: filters.kind || undefined,
         archived: filters.archived === 'false' ? undefined : filters.archived === '' ? 'all' : 'true',
         order_by: filters.order_by === 'name' ? undefined : filters.order_by,
@@ -253,6 +268,10 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
                     const teamId = String(ApiConfig.getCurrentTeamId())
                     const page = await aiObservabilityScoreDefinitionsList(teamId, {
                         search: filters.search || undefined,
+                        created_by: filters.created_by || undefined,
+                        ...(filters.tags.length
+                            ? { tags: JSON.stringify(filters.tags), tag_match: filters.tag_match }
+                            : {}),
                         kind: filters.kind || undefined,
                         archived: filters.archived === '' ? undefined : filters.archived === 'true' ? true : false,
                         order_by: filters.order_by,
@@ -334,6 +353,9 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
     listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
+            if (values.currentTeamId) {
+                saveTagFilters('scorers', values.filters, values.currentTeamId)
+            }
 
             if (!objectsEqual(oldFilters, values.filters)) {
                 await asyncActions.loadScoreDefinitions(debounce)
@@ -368,11 +390,18 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
     urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityScorers()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters(searchParams)
+            if (!values.currentTeamId) {
+                return
+            }
+            const newFilters = cleanFilters({
+                ...searchParams,
+                ...restoreTagFilters('scorers', searchParams, values.currentTeamId),
+            })
 
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
             } else if (method !== 'REPLACE') {
+                actions.setFilters(newFilters, false)
                 actions.loadScoreDefinitions(false)
             }
         },
@@ -380,11 +409,19 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
     // Fires on mount with the current value and again when the project resolves, so the
     // initial load waits for bootstrap instead of throwing "Team ID is not known.".
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         currentTeamId: (currentTeamId: number | null) => {
             actions.resetForTeam()
             if (currentTeamId) {
-                actions.loadScoreDefinitions(false)
+                const filters = cleanFilters({
+                    ...router.values.searchParams,
+                    ...restoreTagFilters('scorers', router.values.searchParams, currentTeamId),
+                })
+                if (!objectsEqual(values.filters, filters)) {
+                    actions.setFilters(filters, false, false)
+                } else {
+                    actions.loadScoreDefinitions(false)
+                }
             }
         },
     })),
