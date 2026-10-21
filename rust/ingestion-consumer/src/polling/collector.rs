@@ -1,11 +1,14 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
-use common_kafka_consumer::TopicPartition;
+use common_kafka_consumer::{Charge, Partition, TopicPartition};
 use metrics::counter;
-use rdkafka::message::Message;
+use rdkafka::message::{Headers, Message};
 use tokio::time::Instant;
 
-use super::poll::{CollectedBatch, PollBuilder};
+use super::poll::{BatchStats, CollectedBatch, Delivery, PartitionDeliveries};
+use crate::types::{Accumulator, SerializedKafkaMessage};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PollLimits {
@@ -17,26 +20,98 @@ pub(crate) struct PollLimits {
 
 pub(crate) struct Collector {
     limits: PollLimits,
-    poll: Option<PollBuilder>,
     deadline: Option<Instant>,
+    accumulator: Accumulator,
+    partitions: HashMap<TopicPartition, PartitionDeliveries>,
+    stats: BatchStats,
+    started_ms: i64,
+    current_topic: Option<Arc<str>>,
 }
 
 impl Collector {
     pub(crate) fn new(limits: PollLimits) -> Self {
         Self {
             limits,
-            poll: None,
             deadline: None,
+            accumulator: Accumulator::default(),
+            partitions: HashMap::new(),
+            stats: BatchStats::default(),
+            started_ms: 0,
+            current_topic: None,
         }
     }
 
     /// The first message of a poll starts its batch timeout.
     pub(crate) fn add(&mut self, message: &impl Message, now: Instant) {
-        if self.poll.is_none() {
-            self.poll = Some(PollBuilder::new());
+        if self.deadline.is_none() {
             self.deadline = Some(now + self.limits.batch_timeout);
+            self.started_ms = current_time_ms();
         }
-        self.poll.as_mut().expect("started above").add(message);
+        if self.current_topic.as_deref() != Some(message.topic()) {
+            self.current_topic = Some(Arc::from(message.topic()));
+        }
+        let topic = Arc::clone(self.current_topic.as_ref().expect("set above"));
+        let partition = message.partition();
+        let offset = message.offset();
+        let kafka_ts = message.timestamp().to_millis().unwrap_or(0);
+
+        let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
+        self.stats.total_bytes += payload_bytes;
+
+        let mut headers = HashMap::new();
+        if let Some(rdkafka_headers) = message.headers() {
+            for i in 0..rdkafka_headers.count() {
+                let header = rdkafka_headers.get(i);
+                if let Some(value) = header.value {
+                    if let Ok(value_str) = std::str::from_utf8(value) {
+                        headers.insert(header.key.to_string(), value_str.to_string());
+                    }
+                }
+            }
+        }
+
+        let lag_ms = headers
+            .get("now")
+            .and_then(|v| parse_now_ms(v))
+            .map(|capture_ms| (self.started_ms - capture_ms).max(0));
+        if let Some(lag_ms) = lag_ms {
+            self.stats.message_lags_ms.push((partition, lag_ms));
+        }
+
+        let delivery = Delivery {
+            offset,
+            charge: message_charge(message),
+            payload_bytes,
+            kafka_ts,
+            lag_ms,
+        };
+        let key = TopicPartition::new(topic.to_string(), partition);
+        match self.partitions.get_mut(&key) {
+            Some(deliveries) => deliveries.record(&delivery),
+            None => {
+                self.partitions
+                    .insert(key, PartitionDeliveries::new(&delivery));
+            }
+        }
+
+        let serialized = SerializedKafkaMessage {
+            topic,
+            partition,
+            offset,
+            timestamp: kafka_ts,
+            key: message
+                .key()
+                .and_then(|k| std::str::from_utf8(k).ok())
+                .map(|s| s.to_string()),
+            value: message
+                .payload()
+                .and_then(|v| std::str::from_utf8(v).ok())
+                .map(|s| s.to_string()),
+            headers,
+        };
+
+        self.accumulator
+            .push(Partition(partition), serialized.into());
     }
 
     pub(crate) fn deadline(&self) -> Option<Instant> {
@@ -44,49 +119,96 @@ impl Collector {
     }
 
     pub(crate) fn take_ready(&mut self, now: Instant) -> Option<CollectedBatch> {
-        let poll = self.poll.as_ref()?;
-        let timed_out = self.deadline.is_some_and(|deadline| deadline <= now);
-        if !timed_out && !self.is_full(poll) {
+        let deadline = self.deadline?;
+        if deadline > now && !self.is_full() {
             return None;
         }
         self.deadline = None;
-        self.poll.take().map(PollBuilder::finish)
+        Some(CollectedBatch {
+            accumulator: std::mem::take(&mut self.accumulator),
+            partitions: std::mem::take(&mut self.partitions),
+            stats: std::mem::take(&mut self.stats),
+        })
     }
 
     /// Returns the messages removed.
     pub(crate) fn remove_partitions(&mut self, topic_partitions: &[TopicPartition]) -> usize {
-        let Some(poll) = self.poll.as_mut() else {
-            return 0;
-        };
-        let removed = topic_partitions
-            .iter()
-            .map(|topic_partition| poll.remove_partition(topic_partition))
-            .sum();
-        if poll.message_count() == 0 {
+        let mut removed = 0;
+        for topic_partition in topic_partitions {
+            let Some(deliveries) = self.partitions.remove(topic_partition) else {
+                continue;
+            };
+            let partition = topic_partition.partition;
+            self.accumulator.remove_partition(Partition(partition));
+            self.stats.total_bytes -= deliveries.payload_bytes;
+            self.stats
+                .message_lags_ms
+                .retain(|(lagging, _)| *lagging != partition);
+            removed += deliveries.delivered as usize;
+        }
+        if self.partitions.is_empty() {
             self.discard();
         }
         removed
     }
 
     pub(crate) fn discard(&mut self) {
-        self.poll = None;
         self.deadline = None;
+        self.accumulator = Accumulator::default();
+        self.partitions.clear();
+        self.stats = BatchStats::default();
     }
 
     /// The byte bound counts only messages already added, so a poll always
     /// carries one message, even one larger than the bound. The overshoot is
     /// at most one message, which `fetch.message.max.bytes` bounds.
-    fn is_full(&self, poll: &PollBuilder) -> bool {
-        if poll.message_count() >= self.limits.batch_size {
+    fn is_full(&self) -> bool {
+        if self.accumulator.message_count() >= self.limits.batch_size {
             return true;
         }
-        if self.limits.batch_size_bytes > 0 && poll.payload_bytes() >= self.limits.batch_size_bytes
+        if self.limits.batch_size_bytes > 0
+            && self.stats.total_bytes >= self.limits.batch_size_bytes
         {
             counter!("ingestion_consumer_batches_byte_capped_total").increment(1);
             return true;
         }
         false
     }
+}
+
+/// One delivered message's cost against the ledger: one event, and the bytes
+/// the process holds for the message. The byte count is a memory bound, so it
+/// is the payload plus the key plus every header key and value, not only the
+/// payload.
+fn message_charge(message: &impl Message) -> Charge {
+    let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
+    let key_bytes = message.key().map(|k| k.len()).unwrap_or(0);
+    let mut header_bytes = 0;
+    if let Some(headers) = message.headers() {
+        for i in 0..headers.count() {
+            let header = headers.get(i);
+            header_bytes += header.key.len() + header.value.map(|v| v.len()).unwrap_or(0);
+        }
+    }
+    Charge {
+        events: 1,
+        bytes: (payload_bytes + key_bytes + header_bytes) as u64,
+    }
+}
+
+fn current_time_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// Parse an ISO 8601 / RFC 3339 timestamp string into milliseconds since epoch.
+/// Returns `None` if the string is missing or unparseable.
+fn parse_now_ms(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
 }
 
 #[cfg(test)]

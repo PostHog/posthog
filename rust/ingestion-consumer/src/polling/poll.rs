@@ -1,31 +1,21 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Charge, Offset, Partition, TopicPartition};
-use rdkafka::message::{Headers, Message};
+use common_kafka_consumer::{Charge, Offset, TopicPartition};
 
 use crate::debug_recorder::{PartitionOffset, PartitionOffsets};
 use crate::order_sentinel::OffsetSpan;
 use crate::settlement::ChargedSlice;
-use crate::types::{Accumulator, SerializedKafkaMessage};
+use crate::types::Accumulator;
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
 /// metrics. Per-partition facts live on [`PartitionDeliveries`].
+#[derive(Default)]
 pub(crate) struct BatchStats {
     /// Per-message (partition, lag_ms) pairs — for `ingestion_lag_ms_histogram`.
     pub(crate) message_lags_ms: Vec<(i32, i64)>,
     /// Total byte size of message payloads — for `consumer_batch_size_kb`.
     pub(crate) total_bytes: usize,
-}
-
-impl BatchStats {
-    fn new() -> Self {
-        Self {
-            message_lags_ms: Vec::new(),
-            total_bytes: 0,
-        }
-    }
 }
 
 /// One delivered message, as the batch records it against its partition.
@@ -174,124 +164,6 @@ impl InFlightPoll {
     }
 }
 
-pub(crate) struct PollBuilder {
-    accumulator: Accumulator,
-    partitions: HashMap<TopicPartition, PartitionDeliveries>,
-    stats: BatchStats,
-    started_ms: i64,
-    current_topic: Option<Arc<str>>,
-}
-
-impl PollBuilder {
-    pub(crate) fn new() -> Self {
-        Self {
-            accumulator: Accumulator::default(),
-            partitions: HashMap::new(),
-            stats: BatchStats::new(),
-            started_ms: current_time_ms(),
-            current_topic: None,
-        }
-    }
-
-    pub(crate) fn message_count(&self) -> usize {
-        self.accumulator.message_count()
-    }
-
-    pub(crate) fn payload_bytes(&self) -> usize {
-        self.stats.total_bytes
-    }
-
-    pub(crate) fn add(&mut self, message: &impl Message) {
-        if self.current_topic.as_deref() != Some(message.topic()) {
-            self.current_topic = Some(Arc::from(message.topic()));
-        }
-        let topic = Arc::clone(self.current_topic.as_ref().expect("set above"));
-        let partition = message.partition();
-        let offset = message.offset();
-        let kafka_ts = message.timestamp().to_millis().unwrap_or(0);
-
-        let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
-        self.stats.total_bytes += payload_bytes;
-
-        let mut headers = HashMap::new();
-        if let Some(rdkafka_headers) = message.headers() {
-            for i in 0..rdkafka_headers.count() {
-                let header = rdkafka_headers.get(i);
-                if let Some(value) = header.value {
-                    if let Ok(value_str) = std::str::from_utf8(value) {
-                        headers.insert(header.key.to_string(), value_str.to_string());
-                    }
-                }
-            }
-        }
-
-        let lag_ms = headers
-            .get("now")
-            .and_then(|v| parse_now_ms(v))
-            .map(|capture_ms| (self.started_ms - capture_ms).max(0));
-        if let Some(lag_ms) = lag_ms {
-            self.stats.message_lags_ms.push((partition, lag_ms));
-        }
-
-        let delivery = Delivery {
-            offset,
-            charge: message_charge(message),
-            payload_bytes,
-            kafka_ts,
-            lag_ms,
-        };
-        let key = TopicPartition::new(topic.to_string(), partition);
-        match self.partitions.get_mut(&key) {
-            Some(deliveries) => deliveries.record(&delivery),
-            None => {
-                self.partitions
-                    .insert(key, PartitionDeliveries::new(&delivery));
-            }
-        }
-
-        let serialized = SerializedKafkaMessage {
-            topic,
-            partition,
-            offset,
-            timestamp: kafka_ts,
-            key: message
-                .key()
-                .and_then(|k| std::str::from_utf8(k).ok())
-                .map(|s| s.to_string()),
-            value: message
-                .payload()
-                .and_then(|v| std::str::from_utf8(v).ok())
-                .map(|s| s.to_string()),
-            headers,
-        };
-
-        self.accumulator
-            .push(Partition(partition), serialized.into());
-    }
-
-    /// Returns the messages removed.
-    pub(crate) fn remove_partition(&mut self, topic_partition: &TopicPartition) -> usize {
-        let Some(deliveries) = self.partitions.remove(topic_partition) else {
-            return 0;
-        };
-        let partition = topic_partition.partition;
-        self.accumulator.remove_partition(Partition(partition));
-        self.stats.total_bytes -= deliveries.payload_bytes;
-        self.stats
-            .message_lags_ms
-            .retain(|(lagging, _)| *lagging != partition);
-        deliveries.delivered as usize
-    }
-
-    pub(crate) fn finish(self) -> CollectedBatch {
-        CollectedBatch {
-            accumulator: self.accumulator,
-            partitions: self.partitions,
-            stats: self.stats,
-        }
-    }
-}
-
 /// Per-partition max offset + observed lag for the debug UI's batch events.
 pub(crate) fn debug_partition_offsets(
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
@@ -319,39 +191,4 @@ pub(crate) fn debug_partition_spans(
             ranges: vec![(partition.span.first, partition.span.last)],
         })
         .collect()
-}
-
-/// One delivered message's cost against the ledger: one event, and the bytes
-/// the process holds for the message. The byte count is a memory bound, so it
-/// is the payload plus the key plus every header key and value, not only the
-/// payload.
-fn message_charge(message: &impl Message) -> Charge {
-    let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
-    let key_bytes = message.key().map(|k| k.len()).unwrap_or(0);
-    let mut header_bytes = 0;
-    if let Some(headers) = message.headers() {
-        for i in 0..headers.count() {
-            let header = headers.get(i);
-            header_bytes += header.key.len() + header.value.map(|v| v.len()).unwrap_or(0);
-        }
-    }
-    Charge {
-        events: 1,
-        bytes: (payload_bytes + key_bytes + header_bytes) as u64,
-    }
-}
-
-fn current_time_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
-/// Parse an ISO 8601 / RFC 3339 timestamp string into milliseconds since epoch.
-/// Returns `None` if the string is missing or unparseable.
-fn parse_now_ms(value: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|dt| dt.timestamp_millis())
 }
