@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.contracts import ContentHashState, QueuedEmail, TemplateReference
+from products.messaging.backend.facade.contracts import ContentHashState, Queued, TemplateReference
 from products.messaging.backend.facade.templates import MessageTemplateMissing, find_template_to_send
 from products.messaging.backend.presentation.views.transactional_email_api import (
     TRANSACTIONAL_EMAIL_THROTTLES,
@@ -178,7 +178,7 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
         return self._queued(queued, target.hash_state)
 
     @staticmethod
-    def _queued(queued: QueuedEmail, hash_state: ContentHashState) -> Response:
+    def _queued(queued: Queued, hash_state: ContentHashState) -> Response:
         warnings = [TEMPLATE_SUPERSEDED] if hash_state == ContentHashState.SUPERSEDED else []
         return Response(
             SendEmailResponseSerializer(
