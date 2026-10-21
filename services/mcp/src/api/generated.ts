@@ -2888,7 +2888,7 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
-      /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+      /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
       error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
@@ -42299,6 +42299,10 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
 
     export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Optional ID from the corresponding bulk start request for upload analytics. */
+      upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Map of symbol set ID to uploaded content hash. */
       content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
     }
@@ -42310,6 +42314,10 @@ export namespace Schemas {
       force?: boolean;
       /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
       skip_on_conflict?: boolean;
+      /** Optional ID used to correlate upload analytics across start and finish requests. */
+      upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
@@ -68596,6 +68604,12 @@ export namespace Schemas {
       name: string;
       /** What the template is for and when to use it. */
       description?: string;
+      /**
+         * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -84600,6 +84614,12 @@ export namespace Schemas {
       name?: string;
       /** What the template is for and when to use it. */
       description?: string;
+      /**
+         * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -102444,6 +102464,8 @@ export namespace Schemas {
       tools: ScoutToolCatalogueEntry[];
       /** Tool selections expanded and validated on save. */
       tool_presets: ScoutToolPreset[];
+      /** Tools every scout run holds. Show these as always available, excluding them from saved selections. */
+      readonly run_context_tools: readonly string[];
       /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
       presets: ScoutScopePreset[];
       /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */

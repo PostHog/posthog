@@ -72,6 +72,14 @@ export interface ResolvedState {
     scopeGatedTools: ScopeGatedTool[]
     flagGatedTools: FlagGatedTool[]
     /**
+     * The tools a scout run with a picked tool list holds, from token introspection.
+     * Undefined means no per-tool policy. Every other tool is hidden, and exec refuses it
+     * as `tool_not_granted`.
+     */
+    heldTools?: ReadonlySet<string> | undefined
+    /** The task a sandbox token is bound to, from token introspection. */
+    sandboxTaskId?: string | undefined
+    /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
      * so they roll out together. Also forced off in read-only mode: a connected
@@ -300,18 +308,25 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
+        // The held set is a server-derived ceiling on top of every other filter, so a tool
+        // outside it is neither listed nor offered as a gated hint the agent could chase.
+        const heldTools = _apiKey?.mcp_allowed_tools ? new Set(_apiKey.mcp_allowed_tools) : undefined
+        const isHeld = (tool: { name: string }): boolean => !heldTools || heldTools.has(tool.name)
+
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
-        )
+        const allTools = (
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            )
+        ).filter(isHeld)
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
-        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
         return {
             reqCtx,
@@ -334,6 +349,8 @@ export class RequestStateResolver {
             scopeGatedTools,
             flagGatedTools,
             gatewayToolFilter: { tools, features, excludeTools },
+            heldTools,
+            sandboxTaskId: _apiKey?.sandbox_task_id,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
