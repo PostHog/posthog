@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
@@ -65,6 +67,17 @@ ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS: tuple[str, ...] = (
     "profile_links_taps",
     "follows_and_unfollows",
 )
+# `(metric, breakdown)` pairs for `account_insights_breakdowns`. Each pair is requested
+# with `metric_type=total_value` once per day, like the metrics above.
+ACCOUNT_INSIGHT_BREAKDOWNS: tuple[tuple[str, str], ...] = (
+    ("follows_and_unfollows", "follow_type"),
+    ("likes", "media_product_type"),
+    ("comments", "media_product_type"),
+    ("shares", "media_product_type"),
+    ("saves", "media_product_type"),
+    ("total_interactions", "media_product_type"),
+    ("profile_links_taps", "contact_button_type"),
+)
 
 # Per-media metrics, keyed by `media_product_type`. Each list must match Meta's media
 # insights table exactly: one metric that does not apply to the post fails the whole
@@ -96,7 +109,7 @@ MEDIA_INSIGHT_BREAKDOWNS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-@dataclass
+@frozen
 class InstagramEndpointConfig:
     name: str
     primary_keys: list[str]
@@ -116,6 +129,10 @@ class InstagramEndpointConfig:
     supports_time_window: bool = False
     # Columns carrying Meta's `+0000` offset, normalized to ISO 8601 on the way out.
     timestamp_fields: tuple[str, ...] = field(default_factory=tuple)
+    # Account insight requests for each window: daily time series metrics, then
+    # `(metric, breakdown)` pairs asked for as `total_value` once per day.
+    insight_time_series_metrics: tuple[str, ...] = field(default_factory=tuple)
+    insight_total_value_metrics: tuple[tuple[str, Optional[str]], ...] = field(default_factory=tuple)
 
 
 INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
@@ -201,6 +218,21 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         sort_mode="asc",
         supports_time_window=True,
         timestamp_fields=("date",),
+        insight_time_series_metrics=ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
+        insight_total_value_metrics=tuple((metric, None) for metric in ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS),
+    ),
+    # Daily account metrics split by a breakdown dimension. A separate table, so the key
+    # of `account_insights` stays the same for existing syncs.
+    "account_insights_breakdowns": InstagramEndpointConfig(
+        name="account_insights_breakdowns",
+        edge="insights",
+        primary_keys=["instagram_account_id", "metric", "breakdown", "breakdown_value", "date"],
+        incremental_fields=[incremental_field("date")],
+        partition_key="date",
+        sort_mode="asc",
+        supports_time_window=True,
+        timestamp_fields=("date",),
+        insight_total_value_metrics=ACCOUNT_INSIGHT_BREAKDOWNS,
     ),
 }
 
