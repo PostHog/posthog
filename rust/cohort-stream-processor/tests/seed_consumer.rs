@@ -39,7 +39,7 @@ use cohort_stream_processor::partitions::{
     merge_partition_key, partition_for, partition_of, AdmittedSplit, ClaimedSplit,
     CohortConsumerContext, ConsumerPauser, Follower, FollowerSet, InputGroups, LiveWatermarks,
     OffsetTracker, PartitionOwnership, PartitionPauser, PartitionRouter, SeedPacingConfig,
-    COHORT_PARTITION_COUNT,
+    SplitClaim, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -554,9 +554,10 @@ impl Groups {
 /// Admits and claims `ownership` through the ownership fence on the groups `config` names, as the
 /// processor does at boot.
 async fn claim(config: Config, ownership: PartitionOwnership) -> ClaimedSplit {
+    let claim = SplitClaim::new(ownership, None).expect("a split outside a reshard");
     tokio::task::spawn_blocking(move || {
         let groups = InputGroups::new(&config);
-        AdmittedSplit::try_admit(ownership, &groups)
+        AdmittedSplit::try_admit(claim, &groups)
             .expect("the fence admits the split")
             .claim(&groups)
             .expect("claim the owned partitions")

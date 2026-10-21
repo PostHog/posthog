@@ -115,7 +115,7 @@ To connect, create a Google Cloud service account and enable the **Play Develope
 Leave the package names blank to sync every app the service account can see.""",
             iconPath="/static/services/google_play_console.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-play-console",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

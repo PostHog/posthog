@@ -81,6 +81,7 @@ class GitRepositoryCloneRequest:
     sandbox_id: str
     github_integration_id: int
     repository: str
+    branch: str | None = None
 
 
 @frozen
@@ -101,6 +102,7 @@ class GitRepositoryHandoffRequest:
     workspace_path: str
     github_integration_id: int
     repository: str
+    base_branch: str | None = None
 
 
 @frozen
@@ -178,7 +180,9 @@ def clone_repository(request: GitRepositoryCloneRequest) -> str:
     with wizard_span("wizard.repository.credentials"):
         github_token = get_github_token(request.github_integration_id) or ""
     with wizard_span("wizard.repository.clone") as span:
-        clone_result = sandbox.clone_repository(request.repository, github_token=github_token, shallow=True)
+        clone_result = sandbox.clone_repository(
+            request.repository, github_token=github_token, shallow=True, branch=request.branch
+        )
         span.set_attribute("process.exit.code", clone_result.exit_code)
 
         _raise_for_failure(
@@ -316,6 +320,7 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
                 integration_id=request.github_integration_id,
                 repository=request.repository,
                 head_branch=branch,
+                base_branch=request.base_branch,
                 title=PULL_REQUEST_TITLE,
                 body=handoff_body,
                 source="wizard",
