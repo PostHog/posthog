@@ -19,6 +19,7 @@ from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREF
 from products.signals.backend.activity_summary.prompt import system_prompt
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
+    MAX_LIMITS,
     MAX_SUMMARY_CHARS,
     SCOUT_CLIENT_PREFIX,
     RenderLimits,
@@ -65,12 +66,13 @@ def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFA
     return _UNPRICED_UPDATE_COST_USD if bound is None else bound
 
 
-def daily_usage(now: datetime.datetime, limits: RenderLimits = DEFAULT_LIMITS) -> DailyUsage:
+def daily_usage(now: datetime.datetime) -> DailyUsage:
     """Updates that called the model in the last 24 hours, and their summed cost, over all teams.
 
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
-    A row without a cost counts as the most one update can cost, so missing usage cannot pass the cap.
+    A row without a cost counts as the most one update can cost under the largest limits the flag allows,
+    because the row can come from a tick with larger limits than now. So missing usage cannot pass the cap.
     An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
     rows = (
@@ -85,7 +87,7 @@ def daily_usage(now: datetime.datetime, limits: RenderLimits = DEFAULT_LIMITS) -
     )
     return DailyUsage(
         updates=rows["updates"],
-        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(limits),
+        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(MAX_LIMITS),
     )
 
 

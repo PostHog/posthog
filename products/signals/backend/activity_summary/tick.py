@@ -85,8 +85,9 @@ class ActivitySummaryTickPlan:
     min_update_interval_hours: float
     emit_embeddings: bool
     capture_events: bool
-    limits: RenderLimits
     stop_reason: str | None
+    # A default, so a plan that a workflow history recorded before this field existed still decodes.
+    limits: RenderLimits = DEFAULT_LIMITS
 
 
 @frozen
@@ -126,7 +127,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
-    usage = daily_usage(now, config.limits) if enabled else None
+    usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick

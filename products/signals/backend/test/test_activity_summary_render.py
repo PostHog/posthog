@@ -277,6 +277,19 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
 
 
+def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:
+    rendered = build_input(
+        [_task("why", summary="Asked: why did signups drop?", days_ago=3)],
+        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(sections_max_chars=1),
+    )
+
+    assert rendered is not None
+    assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
+
+
 PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
 
 

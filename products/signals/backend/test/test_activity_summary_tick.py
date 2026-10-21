@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
+from temporalio.converter import DataConverter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -31,7 +33,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -224,7 +226,7 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd())
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
@@ -461,3 +463,32 @@ async def test_a_disabled_tick_runs_no_pair() -> None:
     result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
+
+
+@parameterized.expand(
+    [
+        ("tick plan", ActivitySummaryTickPlan, lambda: _plan(1)),
+        (
+            "pair input",
+            ActivitySummaryPairInput,
+            lambda: ActivitySummaryPairInput(
+                team_id=1,
+                user_id=2,
+                min_units=3,
+                min_update_interval_hours=24.0,
+                emit_embeddings=True,
+                capture_events=True,
+            ),
+        ),
+    ]
+)
+def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limits(
+    _name: str, cls: type, build: Any
+) -> None:
+    converter = DataConverter.default.payload_converter
+    recorded = {key: value for key, value in dataclasses.asdict(build()).items() if key != "limits"}
+
+    [decoded] = converter.from_payloads(converter.to_payloads([recorded]), [cls])
+
+    assert decoded == build()
+    assert decoded.limits == DEFAULT_LIMITS

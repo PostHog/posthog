@@ -115,6 +115,7 @@ class RenderLimits:
 
 
 DEFAULT_LIMITS = RenderLimits()
+MAX_LIMITS = RenderLimits(**{field.name: field.metadata["max_value"] for field in dataclasses.fields(RenderLimits)})
 
 
 class Drop(StrEnum):
@@ -390,8 +391,8 @@ def _sections_chars(sections: Sequence[tuple[str, list[Unit]]]) -> int:
 def enforce_budget(
     sections: list[tuple[str, list[Unit]]], drops: Counter[str], max_chars: int = SECTIONS_MAX_CHARS
 ) -> None:
-    """Drop the oldest unit across sections until the rendered sections fit `max_chars`."""
-    while _sections_chars(sections) > max_chars:
+    """Drop the oldest unit across sections until the rendered sections fit `max_chars`, or no unit is left."""
+    while _sections_chars(sections) > max_chars and any(units for _, units in sections):
         oldest = min((units[0].at, index) for index, (_, units) in enumerate(sections) if units)
         sections[oldest[1]][1].pop(0)
         drops[Drop.SECTIONS_BUDGET] += 1
