@@ -3,9 +3,9 @@ import { createDecipheriv } from 'node:crypto'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import type { TeamMonthKey } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
-import type { FetchCandidate } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/collected-urls-record'
-import type { ImageFetchResult } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 
+import type { FetchCandidate } from './collected-urls-record'
+import type { ImageFetchResult } from './image-fetcher'
 import { RawImageStore } from './raw-image-store'
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png body')])

@@ -4,12 +4,12 @@ import { Counter } from 'prom-client'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { sealV4Frame } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/frame'
 import type { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
-import type { FetchCandidate } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/collected-urls-record'
-import type { ImageFetchResult } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
-import { ImageFetchProcessingMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/processing-metrics'
 
+import type { FetchCandidate } from './collected-urls-record'
+import type { ImageFetchResult } from './image-fetcher'
 import type { RefreshingImageSink } from './image-sink'
 import { InvalidImageTransportError, prepareFetchedImage } from './image-transport'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { parseV4UrlRef } from './v4-url-ref'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
