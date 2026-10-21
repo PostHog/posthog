@@ -14,12 +14,14 @@ export function BroadcastPreviousSendBanner({ sourceRecord }: { sourceRecord: st
     if (!previousSend) {
         return null
     }
-    const sentAt = previousSend.latestJob?.created_at
-    const message = sentAt
-        ? `You already emailed about this on ${dayjs(sentAt).format('MMMM D, YYYY')}${
-              sentCount ? ` (${pluralize(sentCount, 'person', 'people')})` : ''
-          }.`
-        : 'A broadcast about this is already scheduled.'
+    const message =
+        previousSend.state === 'sent' && previousSend.job
+            ? `You already emailed about this on ${dayjs(previousSend.job.created_at).format('MMMM D, YYYY')}${
+                  sentCount ? ` (${pluralize(sentCount, 'person', 'people')})` : ''
+              }.`
+            : previousSend.state === 'sending'
+              ? 'A broadcast about this is sending now.'
+              : 'A broadcast about this is already scheduled.'
     return (
         <div data-attr="broadcast-previous-send">
             <LemonBanner type="warning">
