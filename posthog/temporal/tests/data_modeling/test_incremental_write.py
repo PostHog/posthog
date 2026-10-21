@@ -38,8 +38,9 @@ def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
         pytest.param([([1, None], ["a", "b"])], "is null", id="null_key"),
     ],
 )
-def test_single_column_violations_are_detected(batches: list[tuple], match: str) -> None:
-    tracker = UniqueKeyTracker(("id",))
+@pytest.mark.parametrize("max_bytes", [1, 256 * 1024 * 1024], ids=["disk", "memory"])
+def test_single_column_violations_are_detected(batches: list[tuple], match: str, max_bytes: int) -> None:
+    tracker = UniqueKeyTracker(("id",), max_bytes=max_bytes)
 
     with pytest.raises(IncrementalWriteError, match=match):
         for ids, names in batches:
@@ -53,15 +54,24 @@ def test_distinct_keys_across_batches_pass() -> None:
     tracker.check(_batch([3, 4], ["c", "d"]))
 
 
-def test_composite_key_is_checked_as_a_tuple() -> None:
-    """Columns may repeat individually; only the full tuple repeating is a violation."""
-    tracker = UniqueKeyTracker(("id", "name"))
+@pytest.mark.parametrize("max_bytes", [1, 256 * 1024 * 1024], ids=["disk", "memory"])
+def test_composite_key_is_checked_as_a_tuple(max_bytes: int) -> None:
+    tracker = UniqueKeyTracker(("id", "name"), max_bytes=max_bytes)
 
     tracker.check(_batch([1, 1], ["a", "b"]))
     tracker.check(_batch([2, 2], ["a", "b"]))
 
     with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
         tracker.check(_batch([1], ["a"]))
+
+
+@pytest.mark.parametrize("value,duplicate", [(-0.0, 0.0), (float("nan"), float("nan"))])
+def test_spilled_float_keys_preserve_arrow_equality(value: float, duplicate: float) -> None:
+    tracker = UniqueKeyTracker(("key",), max_bytes=1)
+    tracker.check(pa.record_batch([[value]], names=["key"]))
+    with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+        tracker.check(pa.record_batch([[duplicate]], names=["key"]))
+    tracker.close()
 
 
 def test_a_missing_key_column_names_the_column() -> None:
@@ -71,12 +81,14 @@ def test_a_missing_key_column_names_the_column() -> None:
         tracker.check(_batch([1], ["a"]))
 
 
-def test_exceeding_the_memory_cap_fails_loudly() -> None:
-    """The cap must fail the run, never silently stop checking."""
+def test_spilling_preserves_keys_from_earlier_batches() -> None:
     tracker = UniqueKeyTracker(("id",), max_bytes=8)
 
-    with pytest.raises(IncrementalWriteError, match="too many unique keys"):
-        tracker.check(_batch([1, 2, 3, 4], ["a", "b", "c", "d"]))
+    tracker.check(_batch([1], ["a"]))
+    tracker.check(_batch([2, 3, 4], ["b", "c", "d"]))
+    with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+        tracker.check(_batch([1], ["a"]))
+    tracker.close()
 
 
 @pytest.mark.parametrize(
