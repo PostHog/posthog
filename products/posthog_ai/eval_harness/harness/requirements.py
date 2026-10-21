@@ -49,7 +49,8 @@ _IMPLIES: dict[Infra, frozenset[Infra]] = {
     Infra.LIVE_SERVER: frozenset({Infra.DATABASE}),
     # Both services take the live server URL as their upstream.
     Infra.LLM_GATEWAY: frozenset({Infra.LIVE_SERVER}),
-    Infra.MCP_SERVER: frozenset({Infra.LIVE_SERVER}),
+    # The MCP step also builds the skills, whose HogQL examples render against the seeded master team.
+    Infra.MCP_SERVER: frozenset({Infra.LIVE_SERVER, Infra.DEMO_DATA}),
     # Demo seeding's person/group reads go through the personhog router; a dead
     # router would poison its 30s negative group-types cache for the whole run.
     Infra.DEMO_DATA: frozenset({Infra.DATABASE, Infra.PERSONHOG}),

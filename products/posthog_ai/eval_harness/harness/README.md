@@ -47,7 +47,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 
 Discovery happens first, before anything is provisioned, so a typo'd selector costs a module import rather than a database build.
 Every step below is gated on the selected suites' infrastructure union — a step whose `Infra` member no run requires is skipped, and skipped steps register no teardown.
-The sequence as written is the sandboxed (full) path; a one-shot-only run performs just steps 1–3 and 8.
+The sequence as written is the sandboxed (full) path; a one-shot-only run performs just steps 1–3 and 6.
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
@@ -56,10 +56,11 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
-5. The LLM gateway (`:13308`) starts and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
-6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
-7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
-8. The master Hedgebox team is seeded.
+5. The LLM gateway (`:13308`) starts.
+6. The master Hedgebox team is seeded. This happens before the skill build, because HogQL examples in skill templates render against a Team, and a fresh test database has none until this step.
+7. Local skills are built. A failed build stops the run instead of reusing an older `dist/skills`. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
+8. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
+9. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
 
 The async phase then starts the Temporal dev server on the main loop, applies the provider's settings overrides, terminates stale workflows, starts the Temporal worker on its own thread and loop, and fans the suites out with `asyncio.gather`.
 

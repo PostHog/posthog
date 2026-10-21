@@ -293,6 +293,23 @@ class SandboxedEvalHarness:
             reporter.setup_started("start LLM gateway")
             assert self._live_server is not None
             self._stack.callback(start_llm_gateway(self._live_server.url))
+        # Seed before building skills: HogQL examples in skill templates render against a Team,
+        # and on a fresh test database the master team is the first one that exists.
+        if Infra.DEMO_DATA in required:
+            reporter.setup_started("prepare demo data")
+            assert self._database is not None
+            self._demo_data = ensure_demo_ready(
+                blocker=self._database.blocker,
+                agent_model=self.options.agent_model,
+                agent_runtime=self.options.agent_runtime,
+                reasoning_effort=self.options.reasoning_effort,
+                sandbox_timeout_seconds=(
+                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
+                    if self.provider is not None
+                    else None
+                ),
+            )
+
         if Infra.MCP_SERVER in required:
             reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
@@ -325,21 +342,6 @@ class SandboxedEvalHarness:
         self._posthog_client = get_client("US")
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
-
-        if Infra.DEMO_DATA in required:
-            reporter.setup_started("prepare demo data")
-            assert self._database is not None
-            self._demo_data = ensure_demo_ready(
-                blocker=self._database.blocker,
-                agent_model=self.options.agent_model,
-                agent_runtime=self.options.agent_runtime,
-                reasoning_effort=self.options.reasoning_effort,
-                sandbox_timeout_seconds=(
-                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
-                    if self.provider is not None
-                    else None
-                ),
-            )
 
     async def _run_suites(
         self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter

@@ -305,9 +305,13 @@ def build_local_skills(*, set_bind_mount_env: bool) -> Path:
     template helpers (e.g. HogQL example rendering) guard on that setting. The
     harness sets ``DEBUG=1`` in the environment before ``django.setup()``, so
     that ordering holds by the time this runs.
+
+    A failed build raises instead of reusing an older ``dist/skills``: the cache
+    would pin the new source hash onto the old output, and every later run would
+    silently give the agent skills from another branch or edit.
     """
     cache = LocalSkillsCache()
-    dist_dir = cache.ensure_built()
+    dist_dir = cache.ensure_built(allow_stale=False)
     if set_bind_mount_env:
         # Only ``DockerSandbox.create`` reads this to bind-mount the built skills.
         # Under the modal provider the locally built skills are instead baked into
