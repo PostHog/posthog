@@ -7670,7 +7670,8 @@ class QueryStatus(BaseModel):
         default=None,
         description=(
             "Stable machine-readable code for the error, when known: the DRF exception"
-            " code, or the ClickHouse error name."
+            " code, the ClickHouse error name, the HogQL error code, or"
+            " `unhandled_<exception class>` for a failure that no handler classified."
         ),
     )
     error_message: str | None = None
