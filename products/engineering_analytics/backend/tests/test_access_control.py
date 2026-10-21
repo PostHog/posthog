@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql.database.database import Database
@@ -30,6 +31,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
+from products.engineering_analytics.backend.logic.views import ci_rows
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
@@ -37,6 +39,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     link_schema,
 )
+from products.engineering_analytics.backend.tests.test_materialized_ci import _ready_views
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -249,3 +252,29 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
         assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
+
+    @parameterized.expand(["allowed", "raw_table_denied", "stored_view_denied"])
+    def test_materialized_reads_preserve_raw_and_view_permissions(self, condition: str) -> None:
+        views = _ready_views(self)
+        if condition != "allowed":
+            self._create_access_control(
+                self.no_access_user,
+                resource="warehouse_table" if condition == "raw_table_denied" else "warehouse_view",
+                resource_id=str(self.tables[WORKFLOW_RUNS_SCHEMA].id)
+                if condition == "raw_table_denied"
+                else str(views[ci_rows.RUNS_VIEW_NAME].id),
+                access_level="none",
+            )
+        with (
+            mock.patch("posthoganalytics.feature_enabled", return_value=True),
+            mock.patch(_FLAG, return_value=True),
+        ):
+            reader = CuratedGitHubSource.for_team(
+                self.team, user_access_control=UserAccessControl(self.no_access_user, self.team)
+            )
+            source = reader.run_source()
+            if condition == "allowed":
+                assert ci_rows.RUNS_VIEW_NAME in source
+            else:
+                assert ci_rows.RUNS_VIEW_NAME not in source
+            assert reader.may_read_ci_tables() is (condition != "raw_table_denied")

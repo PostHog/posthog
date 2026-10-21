@@ -178,7 +178,7 @@ def query_jobs_by_run(
 
 def _latest_run_attempt(*, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None) -> int | None:
     response = curated.run(
-        _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
         query_type="engineering_analytics.workflow_jobs_latest_attempt",
         placeholders={"run_id": ast.Constant(value=run_id)},
     )

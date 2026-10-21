@@ -46,6 +46,7 @@ from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
+from products.engineering_analytics.backend.logic.materialized_ci import MaterializedCI
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -195,6 +196,8 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
+        self._materialized_ci: MaterializedCI | None = None
+        self._materialized_ci_resolved = False
         # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
         self._lock = threading.Lock()
 
@@ -240,10 +243,12 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self, *, started_floor: bool = False) -> str:
+    def run_source(self, *, started_floor: bool = False, live: bool = False) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
-        run_started_floor_constant)."""
+        run_started_floor_constant). ``live`` preserves current-status reads and raw step lookups."""
+        if not live and (stored := self._stored_ci()):
+            return f"({stored.runs(started_floor=started_floor)})"
         query = workflow_runs.build_query(
             self._runs_table(),
             pull_requests_table=self._tables.pull_requests,
@@ -261,6 +266,8 @@ class CuratedGitHubSource:
         ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
         if not self._tables.workflow_jobs:
             return None
+        if not include_steps and (stored := self._stored_ci()):
+            return f"({stored.jobs(created_floor=created_floor)})"
         query = workflow_jobs.build_query(
             self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
         )
@@ -292,7 +299,9 @@ class CuratedGitHubSource:
         without it would serve an answer built from Depot rows to a caller who has no access to them.
         """
         depot = self._depot_job_attempts()
-        return f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+        scope = f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+        stored = self._stored_ci()
+        return f"{scope}|{stored.cache_scope}" if stored else scope
 
     def may_read_ci_tables(self) -> bool:
         """Whether this reader's catalog grants every table a CI read uses.
@@ -309,9 +318,22 @@ class CuratedGitHubSource:
 
     def ci_data_freshness(self) -> CIDataFreshness:
         """When the runs and jobs this handle reads were last synced from their sources."""
+        if stored := self._stored_ci():
+            return stored.freshness
         return resolve_ci_data_freshness(
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
+
+    def _stored_ci(self) -> MaterializedCI | None:
+        catalog = self._catalog()
+        depot = self._depot_job_attempts()
+        with self._lock:
+            if not self._materialized_ci_resolved:
+                self._materialized_ci = MaterializedCI.resolve(
+                    team=self._team, tables=self._tables, depot=depot, catalog=catalog
+                )
+                self._materialized_ci_resolved = True
+            return self._materialized_ci
 
     def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
         return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
@@ -472,6 +494,12 @@ class CuratedGitHubSource:
         """
         if not self._tables.workflow_jobs:
             return None
+        if stored := self._stored_ci():
+            query = job_costs.build_attributed_query(
+                costed_jobs=stored.jobs(created_floor=created_floor, with_cost=True),
+                runs=stored.runs(include_shells=True),
+            )
+            return f"({query})"
         query = job_costs.build_query(
             jobs_table=self._jobs_table(self._tables.workflow_jobs),
             runs_table=self._runs_table(),
@@ -485,7 +513,7 @@ class CuratedGitHubSource:
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
         parses the whole runs source again.
         """
-        return f"runs AS {self.run_source()}"
+        return f"runs AS {self.run_source(live=True)}"
 
     def _pr_scope_cte(self, pr_scope_where: str) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over

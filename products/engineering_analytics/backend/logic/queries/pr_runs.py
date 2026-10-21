@@ -39,7 +39,7 @@ def query_pr_runs(
     repo_name: str,
 ) -> list[WorkflowRunDetail]:
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
         query_type="engineering_analytics.pr_runs",
         placeholders={
             "pr_number": ast.Constant(value=pr_number),
