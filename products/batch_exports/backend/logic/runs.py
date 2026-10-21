@@ -43,14 +43,14 @@ def _to_run_detail(run: BatchExportRun) -> contracts.BatchExportRunDetail:
 
 
 def _query_export_runs(team_id: int, export_id: UUID) -> QuerySet[BatchExportRun]:
-    return BatchExportRun.objects.filter(batch_export_id=export_id, batch_export__team_id=team_id)
+    return BatchExportRun.objects.filter(
+        batch_export_id=export_id, batch_export__team_id=team_id, batch_export__deleted=False
+    )
 
 
 def _get_run(team_id: int, export_id: UUID, run_id: UUID) -> BatchExportRun:
-    # The exports API hides a deleted export, so its runs cannot be read, retried or cancelled either.
-    runs = _query_export_runs(team_id, export_id).filter(batch_export__deleted=False)
     try:
-        return runs.select_related("batch_export").get(id=run_id)
+        return _query_export_runs(team_id, export_id).select_related("batch_export").get(id=run_id)
     except BatchExportRun.DoesNotExist as e:
         raise contracts.BatchExportRunNotFoundError() from e
 

@@ -275,7 +275,7 @@ def test_cannot_cancel_completed_batch_export_run(
 ):
     """Cancel finds a run outside the list's filters, because the UI retries and cancels older runs.
 
-    A run of a deleted export is not found, as the export itself is not.
+    A run of a deleted export is not found and not listed, as the export itself is not found.
     """
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
@@ -297,6 +297,8 @@ def test_cannot_cancel_completed_batch_export_run(
     assert response.status_code == expected_status, response.json()
     if expected_status == status.HTTP_400_BAD_REQUEST:
         assert response.json()["detail"] == "Cannot cancel a run that is in 'Completed' status"
+    if export_deleted:
+        assert get_batch_export_runs_ok(client, team.pk, batch_export.id)["results"] == []
 
     run.refresh_from_db()
     assert run.status == BatchExportRun.Status.COMPLETED
