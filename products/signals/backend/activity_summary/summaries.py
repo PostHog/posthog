@@ -16,13 +16,12 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 
 from products.signals.backend.activity_summary.prompt import (
     RESPONSE_FORMAT,
-    SUMMARY_MAX_WORDS,
     MalformedSummaryError,
     normalize_summary,
     system_prompt,
     user_message,
 )
-from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS
+from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS, SUMMARY_MAX_WORDS
 
 AI_PRODUCT = "activity_summary"
 # Not a person: the gateway attributes every call to the pipeline.
