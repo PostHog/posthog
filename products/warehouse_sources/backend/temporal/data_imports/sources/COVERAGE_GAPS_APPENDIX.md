@@ -9394,10 +9394,10 @@ Today (13): `customers`, `locations`, `orders`, `picklists`, `products`, `purcha
 
 Diffed against: <https://picqer.com/en/api>
 
-- [ ] `/stockhistory` — every stock movement in and out of the warehouse with old/new levels, reason and change_type - the core inventory event stream (high)
-- [ ] `/shipments (also /picklists/{idpicklist}/shipments)` — actual outbound shipments with carrier and tracking; picklists alone can't answer ship-rate or carrier-mix questions (high)
-- [ ] `/warehouses/{idwarehouse}/stock and /products/{idproduct}/stock` — current stock level per product per warehouse; the products table has no per-warehouse quantities (high)
-- [ ] `/return_reasons` — lookup resolving the reason ID carried on the returns we already sync (high)
+- [x] `/stockhistory` — every stock movement in and out of the warehouse with old/new levels, reason and change_type - the core inventory event stream (high)
+- [x] `/shipments (also /picklists/{idpicklist}/shipments)` — actual outbound shipments with carrier and tracking; picklists alone can't answer ship-rate or carrier-mix questions (high)
+- [x] `/warehouses/{idwarehouse}/stock and /products/{idproduct}/stock` — current stock level per product per warehouse; the products table has no per-warehouse quantities (high)
+- [x] `/return_reasons` — lookup resolving the reason ID carried on the returns we already sync (high)
 - [ ] `/return_statuses` — lookup resolving the status ID on synced returns (high)
 - [ ] `/backorders` — unfulfillable order lines - the standard stockout/backorder analysis (medium)
 - [ ] `/picklists/batches` — batch-picking grouping over picklists; needed for picker throughput and batch efficiency (medium)
