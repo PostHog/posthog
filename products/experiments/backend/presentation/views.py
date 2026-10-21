@@ -85,7 +85,12 @@ from products.experiments.backend.facade.legacy_migration import (
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-from products.experiments.backend.llm_metric_templates import build_template, list_templates
+from products.experiments.backend.llm_metric_templates import (
+    build_template,
+    eval_pass_rate_sources,
+    list_templates,
+    rebuild_eval_pass_rate_metrics,
+)
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
@@ -1271,8 +1276,12 @@ class EnterpriseExperimentsViewSet(
         feature_flag_key = data.get("feature_flag_key") or _slugify_feature_flag_key(name, team_id=self.team.id)
 
         metrics: list[dict[str, Any]] = []
+        prompt_metadata: dict[str, Any] = {"name": prompt_name, "templates": templates, "versions": versions}
         for template in templates:
-            metric_dict = build_template(template, prompt_name, self.team.id).model_dump(exclude_none=True)
+            metric = build_template(template, prompt_name, self.team.id)
+            if template == "eval_pass_rate":
+                prompt_metadata["eval_pass_rate_sources"] = eval_pass_rate_sources(metric)
+            metric_dict = metric.model_dump(exclude_none=True)
             metric_dict.setdefault("kind", "ExperimentMetric")
             metrics.append(metric_dict)
 
@@ -1289,13 +1298,7 @@ class EnterpriseExperimentsViewSet(
             name=name,
             feature_flag_key=feature_flag_key,
             description=data.get("description", ""),
-            parameters={
-                "prompt_metadata": {
-                    "name": prompt_name,
-                    "templates": templates,
-                    "versions": versions,
-                },
-            },
+            parameters={"prompt_metadata": prompt_metadata},
             feature_flag_config={
                 "filters": {
                     "multivariate": {"variants": variants},
@@ -1307,6 +1310,9 @@ class EnterpriseExperimentsViewSet(
             serializer_context=self.get_serializer_context(),
             allow_unknown_events=True,
         )
+        # An evaluation change between building the filters and saving the experiment found no experiment to rebuild.
+        if "eval_pass_rate" in templates and rebuild_eval_pass_rate_metrics(self.team.id):
+            experiment.refresh_from_db()
 
         return Response(
             ExperimentSerializer(experiment, context=self.get_serializer_context()).data,

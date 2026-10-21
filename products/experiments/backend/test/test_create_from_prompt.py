@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Any
 
 from parameterized import parameterized
@@ -10,8 +11,9 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.facade.api import get_evaluation_pass_filters
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES, rebuild_eval_pass_rate_metrics
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -27,6 +29,30 @@ def _expected_splits(n: int) -> list[int]:
     splits = [base] * n
     splits[-1] += 100 - base * n
     return splits
+
+
+def _use_legacy_sources(experiment: Experiment, *, with_result_type: bool = False) -> None:
+    assert experiment.metrics is not None and experiment.parameters is not None
+    prompt_name = experiment.parameters["prompt_metadata"]["name"]
+    experiment.parameters["prompt_metadata"].pop("eval_pass_rate_sources")
+    prompt_filter = {"key": "$ai_prompt_name", "type": "event", "value": prompt_name, "operator": "exact"}
+    applicable = {"key": "JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'", "type": "hogql"}
+    result = {"key": "JSONExtractBool(properties, '$ai_evaluation_result')", "type": "hogql"}
+    boolean_only = (
+        [{"key": "JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')", "type": "hogql"}]
+        if with_result_type
+        else []
+    )
+    experiment.metrics[1]["numerator"] = {
+        "kind": "EventsNode",
+        "event": "$ai_evaluation",
+        "properties": [prompt_filter, result, applicable, *boolean_only],
+    }
+    experiment.metrics[1]["denominator"] = {
+        "kind": "EventsNode",
+        "event": "$ai_evaluation",
+        "properties": [prompt_filter, applicable, *boolean_only],
+    }
 
 
 class TestExperimentsCreateFromPrompt(APILicensedTest):
@@ -126,6 +152,91 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
             pass_filters = get_evaluation_pass_filters(self.team.id)
             self.assertIn(pass_filters.passed, [prop["key"] for prop in metric["numerator"]["properties"]])
             self.assertIn(pass_filters.graded, [prop["key"] for prop in metric["denominator"]["properties"]])
+
+    def _create_detector_evaluation(self) -> None:
+        Evaluation.objects.create(
+            team=self.team,
+            name="Detector",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={"true_is_failure": True},
+        )
+
+    @parameterized.expand(
+        [
+            ("renamed", lambda e: e.metrics[1].update(name="My pass rate"), True),
+            ("legacy template sources", _use_legacy_sources, True),
+            (
+                "legacy template sources with the result type filter",
+                lambda e: _use_legacy_sources(e, with_result_type=True),
+                True,
+            ),
+            ("deleted", lambda e: setattr(e, "deleted", True), False),
+            ("ended", lambda e: setattr(e, "end_date", e.created_at), False),
+            (
+                "user added an event filter",
+                lambda e: e.metrics[1]["numerator"]["properties"].append(
+                    {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
+                ),
+                False,
+            ),
+            ("user changed the aggregation", lambda e: e.metrics[1]["numerator"].update(math="dau"), False),
+            (
+                "user replaced a filter",
+                lambda e: e.metrics[1]["denominator"]["properties"].__setitem__(
+                    slice(1, None), [{"key": "properties.$ai_model = 'gpt-5'", "type": "hogql"}]
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_evaluation_output_change_rebuilds_template_eval_pass_rate_metric(
+        self, _name: str, change: Callable[[Experiment], None], rebuilds: bool
+    ) -> None:
+        response = self._post(templates=["cost", "eval_pass_rate"])
+        experiment = Experiment.objects.get(pk=response.json()["id"])
+        assert experiment.metrics is not None
+        change(experiment)
+        experiment.save()
+        before = experiment.metrics
+        version_before = experiment.version or 0
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._create_detector_evaluation()
+
+        experiment.refresh_from_db()
+        if not rebuilds:
+            self.assertEqual(experiment.metrics, before)
+            return
+        assert experiment.metrics is not None
+        pass_filters = get_evaluation_pass_filters(self.team.id)
+        cost, pass_rate = experiment.metrics
+        self.assertEqual(cost, before[0])
+        self.assertEqual(pass_rate["name"], before[1]["name"])
+        self.assertEqual(pass_rate["uuid"], before[1]["uuid"])
+        self.assertNotEqual(pass_rate["fingerprint"], before[1]["fingerprint"])
+        self.assertEqual(experiment.version, version_before + 1)
+        self.assertIn(pass_filters.passed, [prop["key"] for prop in pass_rate["numerator"]["properties"]])
+        self.assertIn(pass_filters.graded, [prop["key"] for prop in pass_rate["denominator"]["properties"]])
+        self.assertEqual(rebuild_eval_pass_rate_metrics(self.team.id), 0)
+
+    def test_rebuild_follows_a_metric_moved_to_secondary(self) -> None:
+        experiment = Experiment.objects.get(pk=self._post(templates=["cost", "eval_pass_rate"]).json()["id"])
+        assert experiment.metrics is not None
+        experiment.metrics_secondary = [experiment.metrics.pop(1)]
+        experiment.save()
+        moved = experiment.metrics_secondary[0]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._create_detector_evaluation()
+
+        experiment.refresh_from_db()
+        assert experiment.metrics_secondary is not None
+        pass_filters = get_evaluation_pass_filters(self.team.id)
+        rebuilt = experiment.metrics_secondary[0]
+        self.assertEqual(rebuilt["uuid"], moved["uuid"])
+        self.assertIn(pass_filters.passed, [prop["key"] for prop in rebuilt["numerator"]["properties"]])
 
     def test_multiple_templates_creates_one_metric_each(self) -> None:
         # Pick all available templates so we exercise both mean and ratio shapes.
