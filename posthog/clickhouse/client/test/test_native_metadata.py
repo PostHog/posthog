@@ -38,7 +38,7 @@ class TestNativeMetadataCapacity(SimpleTestCase):
         def run(payload: str, _deadline: float):
             return _run_metadata_process(payload, monotonic() + 1)
 
-        submit = submit_native_metadata if native else submit_legacy_metadata
+        submit = partial(submit_native_metadata, native_host="native.example.com") if native else submit_legacy_metadata
         released = [Event() for _ in range(4)]
         with (
             ThreadPoolExecutor(max_workers=4) as executor,
@@ -80,7 +80,10 @@ class TestNativeMetadataCapacity(SimpleTestCase):
                 poll = submit_legacy_metadata({"poll": True}, polling=True)
                 self.assertTrue(started.wait(1))
                 self.assertIsNone(submit_legacy_metadata({}, polling=True))
-                for submit in (submit_legacy_metadata, submit_native_metadata):
+                for submit in (
+                    submit_legacy_metadata,
+                    partial(submit_native_metadata, native_host="native.example.com"),
+                ):
                     cancellation = submit({})
                     assert cancellation is not None
                     self.assertTrue(cancellation.result(timeout=1))
@@ -98,7 +101,7 @@ class TestNativeMetadataCapacity(SimpleTestCase):
 
         def submit():
             gate.wait(timeout=2)
-            return submit_native_metadata({})
+            return submit_native_metadata({}, native_host="native.example.com")
 
         with (
             patch("posthog.clickhouse.native_metadata._pools", pools),
@@ -118,6 +121,6 @@ class TestNativeMetadataCapacity(SimpleTestCase):
         executor, slots = pools[(True, False)]
         with patch("posthog.clickhouse.native_metadata._pools", pools):
             with self.assertRaises(RuntimeError):
-                submit_native_metadata({})
+                submit_native_metadata({}, native_host="native.example.com")
             self.assertTrue(slots.acquire(blocking=False))
             slots.release()

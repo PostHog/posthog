@@ -194,10 +194,13 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
+    get_new_events_cluster_host_or_none,
     native_events_async_enabled,
     new_events_cluster_host_scope,
+    strip_events_route,
     use_new_events_schema,
 )
 from posthog.models.instance_setting import get_instance_setting
@@ -1986,9 +1989,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(query, self.query_type)
 
         _modifiers = modifiers or extract_modifiers(query)
-        self._explicit_events_schema = (_modifiers is not None and _modifiers.useNewEventsSchema is not None) or (
-            isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None
-        )
+        self._explicit_events_route = events_route_is_explicit(team.modifiers, _modifiers)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
@@ -2026,33 +2027,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         for child in self._child_runners():
             child.set_user(self.user)
 
-    def _should_pin_events_schema_for_async(self) -> bool:
-        return True
-
-    def _should_pin_events_route(self, modifier_sources: list[dict[str, Any]]) -> bool:
+    def _should_pin_events_route(self) -> bool:
         """The worker must rebuild the request's resolved events route and cache payload.
 
         A legacy query with no route choice stays unpinned while no native host is set, so its payload
         stays identical to what workers without native routing expect.
         """
-        if (
-            self.modifiers.useNewEventsSchema
-            or self._explicit_events_schema
-            or self.modifiers.useNewEventsCluster is not None
-            or any(
-                isinstance(source.get("modifiers"), dict)
-                and any(
-                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
-                )
-                for source in modifier_sources
-            )
-        ):
-            return True
-        try:
-            return bool(get_new_events_cluster_host())
-        except Exception:
-            logger.exception("Failed to resolve native events host while enqueueing legacy query")
+        if not self._reads_events_route():
             return False
+        return bool(
+            self.modifiers.useNewEventsSchema or self._explicit_events_route or get_new_events_cluster_host_or_none()
+        )
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2167,6 +2152,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def query_status_labels(self) -> list[str] | None:
         return None
 
+    def _reads_events_route(self) -> bool:
+        """Whether this query reads PostHog events, so its events route keys the cache and the queued payload."""
+        return True
+
     def enqueue_async_calculation(
         self,
         *,
@@ -2175,9 +2164,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        query_modifiers = query_node_modifiers(self.query)
-        native = self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster)
-        if native and not native_events_async_enabled():
+        if self.modifiers.useNewEventsCluster and not native_events_async_enabled():
             raise ExposedHogQLError(
                 "Native events cluster queries require synchronous execution until async support is enabled. "
                 "Use refresh=force_blocking."
@@ -2213,15 +2200,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             for source in modifier_sources:
                 if "modifiers" in source:
                     source["modifiers"] = self.modifiers.model_dump()
-        elif (
-            "modifiers" in modifier_source
-            and self._should_pin_events_schema_for_async()
-            and self._should_pin_events_route(modifier_sources)
-        ):
-            for source in modifier_sources:
-                if isinstance(source.get("modifiers"), dict):
-                    source["modifiers"].pop("useNewEventsSchema", None)
-                    source["modifiers"].pop("useNewEventsCluster", None)
+        elif "modifiers" in modifier_source and self._should_pin_events_route():
+            strip_events_route(query_json)
             modifier_source["modifiers"] = {
                 **(modifier_source["modifiers"] or {}),
                 "useNewEventsSchema": self.modifiers.useNewEventsSchema,
@@ -3247,19 +3227,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
-        modifier_source: dict[str, Any] | None = query
-        while isinstance(modifier_source, dict):
-            if isinstance(modifier_source.get("modifiers"), dict):
-                modifier_source["modifiers"].pop("useNewEventsSchema", None)
-                modifier_source["modifiers"].pop("useNewEventsCluster", None)
-                if not modifier_source["modifiers"]:
-                    modifier_source.pop("modifiers")
-            modifier_source = modifier_source.get("source")
+        strip_events_route(query, drop_empty=True)
 
         cache_modifiers = to_dict(self.modifiers)
-        # A legacy-table query omits these default values, so its cache key does not depend on them. A
-        # direct-connection query reads no events table, so the events table never keys it.
-        if cache_modifiers.get("useNewEventsSchema") is False or getattr(self.query, "connectionId", None):
+        # A legacy-table query omits these default values, so its cache key does not depend on them. A query
+        # that reads no events table is never keyed by one.
+        if cache_modifiers.get("useNewEventsSchema") is False or not self._reads_events_route():
             cache_modifiers.pop("useNewEventsSchema", None)
         if not cache_modifiers.get("useNewEventsCluster"):
             cache_modifiers.pop("useNewEventsCluster", None)

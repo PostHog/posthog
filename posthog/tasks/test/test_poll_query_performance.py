@@ -205,7 +205,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         ):
             if failed == "settings":
                 with patch(
-                    "posthog.tasks.poll_query_performance.get_new_events_cluster_host",
+                    "posthog.models.event.new_events_schema.get_new_events_cluster_host",
                     side_effect=RuntimeError("settings unavailable"),
                 ):
                     poll_query_performance()

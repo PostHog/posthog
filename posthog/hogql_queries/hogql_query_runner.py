@@ -68,8 +68,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
-        if self.query.connectionId and self.modifiers.useNewEventsCluster:
+        if self.modifiers.useNewEventsCluster and not self._reads_events_route():
             raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
+
+    def _reads_events_route(self) -> bool:
+        # A direct connection runs on another database, so the events route never applies to it.
+        return not self.query.connectionId
 
     # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
@@ -134,10 +138,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
 
         return payload
-
-    def _should_pin_events_schema_for_async(self) -> bool:
-        self._validate_direct_connection()
-        return self._direct_engine != "trino"
 
     def query_status_labels(self) -> list[str] | None:
         self._validate_direct_connection()

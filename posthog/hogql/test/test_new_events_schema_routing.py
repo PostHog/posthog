@@ -216,19 +216,28 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 keys.append(runner.get_cache_key())
         self.assertEqual(len(set(keys)), 2 if native else 1)
 
-    def test_native_enqueue_waits_for_the_async_gate(self) -> None:
+    @parameterized.expand([("native", None, True), ("override_runs_legacy", False, False)])
+    def test_native_enqueue_waits_for_the_async_gate(self, _name: str, override: bool | None, refused: bool) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
         self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = False
         source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}))
+        runner = HogQLQueryRunner(
+            query=source,
+            team=self.team,
+            modifiers=None if override is None else self.modifiers.model_copy(update={"useNewEventsCluster": override}),
+        )
         with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
-            self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"),
         ):
-            HogQLQueryRunner(query=source, team=self.team).enqueue_async_calculation(
-                cache_manager=MagicMock(cache_key="example-cache"), user=self.user
-            )
-        enqueue.assert_not_called()
+            if refused:
+                with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
+                    runner.enqueue_async_calculation(cache_manager=MagicMock(cache_key="example-cache"), user=self.user)
+            else:
+                runner.enqueue_async_calculation(cache_manager=MagicMock(cache_key="example-cache"), user=self.user)
+        self.assertEqual(enqueue.called, not refused)
 
     def test_worker_revalidates_eligibility_instead_of_falling_back(self) -> None:
         from posthog.hogql.errors import ExposedHogQLError
