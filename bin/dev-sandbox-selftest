@@ -113,7 +113,7 @@ for d in .cache .npm .cargo "Library/Caches/node-gyp" "Library/Caches/pnpm"; do
         echo "  --   \$HOME/$d absent, skipping"
         continue
     fi
-    if $SANDBOX "ls -d '$HOME/$d' >/dev/null" 2>/dev/null; then
+    if $SANDBOX "ls '$HOME/$d' >/dev/null" 2>/dev/null; then
         pass "readable: \$HOME/$d"
     else
         die "allowlisted dir not readable: \$HOME/$d"
