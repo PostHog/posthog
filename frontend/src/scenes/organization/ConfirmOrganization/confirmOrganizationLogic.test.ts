@@ -21,11 +21,12 @@ describe('confirmOrganizationLogic', () => {
     describe('query params', () => {
         it.each([
             ['Spike', 'Spikes Inc'],
-            // kea-router parses a query value of only digits into a number, which no validator can trim
             ['3130', '2600'],
         ])('prefills the form from the URL with the name %p', async (firstName, organizationName) => {
+            // A raw URL, not a params object: kea-router passes object values through untouched, so
+            // only a real query string parses a name of only digits into a number, which used to crash
             router.actions.push(
-                `/organization/confirm-creation?email=spike@spike.com&first_name=${firstName}&organization_name=${encodeURIComponent(organizationName)}`
+                `/organization/confirm-creation?email=spike@spike.com&first_name=${encodeURIComponent(firstName)}&organization_name=${encodeURIComponent(organizationName)}`
             )
 
             await expectLogic(logic)
