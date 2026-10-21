@@ -61764,6 +61764,74 @@ export namespace Schemas {
       client_query_id?: string;
     }
 
+    export interface InsightPlatformAlertCondition {
+      /** The bounds the insight's value is checked against, absolute or as a percentage change. */
+      threshold: InsightThreshold | null;
+      /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
+      comparison: AlertCondition;
+      /**
+         * Always null. The platform owns threshold alerts only, so no detector applies.
+         * @nullable
+         */
+      detector?: null;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type InsightPlatformAlertConfigurationEditSourceKind = typeof InsightPlatformAlertConfigurationEditSourceKind[keyof typeof InsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const InsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    export interface InsightPlatformAlertSourceConfig {
+      /** The insight the alert checks. It cannot change through this API. */
+      insight_id: number;
+      /** The bound the insight's value is checked against. */
+      condition: InsightPlatformAlertCondition;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface InsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: InsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -84087,6 +84155,55 @@ export namespace Schemas {
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditSourceKind = typeof PatchedInsightPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedInsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedInsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedInsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedInsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config?: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
     export interface PatchedInsightVariable {
       /** UUID of the SQL variable. */
       readonly id?: string;
@@ -85193,7 +85310,7 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedLogsPlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -90223,7 +90340,7 @@ export namespace Schemas {
 
     export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
 
-    export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
