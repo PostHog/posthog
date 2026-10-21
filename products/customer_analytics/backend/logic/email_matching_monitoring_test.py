@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic.email_rematch_monitoring import (
+from products.customer_analytics.backend.logic.email_matching_monitoring import (
     FLUSH_TIMEOUT_SECONDS,
-    track_email_thread_rematch,
+    track_email_thread_matching,
 )
 
-MODULE = "products.customer_analytics.backend.logic.email_rematch_monitoring"
+MODULE = "products.customer_analytics.backend.logic.email_matching_monitoring"
 
 
 class _RecordingClient:
@@ -29,7 +29,7 @@ class _RecordingClient:
         self.steps.append(("flush", timeout_seconds))
 
 
-class TestTrackEmailThreadRematch:
+class TestTrackEmailThreadMatching:
     def _run(self, get_client: Any, *, retries: int, error: type[Exception] | None, steps: list) -> None:
         task = MagicMock(max_retries=3)
         task.request.id = "task-1"
@@ -38,7 +38,7 @@ class TestTrackEmailThreadRematch:
             patch(f"{MODULE}.is_cloud", return_value=True),
             patch(f"{MODULE}._get_client", get_client),
             patch(f"{MODULE}.current_task", task),
-            track_email_thread_rematch(42, "threads"),
+            track_email_thread_matching(42, "threads"),
         ):
             steps.append(("run",))
             if error is not None:
@@ -70,7 +70,7 @@ class TestTrackEmailThreadRematch:
         assert terminal.get("error_type") == (None if error is None else error.__name__)
 
     @parameterized.expand([("capture_raises",), ("client_setup_raises",)])
-    def test_telemetry_failure_does_not_stop_the_rematch(self, failure: str) -> None:
+    def test_telemetry_failure_does_not_stop_the_matching(self, failure: str) -> None:
         steps: list[tuple[object, ...]] = []
 
         def get_client() -> _RecordingClient:

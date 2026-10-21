@@ -1,9 +1,9 @@
-"""Lifecycle events for the email thread rematch Celery tasks.
+"""Lifecycle events for the email thread matching Celery tasks.
 
-Each run emits `email_thread_rematch` with `status="started"` before any work, then one
+Each run emits `email_thread_matching` with `status="started"` before any work, then one
 terminal status. A worker that stops without unwinding, such as on SIGKILL, sends no
 terminal event, so a `started` event without a terminal event marks a lost run.
-Telemetry never raises into the rematch and never waits longer than the flush timeout.
+Telemetry never raises into the matching and never waits longer than the flush timeout.
 """
 
 from __future__ import annotations
@@ -23,20 +23,20 @@ from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
-EMAIL_THREAD_REMATCH_EVENT: Final = "email_thread_rematch"
+EMAIL_THREAD_MATCHING_EVENT: Final = "email_thread_matching"
 FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
-EmailThreadRematchType = Literal["full", "threads", "account_properties"]
+EmailThreadMatchingType = Literal["full", "threads", "account_properties"]
 
 
 @contextmanager
-def track_email_thread_rematch(team_id: int, rematch_type: EmailThreadRematchType) -> Iterator[None]:
+def track_email_thread_matching(team_id: int, matching_type: EmailThreadMatchingType) -> Iterator[None]:
     retries = current_task.request.retries or 0
     client = _get_client_or_none()
     properties: dict[str, object] = {
         "$process_person_profile": False,
         "team_id": team_id,
-        "rematch_type": rematch_type,
+        "matching_type": matching_type,
         "task_id": current_task.request.id,
         "attempt": retries + 1,
     }
@@ -79,7 +79,7 @@ def _get_client_or_none() -> Any:
     try:
         return _get_client()
     except Exception as error:
-        logger.warning("email_thread_rematch_event_client_failed", error_type=type(error).__name__)
+        logger.warning("email_thread_matching_event_client_failed", error_type=type(error).__name__)
         return None
 
 
@@ -92,10 +92,10 @@ def _send(client: Any, team_id: int, properties: dict[str, object]) -> None:
         return
     try:
         client.capture(
-            distinct_id=f"email_thread_rematch_team_{team_id}",
-            event=EMAIL_THREAD_REMATCH_EVENT,
+            distinct_id=f"email_thread_matching_team_{team_id}",
+            event=EMAIL_THREAD_MATCHING_EVENT,
             properties=properties,
         )
         client.flush(timeout_seconds=FLUSH_TIMEOUT_SECONDS)
     except Exception as error:
-        logger.warning("email_thread_rematch_event_capture_failed", error_type=type(error).__name__)
+        logger.warning("email_thread_matching_event_capture_failed", error_type=type(error).__name__)
