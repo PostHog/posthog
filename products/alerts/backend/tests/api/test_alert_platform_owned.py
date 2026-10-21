@@ -73,20 +73,24 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(90, "not_firing", value=50.0)
         self._record(60, "firing", value=150.0)
         self._record(30, "errored", error="Query timed out")
+        # A snoozed check evaluates nothing, so it measures no value either.
+        self._record(15, "snoozed")
 
         row = self._row("retrieve", "?checks_limit=2")
 
-        assert row["checks_total"] == 3
+        assert row["checks_total"] == 4
         assert [(check["created_at"], check["state"], check["calculated_value"]) for check in row["checks"]] == [
+            (_iso(self._at(15)), "Snoozed", None),
             (_iso(self._at(30)), "Errored", None),
-            (_iso(self._at(60)), "Firing", 150.0),
         ]
+        # The newest check measured nothing, so an older check's value must not stand in for it.
+        assert row["last_value"] is None
         # A platform error can carry an internal detail, so the history shows the generic message.
-        assert row["checks"][0]["error"] == {
+        assert row["checks"][1]["error"] == {
             "message": "This alert encountered an error. Check the alert configuration and try again."
         }
         past_the_end = self._row("retrieve", "?checks_offset=5")
-        assert (past_the_end["checks_total"], past_the_end["checks"]) == (3, [])
+        assert (past_the_end["checks_total"], past_the_end["checks"]) == (4, [])
         # A check made at the window's end, to the microsecond, is inside it.
         up_to_a_check = self._row("retrieve", f"?checks_date_to={_iso(self._at(60))}")
         assert [check["created_at"] for check in up_to_a_check["checks"]] == [_iso(self._at(60)), _iso(self._at(90))]
