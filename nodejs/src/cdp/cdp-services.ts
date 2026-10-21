@@ -15,6 +15,7 @@ import type { CdpConfig } from './config'
 import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
+import { AwsSigV4CredentialsService } from './services/aws-sigv4-credentials.service'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
@@ -171,6 +172,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
+        | 'CDP_AWS_EXTERNAL_ROLE_ARN'
+        | 'CDP_AWS_STS_REGION'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -511,6 +514,10 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            awsSigV4Credentials: new AwsSigV4CredentialsService(
+                { externalRoleArn: config.CDP_AWS_EXTERNAL_ROLE_ARN, stsRegion: config.CDP_AWS_STS_REGION },
+                { integrationManager: deps.integrationManager, teamManager: deps.teamManager, pubSub: deps.pubSub }
+            ),
         }
     )
 

@@ -12,6 +12,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
+import { AwsSigV4CredentialsService } from '../../../src/cdp/services/aws-sigv4-credentials.service'
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
@@ -24,8 +25,8 @@ import {
 } from '../../../src/cdp/services/messaging/email-suppression.service'
 import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
-import { Hub } from '../../../src/types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType, IntegrationType } from '../../../src/cdp/types'
+import { Hub, Team } from '../../../src/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { promisifyCallback } from '~/common/utils/utils'
@@ -67,7 +68,10 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
+    const createExecutor = (
+        encryptedFields: EncryptedFields,
+        awsSigV4Credentials?: AwsSigV4CredentialsService
+    ): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -116,6 +120,12 @@ describe('Hog Executor', () => {
                 recipientTokensService,
                 // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
                 pushNotificationService: undefined as any,
+                awsSigV4Credentials:
+                    awsSigV4Credentials ??
+                    new AwsSigV4CredentialsService(
+                        { externalRoleArn: '', stsRegion: '' },
+                        { integrationManager: hub.integrationManager, teamManager: hub.teamManager, pubSub: hub.pubSub }
+                    ),
             }
         )
     }
@@ -1580,6 +1590,103 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('AWS SigV4 signing failed')
                 expect(result.error.message).toContain('aws_access_key_id')
                 expect(result.error.message).toContain('aws_secret_access_key')
+            })
+
+            describe('with an AWS connection that assumes an IAM role', () => {
+                const roleArn = 'arn:aws:iam::222222222222:role/kinesis-writer'
+                let customerRoleError: Error | null
+
+                beforeEach(() => {
+                    customerRoleError = null
+                    const integration: IntegrationType = {
+                        id: 7,
+                        team_id: hogFunction.team_id,
+                        kind: 'aws-kinesis',
+                        config: { name: 'stream writer', aws_role_arn: roleArn },
+                        sensitive_config: {},
+                    }
+                    executor = createExecutor(
+                        hub.encryptedFields,
+                        new AwsSigV4CredentialsService(
+                            {
+                                externalRoleArn: 'arn:aws:iam::111111111111:role/posthog-external-example',
+                                stsRegion: '',
+                            },
+                            {
+                                integrationManager: { get: () => Promise.resolve(integration) },
+                                teamManager: {
+                                    getTeam: () => Promise.resolve({ organization_id: 'org-example' } as Team),
+                                },
+                                pubSub: hub.pubSub,
+                                createStsClient: (credentials) => ({
+                                    send: () =>
+                                        credentials && customerRoleError
+                                            ? Promise.reject(customerRoleError)
+                                            : Promise.resolve({
+                                                  Credentials: {
+                                                      AccessKeyId: credentials
+                                                          ? 'ASIACUSTOMERSESSION'
+                                                          : 'ASIAEXTERNALSESSION',
+                                                      SecretAccessKey: 'session-secret-example',
+                                                      SessionToken: credentials
+                                                          ? 'customer-session-token'
+                                                          : 'external-session-token',
+                                                      Expiration: new Date(Date.now() + 60 * 60 * 1000),
+                                                  },
+                                                  $metadata: {},
+                                              }),
+                                    destroy: () => {},
+                                }),
+                                serviceOrigin: () => baseUrl,
+                            }
+                        )
+                    )
+                })
+
+                const createConnectionFetchInvocation = (): Promise<CyclotronJobInvocationHogFunction> =>
+                    createFetchInvocation({
+                        url: `${baseUrl}/`,
+                        method: 'POST',
+                        body: '{}',
+                        headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                        aws_sigv4: { ...sigv4Refs, integration_input: 'aws_connection' },
+                    }).then((invocation) => {
+                        invocation.hogFunction.inputs = {
+                            ...invocation.hogFunction.inputs,
+                            aws_connection: { value: 7 },
+                        }
+                        return invocation
+                    })
+
+                it('signs with the temporary credentials and sends the session token', async () => {
+                    let receivedHeaders: Record<string, string> = {}
+                    mockRequest.mockImplementation((req: any, res: any) => {
+                        receivedHeaders = req.headers
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+
+                    const result = await executor.executeFetch(await createConnectionFetchInvocation())
+
+                    expect(result.error).toBeUndefined()
+                    expect(receivedHeaders['x-amz-security-token']).toBe('customer-session-token')
+                    expect(receivedHeaders.authorization).toContain(
+                        'Credential=ASIACUSTOMERSESSION/20250101/us-east-1/kinesis/aws4_request'
+                    )
+                })
+
+                it('fails without sending the request when AWS denies the role', async () => {
+                    customerRoleError = new Error('AccessDenied')
+
+                    const result = await executor.executeFetch(await createConnectionFetchInvocation())
+
+                    expect(mockRequest).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(result.error.message).toContain(
+                        `could not assume the AWS role ${roleArn} with the external ID posthog-org-example`
+                    )
+                    expect(result.logs.map((log) => log.message)).toContainEqual(result.error.message)
+                })
             })
         })
 
