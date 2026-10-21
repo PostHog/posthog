@@ -181,7 +181,7 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
@@ -309,6 +309,8 @@ ENV LANG=C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    # Upgrades the CA bundle that the pinned base image freezes.
+    "ca-certificates" \
     # The deploy chart's asset-upload hook runs in this image and downloads s5cmd with curl.
     "curl" \
     "git" \
