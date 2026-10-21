@@ -30,6 +30,7 @@ packages:
     - '!tools/hedgebox-dummy'
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
+    - rust/ai-research/replay-core-v4-node
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade

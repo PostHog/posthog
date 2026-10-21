@@ -11048,6 +11048,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "replay-core-v4-node"
+version = "0.0.1"
+dependencies = [
+ "neon",
+ "replay-core-v4",
+]
+
+[[package]]
 name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
