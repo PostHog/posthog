@@ -81,6 +81,8 @@ class HogFunctionPathReason(StrEnum):
     # body the HogFunction sends.
     NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native insight delivery sends no incident actions, so a PagerDuty destination would open none.
+    PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
 
 @frozen

@@ -938,9 +938,12 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
 ) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it.
+
+    A source that runs calendar schedules itself takes back an alert on one. Any other source gets
+    only interval cadences back.
 
     The caller holds the source's row lock and writes the source's owner and state in the same
     transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
@@ -952,9 +955,10 @@ def give_back_ownership(
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
         alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        calendar = configuration.recurrence_unit is not None and not source_runs_calendar_schedules
         # A grouped copy with no group open yet still splits its results, which its source cannot do.
         if (
-            configuration.recurrence_unit is not None
+            calendar
             or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
             or any(alert.grouping_key for alert in alerts)
         ):
@@ -973,6 +977,7 @@ def give_back_ownership(
             last_notified_at=alert.last_notified_at if alert is not None else None,
             consecutive_failures=configuration.consecutive_failures,
             next_check_at=configuration.next_check_at,
+            enabled=configuration.enabled,
         )
         configuration.owner = PlatformAlertOwner.SOURCE
         configuration.owner_changed_at = at

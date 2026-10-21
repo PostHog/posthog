@@ -87,11 +87,14 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
 ) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it."""
     return platform_lifecycle.give_back_ownership(
-        team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        at=at,
+        source_runs_calendar_schedules=source_runs_calendar_schedules,
     )
 
 

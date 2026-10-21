@@ -104,6 +104,17 @@ def evaluated_by_insight_stack_q(now: datetime) -> Q:
     )
 
 
+def due_insight_alerts_q(now: datetime) -> Q:
+    """The alerts the insight scheduler owes a check at `now`."""
+    return (
+        Q(enabled=True)
+        & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
+        & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+        & Q(insight__deleted=False)
+        & evaluated_by_insight_stack_q(now)
+    )
+
+
 def is_non_time_series_trend(query: TrendsQuery) -> bool:
     display = query.trendsFilter.display if query.trendsFilter else None
     return display in NON_TIME_SERIES_DISPLAY_TYPES
