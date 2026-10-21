@@ -13,8 +13,8 @@ use crate::protocol::migration::{
 use crate::store::PersonhogStore;
 use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};
 use crate::types::{
-    AssignmentPrecondition, HandoffPhase, HandoffReplacement, HandoffState, MigrationPhase,
-    MigrationRequest, MigrationState, PodStatus, RegisteredPod,
+    AssignmentPrecondition, Generation, HandoffPhase, HandoffReplacement, HandoffState,
+    MigrationPhase, MigrationRequest, MigrationState, PodStatus, RegisteredPod,
 };
 use crate::util;
 
@@ -586,39 +586,52 @@ pub async fn retire_drained(store: &PersonhogStore) -> Result<Retirement> {
 
     let mut generations = config.draining.clone();
     generations.sort_by_key(|g| g.epoch);
-    let mut waiting = Vec::new();
-    let mut waiting_groups = 0;
-    for generation in &generations {
-        let missing: Vec<&str> = config
-            .gated_groups()
-            .filter(|group| {
-                !reports
-                    .iter()
-                    .any(|r| r.topic == generation.topic && r.group == *group)
-            })
-            .collect();
-        if missing.is_empty() {
-            if store
-                .retire_changelog_topic(&config, mod_revision, &generation.topic)
-                .await?
-            {
-                counter!("personhog_changelog_retires_total", "trigger" => "auto").increment(1);
-                tracing::info!(
-                    topic = %generation.topic,
-                    groups = ?config.gated_groups().collect::<Vec<_>>(),
-                    "retired a drained changelog generation"
-                );
-            }
-            return Ok(Retirement::Retired);
+    let missing: Vec<(&Generation, Vec<&str>)> = generations
+        .iter()
+        .map(|generation| {
+            let groups = config
+                .gated_groups()
+                .filter(|group| {
+                    !reports
+                        .iter()
+                        .any(|r| r.topic == generation.topic && r.group == *group)
+                })
+                .collect();
+            (generation, groups)
+        })
+        .collect();
+    // Set on every pass between sagas; during a saga nothing can retire.
+    gauge!("personhog_changelog_retire_waiting_groups").set(
+        missing
+            .iter()
+            .map(|(_, groups)| groups.len())
+            .sum::<usize>() as f64,
+    );
+
+    if let Some((generation, _)) = missing.iter().find(|(_, groups)| groups.is_empty()) {
+        if store
+            .retire_changelog_topic(&config, mod_revision, &generation.topic)
+            .await?
+        {
+            counter!("personhog_changelog_retires_total", "trigger" => "auto").increment(1);
+            tracing::info!(
+                topic = %generation.topic,
+                groups = ?config.gated_groups().collect::<Vec<_>>(),
+                "retired a drained changelog generation"
+            );
         }
-        waiting_groups += missing.len();
-        waiting.push(format!(
-            "{}: waiting on drain reports from {}",
-            generation.topic,
-            missing.join(", ")
-        ));
+        return Ok(Retirement::Retired);
     }
-    gauge!("personhog_changelog_retire_waiting_groups").set(waiting_groups as f64);
+    let waiting: Vec<String> = missing
+        .iter()
+        .map(|(generation, groups)| {
+            format!(
+                "{}: waiting on drain reports from {}",
+                generation.topic,
+                groups.join(", ")
+            )
+        })
+        .collect();
     Ok(if waiting.is_empty() {
         Retirement::Clear
     } else {
