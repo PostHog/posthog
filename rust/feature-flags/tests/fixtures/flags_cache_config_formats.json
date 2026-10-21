@@ -311,6 +311,18 @@
       "expect": "unsupported"
     },
     {
+      "key": "malformed-v1-groups-number",
+      "active": true,
+      "filters": { "groups": 5 },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-properties-boolean",
+      "active": true,
+      "filters": { "groups": [{ "properties": true }] },
+      "expect": "unsupported"
+    },
+    {
       "key": "malformed-non-object-document",
       "active": true,
       "filters": ["not", "an", "object"],
