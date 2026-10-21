@@ -39,6 +39,8 @@ const EXAMPLES: MissingSymbolsExamplesApi = {
                     occurrences: 1,
                 },
             ],
+            issue_count: 2,
+            issue_count_capped: false,
             example_exception: {
                 issue_id: '01933f1e-0000-7000-8000-000000000001',
                 fingerprint: 'example-fingerprint',
@@ -80,6 +82,8 @@ const EXAMPLES: MissingSymbolsExamplesApi = {
             http_status: 404,
             frames: 6,
             issues: [],
+            issue_count: 0,
+            issue_count_capped: false,
             example_exception: null,
         },
         {
@@ -89,6 +93,8 @@ const EXAMPLES: MissingSymbolsExamplesApi = {
             http_status: null,
             frames: 4,
             issues: [],
+            issue_count: 0,
+            issue_count_capped: false,
             example_exception: null,
         },
     ],

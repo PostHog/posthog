@@ -378,7 +378,11 @@ class MissingSymbolsExample:
     symbol_id: str | None
     http_status: int | None
     frames: int
+    # The issues with the most occurrences. `issue_count` counts them all.
     issues: list[MissingSymbolsIssue]
+    issue_count: int
+    # True when the scan stopped at its fingerprint limit, so `issue_count` is a lower bound.
+    issue_count_capped: bool
     example_exception: MissingSymbolsExampleException | None
 
 

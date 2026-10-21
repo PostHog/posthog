@@ -1,3 +1,5 @@
+from typing import cast
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -8,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import recommendations as recommendations_facade
 from products.error_tracking.backend.facade.contracts import MissingSymbolsReason, SymbolsPlatform
@@ -49,7 +52,9 @@ class MissingSymbolsStackFrameSerializer(serializers.Serializer):
     function = serializers.CharField(
         allow_null=True, help_text="The function name, resolved when symbols were available."
     )
-    source = serializers.CharField(allow_null=True, help_text="The file, script URL or module of the frame.")
+    source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        allow_null=True, help_text="The file, script URL or module of the frame."
+    )
     line = serializers.IntegerField(allow_null=True, help_text="The line number, when known.")
     column = serializers.IntegerField(allow_null=True, help_text="The column number, when known.")
     in_app = serializers.BooleanField(help_text="Whether the frame is the team's own code.")
@@ -88,7 +93,15 @@ class MissingSymbolsExampleSerializer(serializers.Serializer):
     frames = serializers.IntegerField(help_text="How many distinct stack frames in the lookback window this covers.")
     issues = MissingSymbolsIssueSerializer(
         many=True,
-        help_text="The issues whose exceptions in the lookback window contain these frames, most occurrences first.",
+        help_text=(
+            "Up to five issues whose exceptions in the lookback window contain these frames, most occurrences first."
+        ),
+    )
+    issue_count = serializers.IntegerField(
+        help_text="How many issues have exceptions in the lookback window that contain these frames."
+    )
+    issue_count_capped = serializers.BooleanField(
+        help_text="True when the exception scan stopped at its limit, so `issue_count` is a lower bound."
     )
     example_exception = MissingSymbolsExampleExceptionSerializer(
         allow_null=True,
@@ -190,5 +203,7 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
     @action(detail=False, methods=["get"], pagination_class=None)
     def source_maps_examples(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         platform = SymbolsPlatform(request.validated_query_data["platform"])
-        examples = recommendations_facade.list_missing_symbols_examples(self.team.id, platform)
+        examples = recommendations_facade.list_missing_symbols_examples(
+            self.team.id, platform, user=cast(User, request.user)
+        )
         return Response(MissingSymbolsExamplesSerializer(examples).data)

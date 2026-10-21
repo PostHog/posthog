@@ -8,7 +8,13 @@ import { SOURCE_MAPS_PLATFORM_LABELS } from './sourceMapsFixWizardLogic'
 
 function exampleSummary(example: MissingSymbolsExampleApi, exceptionsLoaded: boolean): string {
     const frames = pluralize(example.frames, 'frame')
-    return exceptionsLoaded ? `${frames} · ${pluralize(example.issues.length, 'issue')}` : frames
+    if (!exceptionsLoaded) {
+        return frames
+    }
+    const issues = example.issue_count_capped
+        ? `${example.issue_count}+ issues`
+        : pluralize(example.issue_count, 'issue')
+    return `${frames} · ${issues}`
 }
 
 export function SourceMapsExamplesBrowser({

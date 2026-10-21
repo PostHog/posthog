@@ -10,8 +10,11 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition, Team
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.cdp.backend.facade.models import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
@@ -584,7 +587,7 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                         "stacktrace": {
                             "type": "resolved",
                             "frames": [
-                                {"raw_id": frame.raw_id, "resolved": frame.resolved, **frame.contents}
+                                {"raw_id": f"{frame.raw_id}/{frame.part}", "resolved": frame.resolved, **frame.contents}
                                 for frame in frames
                             ],
                         },
@@ -654,6 +657,8 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                                 "occurrences": 2,
                             }
                         ],
+                        "issue_count": 1,
+                        "issue_count_capped": False,
                         "example_exception": {
                             "issue_id": str(type_error.id),
                             "fingerprint": "fp-type-error",
@@ -694,6 +699,8 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                                 "occurrences": 1,
                             }
                         ],
+                        "issue_count": 1,
+                        "issue_count_capped": False,
                         "example_exception": {
                             "issue_id": str(fetch_error.id),
                             "fingerprint": "fp-fetch-error",
@@ -718,4 +725,35 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
         self.assertEqual(
             [(r["reason"], r["symbol_id"], r["frames"], r["issues"]) for r in java.json()["results"]],
             [("mapping_not_uploaded", "5d2c", 2, [])],
+        )
+
+    def test_source_maps_examples_hide_exceptions_from_a_user_who_cannot_read_the_exception_list(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        exception_list = PropertyDefinition.objects.create(
+            team=self.team, name="$exception_list", type=PropertyDefinition.Type.EVENT
+        )
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                access_level=PropertyAccessLevel.NONE,
+                property_definition_id=str(exception_list.id),
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+        frame = self._make_frame(contents={"resolve_failure": CHUNK_NOT_UPLOADED, "source": "/assets/app.js"})
+        self._issue("Cannot read properties of undefined", "fp-type-error")
+        self._exception("fp-type-error", "Cannot read properties of undefined", [frame])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/?platform=javascript"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(r["frames"], r["issues"], r["issue_count"], r["example_exception"]) for r in response.json()["results"]],
+            [(1, [], 0, None)],
         )
