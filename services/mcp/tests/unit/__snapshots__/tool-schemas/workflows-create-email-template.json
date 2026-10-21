@@ -120,6 +120,15 @@
             "maxLength": 400,
             "type": "string"
         },
+        "tags": {
+            "description": "Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "type": {
             "description": "Message channel of the template. Currently 'email'.",
             "maxLength": 24,
