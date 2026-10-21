@@ -12,20 +12,27 @@ WINDOW_END = WINDOW_START + timedelta(hours=1)
 
 
 class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
-    def _call(self, intent: str, tool: str = "query-trends", at: datetime | None = None, **extra: str) -> None:
+    def _call(
+        self, intent: str, tool: str = "query-trends", at: datetime | None = None, extra: dict[str, str] | None = None
+    ) -> None:
         _create_event(
             team=self.team,
             event="$mcp_tool_call",
             distinct_id="agent-1",
             timestamp=at or WINDOW_START + timedelta(minutes=5),
-            properties={"$mcp_tool_name": tool, "$mcp_intent": intent, "$mcp_source": "posthog_mcp_analytics", **extra},
+            properties={
+                "$mcp_tool_name": tool,
+                "$mcp_intent": intent,
+                "$mcp_source": "posthog_mcp_analytics",
+                **(extra or {}),
+            },
         )
 
     def test_groups_calls_by_intent_text_with_counts_and_top_tool(self) -> None:
         self._call("list flags", tool="feature-flag-get-all")
         self._call("list flags", tool="feature-flag-get-all")
         self._call("list flags", tool="query-trends")
-        self._call("find retention", tool="query-retention", **{"$mcp_intent_source": "context_parameter"})
+        self._call("find retention", tool="query-retention", extra={"$mcp_intent_source": "context_parameter"})
         self._call("outside window", at=WINDOW_END + timedelta(minutes=1))
         self._call("", tool="query-trends")
         flush_persons_and_events()
@@ -40,7 +47,7 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
         assert intents[1].intent_source == "context_parameter"
 
     def test_resolves_the_effective_tool_behind_the_exec_wrapper(self) -> None:
-        self._call("run sql", tool="exec", **{"$mcp_exec_verb": "call", "$mcp_exec_target_tool": "execute-sql"})
+        self._call("run sql", tool="exec", extra={"$mcp_exec_verb": "call", "$mcp_exec_target_tool": "execute-sql"})
         flush_persons_and_events()
 
         intents = fetch_distinct_intents(self.team, since=WINDOW_START, until=WINDOW_END)
