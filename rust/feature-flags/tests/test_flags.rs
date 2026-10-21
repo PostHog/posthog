@@ -6405,3 +6405,53 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
 
     Ok(())
 }
+
+#[rstest]
+#[case::no_flag_left(false)]
+#[case::only_inactive_flags_left(true)]
+#[tokio::test]
+async fn it_reports_errors_when_a_skipped_flag_leaves_nothing_to_evaluate(
+    #[case] with_inactive_flag: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // `PropertyFilter` requires a `type` key, so the serving read skips this flag.
+    let mut flags = vec![json!({
+        "id": 1,
+        "key": "malformed-flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {"groups": [{
+            "properties": [{"key": "email", "value": "user@example.com"}],
+            "rollout_percentage": 100
+        }]}
+    })];
+    if with_inactive_flag {
+        flags.push(json!({
+            "id": 2,
+            "key": "inactive-flag",
+            "active": false,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        }));
+    }
+    insert_flags_for_team_in_redis(client, team.id, Some(Value::Array(flags).to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();
+    let res = server.send_flags_request(payload, Some("2"), None).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<FlagsResponse>().await?;
+    assert!(body.errors_while_computing_flags);
+    assert!(body.flags.is_empty());
+
+    Ok(())
+}

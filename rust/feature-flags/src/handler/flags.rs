@@ -353,14 +353,28 @@ pub async fn evaluate_for_request(
         return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
+    // A skipped unparseable flag can leave nothing to evaluate. The empty responses below
+    // still report that error, so that an SDK keeps the skipped flag's stored value.
+    let has_unparseable_flags = filtered_flags.evaluation_metadata.has_unparseable_flags;
+
     if filtered_flags.flags.is_empty() {
-        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
+        return Ok(FlagsResponse::new(
+            has_unparseable_flags,
+            HashMap::new(),
+            None,
+            request_id,
+        ));
     }
 
     // Every flag is in the filter set (inactive, deleted, runtime/tag mismatch) — nothing to evaluate.
     // This is O(1) since the filter set includes deleted flags.
     if filtered_flags.filtered_out_flag_ids.len() >= filtered_flags.flags.len() {
-        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
+        return Ok(FlagsResponse::new(
+            has_unparseable_flags,
+            HashMap::new(),
+            None,
+            request_id,
+        ));
     }
 
     let persons_db_deadline = state

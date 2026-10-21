@@ -41,7 +41,7 @@ pub fn v2_filters_referencing(
 
 /// A hypercache payload in which only flag 2 fails to deserialize. Its property
 /// filter has no `"type"` key, and `PropertyFilter` requires one. Flag 3 depends on flag 2.
-/// Django already marked flags 1 and 2 as missing a dependency.
+/// Flag 1 starts in `flags_with_missing_deps` so that a test sees whether a kept flag stays marked.
 pub fn payload_with_unparseable_flag(team_id: TeamId) -> serde_json::Value {
     serde_json::json!({
         "flags": [

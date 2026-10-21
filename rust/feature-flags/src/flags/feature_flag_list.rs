@@ -122,6 +122,7 @@ impl<'de> Deserialize<'de> for LenientFlags {
 pub type LenientHypercacheFlagsWrapper = HypercacheFlagsWrapper<LenientFlags>;
 
 impl LenientHypercacheFlagsWrapper {
+    /// Drops the flags that failed to parse, and every metadata reference to them.
     pub fn into_wrapper(self, team_id: TeamId) -> HypercacheFlagsWrapper {
         let HypercacheFlagsWrapper {
             flags,
