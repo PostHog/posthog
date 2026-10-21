@@ -90,7 +90,8 @@ def capture_invocation(distinct_id: str, properties: dict) -> None:
             from posthoganalytics import Posthog  # noqa: PLC0415 — optional dep, kept off the import path
 
         resolved_distinct_id = distinct_id or "unknown"
-        client = Posthog(project_api_key=api_key, host=host)
+        # shutdown() below blocks before the pod claim, and the SDK defaults (15s timeout, 3 retries) can hold it for over a minute.
+        client = Posthog(project_api_key=api_key, host=host, timeout=2, max_retries=0)
         client.capture(
             event=EVENT_NAME,
             distinct_id=resolved_distinct_id,
