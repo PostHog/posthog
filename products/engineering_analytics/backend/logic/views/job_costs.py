@@ -56,7 +56,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_provider,
     render_vcpu,
 )
-from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -261,12 +261,6 @@ def build_attributed_query(*, costed_jobs: str, runs: str) -> str:
     """
 
 
-def build_source_query(source: JobSourceTables) -> str:
-    """The public view's rows for one repository."""
-    rows = build_query(jobs_table=source.jobs_source, runs_table=source.runs_source)
-    return f"SELECT {', '.join(FIELDS)} FROM ({rows})"
-
-
 def build_team_view(team: "Team") -> str | None:
     """The full view body for a team: every GitHub source with both runs and jobs synced, unioned.
 
@@ -276,4 +270,7 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    return "\nUNION ALL\n".join(build_source_query(source) for source in sources)
+    return "\nUNION ALL\n".join(
+        f"SELECT {', '.join(FIELDS)} FROM ({build_query(jobs_table=source.jobs_source, runs_table=source.runs_source)})"
+        for source in sources
+    )

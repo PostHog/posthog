@@ -2,6 +2,7 @@
 in place every 15 minutes. SPEC.md section 5 has the design.
 """
 
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -126,16 +127,20 @@ def _stored_rows(source: JobSourceTables, columns: tuple[str, ...], rows: str) -
     """
 
 
-def runs_select(source: JobSourceTables) -> str:
-    runs = depot_ci.stored_runs(
+def _stored_runs(source: JobSourceTables, *, full_history: bool = False) -> str:
+    return depot_ci.stored_runs(
         source.github_workflow_runs,
         source.depot_job_attempts,
         source.pull_requests,
         source.github_workflow_jobs,
         optional_columns=source.workflow_runs_optional_columns,
+        full_history=full_history,
     )
+
+
+def runs_select(source: JobSourceTables) -> str:
     rows = workflow_runs.build_query(
-        runs, pull_requests_table=source.pull_requests, passthrough=depot_ci.STORED_RUN_COLUMNS
+        _stored_runs(source), pull_requests_table=source.pull_requests, passthrough=depot_ci.STORED_RUN_COLUMNS
     )
     return _stored_rows(source, RUN_COLUMNS, rows)
 
@@ -145,14 +150,7 @@ def jobs_select(source: JobSourceTables) -> str:
     rows = job_costs.build_costed_jobs_query(workflow_jobs.build_query(jobs, compact_duplicates=False))
     if source.depot_job_attempts is not None:
         # A new retry job can belong to an old run, so the suppression lookup must cover run history.
-        runs = depot_ci.stored_runs(
-            source.github_workflow_runs,
-            source.depot_job_attempts,
-            source.pull_requests,
-            source.github_workflow_jobs,
-            optional_columns=source.workflow_runs_optional_columns,
-            full_history=True,
-        )
+        runs = _stored_runs(source, full_history=True)
         shell = f"(ci_engine, run_id) IN (SELECT ci_engine, id FROM {runs} WHERE is_handoff_shell)"
     else:
         shell = "0"
@@ -166,13 +164,16 @@ class CIViewQueries:
     jobs: str
 
 
-def build_team_views(team: "Team") -> CIViewQueries | None:
-    """The runs view and the jobs view over every qualifying source of the team, or None when
-    there is none."""
-    sources = resolve_job_source_tables(team)
-    if not sources:
-        return None
+def build_views(sources: Sequence[JobSourceTables]) -> CIViewQueries:
+    """The runs view and the jobs view over these sources. The reader compares a stored definition
+    against this output, so it is the one place that assembles either view."""
     return CIViewQueries(
         runs="\nUNION ALL\n".join(runs_select(source) for source in sources),
         jobs="\nUNION ALL\n".join(jobs_select(source) for source in sources),
     )
+
+
+def build_team_views(team: "Team") -> CIViewQueries | None:
+    """Both views over every qualifying source of the team, or None when there is none."""
+    sources = resolve_job_source_tables(team)
+    return build_views(sources) if sources else None

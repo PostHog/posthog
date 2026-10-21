@@ -13,10 +13,13 @@ from django.test import override_settings
 import pyarrow as pa
 
 from posthog.temporal.data_modeling.activities.incremental_write import (
+    MAX_UNIQUE_KEY_CHECK_BYTES,
     IncrementalWriteError,
     UniqueKeyTracker,
     upsert_batch,
 )
+
+_spill_modes = pytest.mark.parametrize("max_bytes", [1, MAX_UNIQUE_KEY_CHECK_BYTES], ids=["disk", "memory"])
 
 
 def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
@@ -38,7 +41,7 @@ def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
         pytest.param([([1, None], ["a", "b"])], "is null", id="null_key"),
     ],
 )
-@pytest.mark.parametrize("max_bytes", [1, 256 * 1024 * 1024], ids=["disk", "memory"])
+@_spill_modes
 def test_single_column_violations_are_detected(batches: list[tuple], match: str, max_bytes: int) -> None:
     tracker = UniqueKeyTracker(("id",), max_bytes=max_bytes)
 
@@ -54,7 +57,7 @@ def test_distinct_keys_across_batches_pass() -> None:
     tracker.check(_batch([3, 4], ["c", "d"]))
 
 
-@pytest.mark.parametrize("max_bytes", [1, 256 * 1024 * 1024], ids=["disk", "memory"])
+@_spill_modes
 def test_composite_key_is_checked_as_a_tuple(max_bytes: int) -> None:
     tracker = UniqueKeyTracker(("id", "name"), max_bytes=max_bytes)
 
