@@ -1317,11 +1317,6 @@ class ReviewerControlResponseSerializer(serializers.Serializer):
         }
 
 
-class ResumeReviewersSerializer(serializers.Serializer):
-    expected_reviewers = ReviewerStateSerializer(help_text="Reviewer state read before requesting automatic control.")
-    operation_id = serializers.UUIDField(help_text="Stable ID for this request. Reuse it on retry.")
-
-
 class SignalReportSerializerExtension(OpenApiSerializerExtension):
     target_class = "products.signals.backend.serializers.SignalReportSerializer"
     match_subclasses = True

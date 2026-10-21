@@ -15,6 +15,7 @@ from posthog.models import OrganizationMembership, User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
+    ReviewerControl,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     WorkClaim,
@@ -94,7 +95,8 @@ class TestReportAssignmentService(BaseTest):
             )
         )
 
-    def test_automatic_first_migration_recovers_human_control(self) -> None:
+    @parameterized.expand([False, True])
+    def test_automatic_first_migration_recovers_human_control(self, automatic_control: bool) -> None:
         SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(self.report.id),
@@ -102,39 +104,38 @@ class TestReportAssignmentService(BaseTest):
             attribution=self.actor,
             reevaluate_autostart=False,
         )
+        if automatic_control:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=ReviewerControl(mode="automatic"),
+                attribution=ArtefactAttribution.system(),
+                assignment_writer=True,
+            )
         self.service.apply(self.proposal(), actor=ArtefactAttribution.system())
         assert self.service.read().control == "human"
         assert self.service.read().reviewers == ()
 
-    @parameterized.expand(["replace", "resume"])
-    def test_in_flight_proposal_cannot_apply_after_control_changes(self, change: str) -> None:
+    def test_in_flight_proposal_cannot_apply_after_human_edit(self) -> None:
         self.service.edit_reviewers(SuggestedReviewers(root=list(self.reviewers)), actor=self.actor)
         stale = self.proposal()
-        if change == "resume":
-            self.service.apply(
-                AssignmentProposal(
-                    operation_id=uuid4(), expected_state=stale.expected_state, source="reviewer_api", action="resume"
-                ),
-                actor=self.actor,
-            )
-        else:
-            self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
+        self.service.edit_reviewers(SuggestedReviewers(root=[]), actor=self.actor)
         with self.assertRaises(StaleAssignmentProposal):
             self.service.apply(stale, actor=ArtefactAttribution.system())
 
-    def test_resume_keeps_valid_list_until_fresh_result(self) -> None:
+    @parameterized.expand(["selected", "lookup_failed", "no_suitable_owner"])
+    def test_fresh_results_preserve_human_choice(
+        self, outcome: Literal["selected", "no_suitable_owner", "lookup_failed"]
+    ) -> None:
         self.service.edit_reviewers(SuggestedReviewers(root=list(self.reviewers)), actor=self.actor)
-        self.service.apply(
-            AssignmentProposal(
-                operation_id=uuid4(), expected_state=self.service.read().state, source="reviewer_api", action="resume"
-            ),
-            actor=self.actor,
-        )
-        assert self.service.read().control == "automatic"
-        self.service.apply(self.proposal(outcome="lookup_failed"), actor=ArtefactAttribution.system())
+        proposal = self.proposal(outcome=outcome)
+        if outcome == "selected":
+            proposal = proposal.model_copy(
+                update={"reviewers": (SuggestedReviewerEntry(user_uuid=str(self.user.uuid)),)}
+            )
+        self.service.apply(proposal, actor=ArtefactAttribution.system())
+        assert self.service.read().control == "human"
         assert self.service.read().reviewers == self.reviewers
-        self.service.apply(self.proposal(outcome="no_suitable_owner"), actor=ArtefactAttribution.system())
-        assert self.service.read().reviewers == ()
 
     def test_retries_and_unchanged_proposals_do_not_repeat_reviewer_writes_or_delivery(self) -> None:
         proposal = self.proposal()

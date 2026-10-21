@@ -1603,7 +1603,7 @@ class TestScoutReportAPI(APIBaseTest):
 
     @patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True)
     @patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False)
-    def test_human_scout_human_flow_and_resume(self, _effects, _writer) -> None:
+    def test_human_scout_human_flow_preserves_corrections(self, _effects, _writer) -> None:
         human = APIClient()
         human.force_login(self.user)
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
@@ -1635,12 +1635,13 @@ class TestScoutReportAPI(APIBaseTest):
         assert report.artefacts.filter(type="suggested_reviewers").count() == 2
         assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
         state = human.get(f"{root}/reviewer_state/").json()
-        resume = {"expected_reviewers": state["state"], "operation_id": str(uuid4())}
-        for _ in range(2):
-            response = human.post(f"{root}/reviewers/resume/", resume, format="json")
-            assert response.status_code == 200, response.json()
-            assert response.json()["control"] == "automatic"
-        state = response.json()
+        response = human.post(
+            f"{root}/reviewers/resume/",
+            {"expected_reviewers": state["state"], "operation_id": str(uuid4())},
+            format="json",
+        )
+        assert response.status_code == 404
+        assert human.get(f"{root}/reviewer_state/").json()["control"] == "human"
         failed = self.client.post(
             self._edit_url(str(run.id)),
             {
@@ -1671,11 +1672,11 @@ class TestScoutReportAPI(APIBaseTest):
             format="json",
         )
         assert empty.status_code == 200, empty.json()
-        assert empty.json()["reviewers_set"]
+        assert not empty.json()["reviewers_set"]
         reviewers = SignalReportArtefact.latest_content(
             team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
         )
-        assert reviewers is not None and reviewers.root == []
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,

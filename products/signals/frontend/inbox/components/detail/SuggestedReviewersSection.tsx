@@ -13,12 +13,10 @@ import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reviewerControl, resumingReviewers } =
-        useValues(logic)
-    const { updateReviewers, resumeAutomaticReviewers } = useActions(logic)
+    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reviewerControl } = useValues(logic)
+    const { updateReviewers } = useActions(logic)
 
     const [addOpen, setAddOpen] = useState(false)
-    const busy = isUpdatingReviewers || resumingReviewers
     const baseReviewers = displayReviewers ?? []
 
     // Wait for the artefact log to load before rendering, so we don't flash an empty state that then
@@ -40,10 +38,8 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     return (
         <SuggestedReviewersSectionView
             reviewers={baseReviewers}
-            disabled={busy}
+            disabled={isUpdatingReviewers}
             humanControlled={reviewerControl?.enabled && reviewerControl.control === 'human'}
-            onResumeAutomatic={resumeAutomaticReviewers}
-            resuming={resumingReviewers}
             onRemove={removeReviewers}
             addControl={
                 <LemonDropdown
@@ -57,7 +53,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                         size="small"
                         type="secondary"
                         icon={<IconPlus />}
-                        disabledReason={busy ? 'Updating…' : undefined}
+                        disabledReason={isUpdatingReviewers ? 'Updating…' : undefined}
                         onClick={() => setAddOpen((open) => !open)}
                     >
                         Add Reviewer
