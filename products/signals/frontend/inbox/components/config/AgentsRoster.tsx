@@ -7,7 +7,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSkeleton,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -23,11 +22,11 @@ import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
-import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAgentIcon } from './SourceAgentIcon'
+import { SourceCatalogModal } from './SourceCatalogModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
-import { VirtualizedSourceList } from './VirtualizedSourceList'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
@@ -133,15 +132,6 @@ const SOURCES_WITHOUT_CONFIG_ROWS: ReadonlySet<AgentRosterSource> = new Set(['re
 
 const SOURCE_CONFIGS_LOADING_REASON = 'Loading your signal sources'
 const SOURCE_CONFIGS_FAILED_REASON = "Couldn't load your signal sources. Select Retry above to try again."
-
-function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
-    const meta = getSourceProductMeta(source.sourceProduct)
-    if (!meta?.Icon) {
-        return null
-    }
-    const Icon = meta.Icon
-    return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
-}
 
 /** Only the states worth interrupting a scan for. Everything healthy shows no tag at all. */
 function notableTag(
@@ -517,7 +507,7 @@ const AgentRow = memo(function AgentRow({
                     aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                     data-attr="signal-source-expand"
                 >
-                    <AgentIcon source={agent} />
+                    <SourceAgentIcon agent={agent} />
                     <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-center gap-2">
                             <span
@@ -536,8 +526,9 @@ const AgentRow = memo(function AgentRow({
                                 </LemonTag>
                             )}
                         </div>
-                        <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
-                        {agent.category && <span className="truncate text-xs text-muted">{agent.category}</span>}
+                        <span className="truncate text-xs leading-4 text-muted">
+                            {agent.category ? `${agent.category} · ${agent.watches}` : agent.watches}
+                        </span>
                     </div>
                 </button>
                 {tag && (
@@ -620,10 +611,7 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
 export function AgentsRoster(): JSX.Element {
     const {
         externalSourceStates,
-        filteredRosterGroups,
-        sourceSearchQuery,
-        sourceCategory,
-        sourceCategoryOptions,
+        rosterGroups,
         sourcesLoadError,
         dataWarehouseSourcesLoading,
         conversationsConfig,
@@ -653,8 +641,7 @@ export function AgentsRoster(): JSX.Element {
         linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
-        setSourceSearchQuery,
-        setSourceCategory,
+        openSourceCatalog,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -978,43 +965,34 @@ export function AgentsRoster(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {filteredRosterGroups.map((group) => (
+            {rosterGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <AgentRosterGroupHeader group={group} />
-                    {group.id === 'external' && (
-                        <div className="flex flex-wrap items-center gap-2 py-2">
-                            <LemonInput
-                                type="search"
-                                value={sourceSearchQuery}
-                                onChange={setSourceSearchQuery}
-                                placeholder="Search sources"
-                                aria-label="Search external sources"
-                                data-attr="signal-sources-search"
-                                className="min-w-40 flex-1"
-                                fullWidth
-                            />
-                            <LemonSelect
-                                value={sourceCategory}
-                                onChange={setSourceCategory}
-                                options={sourceCategoryOptions}
-                                data-attr="signal-sources-category"
-                            />
-                        </div>
-                    )}
-                    {group.agents.length === 0 && (
-                        <LemonBanner type="info">
-                            No sources match your search. Try another name or category.
-                        </LemonBanner>
-                    )}
-                    <div className="-mx-2 divide-y divide-primary">
-                        {group.id === 'external' ? (
-                            <VirtualizedSourceList sources={group.agents} renderSource={renderAgent} />
-                        ) : (
-                            group.agents.map(renderAgent)
+                    <div className="flex items-center justify-between gap-2">
+                        <AgentRosterGroupHeader group={group} />
+                        {group.id === 'external' && (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPlus />}
+                                onClick={openSourceCatalog}
+                                data-attr="signal-source-catalog-open"
+                            >
+                                Add source
+                            </LemonButton>
                         )}
                     </div>
+                    {group.id === 'external' && group.agents.length === 0 ? (
+                        <p className="mb-0 rounded border border-dashed border-primary px-3 py-2.5 text-xs text-secondary">
+                            No external sources yet. Add one to let agents read the issues, tickets, and feedback in the
+                            tools you already use.
+                        </p>
+                    ) : (
+                        <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
+                    )}
                 </div>
             ))}
+
+            <SourceCatalogModal />
 
             {linearTeamsPicker && (
                 <LinearTeamsModal
