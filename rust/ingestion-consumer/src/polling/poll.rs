@@ -154,7 +154,6 @@ pub(crate) struct InFlightPoll {
     /// The epoch the batcher stamped on this poll's completions.
     pub(crate) assignment_epoch: u64,
     pub(crate) partitions: HashMap<TopicPartition, PartitionDeliveries>,
-    /// Each charged partition's uncommitted charge once this poll was charged.
     pub(crate) uncommitted: HashMap<TopicPartition, Charge>,
     pub(crate) message_count: u32,
     /// Messages covered by completions so far, accepted or not.

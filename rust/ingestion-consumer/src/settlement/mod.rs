@@ -99,7 +99,6 @@ pub(crate) struct Charged {
 
 pub(crate) struct Commit {
     pub(crate) offsets: HashMap<TopicPartition, Offset>,
-    /// Each committed partition's charge that stays uncommitted.
     pub(crate) uncommitted: HashMap<TopicPartition, Charge>,
     pub(crate) resume: Vec<TopicPartition>,
 }

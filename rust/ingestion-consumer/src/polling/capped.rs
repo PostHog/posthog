@@ -76,7 +76,7 @@ impl CappedPolling {
                 match self.collect().await {
                     Collected::Step(step) => return step,
                     Collected::Again => continue,
-                    Collected::Wait => self.start_waiting(),
+                    Collected::WaitOnOldestPoll => self.start_waiting(),
                 }
             }
             if let Some(step) = self.wait_on_oldest_poll().await {
@@ -133,7 +133,7 @@ impl CappedPolling {
                 Some(Ok(collected)) => return Collected::Step(Step::Submit(collected)),
             }
         }
-        Collected::Wait
+        Collected::WaitOnOldestPoll
     }
 
     /// Wait for completions to cover the oldest in-flight poll, then retire
@@ -266,8 +266,7 @@ impl CappedPolling {
 enum Collected {
     Step(Step),
     Again,
-    /// Wait on the oldest poll.
-    Wait,
+    WaitOnOldestPoll,
 }
 
 enum Woke {

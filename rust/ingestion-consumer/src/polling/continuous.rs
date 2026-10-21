@@ -16,9 +16,8 @@ use crate::charge_limit::ChargeLimit;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::settlement::{Commit, Settlement};
 
-/// Reads Kafka while it applies completions and commits. A poll is submitted
-/// once it is full or its batch timeout passes, and nothing waits on it after
-/// that: the partition budget and the in-flight limit bound admission.
+/// Nothing waits on a submitted poll: the partition budget and the in-flight
+/// limit bound admission.
 pub(crate) struct ContinuousPolling {
     collector: Collector,
     completions: mpsc::UnboundedReceiver<GroupCompletion>,
@@ -32,8 +31,6 @@ pub(crate) struct ContinuousPolling {
     limits: ChargeLimit,
     at_limit: bool,
     poll: Option<PollBuilder>,
-    /// The poll's batch timeout, from its first message. One timer serves
-    /// every turn of the loop until the poll is submitted.
     poll_deadline: Pin<Box<Sleep>>,
     accepting_new_batches: bool,
 }
@@ -44,8 +41,9 @@ enum Woke {
     Error(Option<String>),
     Tick,
     Deadline,
-    /// Carries the receive time when the message started a new poll.
-    Received(Option<tokio::time::Instant>),
+    Received {
+        poll_started: Option<tokio::time::Instant>,
+    },
     Failed(anyhow::Error),
 }
 
@@ -92,7 +90,7 @@ impl ContinuousPolling {
                     return step;
                 }
             }
-            self.drop_revoked_slices();
+            self.drop_revoked();
             if !self.accepting_new_batches && self.in_flight.is_empty() {
                 return Step::Stop;
             }
@@ -112,15 +110,15 @@ impl ContinuousPolling {
                 _ = &mut self.poll_deadline, if building => Woke::Deadline,
                 received = self.collector.receive(), if reading => match received {
                     Ok(Some(message)) => {
-                        let started = self
+                        let poll_started = self
                             .poll
                             .is_none()
                             .then(tokio::time::Instant::now);
                         let poll = self.poll.get_or_insert_with(PollBuilder::new);
                         self.collector.add(poll, &message);
-                        Woke::Received(started)
+                        Woke::Received { poll_started }
                     }
-                    Ok(None) => Woke::Received(None),
+                    Ok(None) => Woke::Received { poll_started: None },
                     Err(err) => Woke::Failed(err),
                 },
             };
@@ -170,8 +168,8 @@ impl ContinuousPolling {
                         return step;
                     }
                 }
-                Woke::Received(started) => {
-                    if let Some(started) = started {
+                Woke::Received { poll_started } => {
+                    if let Some(started) = poll_started {
                         let deadline = started + self.collector.batch_timeout();
                         self.poll_deadline.as_mut().reset(deadline);
                     }
@@ -206,7 +204,6 @@ impl ContinuousPolling {
         (poll.message_count() > 0).then(|| Step::Submit(poll.finish()))
     }
 
-    /// Counts the poll in progress too: it is charged only when it is submitted.
     fn pending(&self) -> Charge {
         let building = self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge);
         self.uncommitted.total() + building
@@ -227,7 +224,7 @@ impl ContinuousPolling {
 
     /// The batcher purges a revoked partition's messages, so their slices
     /// never complete.
-    fn drop_revoked_slices(&mut self) {
+    fn drop_revoked(&mut self) {
         let revoked: Vec<RevokedPartition> =
             std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
         if revoked.is_empty() {
@@ -242,7 +239,6 @@ impl ContinuousPolling {
     }
 }
 
-/// One partition's share of a submitted poll.
 struct Slice {
     poll: u64,
     assignment_epoch: u64,
@@ -257,15 +253,12 @@ impl Slice {
     }
 }
 
-/// The messages submitted and not yet completed, per partition, in submit
-/// order.
 struct InFlight {
     partitions: HashMap<TopicPartition, VecDeque<Slice>>,
     latest_processed_ms: HashMap<TopicPartition, i64>,
     group_id: String,
     next_poll: u64,
-    /// Kept only with a debug recorder, whose UI marks a poll done on its
-    /// `PollCompleted` event.
+    /// Filled only with a debug recorder, for its `PollCompleted` event.
     polls: HashMap<u64, PollProgress>,
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -415,8 +408,7 @@ impl InFlight {
         Ok(completion.offsets.len() as u64 - unmatched)
     }
 
-    /// Drop the slices collected before each partition's revoke generation.
-    /// A slice collected after a later reassignment stays. Returns the
+    /// Drops the slices older than each revoke's generation. Returns the
     /// messages dropped.
     fn drop_revoked(&mut self, revoked: &[RevokedPartition]) -> u64 {
         let mut stripped: u64 = 0;

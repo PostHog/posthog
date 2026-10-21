@@ -2,7 +2,6 @@ use std::num::NonZeroU64;
 
 use common_kafka_consumer::Charge;
 
-/// A limit on a [`Charge`] in events and in bytes. An unset axis has no limit.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ChargeLimit {
     events: Option<u64>,
