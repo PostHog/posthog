@@ -3,12 +3,6 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -92,11 +86,11 @@ def test_transient_probe_failures_do_not_mark_credentials_invalid(schema_name: s
             ScriptedResponse(status=503, json={"errors": []}),
         ]
     )
-    with (
-        scripted_network(script),
-        pytest.raises(OAuth2AuthRequestError if schema_name is None else RESTClientRetryableError),
-    ):
-        CriteoSource().validate_credentials(config(), 1, schema_name)
+    with scripted_network(script):
+        assert CriteoSource().validate_credentials(config(), 1, schema_name) == (
+            False,
+            "Couldn't reach Criteo to check your credentials. Try again in a few minutes.",
+        )
 
 
 @pytest.mark.parametrize(

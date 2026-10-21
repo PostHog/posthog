@@ -231,7 +231,7 @@ const WORKFLOW_CONTENT_FIELDS = [
 
 // The fields the editor writes through the form. Edits that land while a save is in flight are
 // re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
-const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description', 'tags'] as const
 
 function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = {}

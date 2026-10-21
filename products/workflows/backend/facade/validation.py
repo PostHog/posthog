@@ -7,8 +7,10 @@ from products.workflows.backend.services.batch_audience_cohorts import find_beha
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
+    duration_cap_error,
     duration_error,
     duration_minutes,
+    exceeds_unit_cap,
     is_duration,
     is_signed_duration,
 )
@@ -44,8 +46,10 @@ def realtime_audience_cohort(project_id: int, filters: object) -> RealtimeAudien
 
 __all__ = [
     "DURATION_PATTERN",
+    "duration_cap_error",
     "duration_error",
     "duration_minutes",
+    "exceeds_unit_cap",
     "find_behavioral_cohort_name",
     "find_clock_function",
     "find_realtime_behavioral_cohort",

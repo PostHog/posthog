@@ -909,14 +909,24 @@ class TestGetPartitionSettings:
     def _logger(self):
         return MagicMock()
 
-    def test_unexpected_error_is_captured(self):
+    @parameterized.expand(
+        [
+            ("unexpected_error", "Code: 62. DB::Exception: Syntax error", True),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='ch.example.com', port=8443): Read timed out. (read timeout=120)",
+                False,
+            ),
+        ]
+    )
+    def test_falls_back_and_captures_only_actionable_errors(self, _name, message, should_capture):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+        client.query.side_effect = ClickHouseError(message)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
             assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is should_capture
 
 
 class TestGetRowsBatching:

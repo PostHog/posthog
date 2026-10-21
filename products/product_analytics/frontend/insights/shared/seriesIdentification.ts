@@ -1,5 +1,6 @@
 import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
+
+import { getResultSeriesName } from './resultSeriesName'
 
 export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
 

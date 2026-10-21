@@ -213,10 +213,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()

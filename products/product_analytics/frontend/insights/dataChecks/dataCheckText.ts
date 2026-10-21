@@ -75,7 +75,7 @@ function shareOf(check: InsightDataCheckApi, part: number): string | null {
 export interface FilterCheckParts {
     /** Set when the project's filter catches these events but the insight leaves the filter off. */
     caught: string | null
-    missed: { count: number; noun: string; examples: string[]; fallback: string; excludeLabel: string } | null
+    missed: { count: number; noun: string; examples: string[]; fallback: string } | null
 }
 
 const NOTHING: FilterCheckParts = { caught: null, missed: null }
@@ -99,7 +99,6 @@ function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boo
                   noun: 'user',
                   examples: check.top_emails,
                   fallback: "Your team's emails",
-                  excludeLabel: 'Exclude these users',
               }
             : null,
     }
@@ -116,7 +115,6 @@ function localHostParts(check: InsightDataCheckApi): FilterCheckParts {
             noun: 'host',
             examples: check.top_hosts,
             fallback: 'Localhost events',
-            excludeLabel: 'Exclude these hosts',
         },
     }
 }
@@ -139,7 +137,6 @@ function botTrafficParts(
             noun: 'bot',
             examples: check.top_bots,
             fallback: 'Bot events',
-            excludeLabel: 'Exclude these bots',
         },
     }
 }
