@@ -22,8 +22,8 @@ SYNC_OVERLAP = timedelta(minutes=15)
 # The nightly assignment covers yesterday plus an overlap for vectors that landed after midnight.
 ASSIGN_WINDOW = timedelta(days=1)
 ASSIGN_OVERLAP = timedelta(hours=2)
-# After a refit the whole fit window is re-assigned under the refreshed topics.
-REFIT_REASSIGN_WINDOW = timedelta(days=7)
+# After a refit every intent that still has a vector is re-assigned under the refreshed topics.
+REFIT_REASSIGN_WINDOW = timedelta(days=30)
 
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=6)
