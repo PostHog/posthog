@@ -12,7 +12,7 @@ from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
+from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
@@ -138,6 +138,27 @@ class TestPlatformCutover(APIBaseTest):
         assert view is not None and view.enabled
         with team_scope(self.team.id):
             assert platform_testing.copy_of(alert.id).owner == "source"
+
+    @parameterized.expand(
+        [
+            ("moves", {}, None),
+            ("firing", {"state": State.FIRING}, CutoverSkip.FIRING),
+        ]
+    )
+    def test_a_dry_run_decides_as_a_real_run_and_changes_nothing(
+        self, _name: str, overrides: dict[str, Any], reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert(**overrides)
+
+        (dry,) = cut_over_team(self.team.id, now=NOW, dry_run=True)
+
+        assert dry.skipped == reason
+        alert.refresh_from_db()
+        assert (alert.owner, alert.owner_changed_at) == ("source", None)
+        copies = list_configurations(team_id=self.team.id, source_kinds=[SourceKind.LOGS], limit=10, offset=0)
+        assert copies.configurations == ()
+        (real,) = cut_over_team(self.team.id, now=NOW)
+        assert real.skipped == dry.skipped
 
     def test_a_second_run_leaves_a_moved_alert_alone(self) -> None:
         self._alert()
