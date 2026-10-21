@@ -1503,6 +1503,24 @@ describe('runStreamLogic', () => {
             expect(logic.values.latestTurnTraceId).toBe(TRACE)
         })
 
+        it.each([
+            ['cancelled', ['human_message', 'assistant_message', 'status', 'turn_separator']],
+            ['end_turn', ['human_message', 'assistant_message', 'turn_separator']],
+        ])('marks a turn that stops early: %s', async (stopReason, types) => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'a' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual(types)
+            expect(logic.values.threadItems.find((item) => item.type === 'status')?.status).toEqual(
+                stopReason === 'cancelled' ? 'turn_cancelled' : undefined
+            )
+        })
+
         it('keeps the last real turn id when a trailing traceless separator follows', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
