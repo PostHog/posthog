@@ -18,7 +18,6 @@ from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.untagged_question import has_question_signal
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
 from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
@@ -176,14 +175,12 @@ def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowI
         logger.exception("slack_app_untagged_question_classifier_failed")
 
     answerable = verdict is not None and verdict.answerable
-    question_signal = has_question_signal(inputs.event.get("text") or "")
     logger.info(
         "slack_app_untagged_question_classified",
         slack_team_id=inputs.slack_team_id,
         message_ts=inputs.event.get("ts"),
         classified=verdict is not None,
         answerable=answerable,
-        has_question_signal=question_signal,
         asks_for_information=verdict.asks_for_information if verdict else None,
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
         threshold=UNTAGGED_QUESTION_MIN_PROBABILITY,
@@ -196,7 +193,6 @@ def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowI
         posthog_user=user,
         classified=verdict is not None,
         answerable=answerable,
-        has_question_signal=question_signal,
         asks_for_information=verdict.asks_for_information if verdict else None,
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
         threshold=UNTAGGED_QUESTION_MIN_PROBABILITY,

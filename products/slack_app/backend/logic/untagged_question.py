@@ -6,21 +6,11 @@ from typing import Any
 UNTAGGED_QUESTION_MIN_CHARS = 12
 UNTAGGED_QUESTION_MAX_CHARS = 2000
 UNTAGGED_QUESTION_MIN_WORDS = 3
-_QUESTION_OPENER_PATTERN = re.compile(
-    r"^(how|what|why|when|where|which|who|whose|is|are|was|were|can|could|does|do|did|should|would|will|has|have|any|anyone|anybody)\b",
-    re.IGNORECASE,
-)
 # A message for another bot or a typed Slack command, such as "/remind" or "!deploy".
 _COMMAND_PATTERN = re.compile(r"^[/!]\S")
 _POSTHOG_PATTERN = re.compile(r"\bpost\s?hog\b", re.IGNORECASE)
 # Slack wraps links, channels and tags in angle brackets. A PostHog URL alone does not name PostHog.
 _SLACK_MARKUP_PATTERN = re.compile(r"<[^>]*>")
-
-
-def has_question_signal(text: str) -> bool:
-    """Whether a post looks like a question by its words alone: a ``?`` or a question word first."""
-    text = text.strip()
-    return "?" in text or bool(_QUESTION_OPENER_PATTERN.match(text))
 
 
 def mentions_posthog(text: str) -> bool:
