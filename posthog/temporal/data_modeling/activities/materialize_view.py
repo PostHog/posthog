@@ -27,7 +27,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
@@ -66,9 +65,9 @@ from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_l
 from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
-    bind_window_start,
     clear_incremental_state,
     inject_incremental_filter,
+    parse_model_query,
     record_incremental_history,
     resolve_write_plan,
     set_incremental_state,
@@ -647,7 +646,7 @@ async def hogql_table(
     if window is not None:
         query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
     else:
-        query_node = bind_window_start(parse_select(query), None)
+        query_node = parse_model_query(query)
     if query_node is None:
         raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
 
