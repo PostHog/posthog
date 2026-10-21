@@ -38,6 +38,9 @@ export interface ApplyEventFiltersInput {
 /**
  * Creates a pipeline step that evaluates customer-configured event filters.
  *
+ * A pipeline override that drops all events for the team drops the event before the filter
+ * tree is evaluated.
+ *
  * Uses event headers (event name, distinct_id) so it can run before the Kafka
  * message is parsed into a full event — avoiding wasted work on dropped events.
  *
@@ -51,11 +54,16 @@ export interface ApplyEventFiltersInput {
 export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
     manager: EventFilterManager
 ): ProcessingStep<T, T> {
-    return function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
+    return async function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
+        if (await manager.dropsAllEvents(input.team.id)) {
+            eventFiltersEventsEvaluated.inc({ outcome: 'pipeline_dropped' })
+            return drop('event_filter_pipeline_override')
+        }
+
         const filter = manager.getFilter(input.team.id)
 
         if (!filter) {
-            return Promise.resolve(ok(input))
+            return ok(input)
         }
 
         const matched = evaluateFilterTree(filter.filter_tree, {
@@ -73,15 +81,15 @@ export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
             // lets the event through to avoid accidental data loss
             if (isLive) {
                 eventFiltersEventsEvaluated.inc({ outcome: 'dropped' })
-                return Promise.resolve(drop('event_filter'))
+                return drop('event_filter')
             }
 
             eventFiltersEventsEvaluated.inc({ outcome: 'shadow_dropped' })
-            return Promise.resolve(ok(input))
+            return ok(input)
         }
 
         eventFiltersEventsEvaluated.inc({ outcome: 'ingested' })
-        return Promise.resolve(ok(input))
+        return ok(input)
     }
 }
 
