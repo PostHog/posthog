@@ -380,6 +380,12 @@ export interface MessageTemplateApi {
     name: string
     /** What the template is for and when to use it. */
     description?: string
+    /**
+     * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -426,6 +432,12 @@ export interface PatchedMessageTemplateApi {
     name?: string
     /** What the template is for and when to use it. */
     description?: string
+    /**
+     * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Template content keyed by channel. Replaced as a whole on update, not merged. */

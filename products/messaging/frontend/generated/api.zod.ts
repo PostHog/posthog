@@ -253,6 +253,10 @@ export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ 
 
 export const messagingTemplatesCreateBodyNameMax = 400
 
+export const messagingTemplatesCreateBodyTagsItemMax = 255
+
+export const messagingTemplatesCreateBodyTagsMax = 10
+
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyTypeMax = 24
 
@@ -264,6 +268,13 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingTemplatesCreateBodyNameMax)
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesCreateBodyTagsItemMax))
+        .max(messagingTemplatesCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
         .object({
             templating: zod
@@ -433,6 +444,10 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
 
 export const messagingTemplatesUpdateBodyNameMax = 400
 
+export const messagingTemplatesUpdateBodyTagsItemMax = 255
+
+export const messagingTemplatesUpdateBodyTagsMax = 10
+
 export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesUpdateBodyTypeMax = 24
 
@@ -444,6 +459,13 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
         .max(messagingTemplatesUpdateBodyNameMax)
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesUpdateBodyTagsItemMax))
+        .max(messagingTemplatesUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
         .object({
             templating: zod
@@ -613,6 +635,10 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
 
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
+export const messagingTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const messagingTemplatesPartialUpdateBodyTagsMax = 10
+
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
@@ -625,6 +651,13 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesPartialUpdateBodyTagsItemMax))
+        .max(messagingTemplatesPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
         .object({
             templating: zod
