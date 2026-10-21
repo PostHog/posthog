@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -114,6 +115,12 @@ class TestOfflineExperimentReads(APIBaseTest):
         ]
 
     def test_author_filter_applies_to_experiments_and_history(self) -> None:
+        self.user.hedgehog_config = {
+            "version": 2,
+            "use_as_profile": True,
+            "actor_options": {"color": "red"},
+        }
+        self.user.save(update_fields=["hedgehog_config"])
         self.experiment.created_by = self.user
         self.experiment.save(update_fields=["created_by"])
         service_experiment = OfflineExperiment.objects.for_team(self.team.id).create(
@@ -146,7 +153,7 @@ class TestOfflineExperimentReads(APIBaseTest):
                 row = response.data["results"][0]
                 experiment = row.get("experiment", row)
                 self.assertEqual(experiment["id"], str(self.experiment.id))
-                self.assertEqual(experiment["created_by"]["id"], self.user.id)
+                self.assertEqual(experiment["created_by"], UserBasicSerializer(self.user).data)
                 empty = self.client.get(endpoint, {"created_by": self.user.id + 10000})
                 self.assertEqual(empty.data["count"], 0)
                 no_author = self.client.get(endpoint, {"created_by_is_null": "true", "limit": "1"})
@@ -519,6 +526,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             (self._endpoint(), {"limit": 101}, "limit"),
             (self._endpoint(), {"created_by": "invalid"}, "created_by"),
             (self._history(), {"created_by": 0}, "created_by"),
+            (self._history(), {"created_by": self.user.id, "created_by_is_null": "true"}, "created_by"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/payload/"), {"limit": 1}, "limit"),

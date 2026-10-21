@@ -48,6 +48,7 @@ export interface OfflineOverviewTrendResult {
 export type OfflineOverviewTrendState = Pick<offlineOverviewTrendLogicValues, 'trend' | 'trendLoading' | 'trendError'>
 
 const EMPTY_TREND_STATES: Record<string, OfflineOverviewTrendState> = {}
+const MAX_HISTORY_PAGES = 5
 
 export function getOfflineOverviewTrendKey({
     teamId,
@@ -157,7 +158,11 @@ export const offlineOverviewTrendLogic: LogicWrapper<offlineOverviewTrendLogicTy
                                 )
                                 breakpoint()
                                 const results = [...page.results]
-                                while (page.next_cursor) {
+                                for (
+                                    let pagesLoaded = 1;
+                                    page.next_cursor && pagesLoaded < MAX_HISTORY_PAGES;
+                                    pagesLoaded++
+                                ) {
                                     page = await api.aiObservabilityOfflineScorersHistoryList(
                                         String(props.teamId),
                                         props.scorerId,

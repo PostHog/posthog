@@ -69,6 +69,17 @@ describe('offlineScorerHistoryLogic', () => {
                 })
                 expect(query?.cursor).toBeUndefined()
             }
+            await expectLogic(logic, () =>
+                logic.actions.setFilters({ created_by: undefined, created_by_is_null: undefined })
+            ).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('created_by')
+            expect(router.values.searchParams).not.toHaveProperty('created_by_is_null')
+            expect(api.aiObservabilityOfflineScorersHistoryList).toHaveBeenLastCalledWith(
+                '1',
+                props.scorerId,
+                expect.objectContaining({ created_by: undefined, created_by_is_null: undefined })
+            )
+            await expectLogic(logic, () => logic.actions.setFilters(authorFilters)).toFinishAllListeners()
             router.actions.push(urls.aiObservabilityScorers())
             router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId))
             await expectLogic(logic).toFinishAllListeners()

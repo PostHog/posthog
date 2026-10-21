@@ -59,7 +59,9 @@ Experiments submitted with a personal API key are attributed to that user. Proje
 have no author. Attribution is recorded on the first accepted submission and stays unchanged on retries.
 The offline evaluations overview shows the author and supports filtering experiments and score trends by author,
 including experiments with no author. Choose "Any author" to clear the filter.
-Each scorer chart displays the versions with results in the selected date range and filters as separate series,
+Scorer history includes the same author control, so filters carried from the overview remain visible and can be cleared.
+API requests cannot combine `created_by` with `created_by_is_null=true`.
+Each scorer chart displays the loaded versions with results in the selected date range and filters as separate series,
 while the summary defaults to the latest matching version. The version arrows change only the summary.
 Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
@@ -488,11 +490,11 @@ When no scores are selected, the overview selects up to three from recent comple
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
 The shared date picker supports presets, custom ranges, and all time.
-History pages are bounded; the scorer history shows how many matching points are loaded.
+History pages are bounded; each overview card loads at most five pages of 100 experiment/version results. The scorer history shows how many matching points are loaded.
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
-Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
-The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
+Overview charts show each loaded scorer version as a separate series. Arrows browse version summaries without changing the chart.
+The card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
 Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.

@@ -183,6 +183,31 @@ describe('offlineOverviewTrendLogic', () => {
         expect(logic.values.versionSummaries[0]?.mean).toBe(0.64)
     })
 
+    it('bounds large histories and releases read slots for queued scorers', async () => {
+        history.mockImplementation(async (_teamId, scorerId, query) => {
+            const offset = Number(query?.cursor || 0)
+            return {
+                results: Array.from({ length: 100 }, (_, index) => ({
+                    ...page.results[0],
+                    experiment: { ...page.results[0].experiment, id: `${scorerId}-${offset + index}` },
+                })),
+                count: 1000,
+                next_cursor: String(offset + 100),
+            }
+        })
+        const logics = Array.from({ length: 4 }, (_, index) =>
+            offlineOverviewTrendLogic({ ...props, scorerId: `busy-scorer-${index}`, dateFrom: undefined })
+        )
+        logics.forEach((logic) => logic.mount())
+        await Promise.all(logics.map((logic) => expectLogic(logic).toFinishAllListeners()))
+
+        for (const logic of logics) {
+            expect(logic.values.trendLoading).toBe(false)
+            expect(logic.values.points).toHaveLength(500)
+            expect(logic.values.trend?.page).toMatchObject({ count: 1000, next_cursor: '500' })
+        }
+    })
+
     it('reloads shared filters including tag-only changes within the same frozen date range', async () => {
         const logic = offlineOverviewTrendLogic({ ...props, filters: { run_source: 'local' } })
         logic.mount()

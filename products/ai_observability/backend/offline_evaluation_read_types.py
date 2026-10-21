@@ -1,6 +1,6 @@
 from dataclasses import field
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -8,9 +8,6 @@ from posthog.dataclasses import frozen
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage
-
-if TYPE_CHECKING:
-    from posthog.models.user import User
 
 MAX_READ_SCORER_VERSIONS = 20
 MAX_RESULT_CELL_ITEMS = 50
@@ -41,6 +38,8 @@ class OfflineReadQuery:
     tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
+        if self.created_by is not None and self.created_by_is_null:
+            raise OfflineEvaluationValidationError("created_by", "Choose an author or no author, not both.")
         if not 1 <= self.limit <= 100:
             raise OfflineEvaluationValidationError("limit", "Use a page size between 1 and 100.")
         if len(self.scorer_version_ids) > MAX_READ_SCORER_VERSIONS or len(set(self.scorer_version_ids)) != len(
@@ -68,9 +67,22 @@ class OfflineResultCellQuery:
 
 
 @frozen
+class OfflineExperimentAuthor:
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: dict[str, JSONValue] | None
+    role_at_organization: str | None
+
+
+@frozen
 class OfflineExperimentRead:
     tags: tuple[str, ...] = ()
-    created_by: "User | None" = None
+    created_by: OfflineExperimentAuthor | None = None
     id: UUID
     name: str
     run_source: str | None

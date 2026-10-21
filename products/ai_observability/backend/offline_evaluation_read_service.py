@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
@@ -24,6 +25,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineCategorySummary,
+    OfflineExperimentAuthor,
     OfflineExperimentRead,
     OfflineHistoryPoint,
     OfflineItemPage,
@@ -289,10 +291,23 @@ class OfflineEvaluationReadService:
         output = []
         for experiment in experiments:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
+            author = experiment.created_by
             output.append(
                 OfflineExperimentRead(
                     tags=tuple(ResourceTags.names(experiment)),
-                    created_by=experiment.created_by,
+                    created_by=OfflineExperimentAuthor(
+                        id=author.id,
+                        uuid=author.uuid,
+                        distinct_id=author.distinct_id,
+                        first_name=author.first_name,
+                        last_name=author.last_name,
+                        email=author.email,
+                        is_email_verified=author.is_email_verified,
+                        hedgehog_config=deepcopy(author.hedgehog_config),
+                        role_at_organization=author.role_at_organization,
+                    )
+                    if author is not None
+                    else None,
                     id=experiment.id,
                     name=experiment.name,
                     run_source=experiment.run_source,
