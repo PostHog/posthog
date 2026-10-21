@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,6 +12,11 @@ import { initKeaTests } from '~/test/init'
 import { BASE_POINT_LIMIT, TOPIC_POINTS_PAGE_SIZE, ZOOMED_POINT_LIMIT, intentMapLogic } from './intentMapLogic'
 
 jest.mock('lib/api')
+// jsdom has no theme CSS, so every real palette color resolves to the same fallback.
+jest.mock('lib/colors', () => ({
+    ...jest.requireActual('lib/colors'),
+    getSeriesColor: (index: number) => `series-${index}`,
+}))
 
 const mockQuery = api.query as jest.Mock
 
@@ -72,28 +78,38 @@ describe('intentMapLogic', () => {
         logic.unmount()
     })
 
-    it('reads tool, topic and dates from the url and loads the map once', async () => {
-        logic.mount()
-        router.actions.push(
-            urls.mcpAnalyticsIntentMap({ tool: 'query-trends', topic: 'a', dateFrom: '-30d', dateTo: '-1d' })
-        )
+    it.each([
+        { dateFrom: '-30d', dateTo: '-1d', expectedFilter: { dateFrom: '-30d', dateTo: '-1d' } },
+        { dateFrom: null, dateTo: null, expectedFilter: { dateFrom: '-7d', dateTo: null } },
+    ])(
+        'reads tool, topic and dates ($dateFrom, $dateTo) from the url, loads the map once and adds no history entry',
+        async ({ dateFrom, dateTo, expectedFilter }) => {
+            logic.mount()
+            const pushSpy = jest.spyOn(router.actions, 'push')
+            const replaceSpy = jest.spyOn(router.actions, 'replace')
+            const entryUrl = urls.mcpAnalyticsIntentMap({ tool: 'query-trends', topic: 'a', dateFrom, dateTo })
+            router.actions.push(entryUrl)
 
-        await expectLogic(logic).toDispatchActions(['setTool', 'setTopicId', 'setDateFilter', 'loadMapSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
 
-        expect(logic.values.tool).toBe('query-trends')
-        expect(logic.values.topicId).toBe('a')
-        expect(logic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: '-1d' })
-        expect(mockQuery).toHaveBeenCalledTimes(1)
-        expect(mockQuery).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                kind: 'MCPIntentMapQuery',
-                toolName: 'query-trends',
-                topicId: 'a',
-                dateRange: { date_from: '-30d', date_to: '-1d' },
-                limit: BASE_POINT_LIMIT,
-            })
-        )
-    })
+            expect(logic.values.tool).toBe('query-trends')
+            expect(logic.values.topicId).toBe('a')
+            expect(logic.values.dateFilter).toEqual(expectedFilter)
+            expect(mockQuery).toHaveBeenCalledTimes(1)
+            expect(mockQuery).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    kind: 'MCPIntentMapQuery',
+                    toolName: 'query-trends',
+                    topicId: 'a',
+                    dateRange: { date_from: expectedFilter.dateFrom, date_to: expectedFilter.dateTo },
+                    limit: BASE_POINT_LIMIT,
+                })
+            )
+            expect(pushSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).not.toHaveBeenCalled()
+            expect(router.values.location.search).toBe(entryUrl.slice(entryUrl.indexOf('?')))
+        }
+    )
 
     it('builds bubble and point series and resolves the selected topic', async () => {
         logic.mount()
@@ -144,6 +160,43 @@ describe('intentMapLogic', () => {
         expect(router.values.searchParams).toEqual(expect.objectContaining({ topic: 'b' }))
         expect(mockQuery).toHaveBeenLastCalledWith(expect.objectContaining({ topicId: 'b', limit: BASE_POINT_LIMIT }))
         expect(mockQuery).toHaveBeenLastCalledWith(expect.not.objectContaining({ bounds: expect.anything() }))
+    })
+
+    it('a bubble click narrows the map to the topic and records the selection once', async () => {
+        logic.mount()
+        router.actions.push(urls.mcpAnalyticsIntentMap())
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+        jest.mocked(posthog.capture).mockClear()
+
+        logic.actions.focusTopic('b')
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        expect(logic.values.topicId).toBe('b')
+        expect(logic.values.selectedTopicId).toBe('b')
+        expect(router.values.searchParams).toEqual(expect.objectContaining({ topic: 'b' }))
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'mcp analytics intent topic selected')
+        ).toEqual([['mcp analytics intent topic selected', { topic_id: 'b' }]])
+    })
+
+    it('keeps each topic color when the map narrows to one topic', async () => {
+        logic.mount()
+        router.actions.push(urls.mcpAnalyticsIntentMap())
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+        const colorOfB = logic.values.topicSeries.find((s) => s.key === 'topic-b')?.color
+
+        mockQuery.mockResolvedValue({
+            ...RESPONSE,
+            results: RESPONSE.results.filter((p) => p.topic_id === 'b'),
+            topics: RESPONSE.topics.filter((t) => t.topic_id === 'b'),
+        })
+        logic.actions.setTopicId('b')
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        expect(colorOfB).toBe('series-1')
+        expect(logic.values.topicSeries.find((s) => s.key === 'topic-b')?.color).toBe(colorOfB)
+        expect(logic.values.pointSeries.find((s) => s.key === 'points-b')?.color).toBe(colorOfB)
+        expect(logic.values.topicColor('b')).toBe(colorOfB)
     })
 
     it('sends no query while the intent topics flag is off', async () => {

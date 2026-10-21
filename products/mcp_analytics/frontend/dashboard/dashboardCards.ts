@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+
 export type McpDashboardCardId =
     | 'kpis'
     | 'intent-topics'
@@ -28,3 +30,8 @@ export const MCP_DASHBOARD_CARDS = (Object.keys(CARD_LABELS) as McpDashboardCard
     id,
     label: CARD_LABELS[id],
 }))
+
+// Cards that ship behind a flag stay out of the dashboard and the Customize menu until it is on.
+export const MCP_DASHBOARD_CARD_FLAGS: Partial<Record<McpDashboardCardId, FeatureFlagKey>> = {
+    'intent-topics': FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS,
+}

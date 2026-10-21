@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import type { MCPIntentTopicItem, MCPIntentTopicsQueryResponse } from '~/queries/schema/schema-general'
 
+import { IntentTopicsScopeNote } from '../intents/IntentTopicsScopeNote'
 import { TopicTrend } from '../intents/TopicTrend'
 import { formatNumber } from './formatters'
 
@@ -16,6 +17,7 @@ export function IntentTopicsCard({
     onRetry,
     dateFrom,
     dateTo,
+    filtersIgnored,
 }: {
     topics: MCPIntentTopicsQueryResponse | null
     loading: boolean
@@ -23,6 +25,7 @@ export function IntentTopicsCard({
     onRetry: () => void
     dateFrom: string | null
     dateTo: string | null
+    filtersIgnored: boolean
 }): JSX.Element {
     const items: MCPIntentTopicItem[] = topics?.results ?? []
     const maxShare = Math.max(1, ...items.map((item) => item.share_pct))
@@ -37,8 +40,10 @@ export function IntentTopicsCard({
                     <h3 className="mb-0 text-sm font-semibold">What agents use your server for</h3>
                     {topics && !failed ? (
                         <span className="text-xs text-secondary">
-                            {formatNumber(topics.coverage.calls_assigned)} of{' '}
-                            {formatNumber(topics.coverage.calls_with_intent)} calls with an intent have a topic
+                            <span translate="no">{formatNumber(topics.coverage.calls_assigned)}</span>
+                            <span> of </span>
+                            <span translate="no">{formatNumber(topics.coverage.calls_with_intent)}</span>
+                            <span> calls with an intent have a topic</span>
                         </span>
                     ) : null}
                 </div>
@@ -50,6 +55,7 @@ export function IntentTopicsCard({
                     Open intent map
                 </LinkPrimitive>
             </div>
+            <IntentTopicsScopeNote filtersIgnored={filtersIgnored} dateFrom={dateFrom} dateTo={dateTo} />
             {failed && !loading ? (
                 <div
                     className="flex items-center gap-2 text-sm text-secondary"
@@ -76,7 +82,9 @@ export function IntentTopicsCard({
                                     {item.label}
                                 </LinkPrimitive>
                                 <div className="flex shrink-0 items-center gap-2">
-                                    <span className="text-xs text-secondary">{item.share_pct.toFixed(1)}%</span>
+                                    <span className="text-xs text-secondary" translate="no">
+                                        {item.share_pct.toFixed(1)}%
+                                    </span>
                                     <TopicTrend trendPp={item.trend_pp} />
                                 </div>
                             </div>

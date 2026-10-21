@@ -3,16 +3,25 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
-import { urls } from 'scenes/urls'
 
 import { formatNumber } from '../dashboard/formatters'
+import { mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import { TOPIC_POINTS_PAGE_SIZE, intentMapLogic } from './intentMapLogic'
-import { topicColor } from './intentScatter'
 
 /** Right-hand panel: the topic list as a legend, or the selected topic with its intents. */
 export function TopicPanel(): JSX.Element {
-    const { topics, selectedTopic, selectedTopicPoints, visibleTopicPoints, topicId, totalPoints, points, mapLoading } =
-        useValues(intentMapLogic)
+    const {
+        topics,
+        selectedTopic,
+        selectedTopicPoints,
+        visibleTopicPoints,
+        topicId,
+        totalPoints,
+        points,
+        mapLoading,
+        dateFilter,
+        topicColor,
+    } = useValues(intentMapLogic)
     const { selectTopic, setTopicId, showMoreTopicPoints } = useActions(intentMapLogic)
     const hiddenTopicPoints = selectedTopicPoints.length - visibleTopicPoints.length
 
@@ -24,7 +33,7 @@ export function TopicPanel(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <span
                                 className="inline-block h-3 w-3 shrink-0 rounded-full"
-                                style={{ background: topicColor(selectedTopic.topic_id, topics) }}
+                                style={{ background: topicColor(selectedTopic.topic_id) }}
                             />
                             <h3 className="mb-0 truncate text-base font-semibold">{selectedTopic.label}</h3>
                         </div>
@@ -32,8 +41,10 @@ export function TopicPanel(): JSX.Element {
                             <p className="mb-0 text-sm text-secondary">{selectedTopic.summary}</p>
                         ) : null}
                         <div className="text-xs text-secondary">
-                            {formatNumber(selectedTopic.calls)} calls · {selectedTopic.share_pct.toFixed(1)}% of calls
-                            with an intent
+                            <span translate="no">{formatNumber(selectedTopic.calls)}</span>
+                            <span> calls · </span>
+                            <span translate="no">{selectedTopic.share_pct.toFixed(1)}%</span>
+                            <span> of calls with an intent</span>
                         </div>
                     </div>
                     <LemonButton
@@ -67,9 +78,12 @@ export function TopicPanel(): JSX.Element {
                             <li key={point.intent_hash} className="rounded border px-2 py-1 text-sm">
                                 <div className="break-words">{point.intent_text}</div>
                                 <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
-                                    <span>{formatNumber(point.calls)} calls</span>
+                                    <span>
+                                        <span translate="no">{formatNumber(point.calls)}</span>
+                                        <span> calls</span>
+                                    </span>
                                     {point.tool ? (
-                                        <LinkPrimitive to={urls.mcpAnalyticsTool(point.tool)}>
+                                        <LinkPrimitive to={mcpToolReportUrl(point.tool, dateFilter)}>
                                             {point.tool}
                                         </LinkPrimitive>
                                     ) : null}
@@ -100,7 +114,11 @@ export function TopicPanel(): JSX.Element {
     return (
         <div className="flex h-full min-h-0 flex-col gap-2" data-attr="mcp-intent-topic-list">
             <div className="text-xs font-medium uppercase text-secondary">
-                Topics · {formatNumber(points.length)} of {formatNumber(totalPoints)} intents shown
+                <span>Topics · </span>
+                <span translate="no">{formatNumber(points.length)}</span>
+                <span> of </span>
+                <span translate="no">{formatNumber(totalPoints)}</span>
+                <span> intents shown</span>
             </div>
             <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-1 overflow-y-auto p-0">
                 {topics.map((topic) => (
@@ -113,10 +131,12 @@ export function TopicPanel(): JSX.Element {
                         >
                             <span
                                 className="inline-block h-3 w-3 shrink-0 rounded-full"
-                                style={{ background: topicColor(topic.topic_id, topics) }}
+                                style={{ background: topicColor(topic.topic_id) }}
                             />
                             <span className="min-w-0 flex-1 truncate">{topic.label}</span>
-                            <span className="shrink-0 text-xs text-secondary">{topic.share_pct.toFixed(1)}%</span>
+                            <span className="shrink-0 text-xs text-secondary" translate="no">
+                                {topic.share_pct.toFixed(1)}%
+                            </span>
                         </button>
                     </li>
                 ))}

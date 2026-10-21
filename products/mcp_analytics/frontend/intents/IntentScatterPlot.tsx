@@ -18,7 +18,7 @@ const handleChartError = makeChartErrorHandler('mcp-intent-map-scatter')
 /** Topic bubbles at the base zoom; a drag selection pins the axes and loads the intents inside. */
 export function IntentScatterPlot(): JSX.Element {
     const { topicSeries, pointSeries, zoom, topicId, mapLoading, mapError, topics } = useValues(intentMapLogic)
-    const { setZoom, selectTopic, setTopicId, loadMap } = useActions(intentMapLogic)
+    const { setZoom, selectTopic, focusTopic, loadMap } = useActions(intentMapLogic)
     const theme = useChartTheme()
     const [pinned, setPinned] = useState<ScatterAreaSelection | null>(null)
 
@@ -48,7 +48,9 @@ export function IntentScatterPlot(): JSX.Element {
             return
         }
         if (meta.kind === 'topic') {
-            setTopicId(meta.topicId)
+            if (meta.topicId) {
+                focusTopic(meta.topicId)
+            }
             return
         }
         selectTopic(meta.topicId)
