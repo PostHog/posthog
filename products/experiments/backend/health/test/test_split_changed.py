@@ -128,7 +128,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("rebalanced", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "The change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
-                f"{FIRST_CHANGE} to leave them out of the results.",
+                f"{FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "rebalanced_before_5_people",
@@ -152,15 +152,16 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_zeroed", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
                 "control 50% / test 50% / blue 0%). The change came 3 hours after launch, when 4 groups had been "
-                f'exposed. Move the start date to {FIRST_CHANGE} to leave them out of the results. No new users get "blue".',
+                f"exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                'No new users get "blue".',
             ),
             (
                 "variant_rolled_out_before_1_person",
                 _context(EVEN, SHIPPED, groups=TARGETED, exposed_units=1),
-                ("variant_rolled_out", ExperimentHealthFindingSeverity.INFO, "E3"),
+                ("variant_rolled_out", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
-                "running. The change came 3 hours after launch, when 1 person had been exposed. From then on, the "
-                'split assigns everyone to variant "test". End the experiment with a conclusion, or restore the split.',
+                'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
+                f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
             ),
             (
                 "variant_removed",
@@ -235,7 +236,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
                 f"test 50% on {SECOND_CHANGE}. The last change came 3 hours after launch, when 4 people had been "
-                f"exposed. Move the start date to {SECOND_CHANGE} to leave them out of the results.",
+                f"exposed. Move the start date to {SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "reverted_with_unknown_exposures_in_between",

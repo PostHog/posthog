@@ -192,7 +192,7 @@ def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[st
     if count == 0:
         return []
     start_at = suggested_start(effect.last.changed_at, history.team_timezone)
-    return [f"Move the start date to {start_at} to leave them out of the results."]
+    return [f"Move the start date to {start_at} so the results count only exposures after it."]
 
 
 def _units(count: int, counts_groups: bool) -> str:

@@ -4,6 +4,7 @@ functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure 
 
 People exposed before such a change can get another variant after it, so the results mix two assignments. When
 fewer than MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
+A variant rolled out to 100% stays a warning, because the split serves one variant from then on.
 """
 
 from typing import Literal
@@ -73,7 +74,9 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             sentences=[*_reverted(history, effect), "Nobody was exposed in between."],
         )
     few = few_exposed_units(history, ExperimentHealthFlagChangeKind.SPLIT)
-    if few is not None:
+    # A variant at 100% serves everyone the same variant from then on, so the experiment compares nothing, however
+    # few people were exposed before.
+    if few is not None and effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return _few_exposed(history, effect, few)
     if effect.shape == SplitChangeShape.REVERTED:
         start_at = suggested_start(effect.last.changed_at, history.team_timezone)
@@ -137,21 +140,21 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
     what_changed = (
         _reverted(history, effect) if effect.shape == SplitChangeShape.REVERTED else [_what_changed(history, effect)]
     )
-    match effect.shape:
-        case SplitChangeShape.VARIANT_ROLLED_OUT:
-            # Leaving out the few exposed people does not help, because nobody new gets another variant.
-            rest = _rolled_out(effect)
-        case SplitChangeShape.VARIANT_ZEROED:
-            keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
-            rest = [*leave_out(history, effect, count), f"No new users get {keys}."]
-        case _:
-            rest = leave_out(history, effect, count)
+    from_then_on: list[str] = []
+    if effect.shape == SplitChangeShape.VARIANT_ZEROED:
+        keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
+        from_then_on = [f"No new users get {keys}."]
     return _finding(
         history,
         effect,
         severity=ExperimentHealthFindingSeverity.INFO,
         title=_TITLE,
-        sentences=[*what_changed, exposed_when(history, effect, count), *rest],
+        sentences=[
+            *what_changed,
+            exposed_when(history, effect, count),
+            *leave_out(history, effect, count),
+            *from_then_on,
+        ],
     )
 
 
@@ -196,7 +199,11 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
     change = the_change(effect.change_count, "the")
     match effect.shape:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
-            return _rolled_out(effect)
+            variant = _rolled_out_variant(effect, starts_sentence=False)
+            return [
+                f"From then on, the split assigns everyone to {variant}.",
+                "End the experiment with a conclusion, or restore the split.",
+            ]
         case SplitChangeShape.VARIANT_REMOVED:
             keys = _quoted(removed_variant_keys(effect.from_split, effect.to_split), conjunction="or")
             return [
@@ -230,14 +237,6 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 f"Reset the experiment, or move its start date to {start_at} to analyze only the people exposed "
                 f"after {change}.",
             ]
-
-
-def _rolled_out(effect: SplitNetEffect) -> list[str]:
-    variant = _rolled_out_variant(effect, starts_sentence=False)
-    return [
-        f"From then on, the split assigns everyone to {variant}.",
-        "End the experiment with a conclusion, or restore the split.",
-    ]
 
 
 def _reverted(history: FlagHistory, effect: SplitNetEffect) -> list[str]:

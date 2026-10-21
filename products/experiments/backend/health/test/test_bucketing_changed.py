@@ -87,8 +87,8 @@ class TestBucketingChangedMidRun(TestCase):
                 _context((KEY, "old-key", "new-key"), exposed_units=4),
                 ("key_changed", ExperimentHealthFindingSeverity.INFO, "The flag key changed after launch"),
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} to leave them out of "
-                'the results. Code that still uses "old-key" no longer gets this flag.',
+                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                'Code that still uses "old-key" no longer gets this flag.',
             ),
             (
                 "key_changed_before_5_people",
@@ -108,8 +108,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
-                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} to leave "
-                "them out of the results.",
+                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -189,7 +188,7 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
                 "The last change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
-                f"{SECOND_CHANGE} to leave them out of the results.",
+                f"{SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "set_back_with_nobody_in_between",

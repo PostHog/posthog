@@ -208,7 +208,9 @@ def query_exposed_units(
     flag key with the variant keys the flag served under it, and an exposure counts when it matches one of the pairs.
     """
     team = experiment.team
-    unit = get_entity_key(group_type_index)
+    # `person_id` joins an aggregation of the team's person overrides, which runs in full whatever the LIMIT. The raw
+    # id on the event needs no join. A person merged after an exposure can then count twice, which only keeps a warning.
+    unit = get_entity_key(group_type_index) if aggregates_by_group(group_type_index) else "event_person_id"
     conditions: list[ast.Expr] = []
     for flag_key, variant_keys in served:
         _, variant_property = get_exposure_event_and_property(
