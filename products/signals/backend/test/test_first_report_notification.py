@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -60,6 +60,8 @@ class TestFirstReportNotification(BaseTest):
         response.json.return_value = {"message_id": "example-message-id"}
         self.post = self.enterContext(patch("posthog.transactional_email.requests.post", return_value=response))
         self.send = self.enterContext(patch(f"{MODULE}.send_transactional_email", wraps=send_transactional_email))
+        self.capture_context = self.enterContext(patch(f"{MODULE}.ph_scoped_capture"))
+        self.capture = self.capture_context.return_value.__enter__.return_value
         register_first_report_notification(team=self.team, user=self.user)
 
     def report(self, **overrides: object) -> SignalReport:
@@ -121,12 +123,30 @@ class TestFirstReportNotification(BaseTest):
                 "report_title": first.title,
                 "report_summary": expected_summary,
                 "report_priority": priority,
-                "report_url": f"https://app.example.com/project/{self.team.id}/inbox/reports/{first.id}",
+                "report_url": f"https://app.example.com/project/{self.team.id}/inbox/reports/{first.id}?link_source=first_report_email",
                 "activation_id": str(self.notification().id),
+                "email_eligible_at": timezone.now().isoformat(),
             },
         )
         assert self.notification().queued_at is not None
         assert self.notification().message_id == "example-message-id"
+        assert [call.kwargs["event"] for call in self.capture.call_args_list] == [
+            "self-driving first report email eligible",
+            "self-driving first report email queued",
+        ]
+        queued = self.capture.call_args.kwargs
+        assert queued["distinct_id"] == str(self.user.distinct_id)
+        assert queued["groups"]["organization"] == str(self.organization.id)
+        assert queued["groups"]["project"] == str(self.team.uuid)
+        assert queued["timestamp"] == self.notification().queued_at
+        assert queued["properties"] == {
+            "project_id": self.team.id,
+            "report_id": str(first.id),
+            "activation_id": str(self.notification().id),
+            "message_id": "example-message-id",
+            "template_id": str(self.template_id),
+            "report_priority": priority,
+        }
         assert self.post.call_args.args[0] == (
             f"https://us.posthog.com/api/projects/123456789/messaging_templates/{self.template_id}/send/"
         )
@@ -154,6 +174,7 @@ class TestFirstReportNotification(BaseTest):
         self.report(**overrides)
         deliver_first_report_email(self.team.id)
         self.send.assert_not_called()
+        self.capture.assert_not_called()
         assert self.notification().send_started_at is None
         assert self.notification().cancelled_at is None
 
@@ -190,6 +211,9 @@ class TestFirstReportNotification(BaseTest):
         with self.assertRaises(type(error)):
             deliver_first_report_email(self.team.id)
         initial_send = self.send.call_args
+        first_eligibility = self.capture.call_args.kwargs
+        assert first_eligibility["event"] == "self-driving first report email eligible"
+        self.capture.assert_called_once()
         assert self.notification().send_started_at is None
         assert self.notification().last_error
         first.summary = "Updated after the first send attempt."
@@ -203,11 +227,28 @@ class TestFirstReportNotification(BaseTest):
         self.report(first_visible_at=timezone.now() - timedelta(seconds=1))
         self.send.side_effect = None
 
-        deliver_first_report_email(self.team.id)
+        with time_machine.travel("2026-01-15T13:01:00Z", tick=False):
+            deliver_first_report_email(self.team.id)
 
         assert self.send.call_args == initial_send
         assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
         assert self.notification().queued_at is not None
+        assert self.capture.call_args_list[1].kwargs == first_eligibility
+        assert self.capture.call_args.kwargs["timestamp"] != first_eligibility["timestamp"]
+        assert first_eligibility["uuid"] == str(
+            uuid5(self.notification().id, "self-driving first report email eligible")
+        )
+
+    def test_analytics_failure_does_not_block_or_repeat_email(self) -> None:
+        self.report()
+        self.capture_context.return_value.__exit__.side_effect = RuntimeError("analytics unavailable")
+
+        deliver_first_report_email(self.team.id)
+        deliver_first_report_email(self.team.id)
+
+        self.send.assert_called_once()
+        assert self.notification().queued_at is not None
+        assert self.notification().message_id == "example-message-id"
 
     def test_project_access_is_required_even_with_task_access(self) -> None:
         self.organization.available_product_features = [
@@ -307,6 +348,8 @@ class TestFirstReportNotification(BaseTest):
         assert self.notification().send_started_at is not None
         assert self.notification().queued_at is None
         assert self.notification().last_error == "delivery_uncertain"
+        self.capture.assert_called_once()
+        assert self.capture.call_args.kwargs["event"] == "self-driving first report email eligible"
 
     def test_worker_loss_does_not_expire_a_send_and_duplicate_it(self) -> None:
         self.report()

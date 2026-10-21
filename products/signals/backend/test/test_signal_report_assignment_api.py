@@ -99,19 +99,37 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert log.detail["changes"][0]["before"] is None
         assert log.detail["changes"][0]["after"]["kind"] == SignalActorKind.USER
 
-    def test_identical_claim_is_idempotent(self):
+    @parameterized.expand([(None,), ("codex",)])
+    def test_identical_claim_is_idempotent(self, agent: str | None) -> None:
         report = self._create_report()
-        self.client.post(self._claim_url(report), data={}, format="json")
+        headers = self._agent_headers(agent) if agent else {}
+        capture_context = self.enterContext(patch("products.signals.backend.report_assignments.ph_scoped_capture"))
+        capture = capture_context.return_value.__enter__.return_value
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
         initial_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
         assert initial_claim is not None
         claimed_at = initial_claim.claimed_at
 
-        response = self.client.post(self._claim_url(report), data={}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
 
         assert response.status_code == status.HTTP_200_OK
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
         assert assignment is not None
         assert assignment.claimed_at == claimed_at
+        if agent:
+            capture.assert_called_once()
+            assert capture.call_args.kwargs["event"] == "self-driving external agent work claimed"
+            assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+            assert capture.call_args.kwargs["properties"] == {
+                "project_id": self.team.id,
+                "report_id": str(report.id),
+                "claim_id": str(assignment.claim_id),
+                "agent": agent,
+            }
+        else:
+            capture.assert_not_called()
         assert (
             ActivityLog.objects.filter(
                 team_id=self.team.id,

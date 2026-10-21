@@ -122,6 +122,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',

@@ -470,9 +470,16 @@ class TestTask(TestCase):
             signal_report=report,
         )
 
-        run = task.create_run(extra_state={"ai_stage": "implementation"})
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                run = task.create_run(extra_state={"ai_stage": "implementation"})
 
         self.assertEqual(run.state["ai_stage"], "implementation")
+        created = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "task_run_created"]
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["properties"]["ai_stage"], "implementation")
+        self.assertEqual(created[0]["properties"]["signal_report_id"], str(report.id))
+        self.assertEqual(created[0]["properties"]["run_id"], str(run.id))
 
     def test_create_run_leaves_a_pipeline_created_task_unstamped(self):
         # Stamping a pipeline-created task would move a rerun of self-driving work onto the
