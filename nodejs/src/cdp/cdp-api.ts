@@ -51,6 +51,7 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
+import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     TransactionalEmailOutcome,
@@ -193,6 +194,7 @@ export class CdpApi {
     private cancelBatchJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
+    private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private resumeBatchJwt: ScopedServiceJwt
 
@@ -266,6 +268,10 @@ export class CdpApi {
         this.transactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
+        )
+        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
+            deps.idempotencyValkey ?? null,
+            'transactional-email'
         )
         // The same workers that wake parked steps wake parked batch resolvers, so they share the
         // key. The audience keeps a step-resume token from waking a batch, and the reverse.
@@ -1152,7 +1158,7 @@ export class CdpApi {
             if (!parsed.success) {
                 return reply('invalid_request', 400, { error: parsed.error.message })
             }
-            const { to, distinct_id: distinctId, variables } = parsed.data
+            const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
 
             const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
             if (!team) {
@@ -1164,10 +1170,6 @@ export class CdpApi {
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
                 return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
-            }
-            const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
-            if (isLimited) {
-                return reply('quota_limited', 429, { error: 'quota_limited' })
             }
 
             const event: HogFunctionInvocationGlobals['event'] = {
@@ -1197,12 +1199,51 @@ export class CdpApi {
             invocation.queue = 'email'
             invocation.queuePriority = EMAIL_QUEUE_PRIORITY.fast
 
-            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+            const idempotencyKeys = this.transactionalEmailIdempotencyKeys
+            const fingerprint = IdempotencyKeys.fingerprint([hogFlow.id, to, distinctId, variables])
+            if (idempotencyKey) {
+                // Checked before the quota, so a retry of a send that went out gets its answer even
+                // when the team has hit its quota since.
+                const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
+                switch (reservation.status) {
+                    case 'replayed':
+                        return reply('replayed', 202, {
+                            status: 'queued',
+                            invocation_id: reservation.invocationId,
+                            replayed: true,
+                        })
+                    case 'in_flight':
+                        return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
+                    case 'conflict':
+                        return reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+                    case 'unavailable':
+                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+            }
             try {
-                await this.hogflowQueue.queueInvocations([invocation])
+                const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
+                if (isLimited) {
+                    if (idempotencyKey) {
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                    return reply('quota_limited', 429, { error: 'quota_limited' })
+                }
+                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+                try {
+                    await this.hogflowQueue.queueInvocations([invocation])
+                } catch (error) {
+                    this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                    throw error
+                }
             } catch (error) {
-                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                // Nothing was queued, so the caller's retry with the same key must be able to send.
+                if (idempotencyKey) {
+                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                }
                 throw error
+            }
+            if (idempotencyKey) {
+                await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
             }
             await this.invocationResultsService.invocationResultsRowsService.flush()
             // The run skips the trigger pipeline that counts runs for event-triggered workflows.
@@ -1219,7 +1260,7 @@ export class CdpApi {
             )
             await this.hogFunctionMonitoringService.flush()
 
-            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id })
+            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
         } catch (e) {
             logger.error('Error queueing transactional email', {
                 error: e instanceof Error ? e.message : String(e),
