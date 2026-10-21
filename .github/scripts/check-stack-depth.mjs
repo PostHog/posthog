@@ -4,62 +4,58 @@ import { pathToFileURL } from 'node:url'
 
 const MAX_OPEN_DEPTH = 5
 export const EXEMPT_THROUGH_PR = 121285
+const SKIPPED = { status: 'skipped', detail: 'The current branch is not in a gh stack.' }
 
 export function checkStackDepth(pullRequests) {
     const open = pullRequests.filter((pr) => pr.state === 'open')
     const failed = open.slice(MAX_OPEN_DEPTH).some((pr) => !pr.number || pr.number > EXEMPT_THROUGH_PR)
-    return {
-        status: failed ? 'fail' : 'pass',
-        depth: open.length,
-        detail: failed
-            ? `${open.length} open layers; the limit is ${MAX_OPEN_DEPTH}. Merge lower layers or split the stack using /stacking-prs before publishing.`
-            : `${open.length} open layers; within the limit or exempt as an existing pull request.`,
-    }
+    return failed
+        ? {
+              status: 'fail',
+              detail: `${open.length} open layers; the limit is ${MAX_OPEN_DEPTH}. Merge lower layers or split the stack using /stacking-prs before publishing.`,
+          }
+        : {
+              status: 'pass',
+              detail: `${open.length} open layers; within the limit or exempt as an existing pull request.`,
+          }
+}
+
+function gh(args) {
+    return JSON.parse(
+        execFileSync('gh', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 })
+    )
 }
 
 function checkLocalStack() {
+    let branches
     try {
-        const { branches } = JSON.parse(
-            execFileSync('gh', ['stack', 'view', '--json'], {
-                encoding: 'utf-8',
-                stdio: ['ignore', 'pipe', 'pipe'],
-                timeout: 20_000,
-            })
-        )
-        // On the trunk, gh stack view reports some stack with no current branch.
-        if (
-            !branches.some((branch) => branch.isCurrent === true) ||
-            branches.some((branch) => typeof branch?.isMerged !== 'boolean')
-        ) {
-            throw new Error('Current branch is not in a recognized stack')
-        }
-        // gh stack submit and push publish every layer, whichever branch is checked out.
-        return checkStackDepth(
-            branches.map((branch) => ({
-                number: branch.pr?.number,
-                state: branch.isMerged || branch.pr?.state === 'CLOSED' ? 'closed' : 'open',
-            }))
-        )
+        ;({ branches } = gh(['stack', 'view', '--json']))
     } catch {
-        return { status: 'skipped', detail: 'The current branch is not in a gh stack.' }
+        return SKIPPED
     }
+    // On the trunk, gh stack view reports some stack with no current branch.
+    if (!branches?.some((branch) => branch.isCurrent === true)) {
+        return SKIPPED
+    }
+    // gh stack submit and push publish every layer, whichever branch is checked out.
+    return checkStackDepth(
+        branches.map((branch) => ({
+            number: branch.pr?.number,
+            state: branch.isMerged || branch.pr?.state === 'CLOSED' ? 'closed' : 'open',
+        }))
+    )
 }
 
-async function checkPullRequest() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, STACK_NUMBER } = process.env
+function checkPullRequest() {
     const prNumber = Number(process.env.PR_NUMBER)
     if (prNumber <= EXEMPT_THROUGH_PR) {
         return
     }
     try {
-        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/stacks/${STACK_NUMBER}`, {
-            headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' },
-            signal: AbortSignal.timeout(10_000),
-        })
-        if (!response.ok) {
-            throw new Error(`GitHub API returned ${response.status}`)
-        }
-        const { pull_requests } = await response.json()
+        const { pull_requests } = gh([
+            'api',
+            `repos/${process.env.GITHUB_REPOSITORY}/stacks/${process.env.STACK_NUMBER}`,
+        ])
         const index = pull_requests.findIndex((layer) => layer.number === prNumber)
         if (index === -1) {
             throw new Error(`Pull request ${prNumber} is absent from the stack response`)
@@ -81,6 +77,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         console.log(JSON.stringify(result))
         process.exitCode = result.status === 'fail' ? 1 : 0
     } else {
-        await checkPullRequest()
+        checkPullRequest()
     }
 }

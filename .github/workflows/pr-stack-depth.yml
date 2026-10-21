@@ -22,7 +22,7 @@ jobs:
 
             - name: Check open layers below this pull request
               env:
-                  GITHUB_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   STACK_NUMBER: ${{ github.event.pull_request.stack.number }}
               run: node .github/scripts/check-stack-depth.mjs

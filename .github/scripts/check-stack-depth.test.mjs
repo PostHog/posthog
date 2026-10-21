@@ -12,43 +12,48 @@ const layers = (...states) => states.map((state, i) => ({ number: EXEMPT_THROUGH
 const existingLayers = (count) =>
     Array.from({ length: count }, (_, i) => ({ number: EXEMPT_THROUGH_PR - count + 1 + i, state: 'open' }))
 
+function runWithFakeGh(t, ghOutput, args = [], env = {}) {
+    const directory = mkdtempSync(join(tmpdir(), 'stack-depth-'))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const script = ghOutput === null ? 'exit 1' : `printf '%s' '${JSON.stringify(ghOutput)}'`
+    writeFileSync(join(directory, 'gh'), `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+    return spawnSync(process.execPath, [fileURLToPath(new URL('./check-stack-depth.mjs', import.meta.url)), ...args], {
+        env: { PATH: directory, ...env },
+        encoding: 'utf-8',
+        timeout: 5000,
+    })
+}
+
 describe('checkStackDepth', () => {
-    for (const { name, stack, expectedDepth, expectedStatus } of [
+    for (const { name, stack, expectedStatus } of [
         {
             name: 'rejects the sixth open layer',
             stack: layers('open', 'open', 'open', 'open', 'open', 'open'),
-            expectedDepth: 6,
             expectedStatus: 'fail',
         },
         {
             name: 'skips merged layers below',
             stack: layers('closed', 'closed', 'closed', 'closed', 'open', 'open', 'open'),
-            expectedDepth: 3,
             expectedStatus: 'pass',
         },
         {
             name: 'accepts five open layers',
             stack: layers('open', 'open', 'open', 'open', 'open'),
-            expectedDepth: 5,
             expectedStatus: 'pass',
         },
         {
             name: 'keeps existing pull requests exempt',
             stack: existingLayers(6),
-            expectedDepth: 6,
             expectedStatus: 'pass',
         },
         {
             name: 'rejects adding an unpublished layer to an exempt stack',
             stack: [...existingLayers(6), { state: 'open' }],
-            expectedDepth: 7,
             expectedStatus: 'fail',
         },
     ]) {
         it(name, () => {
-            const result = checkStackDepth(stack)
-            assert.equal(result.depth, expectedDepth)
-            assert.equal(result.status, expectedStatus)
+            assert.equal(checkStackDepth(stack).status, expectedStatus)
         })
     }
 })
@@ -65,24 +70,11 @@ describe('local stack adapter', () => {
         },
     ]) {
         it(name, (t) => {
-            const directory = mkdtempSync(join(tmpdir(), 'stack-depth-local-'))
-            t.after(() => rmSync(directory, { recursive: true, force: true }))
             const branches = Array.from({ length: 6 }, (_, i) => ({ isMerged: false, isCurrent: i === current }))
             if (closedBottom) {
                 branches[0].pr = { number: EXEMPT_THROUGH_PR + 1, state: 'CLOSED' }
             }
-            writeFileSync(join(directory, 'gh'), `#!/bin/sh\nprintf '%s' '${JSON.stringify({ branches })}'\n`, {
-                mode: 0o755,
-            })
-            const result = spawnSync(
-                process.execPath,
-                [fileURLToPath(new URL('./check-stack-depth.mjs', import.meta.url)), '--local'],
-                {
-                    env: { PATH: directory },
-                    encoding: 'utf-8',
-                    timeout: 5000,
-                }
-            )
+            const result = runWithFakeGh(t, { branches }, ['--local'])
             assert.equal(JSON.parse(result.stdout).status, expectedStatus, result.stderr)
             assert.equal(result.status, expectedStatus === 'fail' ? 1 : 0)
         })
@@ -95,35 +87,15 @@ describe('stack depth check', () => {
         { name: 'keeps existing pull requests exempt', prNumber: EXEMPT_THROUGH_PR, unavailable: true, expected: 0 },
         { name: 'fails when GitHub cannot verify the stack', unavailable: true, expected: 1 },
     ]) {
-        it(name, () => {
+        it(name, (t) => {
             const stack = {
                 pull_requests: Array.from({ length: 6 }, (_, i) => ({ number: prNumber - 5 + i, state: 'open' })),
             }
-            const mockFetch = `
-                globalThis.fetch = async (url) => {
-                    if (${unavailable}) return new Response('', { status: 503 });
-                    if (url.endsWith('/stacks/123')) return new Response(${JSON.stringify(JSON.stringify(stack))});
-                    return new Response('', { status: 404 });
-                };
-            `
-            const result = spawnSync(
-                process.execPath,
-                [
-                    '--import',
-                    `data:text/javascript,${encodeURIComponent(mockFetch)}`,
-                    fileURLToPath(new URL('./check-stack-depth.mjs', import.meta.url)),
-                ],
-                {
-                    env: {
-                        GITHUB_TOKEN: 'test-token',
-                        GITHUB_REPOSITORY: 'example/repository',
-                        PR_NUMBER: String(prNumber),
-                        STACK_NUMBER: '123',
-                    },
-                    encoding: 'utf-8',
-                    timeout: 5000,
-                }
-            )
+            const result = runWithFakeGh(t, unavailable ? null : stack, [], {
+                GITHUB_REPOSITORY: 'example/repository',
+                PR_NUMBER: String(prNumber),
+                STACK_NUMBER: '123',
+            })
             assert.equal(result.error, undefined)
             assert.equal(result.status, expected, result.stdout + result.stderr)
         })

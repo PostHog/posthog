@@ -49,10 +49,7 @@ class TestStackDepth:
     )
     def test_uses_the_shared_checker_verdict(self, stdout: str, returncode: int, expected: str) -> None:
         result = subprocess.CompletedProcess([], returncode, stdout=stdout)
-        with (
-            patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node"),
-            patch("hogli_commands.preflight_checks.subprocess.run", return_value=result),
-        ):
+        with patch("hogli_commands.preflight_checks.subprocess.run", return_value=result):
             status, _ = check_stack_depth()
         assert status == expected
 
