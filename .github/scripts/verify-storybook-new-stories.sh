@@ -131,13 +131,12 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
 done
 
 # PR matrices render chromium only, so without this run a webkit-only break first fails in
-# the merge queue. One run is enough because webkit takes no snapshots to compare.
+# the merge queue. One run is enough because webkit takes no snapshots to compare, and
+# --updateSnapshot keeps a missing baseline from failing it, as in the first chromium run.
 run_stories webkit webkit-run --updateSnapshot
 
 if [ "${#failed_runs[@]}" -gt 0 ]; then
-    echo "Flake verification failed in: ${failed_runs[*]}"
-    echo "A failed chromium run means a flaky or broken snapshot."
-    echo "A failed webkit run means the story does not render or its play function fails in webkit."
+    echo "Flake verification failed in: ${failed_runs[*]}. Fix the stories before merging."
     exit 1
 fi
 
