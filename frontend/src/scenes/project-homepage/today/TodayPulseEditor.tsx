@@ -13,7 +13,9 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { PULSE_TILES, type PinnedPulseMetric, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
+import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
+
+import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 
 function PulsePinRow({
     metric,
@@ -21,7 +23,7 @@ function PulsePinRow({
     disabledReason,
     onToggle,
 }: {
-    metric: PinnedPulseMetric
+    metric: PulsePinApi
     pinned: boolean
     disabledReason?: string
     onToggle: () => void
@@ -52,14 +54,13 @@ function PulsePinRow({
 }
 
 export function TodayPulseEditor(): JSX.Element {
-    const { pinnedPulseMetrics, pulseTiles, pulseInsightResults, pulseInsightResultsLoading } =
-        useValues(todayHighlightsLogic)
+    const { pulsePins, pulseTiles, pulseInsightResults, pulseInsightResultsLoading } = useValues(todayHighlightsLogic)
     const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
-    const [shownOnOpen, setShownOnOpen] = useState<PinnedPulseMetric[]>([])
+    const [shownOnOpen, setShownOnOpen] = useState<PulsePinApi[]>([])
 
-    const isPinned = (key: string): boolean => pinnedPulseMetrics.some((pinned) => pinned.key === key)
+    const isPinned = (key: string): boolean => pulsePins.some((pinned) => pinned.key === key)
     const searching = search.trim().length > 0
     const rows = searching ? pulseInsightResults : shownOnOpen
 
@@ -113,7 +114,7 @@ export function TodayPulseEditor(): JSX.Element {
                                 key={metric.key}
                                 metric={metric}
                                 pinned={pinned}
-                                disabledReason={pulsePinLimitReason(pinnedPulseMetrics.length, pinned)}
+                                disabledReason={pulsePinLimitReason(pulsePins.length, pinned)}
                                 onToggle={() => togglePulsePin(metric, 'editor')}
                             />
                         )
@@ -124,7 +125,7 @@ export function TodayPulseEditor(): JSX.Element {
                         {pulseInsightResultsLoading ? 'Searching…' : 'No trends or SQL insights match your search'}
                     </Text>
                 ) : null}
-                {pinnedPulseMetrics.length >= PULSE_TILES ? (
+                {pulsePins.length >= PULSE_TILES ? (
                     <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
                         {PULSE_TILES} pinned. Unpin one to pin another.
                     </Text>

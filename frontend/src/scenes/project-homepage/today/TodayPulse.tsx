@@ -132,7 +132,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef)
     const { baseCurrency } = useValues(teamLogic)
-    const { pinnedPulseMetrics } = useValues(todayHighlightsLogic)
+    const { pulsePins } = useValues(todayHighlightsLogic)
     const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =
         useActions(todayHighlightsLogic)
     return (
@@ -151,7 +151,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                     )
                 }
                 const isInsight = metric.key.startsWith('insight:')
-                const pinned = pinnedPulseMetrics.some((pin) => pin.key === metric.key)
+                const pinned = pulsePins.some((pin) => pin.key === metric.key)
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
                 const content = (
@@ -176,10 +176,14 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                 return (
                     <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
-                            onOpen={() => pulseMetricPreviewed(metric, position)}
-                            onOpenChange={(open) =>
-                                open ? holdPulseOrder(metrics.map((tile) => tile.key)) : releasePulseOrder()
-                            }
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    pulseMetricPreviewed(metric, position)
+                                    holdPulseOrder(metrics.map((tile) => tile.key))
+                                } else {
+                                    releasePulseOrder()
+                                }
+                            }}
                             card={
                                 <TodayPulseCard
                                     metric={metric}
@@ -187,7 +191,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                                     formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     pinned={pinned}
-                                    pinDisabledReason={pulsePinLimitReason(pinnedPulseMetrics.length, pinned)}
+                                    pinDisabledReason={pulsePinLimitReason(pulsePins.length, pinned)}
                                     onTogglePin={() =>
                                         togglePulsePin({ key: metric.key, name: metric.name }, 'hover_card')
                                     }
