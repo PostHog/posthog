@@ -508,14 +508,13 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
-export const hogFlowsCreateBodySourceRecordMax = 255
-
-export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
-
 export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const hogFlowsCreateBodyTagsMax = 10
 
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -1941,14 +1940,13 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
-export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax = 255
-
-export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
-
 export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 10
 
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax = 255
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -2869,14 +2867,13 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
-export const hogFlowsBulkDeleteCreateBodySourceRecordMax = 255
-
-export const hogFlowsBulkDeleteCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
-
 export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
 
 export const hogFlowsBulkDeleteCreateBodyTagsMax = 10
 
+export const hogFlowsBulkDeleteCreateBodySourceRecordMax = 255
+
+export const hogFlowsBulkDeleteCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
