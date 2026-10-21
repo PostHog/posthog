@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -62,6 +63,7 @@ export interface messageTemplateLogicValues {
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
     isSavingDraft: boolean
+    isSavingSensitive: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
@@ -87,6 +89,7 @@ export interface messageTemplateLogicValues {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -110,6 +113,7 @@ export interface messageTemplateLogicValues {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -195,6 +199,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -209,6 +214,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -266,6 +272,12 @@ export interface messageTemplateLogicActions {
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    setSensitive: (sensitive: boolean) => {
+        sensitive: boolean
+    }
+    setSensitiveDone: () => {
+        value: true
+    }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
     }
@@ -297,6 +309,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -312,6 +325,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -340,6 +354,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -354,6 +369,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -369,6 +385,7 @@ export interface messageTemplateLogicActions {
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -383,6 +400,7 @@ export interface messageTemplateLogicActions {
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -462,6 +480,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
+        setSensitive: (sensitive: boolean) => ({ sensitive }),
+        setSensitiveDone: true,
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
@@ -517,6 +537,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 makeTransactional: () => true,
                 makeTransactionalDone: () => false,
+            },
+        ],
+        isSavingSensitive: [
+            false,
+            {
+                setSensitive: () => true,
+                setSensitiveDone: () => false,
             },
         ],
         // The draft as last saved, and the content sends use. Both come from the server.
@@ -648,11 +675,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return form
             },
             saveTemplate: async (template) => {
-                // Saving the content publishes it, and the server clears the draft.
+                // Saving the content publishes it, and the server clears the draft. The sensitive setting
+                // saves on its own, so a publish never sends it and can't undo a change still in flight.
+                const { sensitive: _sensitive, ...content } = template
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(template)
-                        : await api.messaging.updateTemplate(template.id, template)
+                        : await api.messaging.updateTemplate(template.id, content)
                 const { form, draft, published } = splitDraft(saved)
                 actions.setDraftState(draft, published)
                 return form
@@ -679,6 +708,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (
                 values.templateLoading ||
                 values.isMakingTransactional ||
+                values.isSavingSensitive ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
             ) {
@@ -814,6 +844,26 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.replayDeferredExternalEdit()
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
+        },
+        setSensitive: async ({ sensitive }) => {
+            try {
+                // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    sensitive,
+                })
+                const changes = { sensitive: updated.sensitive, updated_at: updated.updated_at }
+                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+                if (values.templateChanged) {
+                    actions.setTemplateValues(changes)
+                } else {
+                    actions.resetTemplate({ ...values.template, ...changes })
+                }
+                posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
+            }
+            actions.setSensitiveDone()
+            actions.replayDeferredExternalEdit()
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.
