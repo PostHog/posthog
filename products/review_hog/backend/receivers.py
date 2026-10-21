@@ -1,6 +1,6 @@
 """The inbox trigger: auto-review self-driving (Signals) implementations when they produce a PR.
 
-A `post_save` receiver on `tasks.TaskRun` (resolved via the app registry — tasks never imports
+A `post_save` receiver on `tasks.TaskRun`, connected through the tasks facade hook (tasks never imports
 review_hog, keeping every product edge in the existing direction). The trigger is the save that
 records a review target on the run's `output` — NOT run completion: on the tasks architecture a
 successful run deliberately never leaves `in_progress` (it stays followable and the PR follow-up
@@ -30,9 +30,6 @@ whose PR never opens is spend with no reader, and the PR save re-fires this rece
 for the PR costs only the head start. The workflow and client keep their branch-target support for
 callers that know what they are doing; this receiver just never uses it.
 
-Both reviews start only in projects with the `review-hog-internal` flag, the same flag that shows
-the Inbox switches in settings. A saved opt-in in any other project starts nothing.
-
 The `TaskRun.branch` FIELD is never used as a target: auto-start seeds it with the BASE branch and
 the agent server later overwrites it with the work branch, so its meaning depends on the path taken.
 
@@ -42,9 +39,7 @@ import json
 import logging
 from typing import Any
 
-from django.apps import apps as django_apps
 from django.db import transaction
-from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -52,27 +47,54 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
+from products.stamphog.backend.facade.review_evidence import (
+    ReviewEvidence,
+    ReviewEvidenceState,
+    register_review_evidence_provider,
+)
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
 # the temporal client and the stamphog task module reach all four, so those two imports stay
 # function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
-# The internal flag check reaches posthog.permissions, which loads webauthn and zxcvbn, so it is
-# function-local too.
 
 logger = logging.getLogger(__name__)
 
+# The name stamphog shows for these reviews, the same name the reviews carry on GitHub.
+REVIEWER_NAME = "PostHog Review"
+
 
 def connect() -> None:
-    """Wire the TaskRun-save receiver and the stamphog toggle hook; called once from `AppConfig.ready()`."""
-    post_save.connect(
-        handle_task_run_saved,
-        sender=django_apps.get_model("tasks", "TaskRun"),
-        dispatch_uid="review_hog_task_run_completed",
-    )
+    """Wire the TaskRun-save receiver and the stamphog hooks; called once from `AppConfig.ready()`."""
+    connect_task_run_post_save(handle_task_run_saved, dispatch_uid="review_hog_task_run_completed")
     # Stamphog re-checks this toggle before re-reviewing a self-driving PR. It gets the resolver
     # through a hook because importing review_hog from stamphog would be a dependency cycle.
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)
+    # Stamphog waits for a pending review of the head it judges and counts a completed one as
+    # assurance. The same dependency cycle rules out a direct import.
+    register_review_evidence_provider(review_evidence_for_stamphog)
+
+
+def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:
+    """Map review_hog's own head status onto stamphog's evidence contract."""
+    # The lookup reads the review pipeline's modules, which reach openai, anthropic and temporalio.
+    from products.review_hog.backend.facade.review_status import review_status_for_head  # noqa: PLC0415
+
+    status = review_status_for_head(repository, pr_number, head_sha)
+    if status is None:
+        return None
+    return ReviewEvidence(
+        state=ReviewEvidenceState(status.state.value),
+        reviewer=REVIEWER_NAME,
+        review_kind=status.review_kind,
+        findings_count=status.findings_count,
+        published=status.published,
+        head_sha=status.head_sha,
+        base_ref=status.base_branch,
+        base_sha=status.base_sha,
+        skipped_paths=status.skipped_paths,
+    )
 
 
 def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -110,10 +132,6 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         # Only the self-driving implementation run reviews. Report research and repo selection share
         # both signal_report_id and internal=True with it, so only ai_stage tells them apart.
         if (instance.state or {}).get("ai_stage") != "implementation":
-            return
-        from products.review_hog.backend.internal_features import has_internal_features  # noqa: PLC0415
-
-        if not has_internal_features(instance.team_id):
             return
         repository = (task.repository or "").strip() or None
         resolved = resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
@@ -170,10 +188,6 @@ def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, prefer
     approval while somebody is still opted in. ``preferred_user_id`` (the task's creator, or the
     reviewer a queued job was attributed to) wins while still opted in, keeping attribution stable.
     """
-    from products.review_hog.backend.internal_features import has_internal_features  # noqa: PLC0415
-
-    if not has_internal_features(team_id):
-        return None
     resolved = resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
@@ -300,6 +314,7 @@ def _start_review(
     # Function-local: importing the temporal client executes the review_hog temporal package, whose
     # activity registration reaches temporalio, modal, openai, and anthropic — all four forbidden at
     # django.setup() by the startup-import-budget test. See the module-top comment.
+    from products.review_hog.backend.review_request_rules import trigger_review_mode  # noqa: PLC0415
     from products.review_hog.backend.reviewer.tools.github_meta import PRParser  # noqa: PLC0415
     from products.review_hog.backend.temporal.client import start_review_pr_workflow, workflow_running  # noqa: PLC0415
     from products.review_hog.backend.temporal.types import TRIGGER_INBOX, resolve_pr_workflow_id  # noqa: PLC0415
@@ -340,6 +355,7 @@ def _start_review(
             publish=True,
             acting_user_id=user_id,
             trigger_source=TRIGGER_INBOX,
+            review_mode=trigger_review_mode(team_id, pr_repository, int(pr_info["pr_number"])),
             signal_report_id=signal_report_id,
             signal_priority=signal_priority,
             pr_url=pr_url,

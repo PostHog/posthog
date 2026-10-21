@@ -84,6 +84,48 @@ def test_summarize_assurance_excludes_author_self_review() -> None:
     assert assurance["head_commented_users"] == ["bob"]
 
 
+_EVIDENCE = {
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+}
+_COMPLETED_ON_HEAD = {**_EVIDENCE, "state": "completed", "head_sha": "abc123", "base_ref": "master", "base_sha": "mb1"}
+
+
+@pytest.mark.parametrize(
+    "review_evidence, pr_merge_base, counted",
+    [
+        pytest.param([_COMPLETED_ON_HEAD], "mb1", [_COMPLETED_ON_HEAD], id="completed-on-the-head"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "head_sha": "old999"}], "mb1", [], id="completed-on-an-older-head"),
+        # A retarget or a base merge keeps the head SHA, so only the merge base shows that the reviewed diff is stale.
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": "mb0"}], "mb1", [], id="completed-against-another-merge-base"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": ""}], "mb1", [], id="completed-against-an-unknown-merge-base"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": ""}], "", [], id="merge-base-unknown-on-both-sides"),
+        pytest.param([{**_EVIDENCE, "state": "pending", "head_sha": "abc123"}], "mb1", [], id="pending"),
+        pytest.param([{**_EVIDENCE, "state": "failed", "head_sha": "abc123"}], "mb1", [], id="failed"),
+        pytest.param(
+            [{**_EVIDENCE, "state": "pending", "head_sha": "abc123", "reviewer": "Other"}, _COMPLETED_ON_HEAD],
+            "mb1",
+            [_COMPLETED_ON_HEAD],
+            id="each-reviewer-counts-on-its-own",
+        ),
+        pytest.param([], "mb1", [], id="no-evidence"),
+    ],
+)
+def test_summarize_assurance_counts_only_completed_reviews_of_the_head(
+    review_evidence: list[dict], pr_merge_base: str, counted: list[dict]
+) -> None:
+    # A review of an older head says nothing about the commits pushed since, and a pending or
+    # failed one has not looked at the diff. Only a finished review of this head may assure it.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.merge_base_sha = pr_merge_base
+    pipeline.pr.review_evidence = review_evidence
+
+    assert pipeline._summarize_assurance()["head_review_evidence"] == counted
+
+
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
     # The verdict is posted against the base_sha and head_sha from the JSON output. This locks
     # the GitHub review to the diff the LLM actually saw, and skips the approval when the base

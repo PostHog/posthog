@@ -5,6 +5,7 @@ import {
     LocalLists,
     RECENTS_LIMIT,
     SectionsInput,
+    ViewAll,
     buildSections,
     emptyRemoteSlots,
 } from './commandKSections'
@@ -45,7 +46,8 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     remoteQueries: {},
     localQuery: '',
     themeItem: null,
-    askAiQuestion: '',
+    askAiQuestion: null,
+    viewAll: null,
     ...overrides,
 })
 
@@ -70,5 +72,22 @@ describe('buildSections', () => {
         expect(keys).toHaveLength(limit)
         expect(new Set(keys).size).toBe(limit)
         expect(keys[0]).toBe(`${sectionKey}/dashboard:1`)
+    })
+
+    test.each([
+        ['lead', ['view-all', 'skeleton-0', 'skeleton-1', 'skeleton-2'], ['view-all', 'dashboard:1']],
+        ['trail', ['skeleton-0', 'skeleton-1', 'skeleton-2', 'view-all'], ['dashboard:1', 'view-all']],
+    ] as const)('places a %s View all row before and after results load', (placement, whileLoading, onceLoaded) => {
+        const viewAll: ViewAll = {
+            item: { id: 'view-all', name: 'View all feature flags', category: 'results', href: '/feature_flags' },
+            placement,
+        }
+        const loading = buildSections(input('search', { remoteQueries: { results: 'x' }, viewAll }))
+        const loaded = buildSections(input('search', { ...remoteResults([dashboard('a', '1')]), viewAll }))
+        const rowKeys = (sections: ReturnType<typeof buildSections>): string[] =>
+            sections.find((section) => section.key === 'results')?.rows.map((row) => row.key.replace('results/', '')) ??
+            []
+        expect(rowKeys(loading)).toEqual(whileLoading)
+        expect(rowKeys(loaded)).toEqual(onceLoaded)
     })
 })

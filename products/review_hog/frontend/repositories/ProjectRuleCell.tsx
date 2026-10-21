@@ -20,9 +20,9 @@ function botRunLabel(installations: readonly ReviewInstallationApi[]): string {
         )
     )
     if (connectors.size === 1) {
-        return `Automatic Flash, billed to ${[...connectors][0]} (connected GitHub)`
+        return `Automatic review, billed to ${[...connectors][0]} (connected GitHub)`
     }
-    return 'Automatic Flash, billed to the person who connected GitHub'
+    return 'Automatic review, billed to the person who connected GitHub'
 }
 
 export function ProjectRuleCell({ className }: { className?: string }): JSX.Element {
@@ -33,14 +33,11 @@ export function ProjectRuleCell({ className }: { className?: string }): JSX.Elem
     return (
         <div className={`flex min-w-0 flex-col gap-2 px-4 py-3 ${className ?? ''}`}>
             <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold">Project settings</span>
-                <span className="text-xs text-secondary">
-                    Every repository without an exception starts here. Starts at opt-in only, so connecting GitHub never
-                    starts reviews everywhere.
-                </span>
+                <span className="text-sm font-semibold">Who gets reviewed</span>
+                <span className="text-xs text-secondary">Repository exceptions override this default.</span>
             </div>
             <RuleControls
-                label="Project settings"
+                label="Who gets reviewed"
                 flashFor={projectSettings?.flash_for ?? 'off'}
                 people={projectSettings?.people ?? []}
                 canEdit={canEdit}
@@ -51,7 +48,7 @@ export function ProjectRuleCell({ className }: { className?: string }): JSX.Elem
                 dataAttr="review-hog-project-flash-for"
             />
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-secondary">Bot PRs, all repositories:</span>
+                <span className="text-xs text-secondary">Bot pull requests</span>
                 <LemonSelect<ReviewProjectSettingsBotPullRequestsEnumApi>
                     size="small"
                     aria-label="Bot pull requests"

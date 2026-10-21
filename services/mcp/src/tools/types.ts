@@ -73,7 +73,9 @@ export type State = {
     Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

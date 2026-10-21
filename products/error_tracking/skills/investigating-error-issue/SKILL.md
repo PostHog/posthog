@@ -3,7 +3,7 @@ name: investigating-error-issue
 description: >
   Investigates a single PostHog error tracking issue end-to-end. Use when
   the user provides an issue ID or pastes an issue URL
-  (`/error_tracking/<id>`) and wants to understand the error — who it
+  (`/error-tracking/<id>`) and wants to understand the error — who it
   affects, what triggers it, when it started, whether it correlates with
   a release, browser, OS, or feature flag, and what the next step should
   be. Pulls aggregated metrics, sample exception events, segment

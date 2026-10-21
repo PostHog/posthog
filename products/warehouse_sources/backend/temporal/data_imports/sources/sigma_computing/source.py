@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,6 +55,11 @@ REGION_OPTIONS = [
 
 @SourceRegistry.register
 class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComputingResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SIGMA_COMPUTING|SIGMACOMPUTING)_",),
+        npm=("@sigmacomputing/embed-sdk", "@sigmacomputing/react-embed-sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -138,7 +144,7 @@ class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComp
 Generate a client ID and secret from **Administration > Developer Access** in Sigma, then pick the deployment region shown on that same page (or under **Account > General Settings**).""",
             iconPath="/static/services/sigma_computing.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sigma-computing",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["bi", "business intelligence"],
             fields=cast(
                 list[FieldType],

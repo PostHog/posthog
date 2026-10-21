@@ -1,13 +1,21 @@
-import { Button, ContextMenu, Host, RNHostView } from "@expo/ui/swift-ui";
+import {
+  Button,
+  ContextMenu,
+  Host,
+  Image,
+  type ImageProps,
+  RNHostView,
+} from "@expo/ui/swift-ui";
 import { formatRelativeAge } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useEffect } from "react";
+import { type ReactElement, useEffect } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -95,16 +103,14 @@ export function useTaskActions(task: Task | undefined) {
   return { rename, setArchived };
 }
 
-export function TaskRow({
+function TaskMenu({
   task,
-  label,
-  archived = false,
-  onPress,
+  archived,
+  children,
 }: {
   task: Task;
-  label?: string;
-  archived?: boolean;
-  onPress: () => void;
+  archived: boolean;
+  children: ReactElement;
 }) {
   const { rename, setArchived } = useTaskActions(task);
   return (
@@ -127,18 +133,119 @@ export function TaskRow({
           )}
         </ContextMenu.Items>
         <ContextMenu.Trigger>
-          <RNHostView matchContents>
-            <ListRow
-              title={taskTitle(task)}
-              label={label}
-              time={activityAt(task)}
-              running={isRunning(task)}
-              onPress={onPress}
-            />
-          </RNHostView>
+          <RNHostView matchContents>{children}</RNHostView>
         </ContextMenu.Trigger>
       </ContextMenu>
     </Host>
+  );
+}
+
+export function TaskRow({
+  task,
+  label,
+  archived = false,
+  onPress,
+}: {
+  task: Task;
+  label?: string;
+  archived?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TaskMenu task={task} archived={archived}>
+      <ListRow
+        title={taskTitle(task)}
+        label={label}
+        time={activityAt(task)}
+        running={isRunning(task)}
+        onPress={onPress}
+      />
+    </TaskMenu>
+  );
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// Titles made from the prompt repeat it, so the age stands in for the snippet.
+function taskSnippet(task: Task, title: string): string {
+  const snippet = oneLine(task.description_preview || task.description);
+  return snippet && !snippet.startsWith(oneLine(title))
+    ? snippet
+    : formatRelativeAge(activityAt(task));
+}
+
+// A fixed height, so the SwiftUI host around a row never has to catch up with
+// a title that wraps. Only the two text lines follow the text size setting.
+function useChatRowHeight(): number {
+  const { fontScale } = useWindowDimensions();
+  return Math.ceil(21 + 39 * fontScale);
+}
+
+export function ChatRow({
+  icon,
+  title,
+  snippet,
+  running = false,
+  onPress,
+}: {
+  icon: NonNullable<ImageProps["systemName"]>;
+  title: string;
+  snippet: string;
+  running?: boolean;
+  onPress: () => void;
+}) {
+  const height = useChatRowHeight();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chatRow,
+        { height },
+        pressed && { opacity: 0.5 },
+      ]}
+    >
+      <View style={styles.chatIcon}>
+        <Host matchContents>
+          <Image systemName={icon} size={16} color={colors.inkSoft} />
+        </Host>
+      </View>
+      <View style={styles.body}>
+        <Text style={styles.chatTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={styles.chatSnippet} numberOfLines={1}>
+          {snippet}
+        </Text>
+      </View>
+      {running ? (
+        <ActivityIndicator size="small" color={colors.inkSoft} />
+      ) : null}
+    </Pressable>
+  );
+}
+
+export function TaskChatRow({
+  task,
+  archived = false,
+  onPress,
+}: {
+  task: Task;
+  archived?: boolean;
+  onPress: () => void;
+}) {
+  const title = taskTitle(task);
+  return (
+    <TaskMenu task={task} archived={archived}>
+      <ChatRow
+        icon="bubble.left"
+        title={title}
+        snippet={taskSnippet(task, title)}
+        running={isRunning(task)}
+        onPress={onPress}
+      />
+    </TaskMenu>
   );
 }
 
@@ -146,9 +253,12 @@ const SKELETON_WIDTHS = ["72%", "54%", "86%", "62%", "78%"] as const;
 
 export function RowSkeletons({
   count = SKELETON_WIDTHS.length,
+  chat = false,
 }: {
   count?: number;
+  chat?: boolean;
 }) {
+  const chatHeight = useChatRowHeight();
   const opacity = useSharedValue(1);
   useEffect(() => {
     opacity.value = withRepeat(
@@ -161,7 +271,11 @@ export function RowSkeletons({
   return (
     <Animated.View style={pulse}>
       {SKELETON_WIDTHS.slice(0, count).map((width) => (
-        <View key={width} style={styles.row}>
+        <View
+          key={width}
+          style={chat ? [styles.chatRow, { height: chatHeight }] : styles.row}
+        >
+          {chat ? <View style={styles.chatIcon} /> : null}
           <View style={styles.body}>
             <View style={[styles.skeletonTitle, { width }]} />
             <View style={styles.skeletonTime} />
@@ -189,6 +303,33 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   time: { fontFamily: fonts.sans, fontSize: 14, color: colors.inkSoft },
+  chatRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  chatIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderCurve: "continuous",
+    backgroundColor: colors.fill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatTitle: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 16,
+    lineHeight: 21,
+    color: colors.ink,
+  },
+  chatSnippet: {
+    fontFamily: fonts.sans,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.inkMute,
+  },
   skeletonTitle: {
     height: 17,
     marginVertical: 3,

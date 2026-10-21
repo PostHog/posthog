@@ -30,6 +30,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
+    FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENS_CHUNK_MAX_LINES,
     FLASH_LENS_MAX_CHUNKS,
@@ -39,6 +40,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_MAX_FINDINGS_PER_EXTRA_PART,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
+    FLASH_WHOLE_PR_TURNS,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
     ReviewArm,
@@ -48,6 +50,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
+from products.review_hog.backend.reviewer.persistence import load_pr_snapshot
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -55,6 +58,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.tools.coordinator_review import COORDINATOR_PROMPT_FILE
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DEDUP_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_FOLLOWUP_TEMPLATE,
@@ -230,6 +234,7 @@ class TurnFingerprint:
         review_mode: str,
         flash_reasoning_effort: str,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        coordinator: bool = False,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -241,8 +246,14 @@ class TurnFingerprint:
             review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
         )
         if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            coordinator_inputs: dict[str, Any] = {}
+            if coordinator:
+                # Only coordinated turns carry it, so turns on separate sessions keep their cohort.
+                prompt = (SINGLE_AGENT_PROMPT_PATH / COORDINATOR_PROMPT_FILE.name).read_text()
+                coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
             return cls(
                 {
+                    **coordinator_inputs,
                     "review_mode": review_mode,
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
@@ -254,6 +265,8 @@ class TurnFingerprint:
                         "max_findings_per_extra_part": FLASH_MAX_FINDINGS_PER_EXTRA_PART,
                         "max_findings_ceiling": FLASH_MAX_FINDINGS_CEILING,
                         "must_fix_cap_multiplier": FLASH_MUST_FIX_CAP_MULTIPLIER,
+                        "first_review_cap_multiplier": FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
+                        "whole_pr_turns": FLASH_WHOLE_PR_TURNS,
                         "follow_up_change_margin_lines": FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
                         "lens_chunk_max_lines": FLASH_LENS_CHUNK_MAX_LINES,
                         "lens_max_chunks": FLASH_LENS_MAX_CHUNKS,
@@ -290,9 +303,16 @@ def record_turn_marker(
     review_mode: str,
     flash_reasoning_effort: str,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    coordinator: bool = False,
+    publishes: bool | None = None,
 ) -> ReviewHogMarker:
-    """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
+    """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
+
+    The marker also records what the turn reviewed (base branch, merge base and skipped files, from the turn's
+    PR snapshot), so a reader of a finished turn knows how far the review reached.
+    """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=review_design)
     fingerprint = TurnFingerprint.for_turn(
         team_id=team_id,
         report=report,
@@ -300,6 +320,7 @@ def record_turn_marker(
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
         review_design=review_design,
+        coordinator=coordinator,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()
@@ -314,6 +335,11 @@ def record_turn_marker(
             reviewhog_version=marker.version,
             reviewhog_fingerprint=marker.fingerprint,
             fingerprint_inputs=fingerprint.inputs,
+            publishes=publishes,
+            base_branch=snapshot.pr_metadata.base_branch if snapshot is not None else None,
+            base_sha=snapshot.merge_base_sha if snapshot is not None else None,
+            skipped_paths=snapshot.skipped_paths if snapshot is not None else None,
+            review_design=review_design,
         ),
         attribution=ArtefactAttribution.system(),
     )

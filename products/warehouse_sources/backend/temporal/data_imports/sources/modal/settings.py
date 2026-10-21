@@ -20,7 +20,7 @@ class BillingTable:
     default_incremental_lookback: timedelta
 
 
-ENDPOINTS = {
+BILLING_REPORT_TABLES = {
     "billing_report_daily": BillingTable(
         resolution="d",
         default_lookback=timedelta(days=365),
@@ -34,9 +34,18 @@ ENDPOINTS = {
         default_incremental_lookback=timedelta(hours=6),
     ),
 }
-INCREMENTAL_FIELDS = {name: [incremental_field("interval_start")] for name in ENDPOINTS}
-DEFAULT_INCREMENTAL_LOOKBACK_SECONDS = {
-    name: int(table.default_incremental_lookback.total_seconds()) for name, table in ENDPOINTS.items()
+BILLING_SUMMARY = "billing_summary"
+APPS = "apps"
+SANDBOXES = "sandboxes"
+ENDPOINTS = (*BILLING_REPORT_TABLES, BILLING_SUMMARY, APPS, SANDBOXES)
+BILLING_SUMMARY_DEFAULT_CYCLES = 12
+
+INCREMENTAL_FIELDS = {
+    **{name: [incremental_field("interval_start")] for name in BILLING_REPORT_TABLES},
+    BILLING_SUMMARY: [incremental_field("cycle_start")],
 }
-PRIMARY_KEYS = ["object_id", "interval_start", "environment_name"]
-PARTITION_KEY = "interval_start"
+DEFAULT_INCREMENTAL_LOOKBACK_SECONDS = {
+    name: int(table.default_incremental_lookback.total_seconds()) for name, table in BILLING_REPORT_TABLES.items()
+}
+BILLING_REPORT_PRIMARY_KEYS = ["object_id", "interval_start", "environment_name"]
+BILLING_REPORT_PARTITION_KEY = "interval_start"

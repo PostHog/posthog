@@ -45,6 +45,7 @@ from products.signals.backend.scout_harness.trial_result import (
     read_trial_result,
     recover_trial_result,
     trial_result_key,
+    trial_timeout_error,
 )
 from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialHistoryQuerySerializer,
@@ -239,7 +240,7 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
                 invalid_reason = TRIAL_DATA_UNAVAILABLE_REASON
         if saved_result is None:
             workflow = get_trial_workflow_status(team_id=config.team_id, launch_id=launch.id)
-            error = workflow.error
+            error = (trial_timeout_error(run, status=workflow.status) if run is not None else None) or workflow.error
             if run is None:
                 trial_status = "pending" if workflow.status == "completed" and workflow.run_id else workflow.status
             else:
@@ -269,13 +270,14 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
                 saved_summary = saved_result.get("summary")
                 if isinstance(saved_summary, str):
                     summary = saved_summary
-                run.task_run.refresh_from_db(fields=["status", "state", "completed_at"])
+                run.task_run.refresh_from_db(fields=["status", "state", "completed_at", "error_message"])
             if trial_status == "completed":
                 if run.task_run.status not in {"completed", "failed", "cancelled"}:
                     trial_status = "in_progress"
                 elif run.task_run.status != "completed":
                     trial_status = run.task_run.status
                     error = "The scout task stopped before completion."
+            error = trial_timeout_error(run, status=trial_status) or error
             if private is not None:
                 try:
                     private = ScoutTrialStore(run).export()

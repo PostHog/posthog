@@ -41,6 +41,7 @@ from ..logic.metrics import (
     update_metric,
     upsert_metric,
 )
+from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
@@ -59,6 +60,10 @@ __all__ = [
     "MetricSummary",
     "MetricRead",
     "metric_reads_for_ids",
+    "PendingGroup",
+    "PendingKind",
+    "TeamPendingReview",
+    "build_team_pending_review",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",

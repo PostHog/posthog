@@ -167,6 +167,20 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
+def close_open_population_attempts(
+    cohort_id: int, *, finished_at: datetime, started_before: datetime | None = None
+) -> int:
+    """Records the cohort's open calculation history rows as interrupted and returns how many it closed."""
+    attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, finished_at__isnull=True)
+    if started_before is not None:
+        attempts = attempts.filter(started_at__lte=started_before)
+    return attempts.update(
+        finished_at=finished_at,
+        error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
+        error_code=CohortErrorCode.INTERRUPTED,
+    )
+
+
 def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 

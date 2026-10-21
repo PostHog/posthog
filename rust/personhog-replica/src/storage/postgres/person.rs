@@ -13,9 +13,9 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
-    VersionFloorOutcome,
+    DeletePersonsOutcome, Person, PersonListEntry, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -530,13 +530,14 @@ impl PersonLookup for PostgresStorage {
         }
         let labels = [
             ("operation".to_string(), "get_person_tombstones".to_string()),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
         let mut tx = sqlx::Connection::begin(&mut *conn).await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             .execute(&mut *tx)
@@ -983,8 +984,8 @@ impl PersonLookup for PostgresStorage {
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
 
-        // No FOR UPDATE on the source person: deletes lock PDI rows before person
-        // rows, so locking the person first here would invert that order and risk
+        // No FOR UPDATE on the source person: deletes lock the person before its
+        // PDIs, so locking it after the PDIs here would invert that order and risk
         // deadlock. The PDI locks below are what guard the reassignment.
         let person_version: i64 = sqlx::query_scalar!(
             r#"
@@ -1041,7 +1042,7 @@ impl PersonLookup for PostgresStorage {
             .map(|pdi| (pdi.distinct_id.as_str(), pdi.version))
             .collect();
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
-        let new_uuids: Vec<Uuid> = dids
+        let derived_uuids: Vec<Uuid> = dids
             .iter()
             .map(|did| personhog_common::persons::person_uuid(team_id, did))
             .collect();
@@ -1050,16 +1051,41 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // Find persons that already exist for these UUIDs: an idempotent
-        // re-split, or a tombstone left by a merge or delete of the person
-        // that once owned the distinct id. No ON CONFLICT — the partitioned
-        // table has a unique index, not a unique constraint, so ON CONFLICT
-        // inference doesn't work.
-        let existing_persons = sqlx::query!(
+        // A live person here (the source itself, for the distinct id that created it) would absorb
+        // the distinct id and get its ClickHouse row blanked by the split's empty-person publish.
+        // It is never written, so it is not locked: deletes lock the person before its PDIs.
+        let live_uuids: HashSet<Uuid> = sqlx::query_scalar!(
+            r#"
+            SELECT uuid as "uuid!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
+            "#,
+            team_id as i32,
+            &derived_uuids
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+        let new_uuids: Vec<Uuid> = derived_uuids
+            .into_iter()
+            .map(|u| {
+                if live_uuids.contains(&u) {
+                    Uuid::new_v4()
+                } else {
+                    u
+                }
+            })
+            .collect();
+
+        // No ON CONFLICT — the partitioned table has a unique index, not a
+        // unique constraint, so ON CONFLICT inference doesn't work.
+        let tombstones = sqlx::query!(
             r#"
             SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2)
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
+            ORDER BY id
             FOR UPDATE
             "#,
             team_id as i32,
@@ -1068,7 +1094,7 @@ impl PersonLookup for PostgresStorage {
         .fetch_all(&mut *tx)
         .await?;
 
-        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = existing_persons
+        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = tombstones
             .into_iter()
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
@@ -1107,17 +1133,13 @@ impl PersonLookup for PostgresStorage {
         if !uuids_to_update.is_empty() {
             // A tombstoned row comes back to life here, one above its own
             // version so it outranks its ClickHouse tombstone; the split
-            // offset applies when that is higher. A live row never moves
-            // down, or ClickHouse would ignore the next update from ingestion.
+            // offset applies when that is higher.
             let updated = sqlx::query!(
                 r#"
                 UPDATE posthog_person
                 SET is_deleted = false,
-                    version = GREATEST(
-                        COALESCE(version, 0) + CASE WHEN is_deleted THEN 1 ELSE 0 END,
-                        $3
-                    )
-                WHERE team_id = $1 AND uuid = ANY($2)
+                    version = GREATEST(COALESCE(version, 0) + 1, $3)
+                WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
                 RETURNING uuid as "uuid!", version as "version!"
                 "#,
                 team_id as i32,
@@ -1408,6 +1430,58 @@ impl PersonLookup for PostgresStorage {
             results.iter().map(|r| r.outcome),
         );
         Ok(results)
+    }
+    async fn list_persons_for_team(
+        &self,
+        team_id: i64,
+        after_person_id: i64,
+        before_person_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonListEntry>> {
+        let labels = [
+            ("operation".to_string(), "list_persons_for_team".to_string()),
+            ("pool".to_string(), "bulk_replica".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, "bulk_replica").await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT p.id::bigint as "id!", p.uuid as "uuid!",
+                   COALESCE(p.version, 0)::bigint as "version!", p.is_deleted as "is_deleted!",
+                   p.created_at as "created_at!",
+                   EXISTS (
+                       SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false
+                   ) as "has_live_distinct_ids!"
+            FROM posthog_person p
+            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)
+            ORDER BY p.id
+            LIMIT $3
+            "#,
+            team_id as i32,
+            after_person_id,
+            limit,
+            before_person_id
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|r| PersonListEntry {
+            id: r.id,
+            uuid: r.uuid,
+            version: r.version,
+            is_deleted: r.is_deleted,
+            has_live_distinct_ids: r.has_live_distinct_ids,
+            created_at: r.created_at,
+        })
+        .collect::<Vec<_>>();
+
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows)
     }
 }
 

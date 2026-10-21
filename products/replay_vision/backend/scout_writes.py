@@ -24,6 +24,10 @@ CREDIT_LIMIT_REQUIRED = (
     "`vision-scanners-estimate` projects what a scanner will spend per month."
 )
 
+FREE_ONLY_NOT_CLEARABLE = (
+    "Scouts cannot turn off free credits only on a scanner without its own credit limit. Set a credit limit "
+    "first, or set `enabled: false` to stop the scanner."
+)
 CREDIT_LIMIT_NOT_CLEARABLE = (
     "Scouts cannot remove a scanner's credit limit. Raise the limit instead, or set "
     "`enabled: false` to stop the scanner."
@@ -93,6 +97,13 @@ def check_scout_scanner_credit_limit(
         return
     if "credit_limit" in attrs and attrs["credit_limit"] is None:
         raise ValidationError({"credit_limit": CREDIT_LIMIT_NOT_CLEARABLE})
+    # Free-only is a spend ceiling too, so a scout cannot drop it unless the scanner keeps its own limit.
+    if (
+        instance.free_only
+        and attrs.get("free_only") is False
+        and attrs.get("credit_limit", instance.credit_limit) is None
+    ):
+        raise ValidationError({"free_only": FREE_ONLY_NOT_CLEARABLE})
     # Arming a disabled experiment scanner to start on launch is a deferred enable.
     arms_start_on_launch = (
         instance.scanner_type == ScannerType.EXPERIMENT
@@ -119,5 +130,14 @@ def check_scout_scanner_credit_limit(
             )
         return
     raises_limit = "credit_limit" in attrs and (instance.credit_limit is None or credit_limit > instance.credit_limit)
-    if turning_on or changes_enabled_cost or raises_limit:
+    # Without free-only, a running scanner bills up to its own limit, so that limit has to fit the org quota.
+    # One armed to start on launch is about to run, so it counts as running here.
+    config = attrs.get("scanner_config", instance.scanner_config) or {}
+    armed_for_launch = instance.scanner_type == ScannerType.EXPERIMENT and config.get("start_on_launch") is True
+    starts_billing = (
+        instance.free_only
+        and attrs.get("free_only") is False
+        and (attrs.get("enabled", instance.enabled) or armed_for_launch)
+    )
+    if turning_on or changes_enabled_cost or raises_limit or starts_billing:
         _check_credit_ceiling(credit_limit, max_credit_limit)

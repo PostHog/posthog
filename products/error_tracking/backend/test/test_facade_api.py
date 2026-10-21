@@ -126,7 +126,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         attachment_url = mock_create_issue.call_args.args[0]
         assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/fingerprint/fp%2Fwith%23chars")
         assert reference.external_id == "LIN-1"
         assert reference.title == "Checkout TypeError"
 
@@ -155,7 +155,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/{issue.id}")
 
     @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
     @patch("products.error_tracking.backend.logic.external_references.JiraIntegration.create_issue")
@@ -205,7 +205,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_create_issue.assert_not_called()
         linked_issue_id, attachment_url = mock_create_attachment.call_args.args
         assert linked_issue_id == "ENG-42"
-        assert f"/project/{self.team.id}/error_tracking/" in attachment_url
+        assert f"/project/{self.team.id}/error-tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
         assert reference.external_id == "ENG-42"
         assert reference.title == "Checkout TypeError"

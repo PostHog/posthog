@@ -17,7 +17,6 @@ import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'prod
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
@@ -64,10 +63,10 @@ export interface BroadcastsFilters {
 
 const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
 
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
+
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
-export function isBroadcastShaped(
-    actions: { type?: string; config?: { type?: string } }[] | null | undefined
-): boolean {
+export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boolean {
     const steps = actions ?? []
     return (
         steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
@@ -76,7 +75,6 @@ export function isBroadcastShaped(
     )
 }
 
-type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 type FlowEdge = { from?: string; to?: string }
 
 /**
@@ -131,10 +129,6 @@ export function canMoveToDraft(
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
         canEditInWizard(broadcast.actions, broadcast.edges)
     )
-}
-
-export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
-    return flow.origin_product !== 'broadcasts'
 }
 
 export function getBroadcastStatus(
@@ -300,9 +294,8 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     }
                     const requested = values.filters
                     const response = await hogFlowsList(String(values.currentProjectId), {
-                        // Broadcasts plus the ordinary workflows already shaped like one (a batch
-                        // trigger and a single email), so existing sends show up here too.
-                        broadcast_eligible: true,
+                        // Only broadcasts. A workflow shaped like one stays under workflows until someone moves it.
+                        type: 'broadcast',
                         search: values.filters.search || undefined,
                         broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,

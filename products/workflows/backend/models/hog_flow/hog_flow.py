@@ -52,6 +52,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
     {
         "event",
+        # A transactional email: one authenticated API call runs the workflow once.
+        "api",
         "schedule",
         "manual",
         "batch",
@@ -60,8 +62,12 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "internal-event",
+        "cohort",
     }
 )
+
+# Membership changes a cohort trigger can start a run on.
+COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 
 # The internal events a workflow may subscribe to. The internal-events stream carries payloads
 # that each owning product gates behind its own scopes — recording content, exception detail,
@@ -241,4 +247,5 @@ def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
 def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(team_id=instance.id)
+    team_id = instance.id
+    transaction.on_commit(lambda: refresh_affected_hog_flows.delay(team_id=team_id))

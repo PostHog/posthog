@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeConfig]):
+    codebase_detection = detect(env=("^(CULTURE_AMP|CULTUREAMP)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.cultureamp.com"
@@ -63,7 +66,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
 An account admin can generate API credentials in Culture Amp under Settings > Integrations > Culture Amp API. Grant the employees, employee demographics, and performance evaluations read permissions. The account ID is the entity ID shown alongside your credentials.""",
             iconPath="/static/services/culture_amp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/culture-amp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

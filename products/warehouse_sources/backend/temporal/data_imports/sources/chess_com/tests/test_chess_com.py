@@ -1,25 +1,27 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.chess_com import (
-    chess_com_source,
     opaque_key,
     parse_usernames,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.source import ChessComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chesscom import (
     ChessComSourceConfig,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.chess_com"
 API = "https://api.chess.com/pub"
 TEAM_ID = 1
 GAME_URL = "https://www.chess.com/game/live/1"
@@ -45,25 +47,8 @@ def _pgn(white: str, black: str) -> str:
     )
 
 
-def _response(status_code: int, body: dict[str, Any] | None = None) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(body or {}).encode()
-    return response
-
-
-def _session(pages: dict[str, dict[str, Any]]) -> MagicMock:
-    session = MagicMock()
-    session.get.side_effect = lambda url, **kwargs: _response(200, pages[url]) if url in pages else _response(404)
-    return session
-
-
-def _rows(
-    endpoint: str, session: MagicMock, usernames: list[str], since: datetime | None = None
-) -> list[dict[str, Any]]:
-    with patch(f"{MODULE}.chess_com.make_tracked_session", return_value=session):
-        response = chess_com_source(TEAM_ID, usernames, endpoint, since, MagicMock())
-        return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
+def _driver(usernames: str) -> SourceDriver:
+    return SourceDriver(ChessComSource(), ChessComSourceConfig(usernames=usernames))
 
 
 def _game(white: str, black: str, white_result: str, black_result: str) -> dict[str, Any]:
@@ -118,16 +103,16 @@ class TestChessCom:
         accuracy: float,
     ) -> None:
         archive = f"{API}/player/ada/games/2026/10"
-        session = _session(
-            {
-                f"{API}/player/ada/games/archives": {"archives": [archive]},
-                archive: {"games": [_game(white, black, white_result, black_result)]},
-            }
+        result = _driver("ada").run(
+            "games",
+            [
+                ScriptedResponse(json={"archives": [archive]}),
+                ScriptedResponse(json={"games": [_game(white, black, white_result, black_result)]}),
+            ],
         )
 
-        rows = _rows("games", session, ["ada"])
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "player_key": opaque_key(TEAM_ID, "ada"),
                 "game_key": opaque_key(TEAM_ID, GAME_URL),
@@ -157,36 +142,45 @@ class TestChessCom:
                 ),
             }
         ]
-        dumped = json.dumps(rows, default=str).lower()
+        dumped = json.dumps(result.rows, default=str).lower()
         assert "ada" not in dumped and "grace" not in dumped and GAME_URL not in dumped
         assert opaque_key(TEAM_ID, "ada") != opaque_key(TEAM_ID + 1, "ada")
 
     def test_an_incremental_sync_skips_months_before_the_last_game(self) -> None:
         archives = [f"{API}/player/ada/games/2026/{month}" for month in ("08", "09", "10")]
-        session = _session(
-            {
-                f"{API}/player/ada/games/archives": {"archives": archives},
-                **{archive: {"games": [_game("ada", "grace", "win", "resigned")]} for archive in archives},
-            }
+        result = _driver("ada").run(
+            "games",
+            [
+                ScriptedResponse(json={"archives": archives}),
+                ScriptedResponse(json={"games": [_game("ada", "grace", "win", "resigned")]}),
+                ScriptedResponse(json={"games": [_game("ada", "grace", "win", "resigned")]}),
+            ],
+            incremental_field="end_time",
+            db_incremental_field_last_value=datetime(2026, 9, 20, tzinfo=UTC),
         )
 
-        rows = _rows("games", session, ["ada"], since=datetime(2026, 9, 20, tzinfo=UTC))
-
-        assert len(rows) == 2
-        assert archives[0] not in [call.args[0] for call in session.get.call_args_list]
+        assert result.raised is None
+        assert len(result.rows) == 2
+        assert result.urls == [f"{API}/player/ada/games/archives", *archives[1:]]
 
     def test_an_unknown_player_does_not_block_the_other_players(self) -> None:
         archive = f"{API}/player/ada/games/2026/10"
-        session = _session(
-            {
-                f"{API}/player/ada/games/archives": {"archives": [archive]},
-                archive: {"games": [_game("ada", "grace", "win", "resigned")]},
-            }
+        result = _driver("nobody, ada").run(
+            "games",
+            [
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"archives": [archive]}),
+                ScriptedResponse(json={"games": [_game("ada", "grace", "win", "resigned")]}),
+            ],
         )
 
-        rows = _rows("games", session, ["nobody", "ada"])
-
-        assert [row["player_key"] for row in rows] == [opaque_key(TEAM_ID, "ada")]
+        assert result.raised is None
+        assert [row["player_key"] for row in result.rows] == [opaque_key(TEAM_ID, "ada")]
+        assert result.paths == [
+            "/pub/player/nobody/games/archives",
+            "/pub/player/ada/games/archives",
+            "/pub/player/ada/games/2026/10",
+        ]
 
     def test_ratings_have_one_row_per_game_speed_the_player_has_played(self) -> None:
         stats = {
@@ -197,9 +191,10 @@ class TestChessCom:
             },
             "tactics": {"highest": {"rating": 2000}},
         }
-        session = _session({f"{API}/player/ada/stats": stats})
+        result = _driver("ada").run("ratings", [ScriptedResponse(json=stats)])
 
-        assert _rows("ratings", session, ["ada"]) == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "player_key": opaque_key(TEAM_ID, "ada"),
                 "time_class": "blitz",
@@ -213,15 +208,10 @@ class TestChessCom:
         ]
 
     def test_a_refused_request_fails_the_sync_with_the_status_and_reason(self) -> None:
-        response = _response(403)
-        response.reason = "Forbidden"
-        session = MagicMock()
-        session.get.return_value = response
+        result = _driver("ada").run("ratings", [ScriptedResponse(status=403)])
 
-        with pytest.raises(HTTPError) as error:
-            _rows("ratings", session, ["ada"])
-
-        assert str(error.value) == "403 Client Error: Forbidden"
+        assert isinstance(result.raised, HTTPError)
+        assert str(result.raised) == "403 Client Error: Forbidden"
 
     @parameterized.expand(
         [
@@ -234,8 +224,16 @@ class TestChessCom:
     def test_credentials_check_reports_what_to_fix(
         self, statuses: dict[str, int], usernames: str, valid: bool, message: str | None
     ) -> None:
-        with patch(f"{MODULE}.source.probe_username", side_effect=lambda username: statuses[username]):
+        script = (
+            always(ConnectionError("Chess.com is unreachable"))
+            if -1 in statuses.values()
+            else [ScriptedResponse(status=status) for status in statuses.values()]
+        )
+        with scripted_network(script) as network:
             result = ChessComSource().validate_credentials(ChessComSourceConfig(usernames=usernames), TEAM_ID)
 
         assert result[0] is valid
         assert (message is None and result[1] is None) or (message is not None and message in (result[1] or ""))
+        assert {request.path for request in network.requests_log} == {
+            f"/pub/player/{username}" for username in statuses
+        }

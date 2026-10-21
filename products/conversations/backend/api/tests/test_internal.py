@@ -14,8 +14,12 @@ from posthog.jwt import PosthogJwtAudience
 from posthog.models import Comment
 from posthog.models.utils import generate_random_token_secret
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.test.authentication_checks import covers_authentication
 
-from products.conversations.backend.api.internal import CONVERSATIONS_TICKETS_PURPOSE
+from products.conversations.backend.api.internal import (
+    CONVERSATIONS_TICKETS_PURPOSE,
+    ConversationsTicketJWTAuthentication,
+)
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_NAME, WORKFLOW_AUTHOR_TYPE, Status
 
@@ -53,6 +57,7 @@ class TestInternalTicketAPI(BaseTest):
     def _bearer(token: str) -> dict:
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
+    @covers_authentication(ConversationsTicketJWTAuthentication)
     def test_get_returns_ticket_for_minted_token(self):
         response = self.client.get(self.url, **self._headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)

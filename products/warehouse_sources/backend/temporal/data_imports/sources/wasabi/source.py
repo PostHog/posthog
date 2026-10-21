@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
+    codebase_detection = detect(env=("^WASABI_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.wasabi.com/apidocs/account-control-api"
 
@@ -119,7 +122,7 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
 
 WACA is available to Wasabi Control Accounts (partners managing sub-accounts). To get an API key, enable Wasabi Account Control API access on your Control Account — see [Wasabi's documentation](https://docs.wasabi.com/apidocs/account-control-api) for details.
 """,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/wasabi",
             iconPath="/static/services/wasabi.png",
             keywords=["waca", "wasabi account control"],

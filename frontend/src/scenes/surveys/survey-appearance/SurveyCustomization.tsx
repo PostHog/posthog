@@ -49,7 +49,6 @@ export function Customization({
     deleteBranchingLogic,
     validationErrors,
     disabledReason,
-    onTranslationsChange,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -134,7 +133,6 @@ export function Customization({
                         disabledReason={disabledReason}
                         hasBranchingLogic={hasBranchingLogic}
                         deleteBranchingLogic={deleteBranchingLogic}
-                        onTranslationsChange={onTranslationsChange}
                     />
                 </div>
                 {survey.type !== SurveyType.ExternalSurvey && (
