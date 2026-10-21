@@ -40,6 +40,7 @@ class PosthogJwtAudience(Enum):
     WORKFLOW_CLASSIFY = "posthog:workflows:classify"
     WORKFLOW_VISION_REQUEST = "posthog:workflows:vision_request"
     WORKFLOW_ADD_TO_STATIC_COHORT = "posthog:workflows:add_to_static_cohort"
+    WORKFLOW_SLACK_DM_TEAM_MEMBER = "posthog:workflows:slack_dm_team_member"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
     SECURITY_HUB_RULES = "posthog:security_hub:rules"

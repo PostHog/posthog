@@ -184,6 +184,13 @@ const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+const SLACK_DM_TEAM_MEMBER_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Message team member on Slack',
+    description: 'Send a Slack direct message to a member of your PostHog team.',
+    config: { template_id: 'template-posthog-slack-dm-team-member', inputs: {} },
+}
+
 const ADD_TO_STATIC_COHORT_ACTION_NODE: CreateActionType = {
     type: 'function',
     name: 'Add to static cohort',
@@ -214,6 +221,7 @@ function dispatchSteps({ featureFlags }: StepCatalogContext): CreateActionType[]
     return [
         ...ACTION_NODES_TO_SHOW,
         ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] ? [PUSH_NOTIFICATION_ACTION_NODE] : []),
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_SLACK_DM_TEAM_MEMBER_ACTION] ? [SLACK_DM_TEAM_MEMBER_ACTION_NODE] : []),
     ]
 }
 

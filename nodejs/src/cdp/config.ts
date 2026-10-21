@@ -237,6 +237,8 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOW_VISION_REQUEST_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's "Add to static cohort" calls to Django. Its own key, for the same reason.
     WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Message team member on Slack" calls to Django. Its own key, for the same reason.
+    WORKFLOW_SLACK_DM_TEAM_MEMBER_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -452,6 +454,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-workflow-add-to-static-cohort-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_SLACK_DM_TEAM_MEMBER_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflow-slack-dm-team-member-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

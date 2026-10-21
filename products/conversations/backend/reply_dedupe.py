@@ -378,14 +378,16 @@ def reserve(fingerprint: _DedupeFingerprint) -> Reservation:
     return Reservation(state=ReservationState.ACQUIRED, key=key)
 
 
-def publish(reservation: Reservation, object_id: Any, *, replay_ttl_seconds: int = REPLAY_WINDOW_SECONDS) -> None:
+def publish(reservation: Reservation, object_id: Any) -> None:
     """Point the reservation at the created object so later retries replay it."""
     if reservation.owner_token is None:
         return
     value = f"{_STORED_VALUE_PREFIX}{object_id}"
     for attempt in range(2):
         try:
-            get_client().eval(_PUBLISH_SCRIPT, 1, reservation.key, reservation.owner_token, value, replay_ttl_seconds)
+            get_client().eval(
+                _PUBLISH_SCRIPT, 1, reservation.key, reservation.owner_token, value, REPLAY_WINDOW_SECONDS
+            )
             return
         except Exception:
             if attempt == 0:

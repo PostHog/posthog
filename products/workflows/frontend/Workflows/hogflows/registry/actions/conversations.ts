@@ -22,11 +22,5 @@ registerActionNodeCategory({
             description: 'Post a reply on a ticket, or save it as a private note.',
             config: { template_id: 'template-posthog-send-ticket-message', inputs: {} },
         },
-        {
-            type: 'function',
-            name: 'Message assignee on Slack',
-            description: "Send a Slack direct message to the ticket's assignee.",
-            config: { template_id: 'template-posthog-slack-dm-ticket-assignee', inputs: {} },
-        },
     ],
 })

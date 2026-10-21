@@ -1,7 +1,7 @@
 """The scoped service JWT purposes that the workflow callback endpoints verify.
 
 The plugin server mints tokens for the "Create AI task", "Run scout", "Classify with AI",
-"Replay Vision" and "Add to static cohort" workflow steps.
+"Replay Vision", "Add to static cohort" and "Message team member on Slack" workflow steps.
 """
 
 from products.workflows.backend.service_jwt import (
@@ -9,6 +9,7 @@ from products.workflows.backend.service_jwt import (
     WORKFLOW_ADD_TO_STATIC_COHORT_PURPOSE,
     WORKFLOW_CLASSIFY_PURPOSE,
     WORKFLOW_SCOUT_RUN_PURPOSE,
+    WORKFLOW_SLACK_DM_TEAM_MEMBER_PURPOSE,
     WORKFLOW_VISION_REQUEST_PURPOSE,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "WORKFLOW_ADD_TO_STATIC_COHORT_PURPOSE",
     "WORKFLOW_CLASSIFY_PURPOSE",
     "WORKFLOW_SCOUT_RUN_PURPOSE",
+    "WORKFLOW_SLACK_DM_TEAM_MEMBER_PURPOSE",
     "WORKFLOW_VISION_REQUEST_PURPOSE",
 ]

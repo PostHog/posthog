@@ -31,7 +31,7 @@ describe('workflowStepCatalog', () => {
             Delays: ['Delay', 'Time window', 'Wait until'],
             'Audience split': ['Conditional branch', 'Cohort branch'],
             'PostHog actions': ['Set variable', 'Capture event', 'Update person property', 'Set group property'],
-            Support: ['Get ticket', 'Update ticket', 'Send message', 'Message assignee on Slack'],
+            Support: ['Get ticket', 'Update ticket', 'Send message'],
         })
     })
 
@@ -61,6 +61,12 @@ describe('workflowStepCatalog', () => {
         },
     ])('$name', ({ context, ai }) => {
         expect(listed(context).AI).toEqual(ai)
+    })
+
+    it('adds the Slack team member step to Dispatch behind its flag', () => {
+        expect(
+            listed({ featureFlags: { [FEATURE_FLAGS.WORKFLOW_SLACK_DM_TEAM_MEMBER_ACTION]: true } }).Dispatch
+        ).toEqual(['Email', 'SMS', 'Slack', 'Webhook', 'Message team member on Slack'])
     })
 
     it('offers no step that needs a person to a workflow that runs on warehouse rows', () => {
