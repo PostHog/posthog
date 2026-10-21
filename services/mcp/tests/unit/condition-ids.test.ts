@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { isRecord } from '@/lib/plain-object'
+import { getToolByName } from '@/shared/test-utils'
 import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import {
     type FlagConditionGroup,
     type FlagFilters,
     preserveGroupTargetingFilters,
 } from '@/tools/featureFlags/preserveGroupTargeting'
+import type { Context } from '@/tools/types'
 
 const planOn = (group_type_index: number, value: string): FlagConditionGroup => ({
     properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value }],
@@ -119,6 +121,73 @@ function withoutConditionIds(value: unknown): unknown {
     return JSON.parse(JSON.stringify(value, (key, nested) => (key === 'condition_id' ? undefined : nested)))
 }
 
+function contextReturning(responses: unknown[]): Context {
+    const request = vi.fn()
+    for (const response of responses) {
+        request.mockResolvedValueOnce(response)
+    }
+    return {
+        api: { request, getProjectBaseUrl: (projectId: string) => `https://us.posthog.com/project/${projectId}` },
+        stateManager: { getProjectId: vi.fn().mockResolvedValue('42') },
+    } as unknown as Context
+}
+
+const EXPERIMENT_TOOLS_BY_ID = [
+    'experiment-archive',
+    'experiment-duplicate',
+    'experiment-end',
+    'experiment-freeze-exposure',
+    'experiment-get',
+    'experiment-migrate',
+    'experiment-pause',
+    'experiment-reset',
+    'experiment-resume',
+    'experiment-ship-variant',
+    'experiment-unarchive',
+    'experiment-unfreeze-exposure',
+]
+
+// feature-flag-get-all, feature-flag-enable, feature-flag-disable, feature-flag-archive, and
+// feature-flag-unarchive keep no `filters` in their responses, so they are not listed.
+const CONDITION_TOOLS: { tool: string; params: Record<string, unknown>; responses: unknown[] }[] = [
+    { tool: 'create-feature-flag', params: { key: 'flag-9', name: 'Flag 9' }, responses: [flag(9)] },
+    { tool: 'delete-feature-flag', params: { id: 9 }, responses: [{ ...flag(9), deleted: true }] },
+    { tool: 'feature-flag-get-definition', params: { id: 9 }, responses: [flag(9)] },
+    {
+        tool: 'feature-flag-get-definition-by-key',
+        params: { key: 'flag-9' },
+        responses: [{ results: [flag(9)] }],
+    },
+    { tool: 'feature-flag-roll-out-to-everyone', params: { id: 9, version: 3 }, responses: [flag(9)] },
+    {
+        tool: 'feature-flag-set-release-condition-rollout',
+        params: { id: 9, condition_index: 0, rollout_percentage: 25, version: 3 },
+        responses: [flag(9)],
+    },
+    {
+        tool: 'feature-flags-my-flags-retrieve',
+        params: {},
+        responses: [
+            [
+                { feature_flag: flag(9), value: true },
+                { feature_flag: flag(10), value: 'test' },
+            ],
+        ],
+    },
+    { tool: 'update-feature-flag', params: { id: 9, name: 'Renamed' }, responses: [flag(9)] },
+    ...EXPERIMENT_TOOLS_BY_ID.map((tool) => ({ tool, params: { id: 5 }, responses: [experiment(5)] })),
+    {
+        tool: 'experiment-get-by-flag-key',
+        params: { feature_flag_key: 'flag-105' },
+        responses: [{ results: [{ id: 105, key: 'flag-105', experiment_set: [5] }] }, experiment(5)],
+    },
+    {
+        tool: 'experiment-list',
+        params: {},
+        responses: [{ count: 2, next: null, previous: null, results: [experiment(5), experiment(6)] }],
+    },
+]
+
 describe('condition ids', () => {
     it('gives the same ID to one stored condition however the API renders it', () => {
         const stored = {
@@ -210,6 +279,14 @@ describe('condition ids', () => {
             conditionsIn(withoutConditionIds(value)).map((group) => idOnRead(group))
         )
         expect(withoutConditionIds(result)).toEqual(withoutConditionIds(value))
+    })
+
+    it.each(CONDITION_TOOLS)('$tool returns each condition with its ID', async ({ tool, params, responses }) => {
+        const expected = conditionsIn(responses.at(-1)).map((group) => idOnRead(group))
+
+        const result = await getToolByName(tool).handler(contextReturning(responses), params)
+
+        expect(conditionsIn(result).map((group) => group.condition_id)).toEqual(expected)
     })
 
     it.each<MergeRow>([

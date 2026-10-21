@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -1322,3 +1323,35 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition. The update is refused ' +
+                            'when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. Each condition you read has a `condition_id`. Send it unchanged on every ' +
+        'condition you keep, edit, or move, and leave it off a new condition. A condition without one is treated ' +
+        "as new when any condition has one. The tool uses the ID to restore each condition's property types and " +
+        'targeting. For group flags set aggregation_group_type_index and property type "group" + group_type_index. ' +
+        'Omitted type, group_type_index, and aggregation_group_type_index are filled from the existing flag, so ' +
+        "group targeting does not become person targeting. When conditions don't all target the same thing " +
+        '(persons and a group type, or different group types), set aggregation_group_type_index on each new ' +
+        'condition (null for persons). If you send no `condition_id` values, set it on every condition whenever ' +
+        'you add, remove, reorder, or change the properties of conditions. Otherwise the update is refused.'
+)

@@ -4,12 +4,15 @@
  * and leave everything else to the generated handler. Re-sync is needed if the `filters`
  * param shape changes, or if the API changes the `groups[i].properties[j].type: ` prefix
  * of its property type rejection.
+ * The merge removes each `condition_id` before the PATCH, because the API does not store it.
+ * afterResponse adds a `condition_id` to each condition in the returned flag.
  */
 import type { Schemas } from '@/api/generated'
 import { PostHogValidationError } from '@/lib/errors'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
+import conditionIdHooks from './conditionIdHooks'
 import { preserveGroupTargetingFilters, type FlagFilters } from './preserveGroupTargeting'
 
 type UpdateParams = {
@@ -76,4 +79,8 @@ function propertyTypeRecoveryStep(path: string, key: string): string {
     )
 }
 
-export default { beforeRequest, onError } satisfies ToolHooks<UpdateParams>
+export default {
+    ...conditionIdHooks,
+    beforeRequest,
+    onError,
+} satisfies ToolHooks<UpdateParams>

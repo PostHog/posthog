@@ -553,7 +553,9 @@ function unresolvedAggregationMessage(unresolved: number[]): string {
         'group type, or they target different group types. This update adds, removes, or reorders conditions, ' +
         "or changes the properties they filter on, so the tool can't tell which target each condition should keep. " +
         `Set aggregation_group_type_index on each of these conditions: ${paths}. ` +
-        'Use a group type index to target that group type, or null to target persons. Then send the update again.'
+        'Use a group type index to target that group type, or null to target persons. Alternatively, send the ' +
+        'condition_id from the read on each condition that came from the flag, and set ' +
+        'aggregation_group_type_index only on new conditions. Then send the update again.'
     )
 }
 

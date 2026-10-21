@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { PostHogValidationError } from '@/lib/errors'
+import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
 
@@ -100,6 +101,36 @@ describe('update-feature-flag preserving groups', () => {
         expect(patchBody.filters.groups[0]?.properties[0]?.group_type_index).toBe(0)
         expect(patchBody.filters.groups[0]?.properties[0]?.value).toBe('pro')
         expect(result).toMatchObject({ id: 9 })
+    })
+
+    it('matches conditions by condition_id and keeps the IDs out of the PATCH', async () => {
+        const storedGroups = [0, 1].map((group_type_index) => ({
+            properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' }],
+            rollout_percentage: 100,
+        }))
+        const existing = { id: 9, key: 'plan-rollout', filters: { groups: storedGroups } }
+        const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
+
+        const readIds = (withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]).map(
+            (group) => group.condition_id
+        )
+
+        const params = tool.schema.parse({
+            id: 9,
+            filters: {
+                groups: [...readIds].reverse().map((condition_id) => ({
+                    condition_id,
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                    rollout_percentage: 100,
+                })),
+            },
+        })
+        const result = (await tool.handler(createMockContext(request), params)) as typeof existing
+
+        const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
+        expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual([1, 0])
+        expect(patchGroups.some((group) => 'condition_id' in group)).toBe(false)
+        expect(result.filters.groups.map((group) => (group as { condition_id?: string }).condition_id)).toEqual(readIds)
     })
 
     it('surfaces GET failures instead of PATCHing unmerged filters', async () => {
