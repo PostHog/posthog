@@ -26,14 +26,14 @@ from products.signals.backend.activity_summary.prompt import SUMMARY_MAX_WORDS
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 3
+RENDER_VERSION = 4
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
 CHARS_PER_TOKEN = 4
 
-# Rows read per person before any filter, newest first. They bound query and memory cost for very
-# active people; the filters and caps below work on what is left.
+# Rows read per person, newest first. They bound query and memory cost for very active people. The
+# query applies the noise filters before this limit, so bulk agent writes cannot fill it.
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 
@@ -66,7 +66,7 @@ TASKS_HEADER = "Tasks the person gave to PostHog AI or the Slack agent ([tags] g
 ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why their coding agent did it):"
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
-SANDBOX_PROMPT_TITLE = re.compile(r"^\[sandbox_prompt:")
+SANDBOX_PROMPT_TITLE_PREFIX = "[sandbox_prompt:"
 # Titles a button or a workflow writes, with only an id changing. Each collapses to one line with a count.
 TEMPLATED_TASK_TITLES: tuple[re.Pattern[str], ...] = (re.compile(r"^Fix failing CI checks in PR #\d+$"),)
 _TEMPLATE_ID = re.compile(r"#\d+")
@@ -173,6 +173,9 @@ class RenderedInput:
     input_chars: int
     input_tokens_estimate: int
     drops: dict[str, int]
+    # Units of each source before its line cap, so a caller can tell when the cap binds.
+    task_pool: int
+    activity_pool: int
 
     @property
     def units(self) -> int:
@@ -254,7 +257,7 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
     templated: dict[str, list[datetime.datetime]] = {}
     for task in tasks:
         title = task.title.strip()
-        if SANDBOX_PROMPT_TITLE.match(title):
+        if title.startswith(SANDBOX_PROMPT_TITLE_PREFIX):
             drops[Drop.SANDBOX_PROMPT_TASK] += 1
             continue
         if (label := _templated_label(title)) is not None:
@@ -413,6 +416,8 @@ def build_input(
     drops: Counter[str] = Counter()
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
     activity_lines = activity_units(activity, drops, limits)
+    # Only `activity_units` has counted a sample cap drop so far.
+    activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP]
     if not task_pool and not activity_lines:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
@@ -430,4 +435,6 @@ def build_input(
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
+        task_pool=len(task_pool),
+        activity_pool=activity_pool,
     )
