@@ -13,7 +13,7 @@ import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reviewerControl } = useValues(logic)
+    const { displayReviewers, isUpdatingReviewers, reportArtefacts } = useValues(logic)
     const { updateReviewers } = useActions(logic)
 
     const [addOpen, setAddOpen] = useState(false)
@@ -39,7 +39,6 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         <SuggestedReviewersSectionView
             reviewers={baseReviewers}
             disabled={isUpdatingReviewers}
-            humanControlled={reviewerControl?.enabled && reviewerControl.control === 'human'}
             onRemove={removeReviewers}
             addControl={
                 <LemonDropdown
