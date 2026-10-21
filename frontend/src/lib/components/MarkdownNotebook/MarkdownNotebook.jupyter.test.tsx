@@ -190,6 +190,80 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         expect(notebook.latest()).toEqual(expected)
     })
 
+    it.each([
+        ['code', false],
+        ['markdown', false],
+        ['multiple', false],
+        ['code', true],
+        ['markdown', true],
+        ['multiple', true],
+    ])('copies or cuts selected %s cells through the system clipboard (cut: %s)', async (kind, cut) => {
+        const notebook = renderJupyterNotebook(
+            '# Title\n\n<Py nodeId="original" code="a = 1" />\n\nOne\n\nTwo\n\n<Sql code="select 1" />'
+        )
+        act(() => notebook.cell(0).focus())
+        if (kind === 'markdown') {
+            press(notebook.cell(0), 'ArrowDown')
+        } else if (kind === 'multiple') {
+            press(notebook.cell(0), 'ArrowDown', { shiftKey: true })
+        }
+        const target = document.activeElement as HTMLElement
+        const clipboard = new Map<string, string>()
+        const clipboardData = {
+            setData: (type: string, value: string) => clipboard.set(type, value),
+            getData: (type: string) => clipboard.get(type) ?? '',
+        }
+        for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+            expect(fireEvent.keyDown(target, { key: cut ? 'x' : 'c', ...modifier })).toBe(true)
+        }
+        expect(fireEvent[cut ? 'cut' : 'copy'](target, { clipboardData })).toBe(false)
+        const copied = clipboard.get('text/markdown')!
+        expect(clipboard.get('text/plain')).toEqual(copied)
+        expect(copied).not.toContain('# Title')
+        expect(copied).not.toContain('select 1')
+        expect(copied.includes('a = 1')).toBe(kind !== 'markdown')
+        expect(copied.includes('One\n\nTwo')).toBe(kind !== 'code')
+        if (cut) {
+            expect(notebook.latest().includes('a = 1')).toBe(kind === 'markdown')
+            expect(notebook.latest().includes('One\n\nTwo')).toBe(kind === 'code')
+            expect(notebook.latest()).toContain('# Title')
+        }
+
+        const destination = renderJupyterNotebook('# Destination\n\n<Py code="target" />\n\nAfter')
+        act(() => destination.cell(0).focus())
+        if (kind !== 'code') {
+            press(destination.cell(0), 'ArrowDown')
+        }
+        const pasteTarget = document.activeElement as HTMLElement
+        for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+            expect(fireEvent.keyDown(pasteTarget, { key: 'v', ...modifier })).toBe(true)
+        }
+        expect(fireEvent.paste(pasteTarget, { clipboardData })).toBe(false)
+        await waitFor(() => {
+            expect(destination.latest()).toContain(kind === 'code' ? 'a = 1' : 'One\n\nTwo')
+        })
+        expect(destination.latest()).not.toContain('nodeId="original"')
+        if (kind === 'code') {
+            expect(destination.latest().indexOf('a = 1')).toBeLessThan(destination.latest().indexOf('After'))
+        } else {
+            expect(destination.latest().indexOf('After')).toBeLessThan(
+                destination.latest().indexOf(kind === 'markdown' ? 'One' : 'a = 1')
+            )
+        }
+        if (kind === 'markdown') {
+            expect(destination.latest()).toContain('\n\n\nOne\n\nTwo')
+        }
+    })
+
+    it.each(['copy', 'cut', 'paste'] as const)('leaves native %s inside a code editor alone', (eventType) => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        act(() => notebook.editor(0).focus())
+        const clipboardData = { setData: jest.fn(), getData: () => 'ordinary text' }
+        expect(fireEvent[eventType](notebook.editor(0), { clipboardData })).toBe(true)
+        expect(clipboardData.setData).not.toHaveBeenCalled()
+        expect(notebook.latest()).toEqual(TWO_CELLS)
+    })
+
     it('keeps a markdown cell whole when a code cell moves up past it', async () => {
         const notebook = renderJupyterNotebook(
             '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n\nOne\n\nTwo\n\n<Py code="b = 2" />'
