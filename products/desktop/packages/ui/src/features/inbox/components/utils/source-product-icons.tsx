@@ -161,6 +161,26 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     color: "var(--orange-9)",
     label: "Rapid7 InsightVM",
   },
+  aws_guardduty: {
+    Icon: ShieldIcon,
+    color: "var(--orange-9)",
+    label: "AWS GuardDuty",
+  },
+  aws_inspector: {
+    Icon: ShieldIcon,
+    color: "var(--amber-9)",
+    label: "AWS Inspector",
+  },
+  aws_security_hub: {
+    Icon: ShieldIcon,
+    color: "var(--red-9)",
+    label: "AWS Security Hub",
+  },
+  microsoft_defender_cloud_apps: {
+    Icon: ShieldIcon,
+    color: "var(--blue-9)",
+    label: "Microsoft Defender for Cloud Apps",
+  },
   featurebase: {
     Icon: LightbulbIcon,
     color: "var(--blue-9)",
