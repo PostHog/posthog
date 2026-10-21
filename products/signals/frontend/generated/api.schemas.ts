@@ -3146,7 +3146,6 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
-    priority_name: string | null
     html_url: string | null
     created_at: string | null
 }
