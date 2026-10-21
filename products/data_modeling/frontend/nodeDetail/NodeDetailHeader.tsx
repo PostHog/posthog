@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
@@ -22,6 +24,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         savedQueryError,
     } = useValues(nodeDetailSceneLogic({ id }))
     const { updateNodeDescription } = useActions(nodeDetailSceneLogic({ id }))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { savedQuery: currentSavedQuery } = useValues(
         materializationJobsLogic({
@@ -58,7 +61,11 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                     node && savedQuery ? (
                         <NodeDetailActions node={node} savedQuery={savedQuery} />
                     ) : node?.saved_query_id && !savedQueryError ? (
-                        <LemonSkeleton className="h-8 w-56" />
+                        todayRailNav ? (
+                            <Skeleton className="h-8 w-56" />
+                        ) : (
+                            <LemonSkeleton className="h-8 w-56" />
+                        )
                     ) : undefined
                 }
                 description={node?.description}

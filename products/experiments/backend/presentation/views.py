@@ -78,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health_findings, get_experiment_health_inputs
+from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
@@ -911,7 +911,9 @@ class EnterpriseExperimentsViewSet(
     def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
-        that keep it from producing trustworthy results, each with a fix.
+        that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+        each check, so a check that found no problem can be told from one that did not apply or could
+        not read an input.
 
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
@@ -935,14 +937,26 @@ class EnterpriseExperimentsViewSet(
         the caller's own assignment). A pin to a variant with 0% in the split adds an info,
         because that variant's results show only the pinned users, unless the experiment
         excludes the variant from the analysis.
+
+        Two findings say that the variants are assigned outside PostHog, as info. A running
+        experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+        `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+        flag version that are no local evaluation, from an hour after the window starts. When
+        every condition that includes users pins the variant whose key one property holds,
+        `assigned_by_property` replaces `all_conditions_pinned`.
+
+        A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
+        is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
+        check reports `not_checked` when the organization's flag calls skip the events table,
+        and when the project has no active flag, because the web SDK then requests no flags.
         """
         experiment: Experiment = self.get_object()
-        findings = get_experiment_health_findings(
+        health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
         )
-        return Response(ExperimentHealthSerializer({"findings": findings}).data)
+        return Response(ExperimentHealthSerializer(health).data)
 
     @extend_schema(
         request=None,
@@ -1490,8 +1504,10 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
-        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+        already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+        a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+        `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+        minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1513,7 +1529,8 @@ class EnterpriseExperimentsViewSet(
         # the idempotent-reuse path without inspecting the HTTP status code.
         is_existing = result.get("is_existing", False)
 
-        if not is_existing:
+        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
+        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
             start_metrics_recalculation_workflow(
                 str(result["id"]),
                 team_id=experiment.team_id,

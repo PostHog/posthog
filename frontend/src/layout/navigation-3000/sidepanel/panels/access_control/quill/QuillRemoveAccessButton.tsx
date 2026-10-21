@@ -20,11 +20,18 @@ import { accessControlLogic } from '../accessControlLogic'
 interface QuillRemoveAccessButtonProps {
     onConfirm: () => void
     subject: 'member' | 'role'
+    /** Set while another access change is saving, so removals and level changes never overlap. */
+    disabledReason?: string
 }
 
-export function QuillRemoveAccessButton({ onConfirm, subject }: QuillRemoveAccessButtonProps): JSX.Element {
+export function QuillRemoveAccessButton({
+    onConfirm,
+    subject,
+    disabledReason: reasonFromCaller,
+}: QuillRemoveAccessButtonProps): JSX.Element {
     const { canEditAccessControls } = useValues(accessControlLogic)
     const [confirmOpen, setConfirmOpen] = useState(false)
+    const disabledReason = canEditAccessControls ? reasonFromCaller : 'You cannot edit this'
 
     return (
         <>
@@ -35,7 +42,7 @@ export function QuillRemoveAccessButton({ onConfirm, subject }: QuillRemoveAcces
                         <Button
                             size="icon"
                             aria-label="Remove access"
-                            disabled={!canEditAccessControls}
+                            disabled={!!disabledReason}
                             onClick={() => setConfirmOpen(true)}
                             data-attr={`access-control-remove-${subject}`}
                         />
@@ -43,7 +50,7 @@ export function QuillRemoveAccessButton({ onConfirm, subject }: QuillRemoveAcces
                 >
                     <IconTrash />
                 </TooltipTrigger>
-                <TooltipContent>{canEditAccessControls ? 'Remove access' : 'You cannot edit this'}</TooltipContent>
+                <TooltipContent>{disabledReason ?? 'Remove access'}</TooltipContent>
             </Tooltip>
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                 <AlertDialogContent>

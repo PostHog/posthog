@@ -23,8 +23,8 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,

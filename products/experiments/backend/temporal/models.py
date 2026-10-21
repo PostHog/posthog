@@ -54,7 +54,11 @@ RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
 # burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
 # and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
 # SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
-NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
+# The window type comes from request_recalculation, not from a query: the experiment start date sets it.
+RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
+NON_RETRYABLE_ERROR_TYPES = frozenset(
+    {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
+)
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
 # attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but
@@ -89,7 +93,7 @@ METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
 METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
@@ -97,6 +101,16 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
     # None falls back to default dispatch order.
     fairness_key: str | None = None
+    # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
+    # None keeps the activity on the workflow's own queue.
+    activity_task_queue: str | None = None
+
+
+def _role_from_either_field(role: str, metric_type: str) -> str:
+    resolved = role or metric_type
+    if not resolved:
+        raise ValueError("role is required")
+    return resolved
 
 
 @dataclasses.dataclass(frozen=False)
@@ -109,9 +123,15 @@ class ExperimentMetricToRecalculate:
 
     experiment_id: int
     metric_uuid: str
-    # The metric's role ("primary" or "secondary"), not its kind. Recorded workflow histories carry this
-    # field name, so renaming it breaks their replay.
-    metric_type: str
+    # "primary" or "secondary": the metric's role in the experiment, not its kind.
+    role: str = ""
+    # The old name of `role`. Workers and runs that started before `role` existed write and read only this
+    # field, so __post_init__ keeps the two fields equal. Remove this field, and the default of `role`, when no
+    # such worker or run is left.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        self.role = self.metric_type = _role_from_either_field(self.role, self.metric_type)
 
 
 @dataclasses.dataclass
@@ -136,7 +156,14 @@ class MetricOutOfTimeFailure:
     recalculation_id: str
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    role: str = ""  # "primary" or "secondary"
+    # The old name of `role`, kept for the same reason as ExperimentMetricToRecalculate.metric_type.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        role = _role_from_either_field(self.role, self.metric_type)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "metric_type", role)
 
 
 @dataclasses.dataclass

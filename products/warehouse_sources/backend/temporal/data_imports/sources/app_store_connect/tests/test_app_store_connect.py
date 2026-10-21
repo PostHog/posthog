@@ -535,6 +535,119 @@ class TestAppFanoutEndpoints:
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
 
 
+def _overview(*versions: tuple[str, float]) -> dict[str, Any]:
+    return {
+        "version": "1.0",
+        "appMetadata": {"bundleId": "com.example.app", "appId": "A1", "latestVersion": "2.0", "platform": "IOS"},
+        "insights": {"regressions": [{"metric": "launchTime"}]},
+        "categories": [
+            {
+                "identifier": "launch",
+                "displayName": "Launch Time",
+                "sections": [
+                    {
+                        "identifier": "launchTime",
+                        "displayName": "Time to first draw",
+                        "unit": {"identifier": "ms", "displayName": "Milliseconds"},
+                        "datasets": [
+                            {
+                                "filterCriteria": {"percentile": "p50", "device": "all_iPhones"},
+                                "points": [{"version": version, "value": value} for version, value in versions],
+                                "recommendedMetricGoal": {"value": 400, "detail": "Under 400 ms"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+class _FakeOverviewApi(_FakeApi):
+    """Serves overview documents per app; an app with no document 404s."""
+
+    def __init__(self, bodies: dict[str, dict[str, Any]]) -> None:
+        super().__init__(bodies)
+        self.accepts: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> MagicMock:
+        if url.endswith("/performanceOverviews"):
+            self.calls.append((url, kwargs.get("params")))
+            self.accepts.append(kwargs["headers"]["Accept"])
+            if url not in self.bodies:
+                return _json_response({"errors": [{"status": "404"}]}, status_code=404)
+            return _json_response(self.bodies[url])
+        return super().get(url, **kwargs)
+
+
+class TestPerformanceOverviews:
+    def _api(self) -> _FakeOverviewApi:
+        return _FakeOverviewApi(
+            {
+                f"{BASE_URL}/v1/apps": _page(
+                    [_resource("apps", "A1"), _resource("apps", "A2"), _resource("apps", "A3")]
+                ),
+                f"{BASE_URL}/v1/apps/A1/performanceOverviews": _overview(("1.0", 512.5), ("2.0", 380.0)),
+                f"{BASE_URL}/v1/apps/A3/performanceOverviews": _overview(("3.1", 290.0)),
+            }
+        )
+
+    def test_flattens_metric_points_and_skips_an_app_without_an_overview(self) -> None:
+        api = self._api()
+
+        rows = _collect("performance_overviews", api, _FakeManager())
+
+        assert [(row["app_id"], row["version"], row["value"]) for row in rows] == [
+            ("A1", "1.0", 512.5),
+            ("A1", "2.0", 380.0),
+            ("A3", "3.1", 290.0),
+        ]
+        assert rows[0] == {
+            "app_id": "A1",
+            "bundle_id": "com.example.app",
+            "platform": "IOS",
+            "latest_version": "2.0",
+            "category": "launch",
+            "category_name": "Launch Time",
+            "metric": "launchTime",
+            "metric_name": "Time to first draw",
+            "unit": "ms",
+            "unit_name": "Milliseconds",
+            "percentile": "p50",
+            "device": "all_iPhones",
+            "device_marketing_name": None,
+            "version": "1.0",
+            "value": 512.5,
+            "error_margin": None,
+            "breakdown_value": None,
+            "breakdown_subsystem": None,
+            "recommended_goal_value": 400,
+            "recommended_goal_detail": "Under 400 ms",
+        }
+        assert set(api.accepts) == {"application/vnd.apple.xcode-overview+json"}
+
+    @parameterized.expand(
+        [
+            ("bookmarked_app_still_listed", "A3"),
+            ("bookmarked_app_no_longer_listed", "A25"),
+        ]
+    )
+    def test_bookmarks_the_next_app_and_resumes_without_refetching_earlier_apps(
+        self, _name: str, bookmark: str
+    ) -> None:
+        manager = _FakeManager()
+        _collect("performance_overviews", self._api(), manager)
+        assert [state.app_id for state in manager.saved] == ["A2", "A3"]
+
+        api = self._api()
+        rows = _collect("performance_overviews", api, _FakeManager(AppStoreConnectResumeConfig(app_id=bookmark)))
+
+        assert [row["app_id"] for row in rows] == ["A3"]
+        assert [url for url, _ in api.calls if url.endswith("/performanceOverviews")] == [
+            f"{BASE_URL}/v1/apps/A3/performanceOverviews"
+        ]
+
+
 class TestCheckAppIds:
     def _message(self, app_ids: str | None, apps: list[dict[str, Any]]) -> tuple[str | None, _FakeApi]:
         api = _FakeApi({f"{BASE_URL}/v1/apps": _page(apps)})

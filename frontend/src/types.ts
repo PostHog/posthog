@@ -44,6 +44,8 @@ import type {
     OrganizationMemberNoticeApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
+    ProjectApi,
+    SharingConfigurationApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -388,7 +390,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | null
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -749,13 +751,7 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface CorrelationConfigType {
-    excluded_person_property_names?: string[]
-    excluded_event_property_names?: string[]
-    excluded_event_names?: string[]
-}
-
-export interface ProjectType extends ProjectBasicType {
+export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
@@ -907,12 +903,6 @@ export interface TeamType extends TeamBasicType {
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 
-    /** Used to exclude person properties from correlation analysis results.
-     *
-     * For example can be used to exclude properties that have trivial causation.
-     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
-     */
-    correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
@@ -1150,7 +1140,6 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
-    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -3390,9 +3379,7 @@ export interface FunnelsFilterType extends FilterType {
     drop_off?: boolean
     funnel_step?: number
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -3727,31 +3714,6 @@ export interface FlattenedFunnelStepByBreakdown {
     }
     steps?: FunnelStepWithConversionMetrics[]
     significant?: boolean
-}
-
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
 }
 
 export enum BreakdownAttributionType {
@@ -4570,7 +4532,6 @@ export interface FeatureFlagRulesV2PercentageRolloutRule
 
 export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'experiment'
-    experiment_id: number
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
     holdout?: { id: number; seed: string; exclusion_percentage: number }
@@ -5480,8 +5441,7 @@ export type GraphDataset = Partial<
         | 'compare'
         | 'compare_label'
         | 'status'
-        | 'action'
-        | 'actions'
+        | 'order'
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
@@ -5505,8 +5465,6 @@ export type GraphDataset = Partial<
     pointValue?: number
     /** Value (count) for specific data point; only valid in the context of an xy intercept */
     personUrl?: string
-    /** Action/event filter defition */
-    action?: ActionFilter | null
     yAxisID?: string
 }
 
@@ -5867,6 +5825,7 @@ export interface SharePasswordType {
 }
 
 export interface SharingConfigurationType {
+    has_relevant_access_controls?: SharingConfigurationApi['has_relevant_access_controls']
     enabled: boolean
     access_token: string
     created_at: string
@@ -6236,6 +6195,7 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
+    PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
@@ -6666,6 +6626,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when the resource has no API list endpoint and can only be populated via webhooks
      *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
     webhook_only?: boolean
+    /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
+     *  wizard defaults it to `full_refresh` even though incremental or append is available. */
+    prefers_full_refresh?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -7506,7 +7469,14 @@ export type HogFunctionType = {
     batch_export_id?: string | null
     template_id?: string
     deleted?: boolean
+    /** Config staged for review by an agent, not live until published. Null when nothing is staged. */
+    draft?: HogFunctionDraftType | null
+    draft_updated_at?: string | null
 }
+
+export type HogFunctionDraftType = Partial<
+    Pick<HogFunctionType, 'hog' | 'inputs_schema' | 'inputs' | 'filters' | 'mappings' | 'masking'>
+>
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
@@ -7589,7 +7559,7 @@ export type HogFunctionTemplateType = Pick<
     /** Whether this is a featured/recommended source */
     featured?: boolean
     /** Release status, only populated for `type: 'source'` templates */
-    releaseStatus?: 'alpha' | 'beta' | 'ga'
+    releaseStatus?: 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -8137,6 +8107,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
+    MCP = 'mcp',
 }
 
 // Managed viewset

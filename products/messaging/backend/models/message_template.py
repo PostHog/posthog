@@ -21,6 +21,8 @@ class MessageTemplate(UUIDTModel):
     # Set once the template is made transactional: the workflow the send API runs for it. A plain id,
     # because the workflow lives in the workflows product.
     transactional_hog_flow_id = models.UUIDField(null=True, blank=True)
+    # Unpublished edits to a transactional template. Sends keep using `content` until the draft is published.
+    draft_content = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_messagetemplate"

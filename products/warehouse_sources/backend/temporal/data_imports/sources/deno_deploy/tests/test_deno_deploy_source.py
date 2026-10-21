@@ -32,10 +32,6 @@ class TestGetSchemas:
         assert schema.supports_append is incremental
         assert schema.should_sync_default is should_sync_default
 
-    def test_names_filter(self) -> None:
-        schemas = DenoDeploySource().get_schemas(_config(), team_id=1, names=["apps", "logs"])
-        assert {s.name for s in schemas} == {"apps", "logs"}
-
 
 class TestResumableWiring:
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:

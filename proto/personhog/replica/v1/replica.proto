@@ -78,4 +78,8 @@ service PersonHogReplica {
 
   // ClickHouse cleanup version floors (temporary: same routing caveat as deletes above)
   rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
+
+  // Reads for the person consistency scan and repair. Rows include tombstones.
+  rpc GetDistinctIdRows(personhog.types.v1.GetDistinctIdRowsRequest) returns (personhog.types.v1.GetDistinctIdRowsResponse);
+  rpc ListPersonsForTeam(personhog.types.v1.ListPersonsForTeamRequest) returns (personhog.types.v1.ListPersonsForTeamResponse);
 }

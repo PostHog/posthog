@@ -43,7 +43,7 @@ Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The report-embedding family sets it to 100,000.
+The report-embedding sets set it to 250,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.
@@ -189,7 +189,7 @@ Models trained before thresholds existed have none, and no other value stands in
 
 - Population: D's newborn pool.
 - Score: per report and model key, the earliest scored event in D with this deployment's `environment`.
-- `model_role`: `served` when the event's roles hold it, else the first role (`daily_candidate`, `cross_family`, `pinned`), else `candidate`.
+- `model_role`: `served` when the event's roles hold it, else the first role (`recent`, `cross_family`, `pinned`), else `candidate`. Grades written before the `recent` role carry `daily_candidate` for the same read.
 - `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
 - Asset metadata: `served_pool_coverage`, `pool_coverage_by_model`, rows per model version, and the heads without a threshold.
 
