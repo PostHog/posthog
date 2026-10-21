@@ -41,7 +41,7 @@ where
     Ok(trim_owned(String::deserialize(deserializer)?))
 }
 
-/// The trim both [`Event`] and the handler's lenient parse apply, so the two cannot diverge.
+/// Shared by [`Event`] and the lenient parse so their trims can't diverge.
 pub(super) fn trim_owned(s: String) -> String {
     let trimmed = s.trim();
     if trimmed.len() == s.len() {
@@ -64,7 +64,7 @@ pub enum EventResult {
     Retry,
 }
 
-/// Keep in sync with [`super::lenient::LenientBatch`], which the v1 handler parses instead.
+/// Keep fields in sync with [`super::lenient::LenientBatch`].
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
@@ -305,7 +305,7 @@ fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     }
 }
 
-/// Keep in sync with [`super::lenient::LenientEvent`], which the v1 handler parses instead.
+/// Keep fields in sync with [`super::lenient::LenientEvent`].
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,

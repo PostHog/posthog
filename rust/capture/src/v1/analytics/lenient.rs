@@ -52,7 +52,7 @@ impl fmt::Display for FieldTypeError {
     }
 }
 
-/// A string field read as any JSON value, keeping only the kind of a non-string so the 400 can name the field.
+/// Keeps only a non-string's JSON kind, so the 400 names the field without echoing the value.
 #[derive(Debug, Default)]
 enum JsonStr {
     #[default]
@@ -120,8 +120,7 @@ impl<'de> Visitor<'de> for JsonStrVisitor {
     }
 }
 
-/// Parse-only mirror of [`Event`] whose string fields accept any JSON type, so a wrong type gets a 400
-/// naming the field; keep the field order of [`Event`] because serde also accepts an event as a JSON array.
+/// Lenient mirror of [`Event`] so a wrong type gets a 400 naming the field; keep `Event`'s field order (serde also reads the array form).
 #[derive(Deserialize)]
 pub struct LenientEvent {
     #[serde(default)]
@@ -132,8 +131,7 @@ pub struct LenientEvent {
     distinct_id: JsonStr,
     #[serde(default)]
     timestamp: JsonStr,
-    // `Option` and no default, as in `Event`: a missing or null key is `None`, and a short
-    // array form still fails inside serde.
+    // `Option` without a default, as in `Event`, so a short array form still fails in serde.
     session_id: Option<JsonStr>,
     window_id: Option<JsonStr>,
     #[serde(default)]
@@ -142,7 +140,7 @@ pub struct LenientEvent {
     properties: Box<RawValue>,
 }
 
-/// Parse-only mirror of [`Batch`] whose `created_at` accepts any JSON type, for the same reason as [`LenientEvent`].
+/// Lenient mirror of [`Batch`] so a wrong-typed `created_at` gets a 400 naming the field.
 #[derive(Deserialize)]
 pub struct LenientBatch {
     #[serde(default)]
@@ -208,8 +206,7 @@ impl LenientEvent {
 }
 
 impl LenientBatch {
-    /// Builds the [`Batch`] the strict derive would produce, or the first field that is not a
-    /// string: `created_at` first, then each event in order.
+    /// Returns the [`Batch`] the strict parse would build, or the first non-string field (`created_at`, then events in order).
     pub fn into_batch(self) -> Result<Batch, FieldTypeError> {
         let created_at = required(self.created_at, None, "created_at")?;
         let batch = self

@@ -22,7 +22,7 @@ pub struct ErrorResponse {
 #[derive(Debug)]
 pub enum ParseFailure {
     Json {
-        /// Can quote request values, so it never goes into a response.
+        /// Can quote request values: log it, never put it in a response.
         message: String,
         category: Category,
         line: usize,
@@ -279,7 +279,7 @@ impl Error {
     pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
         let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
-        // Field type errors add bounded `field` and `kind` labels; sums by the shared labels are unchanged.
+        // Field errors add bounded `field` and `kind` labels; sums by the existing labels are unchanged.
         if let Self::RequestParsingError(ParseFailure::Field(field)) = self {
             counter!(
                 CAPTURE_V1_ERROR_METRIC,
