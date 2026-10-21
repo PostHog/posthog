@@ -92,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     IncrementalBatchRangeReader,
     IncrementalHandoffCheckpoint,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -193,6 +194,8 @@ class PipelineV3(Generic[ResumableData]):
     _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
     _job_rows_synced_through_batch: int = 0
     _kept_rows_synced: int | None = None
+    # Set once the run handed its replace scope to the loader.
+    _replace_scope_ref: ReplaceScopeRef | None = None
 
     def __init__(
         self,
@@ -219,7 +222,10 @@ class PipelineV3(Generic[ResumableData]):
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
         # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
         # intermittently returns nothing.
-        self._resource.primary_keys = resolve_primary_keys(models.schema, self._resource)
+        # A replace scope loads as appends, so a key persisted by an earlier mode must not come back.
+        self._resource.primary_keys = (
+            None if source_response.replace_scope is not None else resolve_primary_keys(models.schema, self._resource)
+        )
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
@@ -551,6 +557,25 @@ class PipelineV3(Generic[ResumableData]):
         self._pg_producer.is_first_ever_sync = True
         self._prefix_checkpoint = None
 
+    async def _stage_replace_scope(self, sync_type: SyncTypeLiteral) -> None:
+        """Hand the source's replace scope to the loader, before the first batch is queued.
+
+        Not called for a first sync or a reset: the table starts empty, so no row needs to go.
+        """
+        scope = self._resource.replace_scope
+        if scope is None:
+            return
+        if sync_type != "incremental" or self._resource.lanes:
+            await self._logger.awarning("V3 Pipeline: Ignoring a replace scope on a run that does not merge one table")
+            return
+        manifest_path = await asyncio.to_thread(self._s3_batch_writer.write_replace_scope, scope)
+        self._replace_scope_ref = ReplaceScopeRef(column=scope.column, manifest_path=manifest_path)
+        self._pg_producer.replace_scope = self._replace_scope_ref
+
+    async def _stage_empty_replace_scope_batch(self, scope: ReplaceScopeRef) -> None:
+        """Queue one batch with no rows, so a scope that only removes rows still reaches the loader."""
+        await self._stage_batch(pa.table({scope.column: pa.array([], pa.string())}), batch_index=0, row_count=0)
+
     async def _record_table_rebuild(self, run_uuid: str) -> None:
         """Record that this attempt loads the table from empty (see `TableRebuildRun`).
 
@@ -825,6 +850,9 @@ class PipelineV3(Generic[ResumableData]):
                     is_cdc_companion=self._maintains_companion_table(),
                 )
 
+            if not is_fresh_sync and not should_resume:
+                await self._stage_replace_scope(sync_type)
+
             async def stage_remaining_rows() -> None:
                 nonlocal chunk_index, row_count
                 while self._batcher.should_yield(include_incomplete_chunk=True):
@@ -948,6 +976,9 @@ class PipelineV3(Generic[ResumableData]):
             # The source ended, so it holds no rows and its last cursor is safe.
             self._confirm_resume_state()
             await stage_remaining_rows()
+            if chunk_index == 0 and self._replace_scope_ref is not None:
+                await self._stage_empty_replace_scope_batch(self._replace_scope_ref)
+                chunk_index += 1
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load

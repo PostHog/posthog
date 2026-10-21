@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LanedPipelineV3,
     _LaneWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     StagedSchemeWithoutResetError,
@@ -64,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
+    ReplaceScope,
     SortMode,
     SourceInputs,
     SourceResponse,
@@ -97,7 +99,7 @@ def _make_pipeline() -> PipelineV3:
     with patch.object(PipelineV3, "__init__", return_value=None):
         pipeline = PipelineV3.__new__(PipelineV3)
 
-    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None)
+    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None, replace_scope=None)
     pipeline._resource_name = "test_table"
     pipeline._job = MagicMock(team_id=1, workflow_run_id="run-abc", billable=False)
     pipeline._source = MagicMock(source_type="Postgres")
@@ -175,6 +177,7 @@ class TestAttemptScopedRunUuid:
             partition_mode=None,
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
         )
 
         with (
@@ -317,6 +320,68 @@ class TestTableRebuildAcrossAttempts:
         assert schema.sync_type_config.get("table_rebuild_run_uuid") == expected_record
 
 
+class TestReplaceScopeHandOff:
+    @pytest.mark.parametrize(
+        "table_is_new, expect_scope",
+        [
+            pytest.param(False, True, id="a_run_on_an_existing_table_hands_the_scope_on"),
+            pytest.param(True, False, id="a_first_sync_or_a_reset_has_no_rows_to_replace"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_run_that_reads_no_rows_still_reaches_the_loader_with_its_scope(
+        self, table_is_new: bool, expect_scope: bool
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._run_uuid = "run-abc-a1"
+        pipeline._is_incremental = True
+        pipeline._schema.table = None if table_is_new else MagicMock()
+        pipeline._table = pipeline._schema.table
+        pipeline._schema.sync_type_config = {}
+        pipeline._delta_table_ref = MagicMock(is_first_sync=table_is_new)
+        pipeline._resource.primary_keys = None
+        pipeline._resource.has_duplicate_primary_keys = False
+        pipeline._last_incremental_field_value = None
+        scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset({"kept.csv"}))
+        pipeline._resource.replace_scope = scope
+        s3_writer = cast(MagicMock, pipeline._s3_batch_writer)
+        s3_writer.write_replace_scope.return_value = "s3://bucket/run-abc-a1/replace_scope.parquet"
+        producer = MagicMock(sync_type="incremental", is_first_ever_sync=False, has_held_batch=False)
+        pipeline._pg_producer = producer
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+                "finalize_desc_sort_incremental_value",
+                "commit_source_cursor",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance")).return_value.run_scheduled = AsyncMock()
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            stack.enter_context(patch(f"{_TABLE_REBUILD}.update_sync_type_config_keys"))
+            stack.enter_context(patch(f"{_PIPELINE}.update_sync_type_config_keys"))
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+            await pipeline.run()
+
+        if not expect_scope:
+            s3_writer.write_replace_scope.assert_not_called()
+            s3_writer.write_batch.assert_not_called()
+            return
+        s3_writer.write_replace_scope.assert_called_once_with(scope)
+        assert producer.replace_scope == ReplaceScopeRef(
+            column="_file_name", manifest_path="s3://bucket/run-abc-a1/replace_scope.parquet"
+        )
+        [(empty_batch, batch_index), _] = s3_writer.write_batch.call_args
+        assert (empty_batch.num_rows, empty_batch.column_names, batch_index) == (0, ["_file_name"], 0)
+        producer.send_final_batch.assert_called_once()
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
@@ -372,6 +437,7 @@ class TestCDCSourceWiring:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=None,
+            replace_scope=None,
         )
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -473,6 +539,7 @@ class TestResetLoadWritesTheQueuedScheme:
             partition_mode=source_mode,
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
             webhook_only=webhook_only,
         )
         manager = MagicMock(can_resume=MagicMock(return_value=True)) if can_resume else None
@@ -1238,6 +1305,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             partition_mode="md5",
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
             webhook_only=False,
             sort_mode=sort_mode,
         )
@@ -2109,6 +2177,7 @@ class TestLoadedPrefixCursor:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=lanes,
+            replace_scope=None,
             sort_mode=sort_mode,
             webhook_only=False,
             chunk_size=None,
