@@ -663,7 +663,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                         event: lastStep.event,
                         math: ExperimentMetricMathType.TotalCount,
                         ...(lastStep.properties &&
-                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                            lastStep.properties.length > 0 && {
+                                properties: withoutEvaluationPassMarkers(lastStep.properties),
+                            }),
                     },
                 ]
             } else if (lastStep.kind === NodeKind.ActionsNode) {

@@ -1087,18 +1087,25 @@ describe('getEventCountQuery', () => {
             operator: PropertyOperator.Exact,
             value: 'p',
         } as const
-        const metric: ExperimentMetric = {
+        const passed = {
+            kind: NodeKind.EventsNode,
+            event: '$ai_evaluation',
+            properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
+        } as const
+        const ratio: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.RATIO,
-            numerator: {
-                kind: NodeKind.EventsNode,
-                event: '$ai_evaluation',
-                properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
-            },
+            numerator: passed,
             denominator: { kind: NodeKind.EventsNode, event: '$ai_evaluation' },
         }
+        const funnel: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [passed],
+        }
 
-        expect(getEventCountQuery(metric, true)?.series[0].properties).toEqual([promptFilter])
+        expect(getEventCountQuery(ratio, true)?.series[0].properties).toEqual([promptFilter])
+        expect(getEventCountQuery(funnel, true)?.series[0].properties).toEqual([promptFilter])
     })
 
     it('returns null when series is empty', () => {
