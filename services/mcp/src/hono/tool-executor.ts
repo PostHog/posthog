@@ -250,8 +250,7 @@ export class ToolExecutor {
         )
         // In place, not copied: `RequestStateResolver` gives this one object to both the state
         // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
-        // same session. A batch never reaches here holding a handle, because the dispatcher
-        // refuses a batch containing a modern message and a legacy client carries a session.
+        // same session.
         if (preparedCall?.conversationId) {
             const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId
