@@ -14,7 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 
-scim_migration = import_module("posthog.migrations.1405_scimprovisioneduser_scimrequestlog")
+scim_migration = import_module("posthog.migrations.1406_scimprovisioneduser_scimrequestlog")
 
 
 class TestSCIMContentTypeMigration(TestCase):
