@@ -4,6 +4,9 @@ on:
     push:
         branches:
             - master
+    schedule:
+        - cron: '4,19,34,49 * * * *'
+    workflow_dispatch:
 
 concurrency:
     group: private-sync
@@ -47,5 +50,13 @@ jobs:
                   PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
-                  git push private "HEAD:refs/heads/master" --force
+                  git fetch --no-tags origin master
+                  public_master=$(git rev-parse FETCH_HEAD)
+                  git fetch --no-tags --filter=blob:none private master
+                  private_master=$(git rev-parse FETCH_HEAD)
+                  if [ "$public_master" != "$private_master" ] && git merge-base --is-ancestor "$public_master" "$private_master"; then
+                      echo "::warning::posthog-private master ($private_master) already contains posthog master ($public_master), skipping the push so it does not move backwards"
+                  else
+                      git push private "${public_master}:refs/heads/master" --force
+                  fi
                   git push private "refs/tags/*:refs/tags/*" --force
