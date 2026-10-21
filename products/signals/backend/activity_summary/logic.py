@@ -26,10 +26,19 @@ MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
-# The error prefix of an update that raised before it stored a result. The update did not call the model.
+# The error prefixes of an update that raised before it stored a result, before and after the model call.
 EXCEPTION_ERROR_PREFIX = "exception: "
+EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX = "exception_after_model_call: "
 # The watermark is inclusive in the stored summary, so the next read starts just after it.
 _WATERMARK_STEP = datetime.timedelta(microseconds=1)
+
+
+class UpdateAfterModelCallError(Exception):
+    """An update raised after the model call, so the call counts against the daily caps."""
+
+    def __init__(self, cost_usd: float | None) -> None:
+        super().__init__("activity summary update raised after the model call")
+        self.cost_usd = cost_usd
 
 
 class UpdateStatus(StrEnum):
@@ -74,8 +83,16 @@ def _back_off(
 
 
 def record_update_exception(team_id: int, user_id: int, error: BaseException) -> ActivitySummaryUpdate:
-    """Store an update that raised as failed, keep the stored summary and watermark, and back the pair off."""
-    message = f"{EXCEPTION_ERROR_PREFIX}{type(error).__name__}"
+    """Store an update that raised as failed, keep the stored summary and watermark, and back the pair off.
+
+    An update that raised after the model call keeps its cost. A missing cost counts at the bound.
+    """
+    if isinstance(error, UpdateAfterModelCallError):
+        message = f"{EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX}{type(error.__cause__).__name__}"
+        cost: float | None = error.cost_usd
+    else:
+        message = f"{EXCEPTION_ERROR_PREFIX}{type(error).__name__}"
+        cost = 0.0
     UserActivitySummary.objects.for_team(team_id).update_or_create(
         team_id=team_id,
         user_id=user_id,
@@ -84,12 +101,12 @@ def record_update_exception(team_id: int, user_id: int, error: BaseException) ->
             "error": message,
             "tokens_in": None,
             "tokens_out": None,
-            "cost_usd": 0.0,
+            "cost_usd": cost,
             "latency_ms": None,
             "next_eligible_at": timezone.now() + RETRY_BACKOFF,
         },
     )
-    return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message)
+    return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message, cost_usd=cost)
 
 
 def update_activity_summary(
@@ -162,40 +179,43 @@ def update_activity_summary(
     if dry_run:
         return result
 
-    accounting: dict[str, Any] = {
-        "tokens_in": outcome.tokens_in,
-        "tokens_out": outcome.tokens_out,
-        "cost_usd": cost,
-        "latency_ms": outcome.latency_ms,
-        "inputs_used": inputs_used,
-        "error": outcome.error,
-    }
-    if outcome.summary is None:
+    try:
+        accounting: dict[str, Any] = {
+            "tokens_in": outcome.tokens_in,
+            "tokens_out": outcome.tokens_out,
+            "cost_usd": cost,
+            "latency_ms": outcome.latency_ms,
+            "inputs_used": inputs_used,
+            "error": outcome.error,
+        }
+        if outcome.summary is None:
+            UserActivitySummary.objects.for_team(team_id).update_or_create(
+                team_id=team_id,
+                user_id=user_id,
+                defaults={
+                    **accounting,
+                    "status": UserActivitySummary.Status.FAILED,
+                    "next_eligible_at": now + RETRY_BACKOFF,
+                },
+            )
+            return result
+
         UserActivitySummary.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             user_id=user_id,
             defaults={
                 **accounting,
-                "status": UserActivitySummary.Status.FAILED,
-                "next_eligible_at": now + RETRY_BACKOFF,
+                "status": UserActivitySummary.Status.OK,
+                "summary": outcome.summary,
+                "summary_text": summary_text(outcome.summary),
+                "generated_at": now,
+                "model": model,
+                "prompt_version": PROMPT_VERSION,
+                "render_version": RENDER_VERSION,
+                "input_watermark": watermark,
+                "next_eligible_at": now + min_update_interval,
             },
         )
         return result
-
-    UserActivitySummary.objects.for_team(team_id).update_or_create(
-        team_id=team_id,
-        user_id=user_id,
-        defaults={
-            **accounting,
-            "status": UserActivitySummary.Status.OK,
-            "summary": outcome.summary,
-            "summary_text": summary_text(outcome.summary),
-            "generated_at": now,
-            "model": model,
-            "prompt_version": PROMPT_VERSION,
-            "render_version": RENDER_VERSION,
-            "input_watermark": watermark,
-            "next_eligible_at": now + min_update_interval,
-        },
-    )
-    return result
+    except Exception as error:
+        raise UpdateAfterModelCallError(cost) from error

@@ -241,12 +241,20 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, "skipped_too_few_units"),
-            ("an exception before the model call", 3, {"side_effect": RuntimeError("no gateway")}, "failed"),
+            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, False, "skipped_too_few_units", False),
+            (
+                "an exception before the model call",
+                3,
+                {"side_effect": RuntimeError("no gateway")},
+                False,
+                "failed",
+                False,
+            ),
+            ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
         ]
     )
-    def test_a_pair_that_did_not_call_the_model_does_not_come_back_on_the_next_tick(
-        self, _name: str, changes: int, gateway: dict[str, Any], status: str
+    def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
+        self, _name: str, changes: int, gateway: dict[str, Any], store_fails: bool, status: str, called_model: bool
     ) -> None:
         self._changes(self.user, changes)
         pair_input = ActivitySummaryPairInput(
@@ -259,12 +267,23 @@ class TestActivitySummaryQueue(BaseTest):
         )
         assert self._select() == [(self.team.id, self.user.id)]
 
-        with patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway):
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway),
+            patch(
+                "products.signals.backend.activity_summary.logic.summary_text",
+                side_effect=RuntimeError("store failed") if store_fails else None,
+                return_value="summary",
+            ),
+        ):
             result = run_pair(pair_input)
 
-        assert (result.status, result.called_model) == (status, False)
+        assert (result.status, result.called_model) == (status, called_model)
         assert self._select() == []
-        assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
+        if called_model:
+            assert result.cost_usd
+            assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=pytest.approx(result.cost_usd))
+        else:
+            assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
 
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
         self._changes(self.user, 3)

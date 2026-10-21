@@ -28,6 +28,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
     ActivitySummaryUpdate,
+    UpdateAfterModelCallError,
     UpdateStatus,
     record_update_exception,
     update_activity_summary,
@@ -220,7 +221,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         logger.exception("activity_summary_update_failed", team_id=input.team_id, user_id=input.user_id)
         # Without a failed row and a backoff, the queue picks the same pair again on the next tick.
         update = record_update_exception(input.team_id, input.user_id, error)
-        called_model = False
+        called_model = isinstance(error, UpdateAfterModelCallError)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id)
