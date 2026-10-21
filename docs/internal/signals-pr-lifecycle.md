@@ -266,7 +266,7 @@ The owner stores no request inventory or pending-work list. The old source table
 
 ## Usage-based billing rollout
 
-The shared usage counter evaluates `self-driving-usage-based-billing` with the organization's ID and group on every reporting or quota refresh. Its result must be a date variant in `YYYY-MM-DD` format, interpreted as midnight UTC. Owners and reports created before that cutoff retain report-based billing, even if their work finishes later. A missing match, Boolean result, invalid date or unavailable local evaluation falls back to report-based billing. There is no saved billing-mode field.
+The shared usage counter evaluates `self-driving-usage-based-billing` with the organization's ID and group on every reporting or quota refresh. Its result must be a date variant in `YYYY-MM-DD` format, interpreted as midnight UTC. Reports created before that cutoff retain report-based billing. Spend owners created before it remain excluded, even if their work finishes later or triggers a newer report. A missing match, Boolean result, invalid date or unavailable local evaluation falls back to report-based billing. There is no saved billing-mode field.
 
 All non-exempt owners record finalized cost on the UTC day it settles, independently of the flag. The reporting query includes these amounts only for owners at or after the organization's cutoff; work attached to an older report remains on the report meter. Backfilled owners preserve the original spend timestamp, and scout owners preserve the scout's creation time. Keep the configured cutoff stable: changing or removing it changes which meter subsequent historical recounts select.
 

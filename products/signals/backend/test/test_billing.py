@@ -658,9 +658,14 @@ class TestSpendBasedBilling(BaseTest):
             _make_pr_run(self.team, report, created_at=_at(10))
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
             finish_report_spend(team_id=self.team.id, report_id=str(report.id))
-        assert self._day(10) == {self.team.id: 1525}
+        expected = 1525 if existing_work == "report" else 25
+        assert self._day(10) == {self.team.id: expected}
         assert first_billable_pr_run(report.id) is None  # The fixed-PR refund must not issue 1,500 credits.
-        assert first_billable_pr_run(legacy_report.id) is not None
+        assert (first_billable_pr_run(legacy_report.id) is not None) == (existing_work == "report")
+        # A new pass can change the triggering signal, but cannot change the report's meter.
+        SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)
+        assert self._day(10) == {self.team.id: expected}
+        assert first_billable_pr_run(report.id) is None
 
     def test_rounding_is_per_team_day_and_period_recounts_match_daily_reports(self) -> None:
         other_org = Organization.objects.create(name="Synthetic billing organization")

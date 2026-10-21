@@ -70,10 +70,7 @@ def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
 def usage_billed_reports(cutoffs: dict[UUID, datetime]) -> QuerySet[SignalReport]:
     eligible = Q(pk__in=[])
     for organization_id, cutoff in cutoffs.items():
-        older_signal = SignalSpend.objects.unscoped().filter(
-            team_id=OuterRef("team_id"), signal_id=OuterRef("triggering_signal_id"), created_at__lt=cutoff
-        )
-        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff) & ~Q(Exists(older_signal))
+        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
     return SignalReport.objects.filter(eligible)
 
 

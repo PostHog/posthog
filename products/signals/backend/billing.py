@@ -1,8 +1,8 @@
 """Signals billing — legacy report charges and finalized usage in the same credit units.
 
 Usage reporting and quota refresh evaluate the organization's self-driving-usage-based-billing
-date. Work created before that UTC cutoff retains report billing. Newer work contributes
-settled spend on its completion days. Missing or invalid dates use report billing.
+date. Reports created before that UTC cutoff retain report billing. Owners created at or
+after it contribute settled spend on their completion days. Missing or invalid dates use report billing.
 
 Legacy mode: a flat credit charge per report that ships an implementation PR.
 
@@ -188,7 +188,7 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     cutoff = usage_billing_cutoff(report.team.organization_id)
     if (
         cutoff is not None
-        and usage_billed_reports({report.team.organization_id: cutoff}).filter(id=report.id).exists()
+        and report.created_at >= cutoff
         and (
             SignalSpend.objects.for_team(report.team_id)
             .filter(report_id=report.id)
@@ -225,7 +225,7 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     if report is None:
         return None
     cutoff = usage_billing_cutoff(report.team.organization_id)
-    if cutoff is not None and usage_billed_reports({report.team.organization_id: cutoff}).filter(id=report.id).exists():
+    if cutoff is not None and report.created_at >= cutoff:
         return None
     row = (
         _bridges_with_pr_run()
