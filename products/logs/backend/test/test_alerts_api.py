@@ -20,6 +20,7 @@ from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -39,6 +40,7 @@ from products.cdp.backend.templates.fixtures import template_pagerduty, template
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_creation import MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
@@ -49,7 +51,6 @@ from products.logs.backend.platform_alert_backfill import (
 from products.logs.backend.platform_cutover import cut_over_team, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
-    MAX_ALERTS_PER_TEAM,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
@@ -715,7 +716,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
-        with patch("products.logs.backend.presentation.views.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+        with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
             response = self.client.post(
                 self.base_url,
                 self._valid_payload(name="Boundary"),
@@ -2451,6 +2452,122 @@ class TestLogsAlertAPI(APIBaseTest):
             True,
         )
 
+    def _create_on_the_platform(self, body: dict, team_id: int | None = None) -> Any:
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.post(f"/api/projects/{team_id or self.team.id}/platform_alerts/", body, format="json")
+
+    def test_the_platform_api_creates_both_rows_with_every_default_stored(self) -> None:
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"serviceNames": ["api"]},
+                    "condition": {"threshold_count": 5, "threshold_operator": "above", "window_minutes": 10},
+                },
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        created = response.json()
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            read = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/").json()
+        assert read == created
+        assert {
+            key: created[key] for key in ("name", "enabled", "owner", "evaluation_periods", "cooldown_minutes")
+        } == {
+            "name": "Untitled alert",
+            "enabled": True,
+            "owner": "platform",
+            "evaluation_periods": 1,
+            "cooldown_minutes": 0,
+        }
+        assert created["grouping"] == {
+            "mode": "by_result_labels",
+            "keys": ["service_name"],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        alert = LogsAlertConfiguration.objects.get(pk=created["legacy_configuration_id"])
+        assert (alert.platform_owned, alert.filters, alert.threshold_count, alert.window_minutes, alert.created_by) == (
+            True,
+            {"serviceNames": ["api"]},
+            5,
+            10,
+            self.user,
+        )
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=created["id"], activity="created", user=self.user
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("logs_write_only", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("logs_read_only", ["alert:write", "logs:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_logs_write", ["alert:write", "logs:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_platform_create_needs_write_access_to_alerts_and_logs(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
+
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"severityLevels": ["error"]},
+                    "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5},
+                },
+            }
+        )
+
+        assert response.status_code == expected, response.json()
+        assert LogsAlertConfiguration.objects.filter(team=self.team).exists() == (expected == status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("unservable_kind", {"source_kind": "insight"}, None, False, status.HTTP_400_BAD_REQUEST, "source_kind"),
+            (
+                "enabled_without_filters",
+                {"source_config": {"filters": {}}},
+                None,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "source_config",
+            ),
+            ("over_the_cap", {}, 0, False, status.HTTP_400_BAD_REQUEST, None),
+            ("environment_url", {}, None, True, status.HTTP_409_CONFLICT, None),
+        ]
+    )
+    def test_a_refused_platform_create_writes_neither_row(
+        self,
+        _name: str,
+        overrides: dict,
+        cap: int | None,
+        on_an_environment: bool,
+        expected: int,
+        field: str | None,
+    ) -> None:
+        condition = {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
+        body = {"source_kind": "logs", "source_config": {"filters": {"severityLevels": ["error"]}}, **overrides}
+        body["source_config"] = {**body["source_config"], "condition": condition}
+        environment = (
+            Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+            if on_an_environment
+            else None
+        )
+
+        with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", cap if cap is not None else 20):
+            response = self._create_on_the_platform(body, team_id=environment.id if environment else None)
+
+        assert response.status_code == expected, response.json()
+        assert response.json()["attr"] == field
+        assert not LogsAlertConfiguration.objects.exists()
+        with team_scope(self.team.id):
+            assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
+
     def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
         self._owned_by_the_platform()
 
@@ -2733,7 +2850,14 @@ class TestLogsAlertAPI(APIBaseTest):
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
 
-    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self) -> None:
+    def _delete_through(self, route: str, alert_id: str) -> Any:
+        if route == "logs":
+            return self.client.delete(f"{self.base_url}{alert_id}/")
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()
         destinations_when_sent: list[int] = []
 
@@ -2741,19 +2865,35 @@ class TestLogsAlertAPI(APIBaseTest):
             destinations_when_sent.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
 
         with patch(f"{_WEB_START}.deliver_evaluation", side_effect=deliver) as deliver_evaluation:
-            response = self.client.delete(f"{self.base_url}{created['id']}/")
+            response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
 
-    def test_deleting_an_alert_the_platform_owns_deletes_its_copy(self) -> None:
+    def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
         created = self._owned_by_the_platform()
+        # The state a rollback leaves when it hands the alert back after the platform read its owner.
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(owner="source")
 
-        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        response = self._delete_through("platform", created["id"])
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+        created = self._owned_by_the_platform()
+        copy_id = self._copy(created["id"]).id
+
+        response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
+        ).exists()
         with team_scope(self.team.id):
             assert (
                 list_configurations(

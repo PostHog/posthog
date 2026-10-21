@@ -65405,12 +65405,12 @@ export namespace Schemas {
     }
 
     /**
-     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     * Product whose data the alert evaluates. It cannot change after the create.
      */
-    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+    export type LogsPlatformAlertConfigurationCreateSourceKind = typeof LogsPlatformAlertConfigurationCreateSourceKind[keyof typeof LogsPlatformAlertConfigurationCreateSourceKind];
 
 
-    export const LogsPlatformAlertConfigurationEditSourceKind = {
+    export const LogsPlatformAlertConfigurationCreateSourceKind = {
       Logs: 'logs',
     } as const;
 
@@ -65420,6 +65420,55 @@ export namespace Schemas {
       /** The bound the count is checked against. */
       condition: LogsPlatformAlertCondition;
     }
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface LogsPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: LogsPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const LogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -89745,6 +89794,8 @@ export namespace Schemas {
       labels: unknown[];
       created_at: string | null;
     }
+
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
 
     export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
 
@@ -121986,6 +122037,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -122097,6 +122149,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
@@ -122194,6 +122247,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -122293,6 +122347,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
@@ -131677,6 +131732,10 @@ export namespace Schemas {
     } as const;
 
     export type PlatformAlertsListParams = {
+    /**
+     * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
+     */
+    legacy_configuration_id?: string;
     /**
      * Number of results to return per page.
      */

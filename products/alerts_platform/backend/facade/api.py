@@ -107,10 +107,22 @@ def disable_configurations(
 
 
 def list_configurations(
-    *, team_id: int, source_kinds: Sequence[str], limit: int, offset: int
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    limit: int,
+    offset: int,
+    legacy_configuration_id: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
-    """One page of configurations a caller may read, with the total behind it."""
-    return platform_reads.list_configurations(team_id=team_id, source_kinds=source_kinds, limit=limit, offset=offset)
+    """One page of configurations a caller may read, with the total behind it. With a
+    `legacy_configuration_id`, only the copy of that source row."""
+    return platform_reads.list_configurations(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        limit=limit,
+        offset=offset,
+        legacy_configuration_id=legacy_configuration_id,
+    )
 
 
 def get_configuration(
@@ -171,6 +183,19 @@ def update_configuration(
     )
 
 
+def create_configuration(
+    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+) -> PlatformAlertConfigurationView:
+    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+
+    Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
+    settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    return platform_writes.create_configuration(
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+    )
+
+
 def snooze_group(
     *,
     team_id: int,
@@ -213,6 +238,17 @@ def update_owned_copy(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+    )
+
+
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns, with its source's own row. False when the caller
+    cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API cannot delete.
+    """
+    return platform_writes.delete_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
 
 
