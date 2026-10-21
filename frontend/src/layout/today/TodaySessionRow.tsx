@@ -5,6 +5,8 @@ import { useId, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { prefetchRunStream } from 'products/posthog_ai/frontend/api/logics'
+
 import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { sessionPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -58,6 +60,7 @@ export function TodaySessionRow({
     )
     const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
 
+    const prefetchRunId = item.kind === 'session' ? item.latestRunId : null
     const pinBadge = pinned && showPinBadge
     const badges = useMemo(() => sessionBadges(item, userId, { pinned: pinBadge }), [item, userId, pinBadge])
     const [pullRequest] = item.pullRequests
@@ -89,6 +92,9 @@ export function TodaySessionRow({
             onClickCapture={onSelectClick}
             details={details}
             optionValue={optionValue}
+            onHoverIntent={
+                prefetchRunId ? () => prefetchRunStream(item.id, prefetchRunId, item.runtime ?? null) : undefined
+            }
         />
     )
     // Like Desktop, the row's actions live in its hover card and its right-click menu, which open the dialogs on the row's behalf.
