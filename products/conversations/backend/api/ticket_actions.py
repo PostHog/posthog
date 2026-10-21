@@ -24,6 +24,7 @@ from posthog.models import Tag, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
@@ -42,6 +43,12 @@ from products.conversations.backend.reply_dedupe import (
     CreateOutcome,
     ReplyFingerprint,
     create_deduplicated,
+)
+from products.conversations.backend.services.assignee_slack_dm import (
+    AssigneeSlackDmInFlight,
+    AssigneeSlackDmOutcome,
+    AssigneeSlackDmUndeliverable,
+    send_assignee_slack_dm,
 )
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
@@ -128,6 +135,33 @@ class TicketActionMessageResponseSerializer(serializers.Serializer):
     is_private = serializers.BooleanField(
         read_only=True,
         help_text="Whether the message is an internal note hidden from the customer.",
+    )
+
+
+class AssigneeSlackDmRequestSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        help_text="ID of this project's Slack integration to send the message through.",
+    )
+    text = serializers.CharField(
+        max_length=3000,
+        help_text="Message text in Slack mrkdwn. Slack allows 3000 characters in one section.",
+    )
+    idempotency_key = serializers.CharField(
+        max_length=500,
+        help_text="Stable identity of this workflow step execution.",
+    )
+
+
+class AssigneeSlackDmResponseSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=AssigneeSlackDmOutcome.choices,
+        read_only=True,
+        help_text="`sent` when the assignee got the message, `unassigned` when the ticket has no assignee.",
+    )
+    slack_user_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Slack member id of the assignee who got the message. Null when nothing was sent.",
     )
 
 
@@ -649,3 +683,43 @@ def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UU
         TicketActionMessageResponseSerializer({"id": comment.id, "is_private": is_private}).data,
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
+
+
+def handle_ticket_assignee_slack_dm(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
+    """Send a Slack direct message to the assignee of an already-authenticated ticket."""
+    if error := validate_ticket_id(ticket_id):
+        return error
+
+    serializer = AssigneeSlackDmRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    ticket = Ticket.objects.filter(id=ticket_id, team_id=team.id).first()
+    if ticket is None:
+        return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+    integration = Integration.objects.filter(
+        id=serializer.validated_data["integration_id"], team_id=team.id, kind=Integration.IntegrationKind.SLACK
+    ).first()
+    if integration is None:
+        return Response(
+            {"error": "The Slack workspace connection no longer exists. Select a connected Slack workspace."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        result = send_assignee_slack_dm(
+            team=team,
+            ticket=ticket,
+            integration=integration,
+            text=serializer.validated_data["text"],
+            idempotency_key=serializer.validated_data["idempotency_key"],
+        )
+    except AssigneeSlackDmInFlight:
+        return Response(
+            {"error": "This Slack message is already being sent. Check Slack before sending it again."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    except AssigneeSlackDmUndeliverable as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    return Response(AssigneeSlackDmResponseSerializer(result).data)

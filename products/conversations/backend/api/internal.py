@@ -24,8 +24,11 @@ from posthog.models import Team
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 from products.conversations.backend.api.ticket_actions import (
+    AssigneeSlackDmRequestSerializer,
+    AssigneeSlackDmResponseSerializer,
     TicketActionMessageResponseSerializer,
     TicketActionMessageSerializer,
+    handle_ticket_assignee_slack_dm,
     handle_ticket_get,
     handle_ticket_message,
     handle_ticket_patch,
@@ -89,6 +92,30 @@ class InternalTicketView(APIView):
         assert team is not None
         TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="post").inc()
         return handle_ticket_message(request, team, ticket_id)
+
+
+class InternalTicketAssigneeSlackDmView(APIView):
+    """
+    POST /api/projects/<team_id>/internal/conversations/tickets/<ticket_id>/assignee_slack_dm
+
+    Sends a Slack direct message to the ticket's assignee. Uses the same ticket-pinned JWT as
+    InternalTicketView.
+    """
+
+    authentication_classes = [ConversationsTicketJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=AssigneeSlackDmRequestSerializer,
+        responses={status.HTTP_200_OK: AssigneeSlackDmResponseSerializer},
+    )
+    def post(self, request: Request, team_id: str, ticket_id: uuid.UUID) -> Response:
+        team, error = _check_ticket_access(request, ticket_id)
+        if error:
+            return error
+        assert team is not None
+        TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="post").inc()
+        return handle_ticket_assignee_slack_dm(request, team, ticket_id)
 
 
 def _check_ticket_access(request: Request, ticket_id: uuid.UUID) -> tuple[Team, None] | tuple[None, Response]:

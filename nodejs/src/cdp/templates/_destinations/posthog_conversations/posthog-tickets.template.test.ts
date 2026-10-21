@@ -3,9 +3,15 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { TemplateTester } from '../../test/test-helpers'
 import { template as getTicketTemplate } from './posthog-get-ticket.template'
 import { template as sendTicketMessageTemplate } from './posthog-send-ticket-message.template'
+import { template as slackDmTicketAssigneeTemplate } from './posthog-slack-dm-ticket-assignee.template'
 import { template as updateTicketTemplate } from './posthog-update-ticket.template'
 
 const TICKET_UUID = '0198a5c1-2f6e-7c3a-9b41-b6d21c0aa111'
+const SLACK_DM_INPUTS = {
+    slack_workspace: { $integration_id: 42, access_token: 'xoxb-test' },
+    ticket_id: TICKET_UUID,
+    text: 'Ticket needs you',
+}
 
 describe('posthog conversations ticket templates', () => {
     const cases = [
@@ -29,6 +35,13 @@ describe('posthog conversations ticket templates', () => {
             inputs: { ticket_id: TICKET_UUID, message: 'We are on it.' },
             failurePrefix: 'Failed to send message (401):',
             actionId: 'send_message',
+        },
+        {
+            name: 'message assignee on Slack',
+            template: slackDmTicketAssigneeTemplate,
+            inputs: SLACK_DM_INPUTS,
+            failurePrefix: 'Failed to message the assignee (401):',
+            actionId: 'dm_assignee',
         },
     ]
 
@@ -106,6 +119,40 @@ describe('posthog conversations ticket templates', () => {
                 actionStepCount: 0,
             })
             expect(postedBody().is_private).toBe(true)
+        })
+    })
+
+    describe('message assignee on Slack', () => {
+        const tester = new TemplateTester(slackDmTicketAssigneeTemplate)
+        const workflowStep = { actionId: 'dm_assignee', actionStepCount: 0 }
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('sends the workspace and a per-step idempotency key to the assignee route', async () => {
+            tester.mockInternalFetchResponse({ status: 200, body: { outcome: 'sent', slack_user_id: 'U1' } })
+
+            await tester.invoke(SLACK_DM_INPUTS, undefined, workflowStep)
+
+            const [url, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
+            expect(url).toContain(`/internal/conversations/tickets/${TICKET_UUID}/assignee_slack_dm`)
+            expect(parseJSON(options.body)).toEqual({
+                integration_id: 42,
+                text: 'Ticket needs you',
+                idempotency_key: expect.stringMatching(/:dm_assignee:0$/),
+            })
+        })
+
+        it('finishes without an error when the ticket has no assignee', async () => {
+            tester.mockInternalFetchResponse({ status: 200, body: { outcome: 'unassigned', slack_user_id: null } })
+
+            let response = await tester.invoke(SLACK_DM_INPUTS, undefined, workflowStep)
+            response = await tester.resumeInvocation(response.invocation)
+
+            expect(response.logs.map((log) => log.message)).toContain(
+                'The ticket has no assignee, so no Slack message was sent.'
+            )
         })
     })
 

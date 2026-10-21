@@ -31,7 +31,7 @@ describe('workflowStepCatalog', () => {
             Delays: ['Delay', 'Time window', 'Wait until'],
             'Audience split': ['Conditional branch', 'Cohort branch'],
             'PostHog actions': ['Set variable', 'Capture event', 'Update person property', 'Set group property'],
-            Support: ['Get ticket', 'Update ticket', 'Send message'],
+            Support: ['Get ticket', 'Update ticket', 'Send message', 'Message assignee on Slack'],
         })
     })
 

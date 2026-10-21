@@ -42,7 +42,10 @@ from posthog.web_bot_auth import http_message_signatures_directory
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.presentation.views import canvas_artifact, canvas_sandbox_document
 from products.cdp.backend.api import hog_function_template
-from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.conversations.backend.api.internal import (
+    InternalTicketAssigneeSlackDmView as ConversationsInternalTicketAssigneeSlackDmView,
+    InternalTicketView as ConversationsInternalTicketView,
+)
 from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
     InternalAccountView as CustomerAnalyticsInternalAccountView,
@@ -256,6 +259,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
         csrf_exempt(ConversationsInternalTicketView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>/assignee_slack_dm",
+        csrf_exempt(ConversationsInternalTicketAssigneeSlackDmView.as_view()),
     ),
     # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
     path(

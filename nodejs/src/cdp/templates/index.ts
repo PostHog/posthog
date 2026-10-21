@@ -28,6 +28,7 @@ import { template as posthogGroupIdentifyTemplate } from './_destinations/postho
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogSendTicketMessageTemplate } from './_destinations/posthog_conversations/posthog-send-ticket-message.template'
+import { template as posthogSlackDmTicketAssigneeTemplate } from './_destinations/posthog_conversations/posthog-slack-dm-ticket-assignee.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
 import { template as posthogCreateCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
@@ -111,6 +112,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
     posthogSendTicketMessageTemplate,
+    posthogSlackDmTicketAssigneeTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
