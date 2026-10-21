@@ -894,14 +894,16 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     @pytest.mark.parametrize(
-        "memory_error",
+        "query_error",
         [
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: (total) memory limit exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
+            "ClickHouseError: Code: 32. DB::Exception: Cannot parse Int64 from String, because value is too short. "
+            "(ATTEMPT_TO_READ_AFTER_EOF)",
         ],
     )
-    async def test_suspends_when_the_query_exhausts_memory(self, ateam, anode, asaved_query, adag, memory_error):
+    async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -909,7 +911,7 @@ class TestNodeSuspension:
         )
 
         jobs = [
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=memory_error)
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=query_error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
         ]
 
@@ -919,7 +921,7 @@ class TestNodeSuspension:
             dag_id=str(adag.id),
             saved_query_id=asaved_query.id,
             engine=DataModelingJobEngine.CLICKHOUSE,
-            reason=memory_error,
+            reason=query_error,
             job_id=str(jobs[-1].id),
         )
 
