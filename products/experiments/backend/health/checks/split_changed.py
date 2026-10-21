@@ -2,7 +2,8 @@
 A variant split of the experiment's flag that changed after launch while people were already exposed. Pure
 functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 
-People exposed before such a change can get another variant after it, so the results mix two assignments.
+People exposed before such a change can get another variant after it, so the results mix two assignments. When
+fewer than MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
 """
 
 from typing import Literal
@@ -18,7 +19,10 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     changes_not_checked,
     delay_after_launch,
+    exposed_when,
+    few_exposed_units,
     history_to_check,
+    leave_out,
     not_checked_finding,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
@@ -68,6 +72,9 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             title=_REVERTED_INFO_TITLE,
             sentences=[*_reverted(history, effect), "Nobody was exposed in between."],
         )
+    few = few_exposed_units(history, ExperimentHealthFlagChangeKind.SPLIT)
+    if few is not None:
+        return _few_exposed(history, effect, few)
     if effect.shape == SplitChangeShape.REVERTED:
         start_at = suggested_start(effect.last.changed_at, history.team_timezone)
         return _finding(
@@ -126,6 +133,28 @@ def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentH
     )
 
 
+def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> ExperimentHealthFinding:
+    what_changed = (
+        _reverted(history, effect) if effect.shape == SplitChangeShape.REVERTED else [_what_changed(history, effect)]
+    )
+    match effect.shape:
+        case SplitChangeShape.VARIANT_ROLLED_OUT:
+            # Leaving out the few exposed people does not help, because nobody new gets another variant.
+            rest = _rolled_out(effect)
+        case SplitChangeShape.VARIANT_ZEROED:
+            keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
+            rest = [*leave_out(history, effect, count), f"No new users get {keys}."]
+        case _:
+            rest = leave_out(history, effect, count)
+    return _finding(
+        history,
+        effect,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title=_TITLE,
+        sentences=[*what_changed, exposed_when(history, effect, count), *rest],
+    )
+
+
 def _reported_as_shipped(effect: SplitNetEffect, flag: FlagState) -> bool:
     # `variant_shipped_while_running` reports this state, and its detail carries the date of the rollout.
     return effect.shape == SplitChangeShape.VARIANT_ROLLED_OUT and is_single_variant_shipped(flag)
@@ -167,11 +196,7 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
     change = the_change(effect.change_count, "the")
     match effect.shape:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
-            variant = _rolled_out_variant(effect, starts_sentence=False)
-            return [
-                f"From then on, the split assigns everyone to {variant}.",
-                "End the experiment with a conclusion, or restore the split.",
-            ]
+            return _rolled_out(effect)
         case SplitChangeShape.VARIANT_REMOVED:
             keys = _quoted(removed_variant_keys(effect.from_split, effect.to_split), conjunction="or")
             return [
@@ -207,6 +232,14 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
             ]
 
 
+def _rolled_out(effect: SplitNetEffect) -> list[str]:
+    variant = _rolled_out_variant(effect, starts_sentence=False)
+    return [
+        f"From then on, the split assigns everyone to {variant}.",
+        "End the experiment with a conclusion, or restore the split.",
+    ]
+
+
 def _reverted(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
     first_at = format_change_time(effect.first.changed_at, history.team_timezone)
     last_at = format_change_time(effect.last.changed_at, history.team_timezone)
@@ -234,6 +267,7 @@ def _finding(
     return change_finding(
         history,
         effect,
+        kind=ExperimentHealthFlagChangeKind.SPLIT,
         code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
         subcode=effect.shape.value,
         severity=severity,
