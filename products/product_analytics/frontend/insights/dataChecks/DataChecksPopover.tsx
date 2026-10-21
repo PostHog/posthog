@@ -47,7 +47,7 @@ export interface DataChecksPopoverProps {
 export function DataChecksPopover({ insightProps, trigger, children }: DataChecksPopoverProps): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { visibleChecks, checkedQuery, result, status } = useValues(logic)
-    const { loadDataChecks, reportDataChecksViewed } = useActions(logic)
+    const { loadDataChecks, reportButtonClicked, reportDataChecksViewed } = useActions(logic)
     const { user } = useValues(userLogic)
     const userId = user?.uuid ?? ''
     // Mounted outside the popover content, so a half-written note survives the popover closing.
@@ -109,7 +109,12 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                         variant="outline"
                         size="sm"
                         className="self-start"
-                        onClick={() => checkedQuery && loadDataChecks(checkedQuery)}
+                        onClick={() => {
+                            reportButtonClicked('retry')
+                            if (checkedQuery) {
+                                loadDataChecks(checkedQuery)
+                            }
+                        }}
                         data-attr="insight-data-checks-retry"
                     >
                         Try again

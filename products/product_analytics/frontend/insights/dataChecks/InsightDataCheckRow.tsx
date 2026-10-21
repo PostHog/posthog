@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
 import { AccordionContent, AccordionItem, AccordionTrigger, Dot, Skeleton, Spinner, Text } from '@posthog/quill'
@@ -47,7 +47,9 @@ export function InsightDataCheckRow({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { filtersTestAccounts, status } = useValues(insightDataChecksLogic(insightProps))
+    const logic = insightDataChecksLogic(insightProps)
+    const { filtersTestAccounts, status } = useValues(logic)
+    const { reportCheckExpanded } = useActions(logic)
     const checking = status === 'checking'
     const text = dataCheckText(check, filtersTestAccounts)
     const dependsOnFilter = FILTER_CHECK_KEYS.includes(check.key)
@@ -94,6 +96,11 @@ export function InsightDataCheckRow({
     return (
         <AccordionItem
             value={check.key}
+            onOpenChange={(open) => {
+                if (open) {
+                    reportCheckExpanded(check)
+                }
+            }}
             data-attr="insight-data-check"
             data-check={check.key}
             data-level={check.level}
