@@ -661,19 +661,22 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 ### 25. Put polling behind a strategy (prepare)
 
-**Task:** Move the poll-and-wait loop behind a polling strategy, unchanged. The existing loop becomes the capped strategy.
+**Task:** Move the decisions of the poll-and-wait loop behind a polling strategy. The existing admission cap becomes the capped strategy.
 
 **Goal:** A second strategy can replace the loop by config, and the capped strategy stays as its rollback.
 
-- The loop and the cap change together. The loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget. So the loop, not only the cap, goes behind the seam.
-- The strategy decides how the loop waits: when to collect, which completions to wait for, and when the loop is done. It returns one step at a time. The consumer carries out each step: it charges and submits a poll, submits a commit and resumes its partitions, starts the batcher's shutdown, or fails the process. The Kafka client and the batcher stay with the consumer, and the settlement is shared.
-- Collection builds a poll message by message in a poll builder. The capped strategy runs a collection to the end before it waits, as it does now. The continuous strategy keeps its builder between turns of its loop (change 26).
-- Charging moves from the end of a collection to the submit. The order does not change: a poll is charged, then submitted.
+- The loop and the cap change together. The old loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget. So the loop, not only the cap, changes.
+- The consumer owns the only `recv()` and one `select!` over Kafka, the completions, the batcher's errors, the commit tick, shutdown, and the poll's batch timeout. It hands each event to the strategy, and the strategy returns steps: charge and submit a poll, submit a commit and resume its partitions, stop, or fail. The strategy is synchronous, so its tests feed it events without Kafka.
+- Collection builds a poll message by message in a collector that the strategy keeps between events, so a branch that wins the `select!` drops no message. `StreamConsumer::recv` is cancellation safe.
+- The rebalance callbacks run inside `recv()`, on the loop's task: rdkafka serves the rebalance event in the same poll that serves messages, and librdkafka delivers no fetched message of a revoked assignment after the revoke. After every wake the loop hands the revoked partitions to the strategy, before the event that woke it, also when the `select!` dropped the `recv()` that ran the callback. The strategy removes their messages from the poll in progress and from its in-flight state.
+- A poll therefore holds messages of one assignment per partition, and nothing reads the ledger generation while a poll is built. The poll is charged under the current generation at submit; no `recv()` runs between the end of a poll and its charge.
+- The capped strategy admits up to `max_in_flight_polls` polls and frees a slot when the oldest poll is covered. It reads Kafka and applies completions whenever the cap has room, also while every partition is paused.
 
 **Interfaces:**
 
-- Add `PollingStrategy` with `next() -> Step`, and `CappedPolling`: the in-flight poll queue, the per-poll aggregation, `complete_oldest_poll`, and the admission cap.
-- Add `PollBuilder`: one poll's messages and per-partition deliveries, built one message at a time.
+- Add `PollingStrategy`: event handlers (`received`, `completed`, `revoked`, `ticked`, `shutdown`), `reading()`, `deadline()`, and `next_step() -> Option<Step>`. Add `CappedPolling`: the in-flight poll queue, the per-poll aggregation, and the admission cap.
+- Add `Collector` and `PollBuilder`: one poll's messages and per-partition deliveries, built one message at a time, with the batch bounds and timeout.
+- Remove the per-message generation stamp from poll collection, and `FetchingPartitions`.
 - Modify `IngestionConsumerOptions`: `polling` replaces `max_in_flight_batches`.
 
 ### 26. Build the continuous polling strategy (implement)
@@ -682,10 +685,8 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 **Goal:** With the continuous strategy, no wait on one poll holds back fetching, completions, or commits. The budget bounds each partition's replay exposure, and a pod-wide in-flight limit bounds memory.
 
-- One `select!` serves the Kafka poll, the completions, the batcher's errors, the commit tick, and shutdown. Collection must be safe to cancel: the strategy keeps the poll it is building in its own state and adds each message when `recv()` returns it, so a branch that wins the race drops no message. `StreamConsumer::recv` is cancellation safe.
 - A poll is submitted when it reaches the batch size or the byte bound, or when the batch timeout passes after its first message. The collection bounds shape one poll, not the amount of admitted work.
 - The commit tick fires at the commit interval, capped at 1s, so a refund and the resume it allows go out within one interval.
-- Kafka is polled while every partition is paused, so rebalance callbacks and `max.poll.interval.ms` no longer depend on completions.
 - Nothing waits on a poll after it is submitted. The strategy keeps each partition's submitted slices: the assignment epoch, the ledger generation, the offsets, and the bytes. A completion settles the offsets of the slice with its epoch, under that slice's generation. A completion with no slice is stale and is discarded. A revoke drops the partition's slices, because the batcher purges their messages.
 - The in-flight limit bounds the whole pod: the sum of every partition's uncommitted charge, as the budget counts it, plus the poll being built. The budget alone does not bound the pod, because the pod's total grows with the number of partitions it holds. The settlement returns a partition's uncommitted charge when it charges a poll and when a commit hands out offsets, and the poller keeps the latest value per partition. A poll is only the unit fed to the batcher: completions do not change the limit, and a commit frees room when it frees the budget.
 - At the in-flight limit, the loop stops reading from Kafka until a commit frees room. While it waits, rebalance callbacks also wait, as they do under the capped strategy. The limit is a safety valve: size it above the budget times the partitions a pod holds, so that it does not bind in steady state.
@@ -698,7 +699,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 **Metrics:**
 
-- Add `ingestion_consumer_in_flight_events` and `ingestion_consumer_in_flight_bytes` (gauges), and `ingestion_consumer_in_flight_limit_reached_total` (counter, one per time the loop stops reading at the limit).
+- Add `ingestion_consumer_in_flight_limit_reached_total` (counter, one per time the loop stops reading at the limit). The `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
 ### 27. Poll continuously (switchover)
 

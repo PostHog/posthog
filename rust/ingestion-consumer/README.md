@@ -56,7 +56,7 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 A budget needs `CONSUMER_COMPLETION_GRANULARITY=group`. At `poll` a stalled partition holds back the commits of every partition in its poll, so their budgets would fill and pause together. The consumer ignores a budget at `poll` and logs a warning, so switching a lane back to `poll` rolls it back without unsetting the budget.
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
-A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the capped polling strategy waits on its oldest in-flight poll.
+A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the capped polling strategy's cap is full or the continuous strategy is at its in-flight limit.
 A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
 Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
@@ -64,15 +64,18 @@ The budget is a fixed amount per partition, not a share of a pod-wide amount, so
 
 ## Polling
 
-`CONSUMER_POLLING_STRATEGY` selects how the consumer loop reads Kafka and waits for completions; each strategy is one variant of `PollingStrategy` in `src/polling/`.
-A strategy returns one step at a time, and the consumer carries it out: charge and submit a poll, submit a commit and resume its partitions, start the batcher's shutdown, stop, or fail.
-
-`capped` (the default) collects a poll, submits it, and admits up to `CONSUMER_MAX_BACKGROUND_TASKS` polls.
-With the cap full, it waits on the oldest poll and applies completions only while it waits, so a stalled key holds back fetching for every partition.
-
-`continuous` reads Kafka, applies completions, and commits in one loop, and nothing waits on a submitted poll.
+The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to `PollingStrategy` in `src/polling/`.
+The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, stop, or fail.
 A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
-Kafka is read while every partition is paused, so rebalance callbacks do not wait for completions.
+
+The rebalance callbacks run inside `recv()`, on the loop's task. After every wake the loop hands the partitions they revoked to the strategy, before the event that woke it.
+The strategy then removes those partitions' messages from the poll in progress and from its in-flight state: the batcher purges them, or Kafka delivers them again from the last commit.
+So a message the loop adds to a poll always belongs to the current assignment, and the poll is charged under the partition's current ledger generation.
+
+`CONSUMER_POLLING_STRATEGY` selects what bounds admission.
+`capped` (the default) admits up to `CONSUMER_MAX_BACKGROUND_TASKS` polls, and frees a slot only when the oldest poll is covered, so a stalled key holds back fetching for every partition.
+
+`continuous` admits polls without waiting on any of them.
 The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it, plus the poll being built.
 Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
 At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
@@ -153,7 +156,7 @@ Remaining: alert rules on the ledger counters and on kminion lag.
 A message a worker permanently rejects (a nack on every delivery) has no dead-letter path: after the stall timeout (`CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`) the consumer fails and the process crash-loops on redelivery.
 `poison_batch_fails_safely_without_committing` pins the safe half of the trade-off (never commit past unaccepted messages).
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
-Non-UTF-8 payloads — currently nulled in `collect_batch` with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
+Non-UTF-8 payloads — currently nulled when a poll adds the message, with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
 ### 4. Revoke-aware partition handoff
 
