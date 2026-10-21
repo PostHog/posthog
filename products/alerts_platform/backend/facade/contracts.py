@@ -356,6 +356,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -395,12 +398,14 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
@@ -1200,6 +1205,44 @@ class LegacyEventEmitter(Protocol):
         announcement: EvaluationAnnouncement,
         emissions: Sequence[LegacyEventEmission],
     ) -> None: ...
+
+
+# The internal event a workflow subscribes to for an alert's transitions. One name for every source.
+ALERT_TRANSITION_EVENT: Final = "$alert_transition"
+
+
+@frozen
+class TransitionEvent:
+    """One `$alert_transition` event."""
+
+    properties: dict[str, Any]
+    timestamp: datetime
+    # Stable across attempts, so a receiver can drop an event a retry emits again.
+    uuid: str
+
+
+class TransitionEventProducer(Protocol):
+    """Puts `$alert_transition` events on the internal events topic.
+
+    Returns only once the broker has every event, and raises otherwise, so delivery can retry.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None: ...
+
+
+class SourceFacts(Protocol):
+    """A source's facts about one transition, under the property names its own alert events used.
+
+    A HogFunction ported to a workflow renders these names, so they must match the legacy events.
+    """
+
+    def __call__(
+        self,
+        *,
+        request: AlertDeliveryRequest,
+        announcement: EvaluationAnnouncement,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.
