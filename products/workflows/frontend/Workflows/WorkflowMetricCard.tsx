@@ -241,7 +241,7 @@ export function WorkflowMetricCard({
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
-                    {previousLabel && (
+                    {previousLabel && previousPeriodTimeSeries && (
                         <div className="text-xs text-muted" data-attr="workflow-metric-card-previous">
                             {`${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}`}
                             {total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''}
