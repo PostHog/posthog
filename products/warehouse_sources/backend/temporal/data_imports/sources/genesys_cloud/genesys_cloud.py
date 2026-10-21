@@ -243,6 +243,7 @@ def _iter_scan_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume.cursor if resume is not None else None
+    sends_resumed_cursor = cursor is not None
 
     url = f"{base_url}{config.path}"
     while True:
@@ -250,6 +251,11 @@ def _iter_scan_rows(
         if cursor:
             params["cursor"] = cursor
         response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        if sends_resumed_cursor and response.status_code in (400, 422):
+            # The saved cursor expired. Restarting here would append rows this run already loaded, so drop the
+            # cursor and fail: the retry then runs as a fresh full refresh.
+            resumable_source_manager.clear_state()
+        sends_resumed_cursor = False
         response.raise_for_status()
         data = response.json() or {}
         entities = data.get("entities") or []
