@@ -111,12 +111,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
-    [NodeKind.FunnelCorrelationQuery]: {
-        name: 'Funnel Correlation',
-        description: 'See which events or properties correlate to a funnel result.',
-        icon: IconCorrelationAnalysis,
-        inMenu: false,
-    },
     [NodeKind.EventsNode]: {
         name: 'Events',
         description: 'List and explore events.',
@@ -202,12 +196,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.FunnelsActorsQuery]: {
-        name: 'Persons',
-        description: 'List of persons matching specified conditions, derived from an insight.',
-        icon: IconPerson,
-        inMenu: false,
-    },
-    [NodeKind.FunnelCorrelationActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight.',
         icon: IconPerson,
