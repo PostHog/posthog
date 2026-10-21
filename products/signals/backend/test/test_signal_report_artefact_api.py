@@ -142,6 +142,25 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         types = {row["type"] for row in data["results"]}
         assert types == {"suggested_reviewers", "priority_judgment"}
 
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_monitoring_observation_reads_and_counts_follow_the_flag(self, _name: str, enabled: bool) -> None:
+        report = self._create_report()
+        observation = self._create_artefact(
+            report,
+            artefact_type="check_observation",
+            content={"check_id": str(uuid.uuid4()), "explanation": "Interim measurement."},
+        )
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
+            response = self.client.get(self._list_url(str(report.id)))
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["count"] == int(enabled)
+            assert self.client.get(self._detail_url(str(report.id), str(observation.id))).status_code == (
+                status.HTTP_200_OK if enabled else status.HTTP_404_NOT_FOUND
+            )
+            report_url = f"/api/projects/{self.team.id}/signals/reports/"
+            assert self.client.get(f"{report_url}{report.id}/").json()["artefact_count"] == int(enabled)
+            assert self.client.get(report_url).json()["results"][0]["artefact_count"] == int(enabled)
+
     def test_list_enriches_suggested_reviewers_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="Alice")
         report = self._create_report()
