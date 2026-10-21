@@ -10,13 +10,16 @@ import requests
 import structlog
 from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from tenacity.nap import sleep as retry_sleep
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     default_request_timeout,
 )
@@ -399,7 +402,7 @@ def iter_shopify_pages(
         else:
             stop.wait(seconds)
 
-    @retry(
+    @retry_with_deadline(
         # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
         # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
         # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
@@ -665,7 +668,7 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
-@retry(
+@retry_with_deadline(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,

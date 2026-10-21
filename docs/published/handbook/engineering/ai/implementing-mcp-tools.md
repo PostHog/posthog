@@ -577,6 +577,8 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   Keep plan-limit guidance aligned with backend permissions. For `project-create`, `organization-get` exposes the plan feature limits and each team's `project_id` and `is_demo`. Count distinct project IDs among non-demo teams; neither the project list length nor the environment count matches the backend rule. Visible lists can omit inaccessible projects, so a count below the limit does not guarantee permission. The backend remains authoritative.
+
    For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
    needs from each result row. This adds a compact text response for clients that cannot read
    `structuredContent`, while preserving the full structured payload for the app and explicit
@@ -630,14 +632,18 @@ Product teams own their definitions and control which operations are exposed as 
    The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
 
    - `beforeRequest(context, params)` returns the params the request should use.
+   - `transformBody(context, params, body)` returns the body to send after the handler selects its declared fields. Use it when a read must supply fields the caller does not pass, such as an experiment's stored parameters and concurrency version.
    - `afterResponse(context, params, result)` returns the result to send to the client.
    - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
 
    Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
    A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   A `transformBody` that throws stops the request and reaches `onError`. When merging stored state, send the version read with that state and surface a conflict instead of retrying a stale body.
    `hooks` cannot be combined with `confirmed_action`.
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
+
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
 
    #### Typed-confirm paradigm for destructive tools
 

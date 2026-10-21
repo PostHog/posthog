@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -217,6 +219,40 @@ describe('metricsLogic', () => {
 
         expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['first', 'second'])
         expect((dataCatalogMetricsList as jest.Mock).mock.calls.map((call) => call[1].offset)).toEqual([0, 0, 100])
+    })
+
+    it('filters by creator and reports the filter change once typing settles', async () => {
+        const me = userLogic.values.user?.uuid as string
+        const mine = buildMetric({
+            id: 'metric-1',
+            name: 'mine',
+            created_by: { id: 1, uuid: me, email: 'me@example.com', hedgehog_config: null },
+        })
+        const theirs = buildMetric({
+            id: 'metric-2',
+            name: 'theirs',
+            created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
+        })
+        logic.actions.loadMetricsSuccess([mine, theirs])
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            logic.actions.setFilters({ createdBy: me })
+            expect(logic.values.metrics).toEqual([mine])
+            expect(capture).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(500)
+            expect(capture).toHaveBeenCalledWith(
+                'data catalog metrics filtered',
+                expect.objectContaining({ changed_filters: ['createdBy'], created_by: 'me', result_count: 1 })
+            )
+
+            logic.actions.setFilters({ createdBy: null })
+            expect(logic.values.metrics).toEqual([mine, theirs])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {

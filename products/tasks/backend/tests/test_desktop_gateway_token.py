@@ -27,7 +27,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     posthog_code_billing_synced,
     posthog_code_trusted,
 )
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
+from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
 
@@ -317,7 +317,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "product": "posthog_code",
             "obo": str(self.team.id),
             "user": self.user.distinct_id,
-            "allowed_models": FREE_TIER_MODELS,
+            "allowed_models": gateway_pin(FREE_TIER_MODELS),
             "limit_tier": "standard",
         }
         assert response.json() == {
@@ -353,7 +353,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         self.organization.save()
         response, post = self._mint(go=_minted(allowed_models=DESKTOP_AGENT_MODELS))
         assert response.status_code == status.HTTP_201_CREATED
-        assert post.call_args.kwargs["json"]["allowed_models"] == DESKTOP_AGENT_MODELS
+        assert post.call_args.kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
         assert response.json()["plan"] == "paid"
         assert response.json()["allowed_models"] == DESKTOP_AGENT_MODELS
 

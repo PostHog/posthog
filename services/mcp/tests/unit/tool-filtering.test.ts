@@ -1139,13 +1139,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-data-suggestions',
                 'workflows-mcp-onboarding',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
