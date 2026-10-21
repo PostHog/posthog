@@ -109,6 +109,9 @@ STAMPHOG_REVIEW_ENGINE_SCRIPT = os.path.join(
 # unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
 # uses in a review, including its small utility model.
 STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS = get_list(get_from_env("STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS", ""))
+DOCS_FRESHNESS_TEAM_ID = get_from_env("DOCS_FRESHNESS_TEAM_ID", optional=True, type_cast=int)
+DOCS_FRESHNESS_OWNER_USER_ID = get_from_env("DOCS_FRESHNESS_OWNER_USER_ID", optional=True, type_cast=int)
+DOCS_FRESHNESS_TOOL_REF = get_from_env("DOCS_FRESHNESS_TOOL_REF", "")
 # The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
 # PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
 # which is installed across the whole PostHog org: a dedicated App cannot reach another repository

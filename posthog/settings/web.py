@@ -90,6 +90,7 @@ PRODUCTS_APPS = [
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.review_hog.backend.apps.ReviewHogConfig",
+    "products.docs_freshness.backend.apps.DocsFreshnessConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.billing_alerts.backend.apps.BillingAlertsConfig",
     "products.context_layer.backend.apps.ContextLayerAppConfig",

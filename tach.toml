@@ -1809,3 +1809,17 @@ expose = [
 from = [
     "products.account_audits",
 ]
+
+[[modules]]
+path = "products.docs_freshness"
+depends_on = ["posthog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.docs_freshness",
+]

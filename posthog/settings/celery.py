@@ -28,6 +28,7 @@ CELERY_IMPORTS: list[str] = [
     # namespace package instead, and importing that doesn't reach the module inside.
     "products.tasks.backend.tasks.tasks",
     "products.legal_documents.backend.tasks.tasks",
+    "products.docs_freshness.backend.tasks.tasks",
     "products.aeo.backend.tasks.tasks",
     "products.business_knowledge.backend.tasks.tasks",
 ]
