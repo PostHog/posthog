@@ -1,3 +1,5 @@
+import '@/hono/undici'
+
 import { vi } from 'vitest'
 
 vi.mock('cloudflare:workers', () => ({

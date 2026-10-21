@@ -1,3 +1,5 @@
+import './undici'
+
 import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
