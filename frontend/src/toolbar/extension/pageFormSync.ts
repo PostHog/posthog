@@ -30,8 +30,15 @@ export class PageFormSync {
         }, FORM_SYNC_DEBOUNCE_MS)
     }
 
-    /** Sends the form now. Call it before a command that makes the page change the form, so the page has every edit. */
+    /**
+     * Sends a pending edit now. Call it before a command that makes the page change the form, so the page has every
+     * edit. With no pending edit the page already has the panel's form, and sending it again could overwrite a change
+     * the page made that the panel has not adopted yet.
+     */
     flush(): void {
+        if (this.timeout === null) {
+            return
+        }
         this.cancel()
         this.sendForm()
     }
