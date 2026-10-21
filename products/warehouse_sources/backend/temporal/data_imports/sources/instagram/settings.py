@@ -15,7 +15,8 @@ GRAPH_API_HOST = "https://graph.facebook.com"
 ACCOUNT_FIELDS = "id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count"
 MEDIA_FIELDS = (
     "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,"
-    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled"
+    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled,is_shared_to_feed,owner,"
+    "boost_ads_list,boost_eligibility_info,copyright_check_information,legacy_instagram_media_id"
 )
 STORY_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,username"
 COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden"
@@ -161,6 +162,7 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(INSTAGRAM_ENDPOINTS.keys())
+ENDPOINTS_REREAD_EVERY_SYNC: frozenset[str] = frozenset({"media"})
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in INSTAGRAM_ENDPOINTS.items()
