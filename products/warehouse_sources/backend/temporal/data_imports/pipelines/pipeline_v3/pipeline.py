@@ -3,7 +3,7 @@ import asyncio
 import decimal
 import datetime
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any, Generic
 
 from django.conf import settings
@@ -193,6 +193,8 @@ class PipelineV3(Generic[ResumableData]):
     _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
     _job_rows_synced_through_batch: int = 0
     _kept_rows_synced: int | None = None
+    # A class default, so a pipeline a test builds without `__init__` still has it.
+    _on_rows_extracted: Callable[[int], None] | None = None
 
     def __init__(
         self,
@@ -214,6 +216,7 @@ class PipelineV3(Generic[ResumableData]):
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
         always_final_marker: bool = False,
+        on_rows_extracted: Callable[[int], None] | None = None,
     ) -> None:
         # `attempt`, `workflow_id` and `workflow_run_id` fall back to the Temporal activity context
         # when not given. A run outside an activity must give them.
@@ -255,6 +258,7 @@ class PipelineV3(Generic[ResumableData]):
         self._workflow_run_id = workflow_run_id if workflow_run_id is not None else current_workflow_run_id()
         # True for a run that the loader must finalize even when the run stages no batch.
         self._always_final_marker = always_final_marker
+        self._on_rows_extracted = on_rows_extracted
         self._run_uuid = attempt_run_uuid(self._job.workflow_run_id, attempt) if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
@@ -849,6 +853,8 @@ class PipelineV3(Generic[ResumableData]):
                     if activity.in_activity():
                         get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                    elif self._on_rows_extracted is not None:
+                        self._on_rows_extracted(py_table.num_rows)
 
                     chunk_index += 1
                 # Every yielded row is staged now, so the cursor confirmed last is safe.
@@ -907,6 +913,8 @@ class PipelineV3(Generic[ResumableData]):
                         if activity.in_activity():
                             get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
                             get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                        elif self._on_rows_extracted is not None:
+                            self._on_rows_extracted(py_table.num_rows)
 
                         chunk_index += 1
 

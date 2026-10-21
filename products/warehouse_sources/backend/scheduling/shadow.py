@@ -37,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.queue_runs.payloads import EXTRACT_LANE, SYNC_EXTRACT_KIND, group_key
 from products.warehouse_sources_queue.backend.sdk import (
     DecisionRecord,
     DueSchedule,
@@ -49,8 +50,6 @@ from products.warehouse_sources_queue.backend.sdk import (
 SCHEDULER_LANE = "scheduler"
 TICK_SLOT_KEY = "tick-slot"
 REFRESH_SLOT_KEY = "refresh-slot"
-SYNC_EXTRACT_KIND = "sync.extract"
-SYNC_EXTRACT_LANE = "extract"
 
 DECISION_WOULD_FIRE = "would_fire"
 DECISION_SKIP_OVERLAP = "skip_overlap"
@@ -73,13 +72,8 @@ class ScheduledKind:
 
 
 SCHEDULED_KINDS: dict[str, ScheduledKind] = {
-    SYNC_EXTRACT_KIND: ScheduledKind(lane=SYNC_EXTRACT_LANE, overlap_policy=OverlapPolicy.SKIP),
+    SYNC_EXTRACT_KIND: ScheduledKind(lane=EXTRACT_LANE, overlap_policy=OverlapPolicy.SKIP),
 }
-
-
-def queue_group_key(team_id: int, schema_id: str) -> str:
-    """The queue group of a schema: one run of a schema executes at a time."""
-    return f"{team_id}:{schema_id}"
 
 
 @frozen
@@ -209,10 +203,10 @@ async def _fetch_group_job_states(
             conn,
             kind=kind,
             lane=SCHEDULED_KINDS[kind].lane,
-            group_keys=[queue_group_key(row.team_id, row.schedule_key) for row in rows],
+            group_keys=[group_key(row.team_id, row.schedule_key) for row in rows],
         )
         for row in rows:
-            states[row] = by_group[queue_group_key(row.team_id, row.schedule_key)]
+            states[row] = by_group[group_key(row.team_id, row.schedule_key)]
     return states
 
 
