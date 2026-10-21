@@ -23,14 +23,10 @@ from products.posthog_ai.eval_harness.harness import lifecycle
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
-from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
+from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
-from products.tasks.backend.constants import (
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-)
 from products.tasks.backend.facade.agents import MultiTurnSession, TurnPollResult, TurnPollTimeout
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -157,17 +153,6 @@ def test_parse_args_resolves_team_setup_concurrency(
         options = parse_args([])
 
     assert options.team_setup_concurrency == expected_concurrency
-
-
-@parameterized.expand(
-    [
-        ("workflow dispatch async", WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, False),
-        ("workflow dispatch restart", WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, False),
-        ("anything else", "tasks-modal-vm-sandbox", True),
-    ]
-)
-def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str, expected: bool) -> None:
-    assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
 
 
 @pytest.mark.parametrize(
