@@ -293,6 +293,14 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         return stack.pop()
     }
 
+    // A `return` inside `try` skips POP_TRY. Drop the handlers of the returned frame, or a later
+    // throw jumps into a catch block of a frame that no longer exists.
+    function dropReturnedTryFrames(): void {
+        while (throwStack.length > 0 && throwStack[throwStack.length - 1].callStackLen > callStack.length) {
+            throwStack.pop()
+        }
+    }
+
     function memoryLimitExceeded(attempted: number): HogVMException {
         return new HogVMException(
             `Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${attempted} bytes.`,
@@ -468,6 +476,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             // Return or jump back to the previous call frame if ran out of bytecode to execute in this one
             if (frame.ip >= chunkBytecode.length) {
                 const lastCallFrame = callStack.pop()
+                dropReturnedTryFrames()
                 // Also ran out of call frames. We're done.
                 if (!lastCallFrame || callStack.length === 0) {
                     return {
@@ -667,6 +676,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 case Operation.RETURN: {
                     const result = popStack()
                     const lastCallFrame = callStack.pop()
+                    dropReturnedTryFrames()
                     if (callStack.length === 0 || !lastCallFrame) {
                         return {
                             result,
