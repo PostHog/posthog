@@ -659,7 +659,12 @@ async fn handle_batch_flag_evaluation(
             .with_timezone(team_timezone)
             // The deadline starts when the matcher is built. Building the matcher in this
             // closure gives the retry in `evaluate_with_one_retry` its own deadline.
-            .with_persons_db_deadline(state.config.persons_db_deadline());
+            .with_persons_db_deadline(
+                state
+                    .config
+                    .persons_db_deadline(tokio::time::Instant::now(), None)
+                    .map(|deadline| deadline.at),
+            );
 
             let flag_list = flag_list.clone();
             let target_key = target_key.clone();

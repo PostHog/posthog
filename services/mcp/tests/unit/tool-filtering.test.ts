@@ -1096,6 +1096,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
             'insight-data-checks',
+            'logs-agent-tools',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1115,7 +1116,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'tasks-mcp-agent-run-start',
-                'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
@@ -1144,7 +1144,8 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(38)
+        expect(allFlags).not.toContain('dashboard-widgets')
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

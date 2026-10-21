@@ -31,7 +31,11 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     InterruptionHistory,
     PendingBatch,
 )
-from products.warehouse_sources_queue.backend.core.metrics import DELTA_CONSUMER_METRICS, ConsumerMetrics
+from products.warehouse_sources_queue.backend.core.metrics import (
+    DELTA_CONSUMER_METRICS,
+    RECOVERY_SWEEP_OUTCOMES,
+    ConsumerMetrics,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -552,6 +556,9 @@ class BatchConsumer:
         self._owner_token = str(uuid4())
         self._health_reporter = health_reporter
         self._metrics = metrics or DELTA_CONSUMER_METRICS
+        # Export every sweep outcome from pod start. Alerts read the after-shutdown series to know this build runs.
+        for outcome in RECOVERY_SWEEP_OUTCOMES:
+            self._metrics.recovery_sweeps_total.labels(outcome=outcome)
         self._shutdown = asyncio.Event()
         self._poll_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
@@ -2060,8 +2067,8 @@ class BatchConsumer:
 
         conn = await self._ensure_recovery_conn()
 
-        self._metrics.recovery_sweeps_total.labels(outcome="orphans_found").inc()
         logger.info(self._event("recovery_sweep_found_stale_batches"), count=len(stale))
+        shutdown_marked_count = 0
 
         recovery_bound_keys = (
             "team_id",
@@ -2091,10 +2098,14 @@ class BatchConsumer:
                     # Claim the corpse first: once the expired lease is gone, a resurrecting
                     # owner's renew matches nothing, so it can't finish over the re-queue.
                     await self._adapter.delete_expired_lease(conn, team_id=batch.team_id, schema_id=batch.schema_id)
-                    await self._recover_stale_batch(conn, batch)
+                    if await self._recover_stale_batch(conn, batch):
+                        shutdown_marked_count += 1
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
+            # A sweep that stops early counts as unexplained, so an error can never hide a crash.
+            outcome = "orphans_found_after_shutdown" if shutdown_marked_count == len(stale) else "orphans_found"
+            self._metrics.recovery_sweeps_total.labels(outcome=outcome).inc()
             # Release probe locks held by keep_locks=True (advisory sinks). For the
             # lease sink this only deletes leases this pod owns, so it's a no-op for
             # the abandoned groups recovered above.
@@ -2103,13 +2114,15 @@ class BatchConsumer:
             except Exception:
                 logger.exception(self._event("recovery_sweep_unlock_failed"))
 
-    async def _recover_stale_batch(self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch) -> None:
+    async def _recover_stale_batch(self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch) -> bool:
         """Re-queue or fail one executing batch whose consumer stopped.
 
         A consumer that shut down gracefully marked the attempt first. That attempt is an
         interruption: it uses no retry, and only ``max_interruptions`` limits it. An unmarked
         attempt lost its consumer without notice, which is most often an OOM kill caused by the
         batch itself, so it uses a retry as a processing error does.
+
+        Returns True when the attempt carries a shutdown marker.
         """
         history = await self._interruption_history(conn, batch, batch.latest_attempt)
         if history.shutdown_marked:
@@ -2126,7 +2139,7 @@ class BatchConsumer:
                     reason=f"max interruptions exceeded (loading stopped {interruptions} times by a worker shutdown)",
                     conn=conn,
                 )
-                return
+                return True
             error_response: dict[str, Any] = {
                 "error": "executing interrupted by worker shutdown",
                 INTERRUPTED_KEY: True,
@@ -2143,7 +2156,7 @@ class BatchConsumer:
                 # fail_run's bulk write re-reads each batch's latest status in-statement and
                 # targets only non-terminal ones, so it can't flip a meanwhile-succeeded batch.
                 await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-                return
+                return False
             error_response = {"error": "executing timed out - pod restart or OOM"}
             recovered_event = "batch_recovered_for_retry"
         try:
@@ -2160,7 +2173,7 @@ class BatchConsumer:
             # The state moved after the stale scan (owner finished, or the batch
             # went terminal): leave it, without aborting the rest of the sweep.
             logger.info(self._event("batch_recovery_skipped_state_moved"), batch_id=batch.id)
-            return
+            return history.shutdown_marked
         if history.shutdown_marked:
             self._metrics.batch_interruptions_total.labels(outcome="recovered").inc()
             logger.warning(
@@ -2168,6 +2181,7 @@ class BatchConsumer:
             )
         else:
             logger.warning(self._event(recovered_event), attempt=batch.latest_attempt)
+        return history.shutdown_marked
 
     async def _mark_shutdown_interruptions(self) -> None:
         """Mark the attempts still running at shutdown, so the recovery sweep spends no retry on them.

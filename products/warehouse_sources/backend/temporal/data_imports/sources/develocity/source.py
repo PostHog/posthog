@@ -112,7 +112,7 @@ class DevelocitySource(ResumableSource[DevelocitySourceConfig, DevelocityResumeC
             'The account needs the "Access build data via the API" permission.',
             docsUrl=API_DOCS_URL,
             iconPath="/static/services/develocity.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

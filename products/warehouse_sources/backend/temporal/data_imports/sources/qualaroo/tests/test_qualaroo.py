@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -12,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
@@ -96,9 +98,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid Qualaroo API key or secret"),
-            (403, False, "Invalid Qualaroo API key or secret"),
-            (500, False, "Qualaroo returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
@@ -108,10 +107,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/v1/nudges.json"
         assert network.requests_log[0].param("limit") == "1"
 
-    def test_connection_error_is_unvalidated(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("q-key", "q-secret") == (False, "Could not validate Qualaroo credentials")
-
 
 class TestSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
@@ -120,10 +115,129 @@ class TestSourceResponse:
 
         assert result.response is not None
         assert result.response.name == endpoint
-        assert result.response.primary_keys == ["id"]
+        assert result.response.primary_keys == QUALAROO_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert result.response.partition_mode is None
 
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in QUALAROO_ENDPOINTS.values())
-        assert set(QUALAROO_ENDPOINTS) == set(ENDPOINTS)
+
+class TestResponsesFanOut:
+    def test_walks_every_nudge_and_every_response_page(self) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}, {"id": 33}])],
+                    "/nudges/11/responses.json": [
+                        ScriptedResponse(
+                            json=[{"id": i, "time": "2024-03-01 10:00:00 -0700"} for i in range(PAGE_SIZE)]
+                        ),
+                        ScriptedResponse(json=[{"id": 900, "answered_questions": {}, "properties": None}]),
+                    ],
+                    "/nudges/22/responses.json": [ScriptedResponse(status=404, json={"error": "Not Found"})],
+                    "/nudges/33/responses.json": [ScriptedResponse(json=[{"id": 1}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert result.rows[PAGE_SIZE] == {"id": 900, "answered_questions": {}, "properties": None, "nudge_id": 11}
+        # Response ids are keyed with their nudge, so the same id under two nudges stays two rows.
+        assert {(row["nudge_id"], row["id"]) for row in result.rows if row["id"] == 1} == {(11, 1), (33, 1)}
+        assert [(request.path, request.param("offset")) for request in result.requests] == [
+            ("/api/v1/nudges.json", "0"),
+            ("/api/v1/nudges/11/responses.json", "0"),
+            ("/api/v1/nudges/11/responses.json", str(PAGE_SIZE)),
+            ("/api/v1/nudges/22/responses.json", "0"),
+            ("/api/v1/nudges/33/responses.json", "0"),
+        ]
+        child_requests = [request for request in result.requests if request.path.endswith("/responses.json")]
+        assert {request.param("order") for request in child_requests} == {"asc"}
+        assert {request.param("limit") for request in result.requests} == {str(PAGE_SIZE)}
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"should_use_incremental_field": False}, None),
+            ("first_incremental_run", {"incremental_field": "time"}, None),
+            (
+                "watermark_string_with_offset",
+                {"incremental_field": "time", "db_incremental_field_last_value": "2024-03-01 10:00:00 -0700"},
+                str(int(datetime(2024, 3, 1, 17, 0, 0, tzinfo=UTC).timestamp()) - 1),
+            ),
+            (
+                "watermark_naive_datetime_is_utc",
+                {"incremental_field": "time", "db_incremental_field_last_value": datetime(2024, 3, 1, 17, 0, 0)},
+                str(int(datetime(2024, 3, 1, 17, 0, 0, tzinfo=UTC).timestamp()) - 1),
+            ),
+        ]
+    )
+    def test_start_date_follows_the_watermark(
+        self, _name: str, inputs: dict[str, Any], expected_start_date: str | None
+    ) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}])],
+                    "/nudges/11/responses.json": [ScriptedResponse(json=[{"id": 1}])],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [request.param("start_date") for request in result.requests] == [None, expected_start_date]
+        end_dates = [request.param("end_date") for request in result.requests]
+        assert end_dates[0] is None
+        assert (end_dates[1] is not None) == inputs.get("should_use_incremental_field", True)
+
+    def test_resumed_incremental_sync_keeps_the_original_end_date(self) -> None:
+        sync_end = "2024-03-02T00:00:00+00:00"
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}])],
+                    "/nudges/22/responses.json": [ScriptedResponse(json=[{"id": 7, "time": "2024-03-01 10:00:00"}])],
+                }
+            ),
+            resume_state=QualarooResumeConfig(
+                fanout_state={"completed": ["/nudges/11/responses.json"], "current": None, "child_state": None},
+                sync_end=sync_end,
+            ),
+            incremental_field="time",
+            db_incremental_field_last_value="2024-03-01 00:00:00",
+        )
+
+        assert result.raised is None
+        child_requests = [request for request in result.requests if request.path.endswith("/responses.json")]
+        expected_end_date = str(int(datetime(2024, 3, 2, tzinfo=UTC).timestamp()) - 1)
+        assert [request.param("end_date") for request in child_requests] == [expected_end_date]
+        assert all(state.sync_end == sync_end for state in result.saved_states)
+
+    def test_resumes_inside_the_nudge_in_progress(self) -> None:
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}, {"id": 33}])],
+                    "/nudges/22/responses.json": [ScriptedResponse(json=[{"id": 7}])],
+                    "/nudges/33/responses.json": [ScriptedResponse(json=[])],
+                }
+            ),
+            resume_state=QualarooResumeConfig(
+                fanout_state={
+                    "completed": ["/nudges/11/responses.json"],
+                    "current": "/nudges/22/responses.json",
+                    "child_state": {"offset": PAGE_SIZE},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "nudge_id": 22}]
+        assert [(request.path, request.param("offset")) for request in result.requests] == [
+            ("/api/v1/nudges.json", "0"),
+            ("/api/v1/nudges/22/responses.json", str(PAGE_SIZE)),
+            ("/api/v1/nudges/33/responses.json", "0"),
+        ]

@@ -699,7 +699,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
 
 /**
  * Health check findings for this experiment: problems in its configuration and its feature flag
- * that keep it from producing trustworthy results, each with a fix.
+ * that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+ * each check, so a check that found no problem can be told from one that did not apply or could
+ * not read an input.
  *
  * The checks here read the experiment, its flag, its linked metrics, and the changes of the
  * flag's variant split since launch. The checks that read exposure counts come with the
@@ -818,8 +820,10 @@ export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, i
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
- * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+ * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+ * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+ * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.

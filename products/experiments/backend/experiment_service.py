@@ -1427,7 +1427,7 @@ class ExperimentService:
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
-            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
+            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS).findings
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",

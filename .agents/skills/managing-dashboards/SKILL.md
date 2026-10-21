@@ -4,7 +4,8 @@ description: >
   Guides PostHog engineers through dashboard platform and scene changes. Use when changing
   Dashboard, DashboardTile, dashboardLogic, dashboard layouts, dashboard sharing or embeds,
   public dashboards, templates, filters, variables, refresh behavior, tile loading, dashboard
-  lists, or dashboard permissions. Covers normal, shared, embedded, export, product-embedded,
+  lists, or dashboard permissions. Also use for slow dashboard loading, scrolling, edit-mode entry or exit,
+  low frame rates, chart flicker, and tile drag or resize performance. Covers normal, shared, embedded, export, product-embedded,
   and template surfaces; RBAC; cache and query behavior; responsive layouts; and large or small
   dashboards. Use manage-dashboard-widgets instead for a widget_type or WidgetCard change.
 ---
@@ -14,6 +15,8 @@ description: >
 Use this skill for a dashboard change that affects the dashboard platform, dashboard scene, or an existing non-widget tile type.
 
 Use [`manage-dashboard-widgets`](../manage-dashboard-widgets/SKILL.md) for a new `widget_type` or a `WidgetCard` change.
+
+For dashboard loading, scrolling, edit-mode transitions, tile movement, resize, or chart flicker, read the [dashboard performance guide](../../../products/dashboards/PERFORMANCE.md) before implementation.
 
 ## 1. Route the request
 
