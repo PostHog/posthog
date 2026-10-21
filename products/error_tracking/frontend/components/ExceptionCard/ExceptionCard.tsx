@@ -37,6 +37,7 @@ export interface ExceptionCardProps extends ExceptionCardContentProps {
     event?: ErrorEventType
     loading: boolean
     logicKey?: string
+    onShowOnlyWithRecording?: () => void
 }
 
 export function ExceptionCard({
@@ -45,9 +46,13 @@ export function ExceptionCard({
     event,
     loading,
     logicKey,
+    onShowOnlyWithRecording,
     ...contentProps
 }: ExceptionCardProps): JSX.Element {
-    const cardLogicProps = useMemo(() => ({ issueId, loading, logicKey }), [issueId, loading, logicKey])
+    const cardLogicProps = useMemo(
+        () => ({ issueId, loading, logicKey, onShowOnlyWithRecording }),
+        [issueId, loading, logicKey, onShowOnlyWithRecording]
+    )
 
     const eventProps = useMemo<ErrorPropertiesLogicProps>(
         () => ({

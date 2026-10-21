@@ -26,12 +26,17 @@ export const FilterGroup = ({
     activeFiltersInline = false,
     iconOnly = false,
     renderControls,
+    menuItems,
+    leadingFilters,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     excludeFilterTypes?: PropertyFilterType[]
     activeFiltersInline?: boolean
     iconOnly?: boolean
     renderControls?: (controls: { filterPicker: ReactNode; activeFilters: ReactNode }) => ReactNode
+    // Extra rows for the filter button's menu. With them, the button opens that menu, not the search.
+    menuItems?: ReactNode
+    leadingFilters?: ReactNode
 } = {}): JSX.Element => {
     const { filterAddedFromPreview, filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
@@ -55,6 +60,8 @@ export const FilterGroup = ({
                 iconOnly={iconOnly}
                 filterAddedFromPreview={filterAddedFromPreview}
                 renderControls={renderControls}
+                menuItems={menuItems}
+                leadingFilters={leadingFilters}
             />
         </UniversalFilters>
     )
@@ -67,6 +74,8 @@ const FilterControls = ({
     iconOnly = false,
     filterAddedFromPreview = 0,
     renderControls,
+    menuItems,
+    leadingFilters,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     nested?: boolean
@@ -74,6 +83,8 @@ const FilterControls = ({
     iconOnly?: boolean
     filterAddedFromPreview?: number
     renderControls?: (controls: { filterPicker: ReactNode; activeFilters: ReactNode }) => ReactNode
+    menuItems?: ReactNode
+    leadingFilters?: ReactNode
 }): JSX.Element => {
     const filterRow = (
         <div className={`relative flex shrink-0 items-center ${activeFiltersInline ? 'gap-2' : 'gap-1'}`}>
@@ -98,13 +109,18 @@ const FilterControls = ({
                 {renderControls({
                     filterPicker: (
                         <div className="relative flex shrink-0 items-center">
-                            <FilterPicker taxonomicGroupTypes={taxonomicGroupTypes} iconOnly={iconOnly} />
+                            <FilterPicker
+                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                iconOnly={iconOnly}
+                                menuItems={menuItems}
+                            />
                         </div>
                     ),
                     activeFilters: (
                         <UniversalFilterGroup
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             filterAddedFromPreview={filterAddedFromPreview}
+                            leadingFilters={leadingFilters}
                             prefix={<FilterOperatorToggle />}
                             className="flex w-full flex-wrap items-center gap-1"
                             dataAttr="error-tracking-active-filters"
@@ -149,9 +165,11 @@ const FilterControls = ({
 const FilterPicker = ({
     taxonomicGroupTypes,
     iconOnly,
+    menuItems,
 }: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     iconOnly: boolean
+    menuItems?: ReactNode
 }): JSX.Element => {
     const { addGroupFilter } = useActions(universalFiltersLogic)
     const [openRequest, setOpenRequest] = useState(0)
@@ -169,6 +187,7 @@ const FilterPicker = ({
                 key={openRequest}
                 defaultOpen={openRequest > 0}
                 defaultOpenState="combobox"
+                menuItems={menuItems}
                 trigger={({ open }) => (
                     <Button
                         variant={iconOnly ? 'default' : 'outline'}
@@ -177,7 +196,7 @@ const FilterPicker = ({
                         title={iconOnly ? 'Add filter' : undefined}
                         aria-expanded={open}
                         onClick={() => {
-                            if (!open) {
+                            if (!open && !menuItems) {
                                 setOpenRequest((request) => request + 1)
                             }
                         }}
@@ -239,12 +258,14 @@ const UniversalFilterGroup = ({
     className,
     dataAttr,
     prefix,
+    leadingFilters,
     filterAddedFromPreview = 0,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     className?: string
     dataAttr?: string
     prefix?: ReactNode
+    leadingFilters?: ReactNode
     filterAddedFromPreview?: number
 }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -253,7 +274,7 @@ const UniversalFilterGroup = ({
 
     useOnMountEffect(() => setAllowInitiallyOpen(true))
 
-    if (filterGroup.values.length === 0) {
+    if (filterGroup.values.length === 0 && !leadingFilters) {
         return null
     }
 
@@ -280,11 +301,13 @@ const UniversalFilterGroup = ({
 
     return className ? (
         <div className={className} data-attr={dataAttr}>
+            {leadingFilters}
             {prefix}
             {values}
         </div>
     ) : (
         <>
+            {leadingFilters}
             {prefix}
             {values}
         </>

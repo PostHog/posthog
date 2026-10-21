@@ -671,6 +671,42 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('continues an ErrorTrackingIssueEventsQuery from the cursor of the latest page', async () => {
+        const source = setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*', 'timestamp'] })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.ErrorTrackingIssueEventsQuery,
+                issueId: 'issue',
+                source,
+                onlyWithRecording: true,
+            }),
+        })
+        mockedQuery.mockResolvedValueOnce({
+            results: [['first']],
+            hasMore: true,
+            nextCursor: 'cursor-1',
+        })
+        logic.mount()
+        await expectLogic(logic).delay(0)
+        await expectLogic(logic).toMatchValues({
+            nextQuery: partial({ source: { ...source, before: 'cursor-1' } }),
+        })
+
+        mockedQuery.mockResolvedValueOnce({
+            results: [['second']],
+            hasMore: true,
+            nextCursor: 'cursor-2',
+        })
+        logic.actions.loadNextData()
+        await expectLogic(logic).delay(0)
+
+        await expectLogic(logic).toMatchValues({
+            response: partial({ results: [['first'], ['second']] }),
+            nextQuery: partial({ source: { ...source, before: 'cursor-2' } }),
+        })
+    })
+
     it('can load next data for SessionQuery', async () => {
         logic = dataNodeLogic({
             key: testUniqueKey,
