@@ -819,6 +819,29 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(localStorage.getItem('_postHogToolbarParams')).toBeNull()
         })
 
+        it.each(['authenticate', 'confirmAuthenticate'] as const)(
+            'expires the session instead of redirecting the page on %s when the browser extension mounts it',
+            async (action) => {
+                const pageHref = window.location.href
+                const logic = toolbarConfigLogic.build({
+                    source: 'extension',
+                    uiHost: 'https://us.posthog.com',
+                    accessToken: 'extension-access',
+                    clientId: 'extension-client',
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions[action]()
+                })
+                    .toDispatchActions(['tokenExpired'])
+                    .toMatchValues({ accessToken: null, authStatus: 'idle' })
+
+                expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+                expect(window.location.href).toEqual(pageHref)
+            }
+        )
+
         it('logout clears both localStorage keys', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
