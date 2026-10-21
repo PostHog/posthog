@@ -59,7 +59,6 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDRequestSerializer,
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemViewSetMixin,
-    normalize_tag_names,
 )
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -4772,11 +4771,6 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                     "whether a schedule still has sends to come."
                 ),
             ),
-            OpenApiParameter(
-                "tags",
-                OpenApiTypes.STR,
-                description="Comma-separated tag names. Returns workflows carrying any one of them.",
-            ),
         ]
     ),
     # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
@@ -5062,9 +5056,6 @@ class HogFlowViewSet(
         if len(search) > 200:
             raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
 
-        # Tags are stored tagified, so a filter typed in any case still matches.
-        tags = normalize_tag_names(params.get("tags", "").split(","))
-
         return WorkflowListQuery(
             search=search,
             created_by_uuid=created_by_uuid,
@@ -5073,7 +5064,6 @@ class HogFlowViewSet(
             trigger=trigger,
             broadcast_eligible=params.get("broadcast_eligible") == "true",
             broadcast_statuses=frozenset(broadcast_statuses),
-            tags=frozenset(tags),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
             tags=tags,
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},

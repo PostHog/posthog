@@ -73,7 +73,7 @@ const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdB
 
 // The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
 // which is different from stating that every filter is off.
-const FILTER_URL_PARAMS = ['search', 'status', 'created_by', 'page']
+const FILTER_URL_PARAMS = ['search', 'status', 'created_by', 'tags', 'page']
 
 type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 
@@ -336,7 +336,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         search: values.filters.search || undefined,
                         broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,
-                        tags: values.filters.tags.join(',') || undefined,
+                        tags: values.filters.tags.length ? JSON.stringify(values.filters.tags) : undefined,
                         limit: BROADCASTS_PAGE_SIZE,
                         offset: (values.filters.page - 1) * BROADCASTS_PAGE_SIZE,
                     })
@@ -563,7 +563,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 search: search || undefined,
                 status: status !== 'all' ? status : undefined,
                 created_by: createdBy || undefined,
-                tags: tags.length ? tags.join(',') : undefined,
+                tags: tags.length ? tags : undefined,
                 page: page > 1 ? page : undefined,
             }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -581,12 +581,18 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 return
             }
             const status = searchParams['status']
+            const rawTags = searchParams['tags']
             const parsed: BroadcastsFilters = {
                 // The API rejects longer search terms.
                 search: searchParams['search'] ? String(searchParams['search']).slice(0, 200) : '',
                 status: BROADCASTS_STATUS_FILTERS.includes(status) ? status : 'all',
                 createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
-                tags: searchParams['tags'] ? String(searchParams['tags']).split(',').filter(Boolean) : [],
+                // kea-router parses a JSON array in the URL back into an array.
+                tags: Array.isArray(rawTags)
+                    ? rawTags.map(String)
+                    : typeof rawTags === 'string' && rawTags
+                      ? [rawTags]
+                      : [],
                 page: Math.max(1, parseInt(String(searchParams['page'])) || 1),
             }
             if (!objectsEqual(parsed, values.filters)) {

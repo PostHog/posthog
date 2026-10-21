@@ -2527,11 +2527,6 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.'
                 ),
-            tags: zod
-                .array(zod.string())
-                .describe(
-                    'Tags for organizing workflows, for example by team or campaign. Tags are shared with the rest of the project. Set them with the bulk_update_tags endpoint.'
-                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()

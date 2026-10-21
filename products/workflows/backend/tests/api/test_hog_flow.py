@@ -424,8 +424,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["updated"] == [{"id": str(tagged.id), "tags": ["launch", "q4"]}]
 
-        # The filter takes the tag as typed; the stored name is tagified, so the two must still meet.
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?tags=Launch")
+        # The filter takes a JSON list of stored names.
+        response = self.client.get(f'/api/projects/{self.team.id}/hog_flows?tags=["launch"]')
         assert response.status_code == 200, response.json()
         assert [(flow["name"], flow["tags"]) for flow in response.json()["results"]] == [("Tagged", ["launch", "q4"])]
 
