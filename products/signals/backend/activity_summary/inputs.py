@@ -78,9 +78,9 @@ def user_views(team_id: int, user_id: int, start: datetime.datetime, end: dateti
         .values_list("type", "ref", "viewed_at", "view_days")[:MAX_VIEW_ROWS_PER_PERSON]
     )
     keys = {(view_type, ref) for view_type, ref, _, _ in rows if view_type != SCENE_VIEW_TYPE}
-    entries: dict[tuple[str, str], tuple[str, int | None]] = {}
+    entries: dict[tuple[str, str | None], tuple[str, int | None]] = {}
     if keys:
-        for view_type, ref, path, created_by_id in (
+        for view_type, ref, path, creator_id in (
             FileSystem.objects.filter(
                 team_id=team_id, type__in={key[0] for key in keys}, ref__in={key[1] for key in keys}
             )
@@ -88,7 +88,7 @@ def user_views(team_id: int, user_id: int, start: datetime.datetime, end: dateti
             .values_list("type", "ref", "path", "created_by_id")
         ):
             if (view_type, ref) in keys and (segments := split_path(path)):
-                entries[(view_type, ref)] = (segments[-1], created_by_id)
+                entries[(view_type, ref)] = (segments[-1], creator_id)
     first_day = start.astimezone(datetime.UTC).date()
     items: list[ViewItem] = []
     for view_type, ref, viewed_at, view_days in rows:
