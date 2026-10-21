@@ -670,25 +670,38 @@ email@example.org
         # Verify the persons were actually added to the cohort
         self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
-    def test_static_cohort_patch_with_query_rejected_while_population_in_flight(self, mock_delay: MagicMock):
+    def test_static_cohort_patch_with_query_rejected_while_population_in_flight(
+        self, mock_delay: MagicMock, mock_csv_delay: MagicMock
+    ):
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
         query = {"kind": "ActorsQuery", "properties": []}
         stale_for_rename = Cohort.objects.get(pk=cohort.pk)
         stale_for_query = Cohort.objects.get(pk=cohort.pk)
+        stale_for_csv = Cohort.objects.get(pk=cohort.pk)
+        csv = SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
 
         first = self.client.patch(url, data={"query": query})
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_rename):
             rename = self.client.patch(url, data={"name": "renamed"})
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_query):
             second = self.client.patch(url, data={"query": query})
+        with patch.object(CohortViewSet, "get_object", return_value=stale_for_csv):
+            csv_upload = self.client.patch(url, data={"csv": csv}, format="multipart")
 
         self.assertEqual(first.status_code, 200, first.json())
         self.assertEqual(rename.status_code, 200, rename.json())
         self.assertEqual(second.status_code, 400, second.json())
         self.assertEqual(second.json()["attr"], "query")
+        self.assertEqual(csv_upload.status_code, 400, csv_upload.json())
+        self.assertEqual(
+            (csv_upload.json()["attr"], csv_upload.json()["detail"]),
+            ("csv", "This cohort is still being populated. Try again when it finishes."),
+        )
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
+        mock_csv_delay.assert_not_called()
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
     def test_static_cohort_patch_with_query_releases_claim_when_enqueue_fails(self, mock_delay: MagicMock):

@@ -1784,16 +1784,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _user_access_control(self) -> Optional[UserAccessControl]:
         return getattr(self.context.get("view"), "user_access_control", None)
 
-    def _claim_static_population(self, cohort: Cohort) -> None:
+    def _claim_static_population(self, cohort: Cohort, source_field: Literal["query", "csv"]) -> None:
         # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
-        # The claim sets is_calculating, and a query PATCH gets a 400 until it is cleared. The conditional update locks
-        # the row, so two concurrent requests cannot both claim it. The population task clears is_calculating when it
-        # finishes, and the stuck-cohort sweep clears it if the task dies.
+        # The claim sets is_calculating, and a query or CSV PATCH gets a 400 until it is cleared. A CSV import takes
+        # the claim too, because it clears is_calculating when it finishes and would release a running population.
+        # The conditional update locks the row, so two concurrent requests cannot both claim it. The task clears
+        # is_calculating when it finishes, and the stuck-cohort sweep clears it if the task dies.
         claimed = Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id, is_calculating=False).update(
             is_calculating=True
         )
         if not claimed:
-            raise ValidationError({"query": ["This cohort is still being populated. Try again when it finishes."]})
+            raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
         # cohort.save() writes every field, so the in-memory value must match the claim.
         cohort.is_calculating = True
 
@@ -2001,12 +2002,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
+        import_from_csv = not deleted_state and cohort.is_static and parsed_csv is not None
         populate_from_query = (
             not deleted_state and cohort.is_static and parsed_csv is None and bool(validated_data.get("query"))
         )
         with transaction.atomic():
-            if populate_from_query:
-                self._claim_static_population(cohort)
+            if import_from_csv or populate_from_query:
+                self._claim_static_population(cohort, "csv" if import_from_csv else "query")
                 cohort.save()
             elif cohort.is_static:
                 # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
@@ -2022,7 +2024,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.save()
 
         if not deleted_state:
-            if cohort.is_static and parsed_csv is not None:
+            if import_from_csv:
                 # You can't update a static cohort using the trend/stickiness thing
                 self._enqueue_csv_ids(parsed_csv, cohort)
             elif populate_from_query:
