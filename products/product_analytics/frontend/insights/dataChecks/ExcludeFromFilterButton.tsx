@@ -1,0 +1,108 @@
+import { useActions, useValues } from 'kea'
+
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+    Button,
+} from '@posthog/quill'
+
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TeamMembershipLevel } from 'lib/constants'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { getFilterLabel } from '~/taxonomy/helpers'
+import type { InsightLogicProps } from '~/types'
+
+import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { insightDataChecksLogic } from './insightDataChecksLogic'
+
+export function ExcludeFromFilterButton({
+    insightProps,
+    check,
+    label,
+}: {
+    insightProps: InsightLogicProps
+    check: InsightDataCheckApi
+    label: string
+}): JSX.Element {
+    const logic = insightDataChecksLogic(insightProps)
+    const { currentTeamLoading } = useValues(logic)
+    const { addFilterRule } = useActions(logic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const rule = check.filter_to_add
+
+    if (!rule) {
+        return (
+            <Button
+                variant="outline"
+                size="sm"
+                className="no-underline"
+                render={
+                    <LinkPrimitive
+                        to={urls.settings('environment-customization', 'internal-user-filtering')}
+                        target="_blank"
+                    />
+                }
+                data-attr="insight-data-check-filter-settings"
+            >
+                Edit filter
+            </Button>
+        )
+    }
+
+    const property = getFilterLabel(
+        rule.key,
+        rule.type === 'person' ? TaxonomicFilterGroupType.PersonProperties : TaxonomicFilterGroupType.EventProperties
+    )
+    return (
+        <AlertDialog>
+            <AlertDialogTrigger
+                render={
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        loading={currentTeamLoading}
+                        disabledReason={restrictedReason}
+                        data-attr="insight-data-check-add-filter-rule"
+                    />
+                }
+            >
+                {label}
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Add a rule to your internal and test users filter?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {`Every insight that filters out internal and test users will also leave out events where ${property} is one of these:`}
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <ul className="m-0 flex max-h-48 flex-col gap-1 overflow-y-auto ps-4 text-xs">
+                    {rule.value.map((value) => (
+                        <li key={value}>{value}</li>
+                    ))}
+                </ul>
+                <AlertDialogFooter>
+                    <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                    <AlertDialogClose
+                        render={<Button variant="primary" onClick={() => addFilterRule(check)} />}
+                        data-attr="insight-data-check-add-filter-rule-confirm"
+                    >
+                        Add rule
+                    </AlertDialogClose>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    )
+}

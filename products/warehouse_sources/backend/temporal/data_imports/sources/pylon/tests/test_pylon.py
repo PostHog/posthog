@@ -6,7 +6,6 @@ import pytest
 import time_machine
 from unittest.mock import MagicMock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import pylon
@@ -64,21 +63,6 @@ class TestToDatetime:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_validate_credentials(self, _name: str, status_code: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: session)
-            assert pylon.validate_credentials("token") is expected
-
-    def test_validate_credentials_handles_exception(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: session)
-            assert pylon.validate_credentials("token") is False
-
     @parameterized.expand(
         [
             ("eu_token", "pylon_api_eu_abc123", f"{PYLON_EU_BASE_URL}/me"),

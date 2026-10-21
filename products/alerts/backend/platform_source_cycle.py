@@ -2,8 +2,9 @@
 
 A parallel run. The production insight fleet evaluates the same alerts against
 `AlertConfiguration` and notifies their destinations. This decides what the platform would have
-said, and asks for a delivery only for the alerts in `LIVE_DELIVERY_INSIGHT_ALERT_IDS`. The
-platform still sends only to projects on its live delivery flag.
+said, and asks for a delivery for the alerts the platform owns and for the alerts in
+`LIVE_DELIVERY_INSIGHT_ALERT_IDS`. An owned alert sends without the platform's live delivery flag.
+Every other alert on the list still sends only to projects on that flag.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
@@ -16,6 +17,7 @@ same set of checks.
 """
 
 import time
+import asyncio
 from collections.abc import Collection
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -37,6 +39,12 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
@@ -85,6 +93,11 @@ logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
 
+# How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
+# never takes more than this from production. A thread counts until it ends, not until Temporal
+# gives up on its attempt. Created per worker process and used only from the activity's event loop.
+PLATFORM_LLM_CHECKS = asyncio.Semaphore(2)
+
 # Every query the parallel run sends starts with this, so its ClickHouse cost can be read apart from
 # production's in `query_log`. Production's other tags are kept, so workload management treats both
 # the same way.
@@ -96,10 +109,9 @@ CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
 SLOT_KEY_PREFIX = "slot:"
 
-# Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
-# parallel run leaves it out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
     {
+        AlertCalculationInterval.REAL_TIME,
         AlertCalculationInterval.EVERY_15_MINUTES,
         AlertCalculationInterval.HOURLY,
         AlertCalculationInterval.DAILY,
@@ -109,9 +121,9 @@ EVALUATED_INTERVALS = frozenset(
 )
 
 
-# The production insight alerts whose platform evaluations ask for a native delivery, as a test. The
-# platform's live delivery flag still has to be on for the project, and every other insight alert
-# keeps production as its only deliverer. Widening the test means adding an id here.
+# The production insight alerts whose platform evaluations ask for a native delivery while production
+# still owns them, as a test. The platform's live delivery flag still has to be on for the project.
+# The list stays short because production also sends for these alerts, so each one sends twice.
 LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
 
 # Which event each announced kind's destinations listen on. A resolve is left out, because
@@ -124,9 +136,9 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold alerts on a 15-minute or slower cadence. A detector alert makes its own decision,
-    and the LLM detector makes a charged model call, so evaluating either in parallel costs twice."""
-    return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
+    """Every alert production evaluates. An AI detector check makes a charged model call, so while
+    both stacks run, each of those checks is paid for twice."""
+    return alert.calculation_interval in EVALUATED_INTERVALS
 
 
 def plan_insight_batch(
@@ -172,6 +184,59 @@ def plan_insight_batch(
     return tuple(admitted)
 
 
+def attempt_slot_token(held_until: float, attempt: int) -> float:
+    """The expiry an attempt holds its slot under. Each attempt gets its own, so a timed-out attempt
+    whose thread finishes late cannot release the slot its retry holds. The offset is negligible
+    against the expiry itself."""
+    return held_until + (attempt - 1) / 1000
+
+
+def readmit_retried_check(
+    team_id: int, configuration_id: str, *, previous_query_id: str, held_until: float, attempt: int
+) -> float | None:
+    """Prepares a retried check, and returns the slot token it holds, or None when the pool is full.
+
+    A timed-out attempt's thread can still run its query, so the query is killed first, or the retry
+    would run beside it. The retry then moves the slot to its own token, so the pool never counts
+    the two attempts as one check that either can release.
+    """
+    # Imported here: at module level it changes how many queries the access-control tests count.
+    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+
+    try:
+        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
+    except Exception:
+        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
+    token = attempt_slot_token(held_until, attempt)
+    admitted = admit_evaluation_slots(
+        [configuration_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        expires_at=token,
+        key=INFLIGHT_KEY,
+    )
+    return token if admitted else None
+
+
+def legacy_alerts_of(
+    team_id: int, slot: str, cutoff: datetime, configuration_ids: Collection[str]
+) -> dict[str, AlertConfiguration]:
+    """The production alert behind each due copy that still has one, keyed by the copy's id."""
+    if not configuration_ids:
+        return {}
+    legacy_ids = {
+        check.legacy_configuration_id: str(check.id)
+        for check in due_checks(
+            team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=list(configuration_ids)
+        )
+        if check.legacy_configuration_id is not None
+    }
+    alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
+        "id", "calculation_interval", "detector_config"
+    )
+    return {legacy_ids[alert.id]: alert for alert in alerts}
+
+
 def evaluate_insight_check(
     team_id: int,
     slot: str,
@@ -180,13 +245,21 @@ def evaluate_insight_check(
     *,
     held_until: float,
     evaluation_id: str,
+    attempt: int = 1,
+    final_attempt: bool = True,
+    uses_llm_detector: bool = False,
 ) -> SourceBatchEvaluation | None:
     """Decides one admitted check, then frees its slot.
 
     Returns the outcome with its delivery, if it asks for one. Returns None when the configuration
     is no longer due, because an earlier attempt already recorded it or it was edited out of the
-    batch. Writes nothing.
+    batch, or when its detector no longer matches the worker it was routed to. Writes nothing.
+
+    `evaluation_id` names the check across its attempts, so the AI detector reuses a verdict an
+    earlier attempt paid for. An AI detector that reaches no verdict raises
+    `LLMDetectorUnavailableError` for a retry, and keeps the slot for it, unless `final_attempt`.
     """
+    retrying = False
     try:
         checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
         if not checks:
@@ -197,11 +270,28 @@ def evaluate_insight_check(
             lag_ms = int((datetime.now(UTC) - checks[0].next_check_at).total_seconds() * 1000)
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
-        outcome = _decide(checks[0], cutoff, evaluation_id=evaluation_id)
+        try:
+            outcome = _decide(
+                checks[0],
+                cutoff,
+                evaluation_id=evaluation_id,
+                attempt=attempt,
+                final_attempt=final_attempt,
+                uses_llm_detector=uses_llm_detector,
+            )
+        except LLMDetectorUnavailableError:
+            retrying = True
+            raise
+        if outcome is None:
+            return None
+        if checks[0].legacy_configuration_id is not None:
+            # Production times each check by its own alert's id, so the copy checks at that minute.
+            outcome = replace(outcome, schedule_key=str(checks[0].legacy_configuration_id))
         delivery = _delivery(checks[0], outcome)
         return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
     finally:
-        release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+        if not retrying:
+            release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
@@ -210,8 +300,11 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
         return None
-    legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
-    if legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
+    if check.legacy_configuration_id is None:
+        return None
+    legacy_id = str(check.legacy_configuration_id)
+    if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.INSIGHT,
@@ -221,6 +314,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         parts=delivery_parts(outcome),
     )
@@ -271,7 +365,15 @@ def slot_of_evaluation_key(evaluation_key: str) -> datetime | None:
         return None
 
 
-def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str) -> PlatformAlertOutcome:
+def _decide(
+    check: PlatformAlertCheckInput,
+    now: datetime,
+    *,
+    evaluation_id: str,
+    attempt: int,
+    final_attempt: bool,
+    uses_llm_detector: bool,
+) -> PlatformAlertOutcome | None:
     snapshot = _snapshot(check)
     alert = _legacy_alert(check)
     if alert is None:
@@ -281,6 +383,10 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         return _skipped(check, snapshot, now=now)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
+    if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
+        # As production: an edit since the plan means this worker may not hold the model
+        # credentials. No outcome keeps the check due, so the next tick plans and routes it again.
+        return None
 
     # Production gates evaluation on a snooze and holds the alert in SNOOZED, then clears it to
     # NOT_FIRING on the first check after the snooze ends. The legacy row is read for the snooze,
@@ -297,7 +403,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     tag_queries(
         ch_user=ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
         team_id=alert.team_id,
-        client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}",
+        client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}:{attempt}",
         alert_config_id=str(alert.id),
         product=Product.PRODUCT_ANALYTICS,
         feature=Feature.ALERTING,
@@ -309,7 +415,19 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     started_at = time.monotonic()
     try:
         result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
-    except AlertExtractionError as error:
+    except LLMDetectorUnavailableError:
+        if not final_attempt:
+            # As production: a judge that reached no verdict gets another attempt, and only the
+            # last one records the failure.
+            raise
+        return _verdict(
+            check,
+            snapshot,
+            CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
+            now=now,
+            skip=SkipReason.QUERY_FAILED,
+        )
+    except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, error, now=now)
