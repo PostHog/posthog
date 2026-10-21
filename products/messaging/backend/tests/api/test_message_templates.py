@@ -78,6 +78,58 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
+    def test_tags_round_trip_through_create_update_and_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Tagged",
+                "content": {"email": {"subject": "Hi", "text": "Body"}},
+                "type": "email",
+                "tags": ["Onboarding", "growth"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        template_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/").json()["results"]
+        assert {row["id"]: row["tags"] for row in listed}[template_id] == ["growth"]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
+
+    def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
+        # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["\u0130" * 128]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_tags_only_update_leaves_the_template_row_alone(self):
+        before = MessageTemplate.objects.get(pk=self.message_template.id).updated_at
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        # A row save here would write back every column this request read, losing a concurrent content edit.
+        assert MessageTemplate.objects.get(pk=self.message_template.id).updated_at == before
+
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK
@@ -140,11 +192,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
                 "name": "Valid Template",
                 "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
                 "type": "email",
+                "sensitive": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
+        assert response.json()["sensitive"] is True
+        assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()

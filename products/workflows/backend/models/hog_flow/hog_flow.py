@@ -8,6 +8,7 @@ from django.utils.functional import Promise
 import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -145,12 +146,32 @@ def static_cohort_ids(actions: Any) -> set[int]:
     return cohort_ids
 
 
+# Trigger types the executor re-checks before each step: an event trigger against its filters, and a
+# cohort trigger against the person's membership in its cohort.
+RECHECKED_TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "cohort"})
+
+
+def exit_condition_that_runs(trigger_type: str | None, exit_condition: str | None) -> str | None:
+    """The exit condition a run of this trigger actually follows.
+
+    On a trigger the executor cannot re-check, "exit when the trigger no longer matches" never fires.
+    """
+    if trigger_type in RECHECKED_TRIGGER_TYPES:
+        return exit_condition
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED:
+        return HogFlowExitCondition.ONLY_AT_END
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED_OR_CONVERSION:
+        return HogFlowExitCondition.CONVERSION
+    return exit_condition
+
+
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(HogFlow.OriginProduct.choices)
 
 
-class HogFlow(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class HogFlow(Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """
