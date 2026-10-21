@@ -299,37 +299,17 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
-class AssignedPerson(SuggestedReviewerEntry):
-    user_uuid: str
-
-
-class AssignedTeam(BaseModel):
+class ReviewerState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    provider: Literal["github"]
-    organization: str = Field(min_length=1)
-    team_id: str = Field(min_length=1)
-    reason: str = Field(min_length=1, max_length=500)
-    evidence: tuple[str, ...] = ()
+    reviewers_id: UUID | None = None
+    control_id: UUID | None = None
 
 
-class AssignmentSelection(BaseModel):
+class ReviewerControl(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    people: tuple[AssignedPerson, ...] = ()
-    teams: tuple[AssignedTeam, ...] = ()
-    suggestions: tuple[SuggestedReviewerEntry, ...] = ()
-    pr_owner: UUID | None = None
-    pr_reviewers: tuple[UUID, ...] = ()
-
-
-class AssignmentOverrides(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    additions: tuple[AssignedPerson, ...] = ()
-    removed_user_uuids: tuple[str, ...] = ()
-    removed_github_logins: tuple[str, ...] = ()
-    unassigned: bool = False
+    mode: Literal["human", "automatic"]
 
 
 class AssignmentDecision(BaseModel):
@@ -337,16 +317,13 @@ class AssignmentDecision(BaseModel):
 
     operation_id: UUID
     revision: int = Field(ge=1)
-    based_on_revision: int = Field(ge=0)
-    evidence_revision: str
     source: str
-    policy_version: str
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"]
-    selection: AssignmentSelection
-    overrides: AssignmentOverrides
+    control: Literal["human", "automatic"]
+    expected_state: ReviewerState
     retry_reason: str | None = None
     ineligible_user_uuids: tuple[str, ...] = ()
-    requires_reassessment: bool = False
+    unresolved_candidates: tuple[SuggestedReviewerEntry, ...] = ()
 
 
 class ChannelAssignment(BaseModel):
@@ -1236,6 +1213,7 @@ StatusArtefactContent = (
     | PriorityAssessment
     | RepoSelectionResult
     | SuggestedReviewers
+    | ReviewerControl
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
@@ -1279,6 +1257,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "assignment_decision": AssignmentDecision,
+    "reviewer_control": ReviewerControl,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1334,6 +1313,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "assignment_decision",
+        "reviewer_control",
         "task_run",
         "video_segment",
         "title_change",

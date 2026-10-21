@@ -93,6 +93,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    ReviewerState,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
@@ -101,8 +102,11 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.assignment_service import (
     AssignmentClaimConflict,
+    AssignmentOperationConflict,
+    AssignmentProposal,
     AssignmentWriteError as ReviewerWriteError,
     ReportAssignmentService,
+    StaleAssignmentProposal,
 )
 from products.signals.backend.background_pilot import (
     BACKGROUND_REPORT_DISMISSED_EVENT,
@@ -146,7 +150,6 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
-    SignalReportAssignmentRevision,
     SignalReportCheck,
     SignalReportRefund,
     SignalScoutConfig,
@@ -241,6 +244,8 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
+    ResumeReviewersSerializer,
+    ReviewerControlResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -2886,6 +2891,36 @@ class SignalReportViewSet(
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(responses={200: ReviewerControlResponseSerializer})
+    @action(detail=True, methods=["get"], url_path="reviewer_state", required_scopes=["task:read"])
+    def reviewer_state(self, request: Request, **kwargs) -> Response:
+        report = self.get_object()
+        service = ReportAssignmentService(team=self.team, report_id=str(report.id))
+        return Response(ReviewerControlResponseSerializer(service).data)
+
+    @extend_schema(request=ResumeReviewersSerializer, responses={200: ReviewerControlResponseSerializer})
+    @action(detail=True, methods=["post"], url_path="reviewers/resume", required_scopes=["task:write"])
+    def resume_reviewers(self, request: Request, **kwargs) -> Response:
+        report = self.get_object()
+        body = ResumeReviewersSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        service = ReportAssignmentService(team=self.team, report_id=str(report.id))
+        try:
+            service.apply(
+                AssignmentProposal(
+                    operation_id=body.validated_data["operation_id"],
+                    expected_state=ReviewerState.model_validate(body.validated_data["expected_reviewers"]),
+                    source="reviewer_api",
+                    action="resume",
+                ),
+                actor=ArtefactAttribution.from_user(cast(User, request.user).id),
+            )
+        except (StaleAssignmentProposal, AssignmentOperationConflict) as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        except ReviewerWriteError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ReviewerControlResponseSerializer(service).data)
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -4977,6 +5012,7 @@ def append_suggested_reviewers(
     # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
     # write reads the current (latest) reviewers and appends a new row, so without the lock two
     # simultaneous edits would both read the same row and one would be silently lost.
+    service = ReportAssignmentService(team=team, report_id=str(report_id))
     seen: set[str] = set()
     with transaction.atomic():
         report = (
@@ -4997,7 +5033,7 @@ def append_suggested_reviewers(
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
             .first()
         )
         try:
@@ -5068,11 +5104,18 @@ def append_suggested_reviewers(
                 }
             )
 
-        new_artefact = ReportAssignmentService(team=team, report_id=str(report_id)).edit_reviewers(
+        new_artefact = service.edit_reviewers(
             SuggestedReviewers.model_validate(new_content),
             actor=attribution,
         )
+        if current is not None and new_artefact.id == current.id:
+            return new_artefact
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
+        matched_prior_ids = {
+            id(prior)
+            for entry in new_content
+            if (prior := prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])) is not None
+        }
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
         # membership changes by a human, not agent writes or order-only rewrites.
@@ -5094,28 +5137,27 @@ def append_suggested_reviewers(
             # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
             # note channel gates on the same signal to keep the two reviewer-correction paths agreeing.
             was_impersonated = is_impersonated_session(request)
-            if assignment_side_effects_allowed(team_id=team.id, report_id=str(report_id)):
-                log_activity(
-                    organization_id=None,
-                    team_id=team.id,
-                    user=cast(User, request.user),
-                    was_impersonated=was_impersonated,
-                    item_id=report_id,
-                    scope="SignalReport",
-                    activity="suggested_reviewers_changed",
-                    detail=Detail(
-                        name=report.title,
-                        changes=[
-                            Change(
-                                type="SignalReport",
-                                action="changed",
-                                field="suggested_reviewers",
-                                before=prior_identities,
-                                after=new_identities,
-                            )
-                        ],
-                    ),
-                )
+            log_activity(
+                organization_id=None,
+                team_id=team.id,
+                user=cast(User, request.user),
+                was_impersonated=was_impersonated,
+                item_id=report_id,
+                scope="SignalReport",
+                activity="suggested_reviewers_changed",
+                detail=Detail(
+                    name=report.title,
+                    changes=[
+                        Change(
+                            type="SignalReport",
+                            action="changed",
+                            field="suggested_reviewers",
+                            before=prior_identities,
+                            after=new_identities,
+                        )
+                    ],
+                ),
+            )
 
             # A human added reviewers: ping the newly-added ones on their own Slack channel so
             # someone added after generation still hears about an actionable report, mirroring
@@ -5241,6 +5283,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
     github_login = user.get_github_login()
     github_login = github_login.lower() if github_login else None
 
+    service = ReportAssignmentService(team=team, report_id=str(report_id))
     with transaction.atomic():
         report = (
             SignalReport.objects.select_for_update()
@@ -5256,7 +5299,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
             .first()
         )
         try:
@@ -5276,35 +5319,34 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
             return False
 
         new_content = [_stored_reviewer_entry(entry) for entry in kept]
-        new_artefact = ReportAssignmentService(team=team, report_id=str(report_id)).edit_reviewers(
+        new_artefact = service.edit_reviewers(
             SuggestedReviewers.model_validate(new_content),
             actor=attribution,
             removal=True,
         )
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
 
-        if assignment_side_effects_allowed(team_id=team.id, report_id=str(report_id)):
-            log_activity(
-                organization_id=None,
-                team_id=team.id,
-                user=cast(User, request.user),
-                was_impersonated=was_impersonated,
-                item_id=report_id,
-                scope="SignalReport",
-                activity="suggested_reviewers_changed",
-                detail=Detail(
-                    name=report.title,
-                    changes=[
-                        Change(
-                            type="SignalReport",
-                            action="changed",
-                            field="suggested_reviewers",
-                            before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
-                            after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
-                        )
-                    ],
-                ),
-            )
+        log_activity(
+            organization_id=None,
+            team_id=team.id,
+            user=cast(User, request.user),
+            was_impersonated=was_impersonated,
+            item_id=report_id,
+            scope="SignalReport",
+            activity="suggested_reviewers_changed",
+            detail=Detail(
+                name=report.title,
+                changes=[
+                    Change(
+                        type="SignalReport",
+                        action="changed",
+                        field="suggested_reviewers",
+                        before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
+                        after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
+                    )
+                ],
+            ),
+        )
         correction = (
             None
             if was_impersonated or not github_login
@@ -5346,8 +5388,6 @@ def _record_reviewer_edit(
     Forwarding runs first so the analytics event can report what it achieved. `correction` is None
     for an agent write or an order-only rewrite, neither of which tells a scout anything.
     """
-    if not assignment_side_effects_allowed(team_id=team.id, report_id=report_id):
-        return
     forwarded = forward_reviewer_correction_note(team=team, correction=correction) if correction else None
     capture_suggested_reviewers_resolved(
         team_id=team.id,
@@ -5814,34 +5854,28 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         claim_id = request.validated_data.get("claim_id")
-        if (
-            isinstance(parsed_content, SuggestedReviewers)
-            and SignalReportAssignmentRevision.objects.for_team(self.team.id).filter(report_id=report_id).exists()
-        ):
-            if claim_id:
-                assignment = get_active_claim(team_id=self.team.id, report_id=report_id)
-                if (
-                    assignment is None
-                    or assignment.claim_id != claim_id
-                    or not actor_owns_claim(assignment, attribution)
-                ):
-                    return Response(
-                        {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
-                    )
+        if isinstance(parsed_content, SuggestedReviewers):
             try:
-                artefact = ReportAssignmentService(team=self.team, report_id=report_id).apply_compatibility_reviewers(
+                expected = request.validated_data.get("expected_reviewers")
+                result = ReportAssignmentService(team=self.team, report_id=report_id).apply_compatibility_reviewers(
                     parsed_content,
                     actor=attribution,
+                    expected_state=ReviewerState.model_validate(expected) if expected is not None else None,
+                    operation_id=request.validated_data.get("operation_id"),
+                    outcome=request.validated_data["reviewer_outcome"],
+                    retry_reason=request.validated_data.get("reviewer_retry_reason"),
                     claim_id=str(claim_id) if claim_id else None,
                 )
-            except AssignmentClaimConflict as e:
+            except (AssignmentClaimConflict, AssignmentOperationConflict, StaleAssignmentProposal) as e:
                 return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-            except ReviewerWriteError as e:
+            except (ReviewerWriteError, ValueError) as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-            self._schedule_suggested_reviewer_telemetry(
-                content=SuggestedReviewers.model_validate_json(artefact.content), report_id=report_id
-            )
-            return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
+            if result.changed:
+                self._schedule_suggested_reviewer_telemetry(
+                    content=SuggestedReviewers.model_validate_json(result.reviewers_artefact.content),
+                    report_id=report_id,
+                )
+            return Response(self._write_response_data(result.reviewers_artefact), status=status.HTTP_201_CREATED)
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
             import_report_pull_requests(report)
@@ -5865,8 +5899,6 @@ class SignalReportArtefactViewSet(
                 )
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        if isinstance(parsed_content, SuggestedReviewers):
-            self._schedule_suggested_reviewer_telemetry(content=parsed_content, report_id=report_id)
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     def _capture_canonical_reviewer_state(self, report_id: str) -> None:
@@ -5940,6 +5972,12 @@ class SignalReportArtefactViewSet(
                 {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            if ReportAssignmentService(team=self.team, report_id=str(artefact.report_id)).enabled:
+                return Response(
+                    {"error": "Use the report reviewer controls to change this list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -5997,15 +6035,16 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
-        if was_reviewers and artefact.report.assignment_revisions.filter(reviewers_artefact=artefact).exists():
-            return Response(
-                {
-                    "error": "This reviewer list records an assignment decision. Edit the report's reviewers to change it."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         report_id = str(artefact.report_id)
-        artefact.delete()
+        writer_enabled = was_reviewers and ReportAssignmentService(team=self.team, report_id=report_id).enabled
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            if was_reviewers and (writer_enabled or artefact.report.assignment_revisions.exists()):
+                return Response(
+                    {"error": "Use the report reviewer controls to change this list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            artefact.delete()
         if was_reviewers:
             # Deleting the latest reviewers row reverts the canonical set to the previous row (or
             # none) — re-emit so the latest event per report tracks the surviving state.

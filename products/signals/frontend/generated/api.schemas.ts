@@ -785,6 +785,81 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
+export interface ReviewerStateApi {
+    /**
+     * Current reviewer artefact ID, or null before the first list.
+     * @nullable
+     */
+    reviewers_id: string | null
+    /**
+     * Current reviewer control artefact ID, or null before migration.
+     * @nullable
+     */
+    control_id: string | null
+}
+
+/**
+ * * `human` - Human
+ * * `automatic` - Automatic
+ */
+export type ReviewerControlModeEnumApi = (typeof ReviewerControlModeEnumApi)[keyof typeof ReviewerControlModeEnumApi]
+
+export const ReviewerControlModeEnumApi = {
+    Human: 'human',
+    Automatic: 'automatic',
+} as const
+
+/**
+ * * `no_project_access` - No project access
+ * * `unresolved_identity` - Unresolved identity
+ */
+export type ReviewerValidationIssueEnumApi =
+    (typeof ReviewerValidationIssueEnumApi)[keyof typeof ReviewerValidationIssueEnumApi]
+
+export const ReviewerValidationIssueEnumApi = {
+    NoProjectAccess: 'no_project_access',
+    UnresolvedIdentity: 'unresolved_identity',
+} as const
+
+export interface ReviewerIssueApi {
+    /**
+     * Candidate member UUID, when known.
+     * @nullable
+     */
+    user_uuid: string | null
+    /**
+     * Candidate GitHub login, when known.
+     * @nullable
+     */
+    github_login: string | null
+    /** Why the candidate was not applied.
+     *
+     * * `no_project_access` - No project access
+     * * `unresolved_identity` - Unresolved identity */
+    reason: ReviewerValidationIssueEnumApi
+}
+
+export interface ReviewerControlResponseApi {
+    /** Pass this state unchanged with the next automatic reviewer proposal. */
+    state: ReviewerStateApi
+    /** Who controls the complete reviewer list.
+     *
+     * * `human` - Human
+     * * `automatic` - Automatic */
+    control: ReviewerControlModeEnumApi
+    /** Whether this report uses the protected writer. */
+    enabled: boolean
+    /** Whether automatic reviewer writes are enabled. */
+    automatic_enabled: boolean
+    /** Recipient validation results from the latest write attempt. */
+    issues: ReviewerIssueApi[]
+    /**
+     * Why the latest lookup needs a retry.
+     * @nullable
+     */
+    retry_reason: string | null
+}
+
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
@@ -1314,6 +1389,8 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Reviewer control and state token for preparing an automatic proposal. */
+    readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     /**
@@ -1558,6 +1635,8 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Reviewer control and state token for preparing an automatic proposal. */
+    readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     /**
@@ -2396,6 +2475,13 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
+}
+
+export interface ResumeReviewersApi {
+    /** Reviewer state read before requesting automatic control. */
+    expected_reviewers: ReviewerStateApi
+    /** Stable ID for this request. Reuse it on retry. */
+    operation_id: string
 }
 
 /**
@@ -3743,6 +3829,7 @@ export interface SignalReportStateRequestApi {
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
  * * `assignment_decision` - Assignment Decision
+ * * `reviewer_control` - Reviewer Control
  * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
@@ -3783,6 +3870,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
     AssignmentDecision: 'assignment_decision',
+    ReviewerControl: 'reviewer_control',
     ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
@@ -3857,6 +3945,20 @@ export interface PaginatedSignalReportArtefactListApi {
 }
 
 /**
+ * * `selected` - Selected
+ * * `no_suitable_owner` - No suitable owner
+ * * `lookup_failed` - Lookup failed
+ */
+export type ReviewerSelectionOutcomeEnumApi =
+    (typeof ReviewerSelectionOutcomeEnumApi)[keyof typeof ReviewerSelectionOutcomeEnumApi]
+
+export const ReviewerSelectionOutcomeEnumApi = {
+    Selected: 'selected',
+    NoSuitableOwner: 'no_suitable_owner',
+    LookupFailed: 'lookup_failed',
+} as const
+
+/**
  * Body for appending an artefact to a report.
  *
  * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -3864,6 +3966,21 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
+    /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+    expected_reviewers?: ReviewerStateApi
+    /** Stable ID for this selection. Reuse this ID and payload on retries. */
+    operation_id?: string
+    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+     *
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed */
+    reviewer_outcome?: ReviewerSelectionOutcomeEnumApi
+    /**
+     * Reason the reviewer lookup failed.
+     * @maxLength 500
+     */
+    reviewer_retry_reason?: string
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
     /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
@@ -7718,6 +7835,21 @@ export const ActionabilityEnumApi = {
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
+    /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+    expected_reviewers?: ReviewerStateApi
+    /** Stable ID for this selection. Reuse this ID and payload on retries. */
+    operation_id?: string
+    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+     *
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed */
+    reviewer_outcome?: ReviewerSelectionOutcomeEnumApi
+    /**
+     * Reason the reviewer lookup failed.
+     * @maxLength 500
+     */
+    reviewer_retry_reason?: string
     /** Id of the report to edit (must belong to this project). */
     report_id: string
     /**
@@ -7747,7 +7879,7 @@ export interface EditReportRequestApi {
      */
     append_evidence?: ReportEvidenceApi[] | null
     /**
-     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when the shared writer is enabled. Human control is preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection, and a stable operation_id.
      * @maxItems 10
      */
     suggested_reviewers?: SuggestedReviewerApi[]

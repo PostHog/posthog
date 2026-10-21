@@ -23,6 +23,7 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -33,6 +34,9 @@ from products.signals.backend.contracts import (
 )
 from products.signals.backend.enums import (
     ReportTaskActionKind,
+    ReviewerControlMode,
+    ReviewerSelectionOutcome,
+    ReviewerValidationIssue,
     SignalSourceProduct,
     SignalSourceType,
     SuggestedSourceProduct,
@@ -1247,6 +1251,78 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class ReviewerStateSerializer(serializers.Serializer):
+    reviewers_id = serializers.UUIDField(
+        allow_null=True, help_text="Current reviewer artefact ID, or null before the first list."
+    )
+    control_id = serializers.UUIDField(
+        allow_null=True, help_text="Current reviewer control artefact ID, or null before migration."
+    )
+
+
+class ReviewerProposalSerializer(serializers.Serializer):
+    expected_reviewers = ReviewerStateSerializer(
+        required=False,
+        help_text="State returned by reviewer_state before selection began. Required when the shared writer is enabled.",
+    )
+    operation_id = serializers.UUIDField(
+        required=False, help_text="Stable ID for this selection. Reuse this ID and payload on retries."
+    )
+    reviewer_outcome = serializers.ChoiceField(
+        choices=ReviewerSelectionOutcome.choices,
+        default="selected",
+        help_text="A successful selection, a deliberate empty result, or an unavailable lookup.",
+    )
+    reviewer_retry_reason = serializers.CharField(
+        required=False, max_length=500, help_text="Reason the reviewer lookup failed."
+    )
+
+
+class ReviewerIssueSerializer(serializers.Serializer):
+    user_uuid = serializers.UUIDField(allow_null=True, help_text="Candidate member UUID, when known.")
+    github_login = serializers.CharField(allow_null=True, help_text="Candidate GitHub login, when known.")
+    reason = serializers.ChoiceField(
+        choices=ReviewerValidationIssue.choices, help_text="Why the candidate was not applied."
+    )
+
+
+class ReviewerControlResponseSerializer(serializers.Serializer):
+    state = ReviewerStateSerializer(help_text="Pass this state unchanged with the next automatic reviewer proposal.")
+    control = serializers.ChoiceField(
+        choices=ReviewerControlMode.choices, help_text="Who controls the complete reviewer list."
+    )
+    enabled = serializers.BooleanField(help_text="Whether this report uses the protected writer.")
+    automatic_enabled = serializers.BooleanField(help_text="Whether automatic reviewer writes are enabled.")
+    issues = ReviewerIssueSerializer(many=True, help_text="Recipient validation results from the latest write attempt.")
+    retry_reason = serializers.CharField(allow_null=True, help_text="Why the latest lookup needs a retry.")
+
+    def to_representation(self, instance: ReportAssignmentService) -> dict[str, object]:
+        snapshot = instance.read()
+        decision = instance.latest_decision()
+        issues = []
+        if decision is not None:
+            issues = [
+                {"user_uuid": user_uuid, "github_login": None, "reason": "no_project_access"}
+                for user_uuid in decision.ineligible_user_uuids
+            ] + [
+                {"user_uuid": entry.user_uuid, "github_login": entry.github_login, "reason": "unresolved_identity"}
+                for entry in decision.unresolved_candidates
+            ]
+        return {
+            "state": snapshot.state.model_dump(mode="json"),
+            "control": snapshot.control,
+            "enabled": instance.enabled or snapshot.state.control_id is not None,
+            "automatic_enabled": instance.enabled,
+            "issues": issues,
+            "retry_reason": decision.retry_reason if decision else None,
+        }
+
+
+class ResumeReviewersSerializer(serializers.Serializer):
+    expected_reviewers = ReviewerStateSerializer(help_text="Reviewer state read before requesting automatic control.")
+    operation_id = serializers.UUIDField(help_text="Stable ID for this request. Reuse it on retry.")
+
+
 class SignalReportSerializerExtension(OpenApiSerializerExtension):
     target_class = "products.signals.backend.serializers.SignalReportSerializer"
     match_subclasses = True
@@ -1261,6 +1337,17 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    reviewer_assignment = serializers.SerializerMethodField(
+        help_text="Reviewer control and state token for preparing an automatic proposal."
+    )
+
+    @extend_schema_field(ReviewerControlResponseSerializer(allow_null=True))
+    def get_reviewer_assignment(self, obj: SignalReport) -> dict | None:
+        if isinstance(self, SignalReportListSerializer):
+            return None
+        service = ReportAssignmentService(team=obj.team, report_id=str(obj.id))
+        return dict(ReviewerControlResponseSerializer(service).data)
+
     monitoring_started_at = serializers.DateTimeField(
         read_only=True,
         required=False,
@@ -1435,6 +1522,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "summary_lead",
+            "reviewer_assignment",
             "status",
             "monitoring_started_at",
             "total_weight",  # Used for priority scoring
@@ -2787,7 +2875,7 @@ def _validate_artefact_content_is_container(value: object) -> dict | list:
     return value
 
 
-class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
+class SignalReportArtefactLogCreateSerializer(ReviewerProposalSerializer):
     """Body for appending an artefact to a report.
 
     Everything is append-only: log artefacts accumulate, status artefacts supersede the previous

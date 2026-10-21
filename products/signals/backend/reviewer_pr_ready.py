@@ -101,7 +101,7 @@ def _resolved_reviewer_users(*, team_id: int, report_id: str) -> list[User]:
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if latest is None:

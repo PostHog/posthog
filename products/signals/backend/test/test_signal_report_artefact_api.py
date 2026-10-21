@@ -702,7 +702,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
     # --- PUT reviewers (report-level, works with no existing artefact) ---
 
-    @patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True)
+    @patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True)
     def test_reviewers_action_assigns_first_reviewer_when_none_exist(self, _human_flag):
         # A report that never had a suggested_reviewers artefact must still be assignable: the
         # report-level PUT creates the first status row from scratch (the artefact PUT couldn't,
@@ -722,28 +722,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert self._reviewers_count(report) == 1
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
         decision = AssignmentDecision.model_validate_json(report.artefacts.get(type="assignment_decision").content)
-        assert [person.user_uuid for person in decision.selection.people] == [str(member.uuid)]
-        assert [person.user_uuid for person in decision.overrides.additions] == [str(member.uuid)]
+        assert decision.control == "human"
         log = self.client.get(self._list_url(str(report.id))).json()
         assert [entry["type"] for entry in log["results"]] == ["suggested_reviewers"]
         assert SignalReportArtefact.counts_by_report([str(report.id)]) == {str(report.id): 1}
 
         deletion = self.client.delete(self._detail_url(str(report.id), response.json()["id"]))
         assert deletion.status_code == status.HTTP_400_BAD_REQUEST
-        assert "assignment decision" in deletion.json()["error"]
+        assert "reviewer controls" in deletion.json()["error"]
 
         edit = self.client.patch(
             self._detail_url(str(report.id), response.json()["id"]), {"content": []}, format="json"
         )
         assert edit.status_code == status.HTTP_400_BAD_REQUEST
-        assert "assignment decision" in edit.json()["error"]
+        assert "reviewer controls" in edit.json()["error"]
         legacy_write = self.client.post(
             self._list_url(str(report.id)),
             {"artefact_type": "suggested_reviewers", "content": []},
             format="json",
         )
-        assert legacy_write.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Assignment writes are disabled" in legacy_write.json()["error"]
+        assert legacy_write.status_code == status.HTTP_409_CONFLICT
+        assert "reviewer_state" in legacy_write.json()["detail"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
         decision_artefact = report.artefacts.get(type="assignment_decision")
         internal_read = self.client.get(self._detail_url(str(report.id), str(decision_artefact.id)))
@@ -1120,7 +1119,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
         with (
-            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=enabled),
+            patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=enabled),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
             patch("products.signals.backend.models.SignalReportArtefact._schedule_autostart_reevaluation") as autostart,
             patch("products.signals.backend.views.send_reviewer_added_slack_notifications.delay") as notify,
@@ -1144,13 +1143,16 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert report.assignment_revisions.count() == int(enabled)
         assert (
             ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport", item_id=str(report.id)).exists()
-            is not enabled
+            is True
         )
         if enabled:
             autostart.assert_not_called()
             notify.assert_not_called()
             assign.assert_not_called()
-            steer.assert_not_called()
+            if adapter == "leave":
+                steer.assert_not_called()  # This test's departing member has no linked GitHub identity.
+            else:
+                steer.assert_called_once()
 
     def test_post_reviewer_payload_uses_shared_writer_after_human_edit(self) -> None:
         human_reviewer = self._create_org_member("human-reviewer@example.com", github_login="human-reviewer")
@@ -1167,8 +1169,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
 
         with (
-            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True),
-            patch("products.signals.backend.assignment_service.assignment_agent_selection_enabled", return_value=True),
+            patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
             patch("products.signals.backend.views.capture_suggested_reviewers_resolved") as telemetry,
             self.captureOnCommitCallbacks(execute=True),
@@ -1180,29 +1181,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             )
             assert human_edit.status_code == status.HTTP_200_OK, human_edit.json()
 
+            state = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewer_state/").json()[
+                "state"
+            ]
             automatic_edit = self.client.post(
                 self._list_url(str(report.id)),
                 {
                     "artefact_type": "suggested_reviewers",
                     "content": [{"user_uuid": str(automatic_reviewer.uuid)}],
                     "claim_id": str(claim.id),
+                    "expected_reviewers": state,
+                    "operation_id": str(uuid.uuid4()),
                 },
                 format="json",
             )
 
         assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()
-        assert automatic_edit.json()["claim_id"] == str(claim.id)
-        latest_reviewers = report.artefacts.filter(type="suggested_reviewers").latest("created_at")
-        assert latest_reviewers.claim_id == claim.id
-        assert set(telemetry.call_args.kwargs["github_logins"]) == {"human-reviewer", "automatic-reviewer"}
-        assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
-            str(human_reviewer.uuid),
-            str(automatic_reviewer.uuid),
-        }
-        decision = AssignmentDecision.model_validate_json(
-            report.artefacts.filter(type="assignment_decision").latest("created_at").content
-        )
-        assert [person.user_uuid for person in decision.overrides.additions] == [str(human_reviewer.uuid)]
+        assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {str(human_reviewer.uuid)}
+        assert set(telemetry.call_args.kwargs["github_logins"]) == {"human-reviewer"}
+        decision_row = report.artefacts.filter(type="assignment_decision").latest("created_at")
+        assert decision_row.claim_id == claim.id
+        assert AssignmentDecision.model_validate_json(decision_row.content).control == "human"
 
     # --- DELETE reviewers/me (step off a report) ---
 

@@ -15,6 +15,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -1599,6 +1600,82 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    @patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False)
+    def test_human_scout_human_flow_and_resume(self, _effects, _writer) -> None:
+        human = APIClient()
+        human.force_login(self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        run = _make_run(self.team)
+        root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
+        selected = {"content": [{"user_uuid": str(self.user.uuid)}]}
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        before = human.get(f"{root}/reviewer_state/").json()
+        assert before["control"] == "human"
+        assert human.put(f"{root}/reviewers/", {"content": []}, format="json").status_code == 200
+        request = {
+            "report_id": str(report.id),
+            "suggested_reviewers": [{"user_uuid": str(self.user.uuid)}],
+            "expected_reviewers": before["state"],
+            "operation_id": str(uuid4()),
+        }
+        stale = self.client.post(self._edit_url(str(run.id)), request, format="json")
+        assert stale.status_code == 200, stale.json()
+        assert stale.json()["warnings"][0]["field"] == "suggested_reviewers"
+        assert not stale.json()["reviewers_set"]
+        state = human.get(f"{root}/reviewer_state/").json()
+        request.update(expected_reviewers=state["state"], operation_id=str(uuid4()))
+        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            for _ in range(2):
+                response = self.client.post(self._edit_url(str(run.id)), request, format="json")
+                assert response.status_code == 200, response.json()
+                assert not response.json()["reviewers_set"]
+            autostart.assert_not_called()
+        assert report.artefacts.filter(type="suggested_reviewers").count() == 2
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        state = human.get(f"{root}/reviewer_state/").json()
+        resume = {"expected_reviewers": state["state"], "operation_id": str(uuid4())}
+        for _ in range(2):
+            response = human.post(f"{root}/reviewers/resume/", resume, format="json")
+            assert response.status_code == 200, response.json()
+            assert response.json()["control"] == "automatic"
+        state = response.json()
+        failed = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "expected_reviewers": state["state"],
+                "operation_id": str(uuid4()),
+                "reviewer_outcome": "lookup_failed",
+                "reviewer_retry_reason": "Member lookup unavailable",
+            },
+            format="json",
+        )
+        assert failed.status_code == 200, failed.json()
+        assert not failed.json()["reviewers_set"]
+        assert human.get(f"{root}/reviewer_state/").json()["retry_reason"] == "Member lookup unavailable"
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
+        empty = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "suggested_reviewers": [],
+                "expected_reviewers": state["state"],
+                "operation_id": str(uuid4()),
+                "reviewer_outcome": "no_suitable_owner",
+            },
+            format="json",
+        )
+        assert empty.status_code == 200, empty.json()
+        assert empty.json()["reviewers_set"]
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root == []
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,

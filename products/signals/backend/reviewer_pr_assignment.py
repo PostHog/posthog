@@ -121,7 +121,7 @@ def _latest_reviewer_rows(report_id: str) -> list[dict[str, Any]]:
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if latest is None:

@@ -6,7 +6,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -15,21 +15,17 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
-    AssignedPerson,
     AssignmentDecision,
-    AssignmentOverrides,
-    AssignmentSelection,
+    ReviewerControl,
+    ReviewerState,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.assignment_flags import (
-    assignment_agent_selection_enabled,
-    assignment_human_writer_enabled,
-    assignment_side_effects_enabled,
-)
+from products.signals.backend.assignment_flags import assignment_side_effects_enabled, assignment_writer_enabled
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignmentRevision
 from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
 from products.signals.backend.report_generation.resolve_reviewers import (
+    bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
 )
@@ -55,13 +51,10 @@ class AssignmentProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation_id: UUID
-    expected_revision: int = Field(ge=0)
-    evidence_revision: str = Field(min_length=1)
+    expected_state: ReviewerState
     source: str = Field(min_length=1, max_length=100)
-    policy_version: str = Field(min_length=1, max_length=100)
-    action: Literal["automatic", "replace", "remove", "resume"] = "automatic"
+    action: Literal["automatic", "replace", "remove", "resume", "cleanup"] = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
-    selection: AssignmentSelection = Field(default_factory=AssignmentSelection)
     reviewers: tuple[SuggestedReviewerEntry, ...] = ()
     retry_reason: str | None = Field(default=None, max_length=500)
 
@@ -69,198 +62,132 @@ class AssignmentProposal(BaseModel):
     def validate_outcome(self) -> AssignmentProposal:
         if self.outcome == "lookup_failed" and not self.retry_reason:
             raise ValueError("A failed lookup needs a retry reason.")
-        if self.outcome != "selected" and self.selection != AssignmentSelection():
-            raise ValueError("An unsuccessful selection cannot propose assignments.")
+        if self.outcome != "selected" and self.reviewers:
+            raise ValueError("An unsuccessful selection cannot propose reviewers.")
         if self.action != "automatic" and self.outcome != "selected":
-            raise ValueError("A human edit must have a successful outcome.")
-        if self.action != "automatic" and self.selection != AssignmentSelection():
-            raise ValueError("A reviewer edit cannot also submit an automatic selection.")
-        if self.action in {"automatic", "resume"} and self.reviewers:
-            raise ValueError("Only a reviewer edit can replace the compatibility list.")
+            raise ValueError("Only an automatic proposal can report a failed or empty selection.")
+        if self.action in {"resume", "cleanup"} and self.reviewers:
+            raise ValueError("This operation cannot supply reviewers.")
         return self
 
 
 @frozen
 class AssignmentSnapshot:
-    revision: int
-    evidence_revision: str
-    selection: AssignmentSelection
-    overrides: AssignmentOverrides
+    state: ReviewerState
+    control: Literal["human", "automatic"]
     reviewers: tuple[SuggestedReviewerEntry, ...]
+    human_editor_id: int | None
 
 
 @frozen
 class AssignmentWrite:
-    decision: AssignmentDecision
     reviewers_artefact: SignalReportArtefact
-    replayed: bool
+    changed: bool
+    replayed: bool = False
+    decision: AssignmentDecision | None = None
 
 
 @frozen
-class AssignmentEdit:
-    selection: AssignmentSelection
-    overrides: AssignmentOverrides
-
-
-@frozen
-class EligibleAssignment:
-    selection: AssignmentSelection
+class EligibleReviewers:
+    reviewers: tuple[SuggestedReviewerEntry, ...]
     ineligible_user_uuids: tuple[str, ...]
-
-
-def _identity(entry: SuggestedReviewerEntry) -> str:
-    return entry.user_uuid or f"github:{(entry.github_login or '').lower()}"
-
-
-def _same_person(left: SuggestedReviewerEntry, right: SuggestedReviewerEntry) -> bool:
-    if left.user_uuid and right.user_uuid:
-        return left.user_uuid == right.user_uuid
-    return bool(left.github_login and right.github_login and left.github_login.lower() == right.github_login.lower())
-
-
-def _evidence_revision(report: SignalReport) -> str:
-    evidence = list(
-        SignalReportArtefact.objects.filter(
-            team_id=report.team_id,
-            report_id=report.id,
-            type__in=["signal_finding", "repo_selection", "code_reference"],
-        )
-        .order_by("id")
-        .values_list("id", "updated_at")
-    )
-    value = [report.title, report.summary, report.signal_count, report.total_weight, evidence]
-    return hashlib.sha256(json.dumps(value, default=str).encode()).hexdigest()
+    unresolved_candidates: tuple[SuggestedReviewerEntry, ...]
 
 
 class ReportAssignmentService:
     def __init__(self, *, team: Team, report_id: str) -> None:
         self.team = team
         self.report_id = report_id
+        # Resolve remote controls before callers acquire the report lock.
+        self.enabled = assignment_writer_enabled(team.id)
+        self.effects_enabled = assignment_side_effects_enabled(team.id)
+
+    def _artefacts(self) -> QuerySet[SignalReportArtefact]:
+        return SignalReportArtefact.objects.filter(team_id=self.team.id, report_id=self.report_id)
 
     def _revisions(self) -> QuerySet[SignalReportAssignmentRevision]:
         return SignalReportAssignmentRevision.objects.for_team(self.team.id).filter(report_id=self.report_id)
 
-    def _snapshot(self, report: SignalReport) -> AssignmentSnapshot:
-        latest = self._revisions().select_related("artefact").order_by("-revision").first()
-        decision = AssignmentDecision.model_validate_json(latest.artefact.content) if latest else None
-        reviewers = SignalReportArtefact.latest_content(
-            team_id=self.team.id, report_id=self.report_id, model=SuggestedReviewers
-        )
-        return AssignmentSnapshot(
-            revision=latest.revision if latest else 0,
-            evidence_revision=_evidence_revision(report),
-            selection=decision.selection
-            if decision
-            else AssignmentSelection(suggestions=tuple(reviewers.root) if reviewers else ()),
-            overrides=decision.overrides if decision else AssignmentOverrides(),
-            reviewers=tuple(reviewers.root) if reviewers else (),
-        )
+    def has_applied(self, operation_id: UUID) -> bool:
+        return self._revisions().filter(operation_id=operation_id).exists()
 
-    def read(self) -> AssignmentSnapshot:
-        report = SignalReport.objects.get(team_id=self.team.id, id=self.report_id)
-        return self._snapshot(report)
-
-    def _human_edit(self, snapshot: AssignmentSnapshot, proposal: AssignmentProposal) -> AssignmentEdit:
-        wanted = {_identity(entry) for entry in proposal.reviewers}
-        assigned = {_identity(entry) for entry in snapshot.selection.people}
-        added = {_identity(entry): entry for entry in snapshot.overrides.additions if _identity(entry) in wanted}
-        people: list[AssignedPerson] = []
-        suggestions: list[SuggestedReviewerEntry] = []
-        for entry in proposal.reviewers:
-            identity = _identity(entry)
-            was_suggested = any(_same_person(entry, prior) for prior in snapshot.reviewers)
-            if entry.user_uuid and (not was_suggested or identity in assigned):
-                person = AssignedPerson.model_validate(entry.model_dump())
-                people.append(person)
-                if not was_suggested:
-                    added[identity] = person
-            else:
-                suggestions.append(entry)
-        removed = [
-            entry for entry in snapshot.reviewers if not any(_same_person(entry, kept) for kept in proposal.reviewers)
-        ]
-        removed_uuids = set(snapshot.overrides.removed_user_uuids)
-        removed_logins = set(snapshot.overrides.removed_github_logins)
-        removed_uuids.update(entry.user_uuid for entry in removed if entry.user_uuid)
-        removed_logins.update(
-            entry.github_login.lower() for entry in removed if entry.github_login and not entry.user_uuid
-        )
-        removed_members = resolve_org_github_login_to_users(self.team.id, removed_logins)
-        removed_uuids.update(str(member.uuid) for member in removed_members.values())
-        removed_logins.difference_update(removed_members)
-        removed_uuids.difference_update(entry.user_uuid for entry in proposal.reviewers if entry.user_uuid)
-        removed_logins.difference_update(
-            entry.github_login.lower() for entry in proposal.reviewers if entry.github_login
-        )
-        return AssignmentEdit(
-            selection=AssignmentSelection(people=tuple(people), suggestions=tuple(suggestions)),
-            overrides=AssignmentOverrides(
-                additions=tuple(added.values()),
-                removed_user_uuids=tuple(sorted(removed_uuids)),
-                removed_github_logins=tuple(sorted(removed_logins)),
-                unassigned=not proposal.reviewers if proposal.action == "replace" else snapshot.overrides.unassigned,
-            ),
-        )
+    def latest_decision(self) -> AssignmentDecision | None:
+        revision = self._revisions().select_related("artefact").order_by("-revision").first()
+        return AssignmentDecision.model_validate_json(revision.artefact.content) if revision else None
 
     @staticmethod
-    def _apply_overrides(selection: AssignmentSelection, overrides: AssignmentOverrides) -> AssignmentSelection:
-        if overrides.unassigned:
-            return AssignmentSelection()
+    def _read_reviewers(artefact: SignalReportArtefact | None) -> tuple[SuggestedReviewerEntry, ...]:
+        if artefact is None:
+            return ()
+        content = json.loads(artefact.content)
+        if isinstance(content, list):
+            for entry in content:
+                if isinstance(entry, dict):
+                    entry["reason"] = bounded_reviewer_reason(entry.get("reason"))
+                    for commit in entry.get("relevant_commits") or []:
+                        if isinstance(commit, dict):
+                            commit["reason"] = bounded_reviewer_reason(commit.get("reason")) or ""
+        return tuple(SuggestedReviewers.model_validate(content).root)
 
-        def allowed(entry: SuggestedReviewerEntry) -> bool:
-            return entry.user_uuid not in overrides.removed_user_uuids and (
-                not entry.github_login or entry.github_login.lower() not in overrides.removed_github_logins
-            )
+    def read(self) -> AssignmentSnapshot:
+        return self.read_for_report(team_id=self.team.id, report_id=self.report_id)
 
-        people = {_identity(entry): entry for entry in selection.people if allowed(entry)}
-        people.update({_identity(entry): entry for entry in overrides.additions})
-        suggestions = tuple(
-            entry for entry in selection.suggestions if allowed(entry) and _identity(entry) not in people
+    @classmethod
+    def read_for_report(cls, *, team_id: int, report_id: str) -> AssignmentSnapshot:
+        SignalReport.objects.get(team_id=team_id, id=report_id)
+        rows = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id)
+        reviewers = rows.filter(type="suggested_reviewers").order_by("-created_at", "-id").first()
+        control = rows.filter(type="reviewer_control").order_by("-created_at", "-id").first()
+        human = (
+            rows.filter(type__in=["suggested_reviewers", "reviewer_control"])
+            .filter(Q(actor_kind="user") | Q(actor_kind__isnull=True, created_by__isnull=False))
+            .order_by("-created_at", "-id")
+            .first()
         )
-        return selection.model_copy(
-            update={
-                "people": tuple(people.values()),
-                "suggestions": suggestions,
-                "pr_owner": None if str(selection.pr_owner) in overrides.removed_user_uuids else selection.pr_owner,
-                "pr_reviewers": tuple(
-                    member for member in selection.pr_reviewers if str(member) not in overrides.removed_user_uuids
-                ),
-            }
+        mode: Literal["human", "automatic"] = (
+            ReviewerControl.model_validate_json(control.content).mode if control else "human" if human else "automatic"
         )
-
-    def _validate_members(self, selection: AssignmentSelection, snapshot: AssignmentSnapshot) -> EligibleAssignment:
-        if selection.teams:
-            raise AssignmentWriteError(
-                "Team assignment needs a verified team provider. Select project members instead."
-            )
-        wanted = {person.user_uuid for person in selection.people}
-        wanted.update(str(member) for member in selection.pr_reviewers)
-        if selection.pr_owner:
-            wanted.add(str(selection.pr_owner))
-        eligible = {str(member.uuid) for member in self.team.all_users_with_access(user_uuids=wanted)}
-        ineligible = wanted - eligible
-        previous = {person.user_uuid for person in snapshot.selection.people}
-        previous.update(str(member) for member in snapshot.selection.pr_reviewers)
-        if snapshot.selection.pr_owner:
-            previous.add(str(snapshot.selection.pr_owner))
-        if ineligible - previous:
-            raise AssignmentWriteError("An assignee no longer has project access. Refresh the member list.")
-        logins = get_org_member_github_logins_by_user_uuid(
-            self.team.id, [person.user_uuid for person in selection.people if person.user_uuid in eligible]
-        )
-        people: list[AssignedPerson] = []
-        for person in selection.people:
-            if person.user_uuid in eligible:
-                people.append(person.model_copy(update={"github_login": logins.get(person.user_uuid)}))
-        return EligibleAssignment(
-            selection=selection.model_copy(
-                update={
-                    "people": tuple(people),
-                    "pr_owner": selection.pr_owner if str(selection.pr_owner) in eligible else None,
-                    "pr_reviewers": tuple(member for member in selection.pr_reviewers if str(member) in eligible),
-                }
+        return AssignmentSnapshot(
+            state=ReviewerState(
+                reviewers_id=reviewers.id if reviewers else None, control_id=control.id if control else None
             ),
-            ineligible_user_uuids=tuple(sorted(ineligible)),
+            control=mode,
+            reviewers=cls._read_reviewers(reviewers),
+            human_editor_id=human.created_by_id if human else None,
+        )
+
+    def _validate_members(self, reviewers: tuple[SuggestedReviewerEntry, ...]) -> EligibleReviewers:
+        unresolved_logins = {
+            entry.github_login.lower() for entry in reviewers if entry.github_login and not entry.user_uuid
+        }
+        members = resolve_org_github_login_to_users(self.team.id, unresolved_logins) if unresolved_logins else {}
+        resolved: list[SuggestedReviewerEntry] = []
+        unresolved: list[SuggestedReviewerEntry] = []
+        for entry in reviewers:
+            if entry.user_uuid:
+                try:
+                    UUID(entry.user_uuid)
+                except ValueError as error:
+                    raise AssignmentWriteError("A reviewer must have a valid user UUID.") from error
+            member = members.get(entry.github_login.lower()) if entry.github_login and not entry.user_uuid else None
+            if member:
+                entry = entry.model_copy(update={"user_uuid": str(member.uuid)})
+            if entry.user_uuid:
+                resolved.append(entry)
+            else:
+                unresolved.append(entry)
+        wanted = {entry.user_uuid for entry in resolved if entry.user_uuid}
+        eligible = {str(user.uuid) for user in self.team.all_users_with_access(user_uuids=wanted)} if wanted else set()
+        logins = get_org_member_github_logins_by_user_uuid(self.team.id, sorted(eligible)) if eligible else {}
+        accepted = {
+            entry.user_uuid: entry.model_copy(update={"github_login": logins.get(entry.user_uuid)})
+            for entry in resolved
+            if entry.user_uuid in eligible
+        }
+        return EligibleReviewers(
+            reviewers=tuple(accepted.values()),
+            ineligible_user_uuids=tuple(sorted(wanted - eligible)),
+            unresolved_candidates=tuple(unresolved),
         )
 
     def apply(
@@ -274,21 +201,9 @@ class ReportAssignmentService:
         request_hash = hashlib.sha256(
             (proposal.model_dump_json() + repr(actor) + (claim_id or "")).encode()
         ).hexdigest()
-        writer_enabled = (
-            assignment_agent_selection_enabled(self.team.id)
-            if proposal.action == "automatic"
-            else assignment_human_writer_enabled(self.team.id)
-        )
-        side_effects_enabled = (
-            assignment_side_effects_enabled(self.team.id)
-            if proposal.action == "replace" or reevaluate_autostart
-            else False
-        )
         with transaction.atomic():
-            report = (
-                SignalReport.objects.select_for_update()
-                .exclude(status=SignalReport.Status.DELETED)
-                .get(team_id=self.team.id, id=self.report_id)
+            SignalReport.objects.select_for_update().exclude(status=SignalReport.Status.DELETED).get(
+                team_id=self.team.id, id=self.report_id
             )
             existing = (
                 self._revisions()
@@ -298,73 +213,84 @@ class ReportAssignmentService:
             )
             if existing:
                 if existing.request_hash != request_hash:
-                    raise AssignmentOperationConflict("This operation ID belongs to a different assignment request.")
+                    raise AssignmentOperationConflict("This operation ID belongs to a different reviewer request.")
                 return AssignmentWrite(
-                    decision=AssignmentDecision.model_validate_json(existing.artefact.content),
                     reviewers_artefact=existing.reviewers_artefact,
+                    decision=AssignmentDecision.model_validate_json(existing.artefact.content),
+                    changed=False,
                     replayed=True,
                 )
             if claim_id:
-                assignment = get_active_claim(team_id=self.team.id, report_id=self.report_id)
-                if (
-                    assignment is None
-                    or str(assignment.claim_id) != claim_id
-                    or not actor_owns_claim(assignment, actor)
-                ):
+                claim = get_active_claim(team_id=self.team.id, report_id=self.report_id)
+                if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, actor):
                     raise AssignmentClaimConflict("Claim is stale or belongs to another actor.")
-            snapshot = self._snapshot(report)
-            if (
-                proposal.expected_revision != snapshot.revision
-                or proposal.evidence_revision != snapshot.evidence_revision
-            ):
+            snapshot = self.read()
+            if proposal.expected_state != snapshot.state:
                 raise StaleAssignmentProposal(
-                    "The report or assignment changed. Read it again before applying this proposal."
+                    "Reviewers or their control changed. Read the report again before selecting reviewers."
                 )
-            if not writer_enabled:
-                raise AssignmentWriteError("Assignment writes are disabled.")
-            if proposal.action != "automatic" and actor.kind != "user":
-                raise AssignmentWriteError("Only a person can change assignment overrides.")
+            if proposal.action in {"replace", "remove", "resume"} and actor.kind != "user":
+                raise AssignmentWriteError("Only a person can change reviewer control.")
+            if not self.enabled and (snapshot.state.control_id is None or proposal.action == "automatic"):
+                raise AssignmentWriteError("Automatic reviewer writes are paused.")
 
-            overrides = snapshot.overrides
+            control = snapshot.control
+            proposed = proposal.reviewers
             if proposal.action in {"replace", "remove"}:
-                edit = self._human_edit(snapshot, proposal)
-                selection = edit.selection
-                overrides = edit.overrides
+                control = "human"
             elif proposal.action == "resume":
-                selection, overrides = snapshot.selection, AssignmentOverrides()
-            else:
-                selection = snapshot.selection if proposal.outcome == "lookup_failed" else proposal.selection
-                selection = self._apply_overrides(selection, overrides)
-            validated = self._validate_members(selection, snapshot)
-            selection = validated.selection
-            ineligible = validated.ineligible_user_uuids
-            overrides = overrides.model_copy(
-                update={
-                    "additions": tuple(person for person in overrides.additions if person.user_uuid not in ineligible)
-                }
-            )
+                control, proposed = "automatic", snapshot.reviewers
+            elif proposal.action == "cleanup" or snapshot.control == "human" or proposal.outcome == "lookup_failed":
+                proposed = snapshot.reviewers
             if proposal.action in {"replace", "remove"}:
-                assigned = {person.user_uuid: person for person in selection.people}
-                reviewers = tuple(
-                    assigned.get(entry.user_uuid, entry) if entry.user_uuid else entry
-                    for entry in proposal.reviewers
-                    if entry.user_uuid not in ineligible
+                old_uuids = {entry.user_uuid for entry in snapshot.reviewers if entry.user_uuid}
+                old_logins = {entry.github_login.lower() for entry in snapshot.reviewers if entry.github_login}
+                additions = tuple(
+                    entry
+                    for entry in proposed
+                    if entry.user_uuid not in old_uuids
+                    and (not entry.github_login or entry.github_login.lower() not in old_logins)
                 )
-            else:
-                reviewers = (*selection.people, *selection.suggestions)
+                checked_additions = self._validate_members(additions)
+                if checked_additions.ineligible_user_uuids or checked_additions.unresolved_candidates:
+                    raise AssignmentWriteError("New reviewers must be active members with access to this project.")
+            validated = self._validate_members(proposed)
+            current = (
+                self._artefacts().filter(id=snapshot.state.reviewers_id).first()
+                if snapshot.state.reviewers_id
+                else None
+            )
+            changed = validated.reviewers != snapshot.reviewers
+            if changed or current is None:
+                current = SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    content=SuggestedReviewers(root=list(validated.reviewers)),
+                    attribution=actor,
+                    claim_id=claim_id,
+                    reevaluate_autostart=False,
+                    assignment_writer=True,
+                )
+            if control != snapshot.control or snapshot.state.control_id is None:
+                SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    content=ReviewerControl(mode=control),
+                    attribution=actor,
+                    claim_id=claim_id,
+                    assignment_writer=True,
+                )
+            latest_revision = self._revisions().order_by("-revision").values_list("revision", flat=True).first() or 0
             decision = AssignmentDecision(
                 operation_id=proposal.operation_id,
-                revision=snapshot.revision + 1,
-                based_on_revision=snapshot.revision,
-                evidence_revision=snapshot.evidence_revision,
+                revision=latest_revision + 1,
                 source=proposal.source,
-                policy_version=proposal.policy_version,
                 outcome=proposal.outcome,
-                selection=selection,
-                overrides=overrides,
+                control=control,
+                expected_state=proposal.expected_state,
                 retry_reason=proposal.retry_reason,
-                ineligible_user_uuids=ineligible,
-                requires_reassessment=bool(ineligible) or proposal.outcome == "lookup_failed",
+                ineligible_user_uuids=validated.ineligible_user_uuids,
+                unresolved_candidates=validated.unresolved_candidates,
             )
             artefact = SignalReportArtefact.add_log(
                 team_id=self.team.id,
@@ -373,57 +299,94 @@ class ReportAssignmentService:
                 attribution=actor,
                 claim_id=claim_id,
             )
-            compatibility = SignalReportArtefact.append_status(
+            self._revisions().create(
                 team_id=self.team.id,
                 report_id=self.report_id,
-                content=SuggestedReviewers(root=list(reviewers)),
-                attribution=actor,
-                claim_id=claim_id,
-                reevaluate_autostart=(proposal.action == "replace" or reevaluate_autostart) and side_effects_enabled,
-                assignment_writer=True,
-            )
-            SignalReportAssignmentRevision.objects.for_team(self.team.id).create(
-                team_id=self.team.id,
-                report=report,
                 revision=decision.revision,
                 operation_id=proposal.operation_id,
                 request_hash=request_hash,
                 artefact=artefact,
-                reviewers_artefact=compatibility,
+                reviewers_artefact=current,
             )
-            return AssignmentWrite(decision=decision, reviewers_artefact=compatibility, replayed=False)
+            if (
+                changed
+                and reevaluate_autostart
+                and self.effects_enabled
+                and proposal.action not in {"remove", "resume", "cleanup"}
+            ):
+                SignalReportArtefact._schedule_autostart_reevaluation(team_id=self.team.id, report_id=self.report_id)
+            return AssignmentWrite(reviewers_artefact=current, changed=changed, decision=decision)
 
     def apply_compatibility_reviewers(
         self,
         reviewers: SuggestedReviewers,
         *,
         actor: ArtefactAttribution,
+        expected_state: ReviewerState | None = None,
+        operation_id: UUID | None = None,
+        outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected",
+        retry_reason: str | None = None,
         claim_id: str | None = None,
         source: str = "artefact_api",
-    ) -> SignalReportArtefact:
-        """Apply an existing reviewer API payload as an automatic assignment proposal."""
-        snapshot = self.read()
-        selection = AssignmentSelection(
-            people=tuple(
-                AssignedPerson.model_validate(entry.model_dump())
-                for entry in reviewers.root
-                if entry.user_uuid is not None
-            ),
-            suggestions=tuple(entry for entry in reviewers.root if entry.user_uuid is None),
-        )
-        return self.apply(
-            AssignmentProposal(
-                operation_id=uuid4(),
-                expected_revision=snapshot.revision,
-                evidence_revision=snapshot.evidence_revision,
-                source=source,
-                policy_version="1",
-                selection=selection,
-            ),
-            actor=actor,
-            reevaluate_autostart=True,
-            claim_id=claim_id,
-        ).reviewers_artefact
+        reevaluate_autostart: bool = True,
+    ) -> AssignmentWrite:
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().exclude(status=SignalReport.Status.DELETED).get(
+                team_id=self.team.id, id=self.report_id
+            )
+            if claim_id:
+                claim = get_active_claim(team_id=self.team.id, report_id=self.report_id)
+                if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, actor):
+                    raise AssignmentClaimConflict("Claim is stale or belongs to another actor.")
+            snapshot = self.read()
+            if not self.enabled and snapshot.state.control_id is None:
+                if source == "research" and snapshot.state.reviewers_id is not None:
+                    exclusions = {
+                        "__all__": {"reason": True, "github_name": True, "relevant_commits": {"__all__": {"reason"}}}
+                    }
+                    current = SuggestedReviewers(root=list(snapshot.reviewers))
+                    if snapshot.control == "human" or current.model_dump(exclude=exclusions) == reviewers.model_dump(
+                        exclude=exclusions
+                    ):
+                        return AssignmentWrite(
+                            reviewers_artefact=self._artefacts().get(id=snapshot.state.reviewers_id), changed=False
+                        )
+                artefact = SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    content=reviewers,
+                    attribution=actor,
+                    claim_id=claim_id,
+                    reevaluate_autostart=reevaluate_autostart,
+                    assignment_writer=True,
+                )
+                return AssignmentWrite(reviewers_artefact=artefact, changed=True)
+            if not self.enabled:
+                if snapshot.state.reviewers_id is None:
+                    raise AssignmentWriteError("Reviewer control has no saved list.")
+                return AssignmentWrite(
+                    reviewers_artefact=self._artefacts().get(id=snapshot.state.reviewers_id),
+                    changed=False,
+                )
+            if expected_state is None or operation_id is None:
+                raise StaleAssignmentProposal(
+                    "Read reviewer_state before selecting reviewers and supply it with a stable operation_id."
+                )
+            if outcome == "selected" and not reviewers.root:
+                outcome = "no_suitable_owner"
+            return self.apply(
+                AssignmentProposal(
+                    operation_id=operation_id,
+                    expected_state=expected_state,
+                    source=source,
+                    reviewers=tuple(reviewers.root),
+                    outcome=outcome,
+                    retry_reason=retry_reason,
+                ),
+                actor=actor,
+                claim_id=claim_id,
+                reevaluate_autostart=reevaluate_autostart,
+            )
 
     def edit_reviewers(
         self,
@@ -433,35 +396,29 @@ class ReportAssignmentService:
         removal: bool = False,
     ) -> SignalReportArtefact:
         if actor.kind != "user":
-            raise AssignmentWriteError("Only a person can change assignment overrides.")
-        human_writer_enabled = assignment_human_writer_enabled(self.team.id)
-        if human_writer_enabled:
+            raise AssignmentWriteError("Only a person can change reviewer control.")
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().exclude(status=SignalReport.Status.DELETED).get(
+                team_id=self.team.id, id=self.report_id
+            )
             snapshot = self.read()
+            if not self.enabled and snapshot.state.control_id is None:
+                return SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    content=reviewers,
+                    attribution=actor,
+                    reevaluate_autostart=not removal,
+                    assignment_writer=True,
+                )
             return self.apply(
                 AssignmentProposal(
                     operation_id=uuid4(),
-                    expected_revision=snapshot.revision,
-                    evidence_revision=snapshot.evidence_revision,
+                    expected_state=snapshot.state,
                     source="reviewer_api",
-                    policy_version="1",
                     action="remove" if removal else "replace",
                     reviewers=tuple(reviewers.root),
                 ),
                 actor=actor,
-            ).reviewers_artefact
-
-        with transaction.atomic():
-            (
-                SignalReport.objects.select_for_update()
-                .exclude(status=SignalReport.Status.DELETED)
-                .get(team_id=self.team.id, id=self.report_id)
-            )
-            if self._revisions().exists():
-                raise AssignmentWriteError("Reviewer edits are paused for this report during assignment testing.")
-            return SignalReportArtefact.append_status(
-                team_id=self.team.id,
-                report_id=self.report_id,
-                content=reviewers,
-                attribution=actor,
                 reevaluate_autostart=not removal,
-            )
+            ).reviewers_artefact
