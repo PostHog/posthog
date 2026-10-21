@@ -7,6 +7,9 @@ const INFO: PageAnalyticsInfo = {
     scrollPropertiesDisabled: false,
     scrollRootSelector: null,
     heatmapsEnabled: true,
+    webVitalsEnabled: true,
+    sessionRecordingConfig: {},
+    sessionRecordingStatus: null,
     featureFlags: { overrides: {}, variants: { 'launch-banner': false }, groups: {} },
 }
 
@@ -77,5 +80,26 @@ describe('PagePosthogBridge', () => {
 
         expect(statuses.at(-1)).toEqual({ pending: false, error: 'The page has no posthog-js', revision: 1 })
         expect(bridge.posthog.get_property('$override_feature_flags')).toEqual({})
+    })
+
+    it('ends a debug info request when the page has no posthog-js to answer it', async () => {
+        const debugInfo = bridge.readDebugInfo()
+
+        reply({ kind: 'result', id: requests[0].id, ok: false, error: 'The page has no posthog-js' })
+
+        await expect(debugInfo).resolves.toBeNull()
+    })
+
+    it("subscribes once to the page's events and gives each one to every listener", () => {
+        const debuggerEvents: unknown[] = []
+        const webVitalsEvents: unknown[] = []
+        bridge.posthog.on('eventCaptured', (event) => debuggerEvents.push(event))
+        bridge.posthog.on('eventCaptured', (event) => webVitalsEvents.push(event))
+
+        reply({ kind: 'event-captured', event: { event: '$pageview' } })
+
+        expect(requests.map(({ request }) => request.method)).toEqual(['subscribe-events'])
+        expect(debuggerEvents).toEqual([{ event: '$pageview' }])
+        expect(webVitalsEvents).toEqual([{ event: '$pageview' }])
     })
 })

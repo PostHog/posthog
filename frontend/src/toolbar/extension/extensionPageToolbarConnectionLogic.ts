@@ -25,7 +25,8 @@ import {
     PageToolbarState,
     isPageToolbarMessage,
 } from './pageToolbarBridge'
-import type { PageToolbarHeatmapState, PageToolbarInspectState, PageToolbarTokens } from './pageToolbarBridge'
+import type { PageToolbarTokens } from './pageToolbarBridge'
+import type { PageToolbarHeatmapState, PageToolbarInspectState, PageToolbarWebVitalsState } from './pageToolbarBridge'
 
 export type PageToolbarConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed'
 
@@ -46,9 +47,11 @@ export interface extensionPageToolbarConnectionLogicValues {
     mode: PageToolbarMode
     pageToolbarState: PageToolbarState | null
     requestedSelectors: string[]
+    screenshotPreview: string | null
     selectedActionId: number | 'new' | null
     selectorCounter: Pick<SelectorMatchCounter, 'count'>
     wantedMode: PageToolbarMode
+    webVitals: PageToolbarWebVitalsState | null
     wildcardHrefDraft: string | null
 }
 
@@ -83,6 +86,9 @@ export interface extensionPageToolbarConnectionLogicActions {
     receivePatch: (patch: Partial<PageToolbarState>) => {
         patch: Partial<PageToolbarState>
     }
+    receiveScreenshotPreview: (dataUrl: string) => {
+        dataUrl: string
+    }
     receiveState: (state: PageToolbarState | null) => {
         state: PageToolbarState | null
     }
@@ -109,6 +115,7 @@ export interface extensionPageToolbarConnectionLogicMeta {
         mode: (pageToolbarState: PageToolbarState | null, wantedMode: PageToolbarMode) => PageToolbarMode
         inspect: (pageToolbarState: PageToolbarState | null) => PageToolbarInspectState | null
         heatmap: (pageToolbarState: PageToolbarState | null) => PageToolbarHeatmapState | null
+        webVitals: (pageToolbarState: PageToolbarState | null) => PageToolbarWebVitalsState | null
         selectedActionId: (pageToolbarState: PageToolbarState | null) => number | 'new' | null
         selectorCounter: (pageToolbarState: PageToolbarState | null) => Pick<SelectorMatchCounter, 'count'>
     }
@@ -137,6 +144,7 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         setConnectionStatus: (status: PageToolbarConnectionStatus) => ({ status }),
         receiveState: (state: PageToolbarState | null) => ({ state }),
         receivePatch: (patch: Partial<PageToolbarState>) => ({ patch }),
+        receiveScreenshotPreview: (dataUrl: string) => ({ dataUrl }),
         sendCommand: (message: PageToolbarCommand) => ({ message }),
         setMode: (mode: PageToolbarMode) => ({ mode }),
         setWildcardHref: (href: string) => ({ href }),
@@ -156,6 +164,10 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
                 receivePatch: (state, { patch }) => (state ? { ...state, ...patch } : state),
                 setTab: () => null,
             },
+        ],
+        screenshotPreview: [
+            null as string | null,
+            { receiveScreenshotPreview: (_, { dataUrl }) => dataUrl, receiveState: () => null, setTab: () => null },
         ],
         // The page echoes the URL back a moment later. Until then the input shows what the user typed, so a fast typist
         // doesn't lose characters to an older echo.
@@ -197,6 +209,10 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         heatmap: [
             (s) => [s.pageToolbarState],
             (pageToolbarState: PageToolbarState | null) => pageToolbarState?.heatmap ?? null,
+        ],
+        webVitals: [
+            (s) => [s.pageToolbarState],
+            (pageToolbarState: PageToolbarState | null) => pageToolbarState?.webVitals ?? null,
         ],
         selectedActionId: [
             (s) => [s.pageToolbarState],
@@ -248,6 +264,8 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
                         actions.receiveState(message.state)
                     } else if (message.type === 'patch') {
                         actions.receivePatch(message.patch)
+                    } else if (message.type === 'screenshot-preview') {
+                        actions.receiveScreenshotPreview(message.dataUrl)
                     } else if (message.type === 'tokens') {
                         actions.updateTokens(message.tokens)
                     } else if (message.type === 'token-expired') {
