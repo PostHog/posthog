@@ -11,7 +11,7 @@ from products.error_tracking.backend.facade.contracts import IssueSummaryCategor
 from products.ml_inference.backend.facade.contracts import DecisionQuestion
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v2"
+ISSUE_SUMMARY_PROMPT_VERSION = "v3"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -23,6 +23,7 @@ Rules:
 - `likely_cause` is a hypothesis. Start it with "Possibly" or "Likely". If the input does not support a cause, write "Unknown from the stack trace."
 - Do not restate the numbers in the facts. Say what they mean, for example "Started in 1.4.2 and is getting worse."
 - `who_is_affected` describes the users or environments affected, from the facts and properties. If unknown, write "Unknown."
+- For a server-side SDK, the user count usually equals the occurrence count and does not count real people. Describe the affected service or endpoint instead.
 - `suggested_next_step` names one concrete action, such as a file and line to inspect, a release to compare, or a guard to add. If there is no clear action, say what to check first."""
 
 ISSUE_SUMMARY_INPUT_TEMPLATE = """\
