@@ -384,6 +384,40 @@ class TestReplaceScopeHandOff:
         assert (empty_batch.num_rows, empty_batch.column_names, batch_index) == (0, ["_file_name"], 0)
         producer.send_final_batch.assert_called_once()
 
+    def test_a_resumable_source_cannot_send_a_scope(self) -> None:
+        resource = MagicMock(
+            name="users",
+            primary_keys=None,
+            lanes=None,
+            cdc_write_mode=None,
+            replace_scope=ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset()),
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=False))
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=1),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer"),
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+            pytest.raises(ValueError, match="cannot send a replace scope"),
+        ):
+            PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=ExternalDataSchema(name="users", team_id=1, sync_type="incremental"),
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                ),
+            )
+
     @pytest.mark.parametrize("has_scope", [False, True])
     def test_a_scoped_run_never_continues_from_a_handoff_checkpoint(self, has_scope: bool) -> None:
         pipeline = _make_pipeline()

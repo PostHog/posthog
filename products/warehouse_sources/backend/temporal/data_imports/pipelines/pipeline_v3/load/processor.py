@@ -1458,9 +1458,14 @@ def _process_message_reported(
                 existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
         # A run whose source read no rows sends one empty batch only to carry its replace scope.
-        skips_write = (
-            export_signal.replace_scope is not None and pa_table.num_rows == 0 and existing_delta_table is not None
-        )
+        is_scope_carrier = export_signal.replace_scope is not None and pa_table.num_rows == 0
+        if is_scope_carrier and existing_delta_table is None:
+            # Writing the carrier would create a table that holds only the scope column.
+            raise ValueError(
+                f"The Delta table of schema {export_signal.schema_id} is missing, so the empty batch of "
+                f"run {export_signal.run_uuid} cannot apply its replace scope"
+            )
+        skips_write = is_scope_carrier
 
         if not skips_write:
             with timer.step("partition"):

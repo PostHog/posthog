@@ -280,6 +280,10 @@ class PipelineV3(Generic[ResumableData]):
 
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
+        if self._resumable_source_manager is not None and source_response.replace_scope is not None:
+            # A resumed attempt skips the rows before its cursor, and stages no scope, so its keyless
+            # batches would merge. Each attempt of a scoped run must read from the start.
+            raise ValueError("A source that resumes from its own cursor cannot send a replace scope")
         self._preemption = preemption
         self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
         self._sent_resumed_run_finalization = False

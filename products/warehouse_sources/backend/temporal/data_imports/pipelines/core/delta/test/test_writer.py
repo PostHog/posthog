@@ -1960,6 +1960,22 @@ class TestDeleteWhere:
             # A delete that carried a batch tag would make a redelivered batch skip its own write.
             assert not any(commit_covers_batch(commit, "run-1", 0) for commit in deletes)
 
+    @pytest.mark.asyncio
+    async def test_a_delete_retried_after_a_conflict_checks_ownership_again(self) -> None:
+        async def retry_once(table: Any, operation_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            operation_fn()
+            return operation_fn()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            with patch(f"{_WRITER_MODULE}.execute_with_conflict_retry", side_effect=retry_once):
+                await writer.delete_where("_file_name", ["a.csv"], before_commit=before_commit)
+
+            assert before_commit.call_count == 2
+
     @parameterized.expand([("no_table", False), ("no_such_column", True)])
     @pytest.mark.asyncio
     async def test_distinct_values_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:

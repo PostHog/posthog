@@ -2161,6 +2161,15 @@ class TestReplaceScopeLoad:
             assert self._rows_by_file(tmp) == {"b.csv": [3]}
             assert "DELETE" not in self._operations(tmp)
 
+    def test_an_empty_batch_never_creates_a_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            table_path = f"{tmp}/table"
+
+            with pytest.raises(ValueError, match="is missing"):
+                self._load(table_path, 1, [{}], self._scope(set(), {"a.csv"}))
+
+            assert not DeltaTable.is_deltatable(table_path)
+
 
 def _batch_rows(index: int) -> pa.Table:
     # Each batch updates one row of the batch before it and adds two rows.

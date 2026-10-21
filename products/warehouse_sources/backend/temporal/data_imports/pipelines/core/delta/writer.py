@@ -871,10 +871,11 @@ class DeltaWriter:
         for start in range(0, len(ordered), chunk_size):
             literals = ", ".join(_sql_string_literal(value) for value in ordered[start : start + chunk_size])
             predicate = f"{_sql_identifier(column)} IN ({literals})"
-            if before_commit is not None:
-                before_commit()
 
+            # Inside the operation, so a retry after a commit conflict checks ownership again.
             def _delete(predicate: str = predicate) -> dict[str, Any]:
+                if before_commit is not None:
+                    before_commit()
                 return target.delete(predicate, commit_properties=commit_properties)
 
             metrics = await execute_with_conflict_retry(
