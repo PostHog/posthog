@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
     CheckFailure,
     Grouping,
     GroupingMode,
@@ -33,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     source_condition,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
@@ -43,6 +45,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
     compute_team_shard_offset_seconds,
+    parse_blocked_windows_tuples,
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
@@ -474,6 +477,28 @@ def _without_stale_groups(
     return replace(outcome, groups=(), overflowed=0, evicted=())
 
 
+_HELD_BY_MUTE: Final = {
+    AlertEventKind.FIRING: NotificationAction.FIRE.value,
+    AlertEventKind.RESOLVED: NotificationAction.RESOLVE.value,
+}
+
+
+def _held_by_mute(
+    configuration: PlatformAlertConfiguration, alert: PlatformAlert, group: GroupOutcome, now: datetime
+) -> GroupOutcome:
+    """The verdict, or the verdict muted when a mute that the check did not see holds now.
+
+    A check reads the mute when it starts, so a snooze set while it runs reaches only this write.
+    Held the way the machine holds a muted announcement: the state and the firing still move,
+    and `last_notified_at` stays behind, so a held fire goes out once the mute ends.
+    """
+    held = _HELD_BY_MUTE.get(group.kind)
+    snooze_until = _composed(configuration, alert).snooze_until
+    if held is None or snooze_until is None or snooze_until <= now:
+        return group
+    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held)
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -534,12 +559,13 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
-            for group in outcome.groups:
+            for reported in outcome.groups:
                 alert = alerts.get(
-                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=reported.grouping_key)
                 )
                 if alert is None:
                     continue
+                group = _held_by_mute(configuration, alert, reported, now)
                 touched.append(alert)
                 alert.last_seen_at = now
                 # Before either row is mutated, so the history row keeps the state the check found.
@@ -589,6 +615,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 now=now,
                 configuration_id=configuration.id,
                 shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
+                schedule_key=outcome.schedule_key,
+                blocked_windows=parse_blocked_windows_tuples(configuration.schedule_restriction),
             )
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.
