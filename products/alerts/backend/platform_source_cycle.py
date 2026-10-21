@@ -418,6 +418,25 @@ def _decide_grouped(
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
+    if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
+        breaches = {bounded_grouping_key(series.identity): series.result.breaches or [] for series in evaluated.series}
+        # One render serves every value that fires, because they all show the same insight.
+        chart_url = _chart_url(check, alert)
+        decision = replace(
+            decision,
+            verdicts=tuple(
+                replace(
+                    verdict,
+                    group=replace(
+                        verdict.group,
+                        source_detail=_detail(breaches.get(verdict.group.grouping_key, []), chart_url),
+                    ),
+                )
+                if verdict.outcome.notification == NotificationAction.FIRE
+                else verdict
+                for verdict in decision.verdicts
+            ),
+        )
     return decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
@@ -430,13 +449,21 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    detail: dict[str, Any] = {"breaches": list(breaches)}
+    return _detail(breaches, _chart_url(check, alert))
+
+
+def _chart_url(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> str | None:
     # A render takes up to a minute and a half, so only an alert the platform delivers for pays
     # for one. Production renders no chart for a real-time alert either.
     if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
-        chart_url = render_alert_insight_chart_url(alert)
-        if chart_url:
-            detail["insight_chart_url"] = chart_url
+        return render_alert_insight_chart_url(alert)
+    return None
+
+
+def _detail(breaches: Sequence[str], chart_url: str | None) -> dict[str, Any]:
+    detail: dict[str, Any] = {"breaches": list(breaches)}
+    if chart_url:
+        detail["insight_chart_url"] = chart_url
     return detail
 
 
