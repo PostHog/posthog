@@ -270,9 +270,11 @@ const InsightNodeKind = z.enum([
     'WebOverviewQuery',
 ])
 
+const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+
 const AssistantBareInsightQuery = z
     .object({
-        kind: InsightNodeKind,
+        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
     })
     .catchall(z.unknown())
 

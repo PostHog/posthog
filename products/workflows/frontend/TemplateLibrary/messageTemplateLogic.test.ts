@@ -340,6 +340,7 @@ describe('messageTemplateLogic', () => {
             content: live,
             draft_content: draft,
             transactional_hog_flow_id: 'flow-id',
+            sensitive: false,
             updated_at: '2026-01-01T00:00:00Z',
         }
         let bodies: Record<string, unknown>[]
@@ -403,6 +404,17 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('protecting sensitive data saves only the flag, so the draft stays unpublished', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSensitive(true)
+            }).toDispatchActions(['setSensitiveDone'])
+
+            expect(bodies).toEqual([{ sensitive: true }])
+            expect(logic.values.originalTemplate.sensitive).toBe(true)
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.hasDraft).toBe(true)
+        })
+
         it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
@@ -413,6 +425,7 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toHaveLength(1)
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
+            expect(bodies[0]).not.toHaveProperty('sensitive')
         })
     })
 

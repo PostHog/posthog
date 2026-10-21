@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use cohort_core::seed::CoverageStartMs;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -227,6 +228,7 @@ impl EventDispatcher {
     /// dispatch ceiling only for what lands. Events for a partition in `held` (already paused behind an
     /// older holdover) skip the send and are returned to queue behind it. Returns the un-dispatched
     /// events per partition for the caller to hold and pause.
+    #[hotpath::measure(impl_type = "EventDispatcher")]
     pub fn dispatch_events_nonblocking(
         &self,
         batch: Vec<ConsumedEvent>,
@@ -971,6 +973,7 @@ impl CohortStreamEventsConsumer {
             }
             (_, Some(restore)) => {
                 self.recover().await;
+                self.wait_for_capture(&restore).await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
                 resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
@@ -1053,6 +1056,27 @@ impl CohortStreamEventsConsumer {
         self.dispatcher
             .eager_redrive_pending_transfers_on_boot(&self.dispatcher.owned_set())
             .await;
+    }
+
+    /// Nothing polls or folds while this host's clock reads before the checkpoint's capture, so no
+    /// fold emits a version below the outputs that made the restored state. The source pod can emit
+    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
+    /// this pod's. A shutdown ends the wait.
+    async fn wait_for_capture(&self, restore: &PendingRestore) {
+        let captured_at = restore.captured_at();
+        while let Ok(wait) = (captured_at - Utc::now()).to_std() {
+            warn!(
+                %captured_at,
+                wait_secs = wait.as_secs(),
+                "this host's clock reads before the restored checkpoint's capture; holding off \
+                 dispatch until it passes",
+            );
+            tokio::select! {
+                biased;
+                _ = self.handle.shutdown_recv() => return,
+                _ = tokio::time::sleep(wait) => {}
+            }
+        }
     }
 
     /// Seek every owned partition back to its resume point, finish the restore, then go live. Any
@@ -1216,6 +1240,7 @@ impl CohortStreamEventsConsumer {
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
     }
 
+    #[hotpath::measure(impl_type = "CohortStreamEventsConsumer")]
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),

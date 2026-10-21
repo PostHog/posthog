@@ -1,23 +1,16 @@
-"""Per-head XGBoost training over the scoring-moment examples.
-
-Deliberately plain: fixed hyperparameters, a time-based holdout by report, AUC plus a
-label-permutation null per head. The feature names come from the caller's feature set, so one
-learner serves every family; the booster is saved as UBJSON bytes with those names, so the serving
-side can assert them against the set the model declares.
+"""Per-head grading shared by every learner: holdout metrics, the label-permutation null, and the
+readable rule the promotion gate reads.
 """
 
 from collections.abc import Sequence
 
 import numpy as np
-import pandas as pd
-import xgboost as xgb
 from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 
 from posthog.dataclasses import frozen
 
 from products.signals.dags.inbox_ranking.training.calibration import (
     CalibrationBucket,
-    bucket_rows,
     calibration_buckets,
     expected_calibration_error,
 )
@@ -26,27 +19,16 @@ from products.signals.dags.inbox_ranking.training.classification import (
     ClassificationMetrics,
     classification_metrics,
 )
-from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
 from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
-XGB_PARAMS: dict[str, object] = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "min_child_weight": 5,
-    "eval_metric": "auc",
-    "n_jobs": 2,
-}
 # A readable head must also clear its own permutation null by this much; below it the AUC is
 # within the noise of this many positives.
 NULL_MARGIN = 0.05
 # Each null is a full fit on permuted labels, so this multiplies the training cost per head. One
-# draw swings with whichever feature the permuted fit happened to lean on (age_hours dominates),
-# which put single-draw nulls at 0.38 on a 35k-row holdout; the mean of a few draws is the number
-# the margin is compared against, and the spread is reported so a wide band is visible.
+# draw swings with whichever feature the permuted fit happened to lean on, so the mean of a few
+# draws is the number the margin is compared against, and the spread is reported so a wide band is
+# visible.
 NULL_PERMUTATIONS = 3
 
 
@@ -110,41 +92,10 @@ class HeadMetrics:
         }
 
 
-@frozen
-class TrainedHead:
-    head: str
-    booster_ubj: bytes
-    # The train-only fit that produced the holdout metrics, kept so a later candidate can grade this
-    # model on its own holdout; None when there were no holdout rows.
-    holdout_booster_ubj: bytes | None
-    metrics: HeadMetrics
-    # Beside the metrics rather than inside them: those go on one event per head, a table needs one
-    # event per bucket.
-    calibration: tuple[CalibrationBucket, ...]
-
-
-def _ubj(model: xgb.XGBClassifier) -> bytes:
-    return bytes(model.get_booster().save_raw("ubj"))
-
-
-def _fit(x: pd.DataFrame, y: np.ndarray, seed: int) -> xgb.XGBClassifier:
-    model = xgb.XGBClassifier(**XGB_PARAMS, random_state=seed)
-    model.fit(x, y, verbose=False)
-    return model
-
-
 def _auc(y: np.ndarray, scores: np.ndarray) -> float | None:
     if y.sum() == 0 or y.sum() == len(y):
         return None
     return float(roc_auc_score(y, scores))
-
-
-def _team_ids(rows: pd.DataFrame) -> np.ndarray:
-    """Each row's team, None where unknown. An examples object written before the column existed
-    has no team, so its within-team fields stay empty."""
-    if "team_id" not in rows:
-        return np.full(len(rows), None, dtype=object)
-    return rows["team_id"].to_numpy(dtype=object)
 
 
 def _head_readable(
@@ -207,62 +158,6 @@ def head_metrics(
     return metrics, calibration
 
 
-def train_head(
-    examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int, seed: int = 0
-) -> TrainedHead | None:
-    """Fit one head; None when there is nothing to fit (no positive or no negative in train)."""
-    rows = examples[examples["head"] == head.name]
-    if rows.empty:
-        return None
-    test = holdout_mask(rows, holdout_days).to_numpy()
-    # float32 is what XGBoost bins internally, and it halves the largest allocation of a wide set.
-    x = rows[list(feature_names)].astype(np.float32)
-    y = rows["label"].to_numpy(dtype=int)
-    x_train, y_train, x_test, y_test = x[~test], y[~test], x[test], y[test]
-    if len(y_train) == 0 or y_train.sum() == 0 or y_train.sum() == len(y_train):
-        return None
-
-    model = _fit(x_train, y_train, seed)
-    holdout_scores = model.predict_proba(x_test)[:, 1] if len(y_test) else np.array([])
-    holdout_auc = _auc(y_test, holdout_scores) if len(y_test) else None
-
-    null_aucs: list[float] = []
-    if holdout_auc is not None:
-        rng = np.random.default_rng(seed)
-        null_aucs = [
-            auc
-            for draw in range(NULL_PERMUTATIONS)
-            if (auc := _auc(y_test, _fit(x_train, rng.permutation(y_train), seed + draw).predict_proba(x_test)[:, 1]))
-            is not None
-        ]
-
-    metrics, calibration = head_metrics(
-        head,
-        y_train=y_train,
-        train_scores=model.predict_proba(x_train)[:, 1],
-        y_test=y_test,
-        holdout_scores=holdout_scores,
-        null_aucs=null_aucs,
-        refit_positive_rate=float(y.mean()),
-        holdout_team_ids=_team_ids(rows)[test],
-    )
-    # Refit on everything before shipping: the holdout only exists to grade the recipe.
-    final = _fit(x, y, seed)
-    return TrainedHead(
-        head=head.name,
-        booster_ubj=_ubj(final),
-        holdout_booster_ubj=_ubj(model) if len(y_test) else None,
-        metrics=metrics,
-        calibration=calibration,
-    )
-
-
-def holdout_calibration_rows(trained: Sequence[TrainedHead]) -> list[dict[str, object]]:
-    """One dict per (head, decile) of the candidate's holdout, in the shape the unseen calibration
-    rows use, so one insight can read the holdout line and the unseen line side by side."""
-    return [row for model in trained for row in bucket_rows(model.calibration, {"head": model.head})]
-
-
 @frozen
 class HoldoutGrade:
     auc: float | None
@@ -277,27 +172,3 @@ def holdout_grade(y: np.ndarray, scores: np.ndarray) -> HoldoutGrade:
         expected_calibration_error=expected_calibration_error(calibration_buckets(y.astype(bool), scores)),
         positives=int(y.sum()),
     )
-
-
-def booster_holdout_grade(
-    booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int
-) -> HoldoutGrade | None:
-    """AUC and calibration error of a saved booster on `head`'s holdout rows of `examples`: the same
-    rows `train_head` grades a candidate on, so a champion and a candidate can be compared on one set."""
-    rows = examples[examples["head"] == head.name]
-    if rows.empty:
-        return None
-    test = holdout_mask(rows, holdout_days).to_numpy()
-    if not test.any():
-        return None
-    booster = xgb.Booster()
-    booster.load_model(bytearray(booster_ubj))
-    # The booster's own names, not the set's: a champion trained before an additive schema bump is
-    # still scorable on its subset. A name the examples lack means the schemas are incompatible,
-    # and the caller falls back to the stored AUC.
-    names = list(booster.feature_names or feature_names)
-    if any(name not in rows for name in names):
-        return None
-    x = rows.loc[test, names].astype(np.float32)
-    y = rows.loc[test, "label"].to_numpy(dtype=int)
-    return holdout_grade(y, booster.predict(xgb.DMatrix(x, feature_names=names)))
