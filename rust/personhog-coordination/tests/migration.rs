@@ -354,8 +354,11 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
         first.clone(),
     );
     wait_for_steady_state(&store, PARTITIONS).await;
-    for group in ["relay", "relay", "writer"] {
+    for group in ["relay", "relay", "writer", "gone"] {
         assert!(store.add_changelog_retire_group(group).await.unwrap());
+    }
+    for group in ["gone", "never-added"] {
+        assert!(store.remove_changelog_retire_group(group).await.unwrap());
     }
 
     assert!(store.create_migration(&migration("m-1", 8)).await.unwrap());

@@ -512,13 +512,13 @@ async fn personhog_retire_topic(
 }
 
 #[derive(Deserialize)]
-struct AddRetireGroupRequest {
+struct RetireGroupRequest {
     group: String,
 }
 
 async fn personhog_add_retire_group(
     State(state): State<AppState>,
-    Json(request): Json<AddRetireGroupRequest>,
+    Json(request): Json<RetireGroupRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let prefix = state.config.personhog_etcd_prefix.clone();
     validated_etcd_key(&state, &prefix)?;
@@ -531,6 +531,20 @@ async fn personhog_add_retire_group(
         .await
         .map_err(|e| ApiError::bad_request(format!("add retire group refused: {e:#}")))?;
     Ok(Json(json!({ "group": group })))
+}
+
+async fn personhog_remove_retire_group(
+    State(state): State<AppState>,
+    Json(request): Json<RetireGroupRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let group = request.group.trim();
+    let client = etcd_client(&state).await?;
+    changelog::remove_retire_group(&client, &prefix, group)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("remove retire group refused: {e:#}")))?;
+    Ok(Json(json!({ "removed": group })))
 }
 
 #[derive(Deserialize)]
@@ -601,7 +615,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/personhog/changelog/retire-groups",
-            post(personhog_add_retire_group),
+            post(personhog_add_retire_group).delete(personhog_remove_retire_group),
         )
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by

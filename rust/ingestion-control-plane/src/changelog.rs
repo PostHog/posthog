@@ -153,6 +153,17 @@ pub async fn add_retire_group(client: &Client, prefix: &str, group: &str) -> any
     Ok(())
 }
 
+/// Stop retire waiting on a group, for a consumer that no longer runs.
+pub async fn remove_retire_group(client: &Client, prefix: &str, group: &str) -> anyhow::Result<()> {
+    if !store(client, prefix)
+        .remove_changelog_retire_group(group)
+        .await?
+    {
+        bail!("config/changelog is not seeded or moved; refresh and retry");
+    }
+    Ok(())
+}
+
 /// Drop a drained generation from the config; deleting the topic stays a Terraform change.
 pub async fn retire(
     config: &Config,
