@@ -669,7 +669,7 @@ export const redirects: Record<
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     // A short link to share. It opens a new personal API key with the source map upload scopes filled in.
-    '/et-key': combineUrl(urls.settings('user-api-keys'), { preset: 'source_map_upload' }).url,
+    '/source-maps-key': combineUrl(urls.settings('user-api-keys'), { preset: 'source_map_upload' }).url,
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getEventLookupQuery(id)
