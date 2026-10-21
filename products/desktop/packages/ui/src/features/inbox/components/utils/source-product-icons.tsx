@@ -234,4 +234,10 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     label: "Squadcast",
   },
   xmatters: { Icon: WarningIcon, color: "var(--purple-9)", label: "xMatters" },
+  bigeye: { Icon: WarningIcon, color: "var(--cyan-9)", label: "Bigeye" },
+  monte_carlo: {
+    Icon: WarningIcon,
+    color: "var(--violet-9)",
+    label: "Monte Carlo",
+  },
 };

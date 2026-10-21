@@ -52,6 +52,7 @@ const FEEDBACK = "Turn product feedback and feature requests into inputs";
 const REVIEW = "Monitor new app and product reviews";
 const SEARCH = "Fix pages that rank in Google but lose clicks";
 const INCIDENT = "Surface new incidents and on-call alerts";
+const DATA_QUALITY = "Surface new data quality alerts and issues";
 
 /** Registry of warehouse-backed inbox sources, alphabetical within each category. */
 export const EXTERNAL_INBOX_SOURCES = [
@@ -504,6 +505,25 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: INCIDENT,
     dwSourceType: "Xmatters",
     requiredTables: ["incidents"],
+    recordKind: "incident",
+    setup: "dynamic",
+  },
+  // Data quality
+  {
+    product: "bigeye",
+    label: "Bigeye",
+    description: DATA_QUALITY,
+    dwSourceType: "Bigeye",
+    requiredTables: ["Issues"],
+    recordKind: "incident",
+    setup: "dynamic",
+  },
+  {
+    product: "monte_carlo",
+    label: "Monte Carlo",
+    description: DATA_QUALITY,
+    dwSourceType: "MonteCarlo",
+    requiredTables: ["alerts"],
     recordKind: "incident",
     setup: "dynamic",
   },
