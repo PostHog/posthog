@@ -1,5 +1,18 @@
 import { type EventSourceMessage, createParser } from 'eventsource-parser'
-import { MakeLogicType, getContext, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    getContext,
+    actions,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import posthog from 'posthog-js'
 
 import { agentConversationEventToAcpNotification } from '@posthog/agent-contracts/acp-conversation'
@@ -120,6 +133,27 @@ interface LiveStreamRegistryHost {
 // This only covers swaps that re-evaluate this module. `devHmrStreamAbort` covers the rest, where the
 // logic survives and its stream has to be reopened rather than left closed.
 const liveStreamControllers = new Set<LiveStreamEntry>()
+
+const liveRunStreamsByContext = new WeakMap<object, Map<string, string>>()
+
+function liveRunStreams(): Map<string, string> {
+    const context = getContext()
+    let streams = liveRunStreamsByContext.get(context)
+    if (!streams) {
+        streams = new Map()
+        liveRunStreamsByContext.set(context, streams)
+    }
+    return streams
+}
+
+export function findLiveRunStreamKey(runId: string): string | null {
+    for (const [streamKey, servedRunId] of liveRunStreams()) {
+        if (servedRunId === runId) {
+            return streamKey
+        }
+    }
+    return null
+}
 if (process.env.NODE_ENV === 'development') {
     const registryHost = globalThis as LiveStreamRegistryHost
     registryHost.__posthogAiLiveStreamControllers?.forEach((entry) => entry.controller.abort())
@@ -4051,6 +4085,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             },
             bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage }) => {
+                if (!props.replayOnly) {
+                    liveRunStreams().set(props.streamKey, runId)
+                }
                 const previous = sessionNow()
                 if (
                     previous?.paused &&
@@ -4149,6 +4186,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             openSseForRun: ({ taskId, runId }) => {
                 if (props.replayOnly) {
                     return
+                }
+                if (liveRunStreams().get(props.streamKey) !== runId) {
+                    liveRunStreams().delete(props.streamKey)
                 }
                 const previous = sessionNow()
                 if (
@@ -4802,6 +4842,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.disposables.dispose('event-source')
             },
             reset: () => {
+                if (!props.replayOnly) {
+                    liveRunStreams().delete(props.streamKey)
+                }
                 cache.disposables.dispose('stream-session')
                 cache.bootstrapStartedAt = undefined
                 cache.recoverySession = undefined
@@ -5287,6 +5330,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
             },
+        }
+    }),
+    beforeUnmount(({ props }) => {
+        if (!props.replayOnly) {
+            liveRunStreams().delete(props.streamKey)
         }
     }),
 ])
