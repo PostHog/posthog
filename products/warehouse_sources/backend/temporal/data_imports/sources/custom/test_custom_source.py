@@ -56,7 +56,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     _PreviewSession,
     _read_capped_text,
     _redact_secrets,
-    _url_for_display,
     _validate_resource_graph,
     manifest_request_hosts,
     validate_manifest_structure,
@@ -1197,27 +1196,23 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "sk_secret_value" not in (err or "")
         assert "***" in (err or "")
 
-    def test_auth_rejection_omits_query_string_from_echoed_url(self):
-        manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["path"] = "/users?status=active&access_token=inline-secret-123"
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        with scripted_network([ScriptedResponse(status=403)]):
-            ok, err = source.validate_credentials(config, team_id=999)
-        assert not ok
-        assert "https://api.example.com/users " in (err or "")
-        assert "inline-secret-123" not in (err or "")
-
     @parameterized.expand(
         [
-            ("query", "https://api.example.com/users?access_token=tok", "https://api.example.com/users"),
-            ("fragment", "https://api.example.com/users#tok", "https://api.example.com/users"),
-            ("userinfo", "https://key:secret@api.example.com/users", "https://api.example.com/users"),
-            ("username_only", "https://key@api.example.com:8443/users", "https://api.example.com:8443/users"),
+            ("query", "https://api.example.com", "/users?status=active&access_token=inline-secret-123"),
+            ("userinfo", "https://reader:inline-secret-123@api.example.com", "/users"),
         ]
     )
-    def test_url_for_display_strips_credential_bearing_parts(self, _name, url, expected):
-        assert _url_for_display(url) == expected
+    def test_auth_rejection_omits_url_credentials(self, _name, base_url, path):
+        manifest = _minimal_manifest(base_url)
+        manifest["resources"][0]["endpoint"]["path"] = path
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        body = b"forbidden: https://api.example.com/users?access_token=inline-secret-123 reader:inline-secret-123"
+        with scripted_network([ScriptedResponse(status=403, body=body)]):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "from https://api.example.com/users " in (err or "")
+        assert "inline-secret-123" not in (err or "")
 
     @parameterized.expand([401, 403])
     def test_returns_false_on_auth_rejection(self, status_code):
