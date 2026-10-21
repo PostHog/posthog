@@ -438,6 +438,35 @@ class PlatformAlertHistory:
 
 
 @frozen
+class PlatformLastCheck:
+    """The newest check of an alert the platform owns."""
+
+    checked_at: datetime
+    # None when the check measured nothing.
+    value: float | None
+
+
+@frozen
+class PlatformCheckEntry:
+    """One check of an alert the platform owns, as a source lists its checks."""
+
+    occurred_at: datetime
+    evaluation_key: str
+    state: PlatformAlertState
+    value: float | None
+    # None when the check succeeded.
+    error_message: str | None
+
+
+@frozen
+class PlatformCheckPage:
+    """A page of an alert's checks, newest first, and how many checks the window holds."""
+
+    total: int
+    checks: tuple[PlatformCheckEntry, ...]
+
+
+@frozen
 class PlatformCheckEvent:
     """One check of an alert the platform owns that moved its state or failed."""
 

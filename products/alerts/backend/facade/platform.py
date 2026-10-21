@@ -8,6 +8,7 @@ import uuid
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert as follow_alert
+from products.alerts.backend.platform_alert_reads import moved_alert_check_page, moved_alert_statuses
 
 
 def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
@@ -18,4 +19,4 @@ def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
         follow_alert(alert)
 
 
-__all__ = ["follow_insight_alert"]
+__all__ = ["follow_insight_alert", "moved_alert_check_page", "moved_alert_statuses"]

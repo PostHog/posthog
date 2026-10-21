@@ -42,11 +42,25 @@ PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
 # Insight has no broken state. A configuration the platform found broken is one the insight stack
 # reports as errored and disables.
 _INSIGHT_STATE_OF_PLATFORM: Final[dict[PlatformAlertState, AlertState]] = {
+    # Only a read sees a firing, because the platform keeps a firing alert until it resolves.
+    PlatformAlertState.FIRING: AlertState.FIRING,
     PlatformAlertState.NOT_FIRING: AlertState.NOT_FIRING,
     PlatformAlertState.SNOOZED: AlertState.NOT_FIRING,
     PlatformAlertState.ERRORED: AlertState.ERRORED,
     PlatformAlertState.BROKEN: AlertState.ERRORED,
 }
+
+
+def insight_state_of_platform(
+    platform_state: PlatformAlertState, *, snoozed_until: datetime | None, at: datetime
+) -> AlertState:
+    """The insight state for a platform state. A handback and the API's read of a moved alert both use it.
+
+    A snooze lives on the insight alert, so an active one stays its state.
+    """
+    if snoozed_until is not None and snoozed_until > at:
+        return AlertState.SNOOZED
+    return _INSIGHT_STATE_OF_PLATFORM[platform_state]
 
 
 class CutoverSkip(StrEnum):
@@ -215,10 +229,8 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
 
-        # A snooze lives on this alert, so an active one stays its state.
-        snoozed = alert.snoozed_until is not None and alert.snoozed_until > at
         update_fields = apply_platform_state(
-            alert, AlertState.SNOOZED if snoozed else _INSIGHT_STATE_OF_PLATFORM[handback.state]
+            alert, insight_state_of_platform(handback.state, snoozed_until=alert.snoozed_until, at=at)
         )
         if not handback.enabled and alert.enabled:
             # The platform switches a copy off only for a configuration it cannot run, which the

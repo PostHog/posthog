@@ -25,7 +25,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertSnapshot,
     PlatformAlertUpsert,
     PlatformCheckEventPage,
+    PlatformCheckPage,
     PlatformHandback,
+    PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
@@ -147,6 +149,23 @@ def runtime_by_legacy_id(
     return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
 
 
+def check_page_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage | None:
+    """A page of one owned alert's checks in a window, newest first, or None when the platform does not own it.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.check_page_by_legacy_id(
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+    )
+
+
 def history_by_legacy_id(
     *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformAlertHistory]:
@@ -157,6 +176,16 @@ def history_by_legacy_id(
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
     )
+
+
+def last_check_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by the source's id.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
 
 
 def notable_checks_by_legacy_id(
