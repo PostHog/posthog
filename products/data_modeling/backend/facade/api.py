@@ -57,6 +57,7 @@ _LAZY = {
     "MaterializationRefusedError": "facade.contracts",
     "IncrementalConfigRefusedError": "facade.contracts",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
+    "disable_saved_query_materialization": "logic.saved_query_materialization",
     "link_table_if_materializing": "logic.saved_query_dag_sync",
     "unlink_table": "logic.saved_query_dag_sync",
     "saved_query_materialized_at": "logic.saved_query_freshness",

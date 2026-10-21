@@ -36,7 +36,7 @@ Do not invent a score or a confidence level.
   - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
 - **certify**: many people read this view or table, from several places. Use the read counts in `evidence`.
-- **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting only marks it deprecated in the data catalog. To stop the cost, offer `view-unmaterialize` as well.
+- **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting marks it deprecated in the data catalog, stops its refreshes and deletes its stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
 
 ## 3. Change a materialize suggestion before accepting
 

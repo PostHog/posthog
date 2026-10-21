@@ -4,6 +4,7 @@ from uuid import UUID
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import dependent_saved_query_ids, upstream_table_refs
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
+from products.warehouse_sources.backend.facade.api import saved_queries_feeding_consumers
 
 from ...facade.contracts import DeprecatePayload
 from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
@@ -38,12 +39,19 @@ class DeprecateCandidate(Candidate):
             and context.is_suggestible_view(saved_query)
             and not _is_read(context, _subject(saved_query))
         ]
-        dependents = dependent_saved_query_ids(context.team_id, [saved_query.id for saved_query in unread])
+        unread_ids = [saved_query.id for saved_query in unread]
+        dependents = dependent_saved_query_ids(context.team_id, unread_ids)
+        feeding_consumers = saved_queries_feeding_consumers(context.team_id, unread_ids)
         drafts = []
         rejections = []
         for saved_query in unread:
             subject = _subject(saved_query)
-            reason = self._rejection(context, saved_query, has_dependents=bool(dependents.get(saved_query.id)))
+            reason = self._rejection(
+                context,
+                saved_query,
+                has_dependents=bool(dependents.get(saved_query.id)),
+                feeds_consumers=saved_query.id in feeding_consumers,
+            )
             if reason is not None:
                 rejections.append(Rejection(subject=subject, reason=reason))
                 continue
@@ -75,12 +83,19 @@ class DeprecateCandidate(Candidate):
         return saved_query is None or not saved_query.materializes or _is_read(context, subject)
 
     def _rejection(
-        self, context: CandidateContext, saved_query: SavedQueryDefinition, *, has_dependents: bool
+        self,
+        context: CandidateContext,
+        saved_query: SavedQueryDefinition,
+        *,
+        has_dependents: bool,
+        feeds_consumers: bool,
     ) -> str | None:
         if saved_query.created_at > context.reads.window.starts_at:
             return "created after the read window started"
         if has_dependents:
             return "other views read from it"
+        if feeds_consumers:
+            return "its refreshes feed person or account properties, a destination or a workflow"
         if self._reads_direct_source(context, saved_query.id):
             return "reads a direct-connection source, whose reads are not logged"
         return None

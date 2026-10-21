@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sta
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.view_consumers import VIEW_TRIGGER_SOURCE
 from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
 
 # Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
@@ -61,7 +62,7 @@ TableKind = typing.Literal["source", "view"]
 # keyed by the kind of warehouse table the rows came from.
 TRIGGER_SOURCE_BY_KIND: dict[TableKind, str] = {
     "source": "data-warehouse-table",
-    "view": "data-warehouse-view",
+    "view": VIEW_TRIGGER_SOURCE,
 }
 
 

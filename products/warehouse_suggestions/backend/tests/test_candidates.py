@@ -318,3 +318,17 @@ class TestDeprecateBackgroundReads(BaseTest):
         result = DeprecateCandidate().evaluate(candidate_context)
 
         assert [draft.subject_id for draft in result.drafts] == expected_subjects
+
+    def test_a_view_feeding_a_consumer_is_not_proposed(self) -> None:
+        candidate_context = context(team_reads({}), views=[view(VIEW_ID, materializes=True)], team_id=self.team.pk)
+
+        with patch(
+            "products.warehouse_suggestions.backend.logic.candidates.deprecate.saved_queries_feeding_consumers",
+            return_value=frozenset({VIEW_ID}),
+        ):
+            result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            ["its refreshes feed person or account properties, a destination or a workflow"],
+        )

@@ -2060,12 +2060,21 @@ class TestSavedQuery(APIBaseTest):
         )
         db_saved_query.table = mock_table
         db_saved_query.save()
+        Node.objects.filter(saved_query=db_saved_query).update(type=NodeType.MAT_VIEW)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=db_saved_query).values_list("type", flat=True)), [NodeType.VIEW]
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=saved_query_id, activity="materialization_disabled"
+            ).exists()
+        )
 
         db_saved_query.refresh_from_db()
         self.assertIsNone(db_saved_query.sync_frequency_interval)

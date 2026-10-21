@@ -95,11 +95,16 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     return {str(saved_query_id): name for saved_query_id, name in rows}
 
 
-def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
-    """Every saved query in this team that still resolves, with its HogQL and whether its DAG node materializes."""
+def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:
+    """Every saved query in this team that still resolves, with its HogQL and whether its DAG node materializes.
+
+    ``ids`` narrows the result to those saved queries.
+    """
+    saved_queries_in_team = DataWarehouseSavedQuery.objects.filter(team_id=team_id)
+    if ids is not None:
+        saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
     saved_queries = list(
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id)
-        .exclude(deleted=True)
+        saved_queries_in_team.exclude(deleted=True)
         .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at")
         .order_by("created_at", "id")
     )
