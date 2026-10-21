@@ -134955,6 +134955,19 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type TasksRunsLogsRetrieveParams = {
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number;
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests.
+     * @minimum 1
+     */
+    tail_bytes?: number;
+    };
+
     export type TasksRunsSessionLogsRetrieveParams = {
     /**
      * Only return events after this ISO8601 timestamp

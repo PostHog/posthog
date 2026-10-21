@@ -41,6 +41,8 @@ const NO_END_COMPENSATION = -1
  */
 const AT_BOTTOM_EPSILON = 1
 
+/** Frames a prepend keeps the reader's row in place while the rows put in front measure. */
+const PREPEND_HOLD_FRAMES = 12
 /** The core snaps its own scroll writes to within 1.5px of their target — below that is never the reader. */
 const UNPIN_SLACK = 1.5
 
@@ -191,6 +193,12 @@ export interface VirtualizedThreadRootProps<T> {
      * caller's job: while true the thread never takes its opening scroll.
      */
     itemsLoading?: boolean
+    /**
+     * Called when the reader scrolls within a viewport of the top, so the caller can load older rows. Rows the
+     * caller then puts in front of `items` never move what the reader sees: the first visible row keeps its
+     * place on screen.
+     */
+    onNearTop?: () => void
     maxWidthClassName?: string
     className?: string
     /**
@@ -224,6 +232,7 @@ function Root<T>({
     anchorItemKey,
     scrollRestorationKey,
     itemsLoading = false,
+    onNearTop,
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
@@ -278,8 +287,16 @@ function Root<T>({
     const followingRef = useRef(following)
     followingRef.current = following
     // Read by the open-decision loop without re-arming it per commit.
-    const itemsLengthRef = useRef(items.length)
-    itemsLengthRef.current = items.length
+    const lastItemKeyRef = useRef<string | undefined>(undefined)
+    lastItemKeyRef.current = items.length > 0 ? getItemKey(items[items.length - 1], items.length - 1) : undefined
+    const onNearTopRef = useRef(onNearTop)
+    onNearTopRef.current = onNearTop
+    // The first row on screen and its offset from the viewport top, so rows put in front of `items` can keep it
+    // in place (see the prepend effect).
+    const topRowRef = useRef<{ key: string; offset: number; start: number } | null>(null)
+    // Set by the prepend effect for the commit that put rows above the reader, so the anchor effect in the
+    // same commit reads a new anchor from that history as history, not as a send.
+    const rowsLandedAboveRef = useRef(false)
     // `undefined` means "thread not yet populated" — the anchor-change effect adopts the first real key.
     const prevAnchorKeyRef = useRef<string | null | undefined>(undefined)
 
@@ -506,17 +523,35 @@ function Root<T>({
         recordScrollWrite(top)
     }, [recordScrollWrite])
 
+    const rememberTopRow = useCallback((): void => {
+        const el = scrollRef.current
+        if (!el) {
+            return
+        }
+        const top = el.scrollTop
+        // The header and footer never move relative to the items around them, so they cannot hold a place.
+        const row = virtualizer
+            .getVirtualItems()
+            .find((item) => item.end > top && item.key !== HEADER_KEY && item.key !== FOOTER_KEY)
+        topRowRef.current = row ? { key: String(row.key), offset: row.start - top, start: row.start } : null
+    }, [virtualizer])
+
     // Hold an unpinned anchor landing steady while the thread's measurements settle (see the settle
     // constants). Re-asserts via `scrollToIndex` so the corrective write re-computes the offset from the
     // freshest measurements; stands down permanently the moment the reader scrolls or the thread pins
     // (a pinned thread belongs to the follow effect).
     const scheduleAnchorSettle = useCallback(
-        (anchorIndex: number): void => {
+        (anchorKey: string): void => {
             const startedAt = performance.now()
             let remaining = ANCHOR_SETTLE_CHECKS
             const tick = (): void => {
                 const el = scrollRef.current
                 if (!el || lastUserScrollAtRef.current > startedAt || pinnedRef.current) {
+                    return
+                }
+                // Resolved per tick: older rows put in front of the items move the anchor's index.
+                const anchorIndex = findVirtualIndexForKey(anchorKey)
+                if (anchorIndex < 0) {
                     return
                 }
                 const target = virtualizer.getOffsetForIndex(anchorIndex, 'start')?.[0]
@@ -535,7 +570,7 @@ function Root<T>({
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
-        [virtualizer, noteProgrammaticScroll]
+        [virtualizer, noteProgrammaticScroll, findVirtualIndexForKey]
     )
 
     // The open's top-or-bottom verdict, re-taken once real measurements exist. The opening commit only
@@ -547,9 +582,11 @@ function Root<T>({
     // still short — or the live stream appending before it ends, which makes the open a live-edge open —
     // ⇒ a bottom open, pinned. Stops the moment the reader scrolls: their position, their call.
     const scheduleOpenDecision = useCallback(
-        (anchorIndex: number): void => {
+        (anchorKey: string): void => {
             const startedAt = performance.now()
-            const itemsAtOpen = itemsLengthRef.current
+            // The tail row, not the row count: older rows put in front change the count without the stream
+            // appending anything.
+            const tailAtOpen = lastItemKeyRef.current
             let remaining = ANCHOR_SETTLE_CHECKS
             const commitBottomOpen = (el: HTMLElement): void => {
                 el.scrollTop = el.scrollHeight
@@ -563,13 +600,14 @@ function Root<T>({
                 }
                 const viewport = el.clientHeight
                 const totalSize = virtualizer.getTotalSize()
-                const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
+                const anchorIndex = findVirtualIndexForKey(anchorKey)
+                const anchorStart = anchorIndex >= 0 ? virtualizer.measurementsCache[anchorIndex]?.start : undefined
                 const contentBelow = anchorStart !== undefined ? totalSize - anchorStart : 0
                 if (viewport > 0 && contentBelow >= viewport) {
                     return
                 }
                 remaining -= 1
-                const verdictDue = itemsLengthRef.current !== itemsAtOpen || remaining === 0
+                const verdictDue = lastItemKeyRef.current !== tailAtOpen || remaining === 0
                 if (verdictDue && !hasUnseenScroll(el, lastSeenTopRef.current)) {
                     commitBottomOpen(el)
                 } else if (remaining > 0) {
@@ -578,8 +616,66 @@ function Root<T>({
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
-        [virtualizer, noteProgrammaticScroll, setPinned]
+        [virtualizer, noteProgrammaticScroll, setPinned, findVirtualIndexForKey]
     )
+
+    // Rows that land above the reader (a history page loading in front, or the fold placing an older row
+    // under the first message) must not move what the reader sees. Before paint, the first row that was on
+    // screen goes back to the same offset from the viewport top whenever its start moved; measured rows keep
+    // their heights through the key-based measurement cache.
+    // Measured size, so rows that land above and then measure are corrected in the same commit, before paint.
+    const totalSize = virtualizer.getTotalSize()
+    useLayoutEffect(() => {
+        const el = scrollRef.current
+        const topRow = topRowRef.current
+        if (!virtualized || !el || !topRow) {
+            return
+        }
+        const index = findVirtualIndexForKey(topRow.key)
+        if (index < 0) {
+            return
+        }
+        virtualizer.getVirtualItems()
+        const start = virtualizer.measurementsCache[index]?.start
+        if (start === undefined || Math.abs(start - topRow.start) <= UNPIN_SLACK) {
+            return
+        }
+        topRowRef.current = { ...topRow, start }
+        rowsLandedAboveRef.current = true
+        if (Math.abs(el.scrollTop - (start - topRow.offset)) > UNPIN_SLACK) {
+            el.scrollTop = start - topRow.offset
+            noteProgrammaticScroll()
+        }
+        // The rows put in front render at estimated heights and measure a frame or two later. Hold the
+        // reader's row in place through those measurements; any reader scroll ends the hold.
+        const heldAt = performance.now()
+        let frames = PREPEND_HOLD_FRAMES
+        const hold = (): void => {
+            const heldIndex = findVirtualIndexForKey(topRow.key)
+            const held = heldIndex >= 0 ? virtualizer.measurementsCache[heldIndex]?.start : undefined
+            if (!scrollRef.current || lastUserScrollAtRef.current > heldAt || held === undefined) {
+                return
+            }
+            if (Math.abs(scrollRef.current.scrollTop - (held - topRow.offset)) > UNPIN_SLACK) {
+                scrollRef.current.scrollTop = held - topRow.offset
+                noteProgrammaticScroll()
+            }
+            frames -= 1
+            if (frames > 0) {
+                requestAnimationFrame(hold)
+            }
+        }
+        requestAnimationFrame(hold)
+    }, [items, totalSize, virtualized, virtualizer, findVirtualIndexForKey, noteProgrammaticScroll])
+
+    // A thread shorter than its viewport has no scroll to bring the reader near the top, so ask for older
+    // rows directly until it fills the viewport or the caller has none left.
+    useEffect(() => {
+        const el = scrollRef.current
+        if (virtualized && el && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight + UNPIN_SLACK) {
+            onNearTopRef.current?.()
+        }
+    }, [items, onNearTop, virtualized])
 
     // Initial open (once): land before the browser paints, so a long thread never shows a top-frame
     // flicker or a visible crawl. A thread that already has messages opens on its last meaningful turn —
@@ -605,8 +701,9 @@ function Root<T>({
         const savedIndex = savedReadItem.current ? findVirtualIndexForKey(savedReadItem.current) : -1
         const anchorIndex =
             savedIndex >= 0 ? savedIndex : anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+        const landingKey = savedIndex >= 0 ? savedReadItem.current : anchorItemKey
         const el = scrollRef.current
-        if (anchorIndex >= 0) {
+        if (anchorIndex >= 0 && landingKey) {
             // Provisional anchor landing — this commit only has estimates for the rows under the anchor,
             // so whether the thread is really "top" or "bottom" shaped is decided by the decision loop
             // once measurements land (see `scheduleOpenDecision`). The scroll itself is safe under
@@ -618,9 +715,9 @@ function Root<T>({
             noteProgrammaticScroll()
             setPinned(false)
             bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
-            scheduleAnchorSettle(anchorIndex)
+            scheduleAnchorSettle(landingKey)
             if (savedIndex < 0) {
-                scheduleOpenDecision(anchorIndex)
+                scheduleOpenDecision(landingKey)
             }
             return
         }
@@ -667,6 +764,8 @@ function Root<T>({
     // Gated on `itemsLoading` like the initial open — adopting mid-replay would pin the pre-history
     // anchor value (typically null) and misread the full history's anchor as a fresh send.
     useLayoutEffect(() => {
+        const rowsLandedAbove = rowsLandedAboveRef.current
+        rowsLandedAboveRef.current = false
         if (!virtualized || itemsLoading || items.length === 0) {
             return
         }
@@ -685,14 +784,14 @@ function Root<T>({
         if (anchorIndex < 0) {
             return
         }
-        const isFreshSend = prevKeys === null || !prevKeys.has(anchorItemKey)
+        const isFreshSend = (prevKeys === null || !prevKeys.has(anchorItemKey)) && !rowsLandedAbove
         if (!isFreshSend) {
             virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
             noteProgrammaticScroll()
             // Same estimate-clamp settle as the initial open: the landing may touch the bottom
             // transiently, and those touches must not read as the reader arriving there.
             bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
-            scheduleAnchorSettle(anchorIndex)
+            scheduleAnchorSettle(anchorItemKey)
             return
         }
         // Sending is an explicit request to follow the answer, wherever the reader had scrolled to
@@ -781,6 +880,10 @@ function Root<T>({
         const onScroll = (): void => {
             const top = el.scrollTop
             lastSeenTopRef.current = top
+            rememberTopRow()
+            if (top < el.clientHeight) {
+                onNearTopRef.current?.()
+            }
             const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
             // Content shrinking under the reader — a tool card's accordion collapsing the moment the tool
             // completes, which on this surface is every finished tool — lowers the scroll range, and the
@@ -844,7 +947,7 @@ function Root<T>({
         }
         // Deliberately not keyed on the pinned state: re-subscribing mid-gesture would reset the peak
         // baseline, which is the one thing that has to survive a gesture.
-    }, [virtualized, stickToBottom, setPinned])
+    }, [virtualized, stickToBottom, setPinned, rememberTopRow])
 
     // The turn's tail arrives after the turn is over — usage and cost come on their own stream frames and
     // the footer swaps to them a commit or two later — so following has to outlast `turnActive` by a beat

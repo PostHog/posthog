@@ -580,6 +580,71 @@ function isResumeRun(run: { state?: unknown }): boolean {
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
 }
 
+/** Bytes of the latest turns a chat reads first; older turns load in pages of `HISTORY_PAGE_BYTES`. */
+const HISTORY_TAIL_BYTES = 1_000_000
+const HISTORY_PAGE_BYTES = 2_000_000
+/** Wait after the latest turns render before the next older page preloads, so it never competes with the open. */
+const OLDER_HISTORY_PRELOAD_DELAY_MS = 1_500
+
+export type OlderHistoryState = 'none' | 'idle' | 'loading'
+
+export interface HistoryPage {
+    entries: Record<string, any>[]
+    offset: number
+    count: number
+    preamble: number
+}
+
+/**
+ * The loaded part of a run's resume-chain log. `entries` start at full-log index `offset`; `preamble` holds the
+ * earlier frames that still set run state at that point (run start, session, usage, mode, open permissions).
+ */
+export interface HistoryWindow {
+    runId: string
+    offset: number
+    preamble: Record<string, any>[]
+    entries: Record<string, any>[]
+}
+
+/**
+ * Fold a fresh read of the latest turns into the loaded window. Older pages the reader already loaded stay, so a
+ * recovery read never drops history from above the reader.
+ */
+export function mergeHistoryWindow(
+    previous: HistoryWindow | undefined,
+    runId: string,
+    page: HistoryPage
+): HistoryWindow {
+    const latest: HistoryWindow = {
+        runId,
+        offset: page.offset,
+        preamble: page.entries.slice(0, page.preamble),
+        entries: page.entries.slice(page.preamble),
+    }
+    if (!previous || previous.runId !== runId || previous.offset >= page.offset) {
+        return latest
+    }
+    return {
+        runId,
+        offset: previous.offset,
+        preamble: previous.preamble,
+        entries: [...previous.entries.slice(0, page.offset - previous.offset), ...latest.entries],
+    }
+}
+
+/** Put an older page (the entries before `historyWindow.offset`) in front of the loaded window. */
+export function prependHistoryPage(historyWindow: HistoryWindow, page: HistoryPage): HistoryWindow {
+    return {
+        runId: historyWindow.runId,
+        offset: page.offset,
+        preamble: page.entries.slice(0, page.preamble),
+        entries: [
+            ...page.entries.slice(page.preamble, page.preamble + historyWindow.offset - page.offset),
+            ...historyWindow.entries,
+        ],
+    }
+}
+
 function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): StoredLogEntry[] {
     // Match Desktop's run-marker scoping without changing the shared log payload or its deduplication keys.
     // A resume chain without a marker has unknown ownership; a single-run history belongs to its requested run.
@@ -1740,6 +1805,11 @@ export function foldLogFromCheckpoint(
     let timestamp: number | undefined
     let importedRun = resume?.importedRun ?? false
     let entryRunId: string | undefined
+    // The agent's `event_id` of the entry being folded. Ids built from it stay the same when older history
+    // loads in front of the log, where the per-type counters behind the fallback ids would shift.
+    let entryKey: string | undefined
+    const seqId = (prefix: string, seq: number): string => (entryKey ? `${prefix}@${entryKey}` : `${prefix}-${seq}`)
+    const bubbleId = (id: string, seq: number): string => `${id}@${entryKey ?? seq}`
     let pendingMessageSeen = resume?.pendingMessageSeen ?? false
     let pendingInsertionIndex: number | undefined = resume?.pendingInsertionIndex
     let bufferedAttachments: ThreadAttachment[] = resume ? [...resume.bufferedAttachments] : []
@@ -1759,7 +1829,7 @@ export function foldLogFromCheckpoint(
         }
         const carried = [...attachments, ...bufferedAttachments]
         const item: ThreadItem = {
-            id: placement.reuseId ?? `human-${humanCount++}`,
+            id: placement.reuseId ?? seqId('human', humanCount++),
             type: 'human_message',
             text,
             complete: true,
@@ -1853,7 +1923,7 @@ export function foldLogFromCheckpoint(
                 openAssistantMessages++
             }
             items.push({
-                id: `${id}@${bubbleSeq++}`,
+                id: bubbleId(id, bubbleSeq++),
                 type,
                 text: delta,
                 complete: false,
@@ -1892,7 +1962,7 @@ export function foldLogFromCheckpoint(
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
             items.push({
-                id: `${id}@${bubbleSeq++}`,
+                id: bubbleId(id, bubbleSeq++),
                 type: 'assistant_message',
                 text,
                 complete: true,
@@ -2038,7 +2108,7 @@ export function foldLogFromCheckpoint(
             items.splice(undeliveredIdx, 1)
         }
         items.push({
-            id: `error-${errorSeq++}`,
+            id: seqId('error', errorSeq++),
             type: 'error',
             errorMessage: message,
             variant,
@@ -2049,6 +2119,7 @@ export function foldLogFromCheckpoint(
     for (let index = resume ? resume.entries.length : 0; index < entries.length; index++) {
         const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
+        entryKey = typeof entry.event_id === 'string' && entry.event_id ? entry.event_id : undefined
         if (
             options.pendingMessage &&
             entryRunId === options.pendingMessage.runId &&
@@ -2074,7 +2145,7 @@ export function foldLogFromCheckpoint(
         }
         if (method === '_client/error') {
             items.push({
-                id: `error-${errorSeq++}`,
+                id: seqId('error', errorSeq++),
                 type: 'error',
                 errorMessage: String(params.message ?? ''),
                 variant: params.variant === 'crash' ? 'crash' : 'error',
@@ -2112,7 +2183,7 @@ export function foldLogFromCheckpoint(
                 })
             }
             items.push({
-                id: `turn-${separatorSeq++}`,
+                id: seqId('turn', separatorSeq++),
                 type: 'turn_separator',
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
@@ -2142,7 +2213,7 @@ export function foldLogFromCheckpoint(
                     items[items.length - 1] = { ...last, undeliveredMessage: true }
                 } else {
                     items.push({
-                        id: `error-${errorSeq++}`,
+                        id: seqId('error', errorSeq++),
                         type: 'error',
                         errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
                         variant: 'undelivered',
@@ -2194,7 +2265,7 @@ export function foldLogFromCheckpoint(
                     (item) => !isPendingStatus(item, status === 'clearing_failed' ? 'clearing' : 'compacting')
                 )
                 items.push({
-                    id: `status-${statusSeq++}`,
+                    id: seqId('status', statusSeq++),
                     type: 'status',
                     status,
                     isComplete: true,
@@ -2202,21 +2273,21 @@ export function foldLogFromCheckpoint(
                 })
             } else if (status === 'extension_notice') {
                 items.push({
-                    id: `status-${statusSeq++}`,
+                    id: seqId('status', statusSeq++),
                     type: 'status',
                     status,
                     isComplete: true,
                     message: stringifyOptional(params.message),
                 })
             } else {
-                items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
+                items.push({ id: seqId('status', statusSeq++), type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
             items = items.filter((item) => !isPendingStatus(item, 'compacting'))
             items.push({
-                id: `compact-${compactSeq++}`,
+                id: seqId('compact', compactSeq++),
                 type: 'compact_boundary',
                 trigger: stringifyOptional(params.trigger),
                 preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
@@ -2228,12 +2299,12 @@ export function foldLogFromCheckpoint(
             // The divider supersedes the spinner visually, but the completing `_posthog/status`
             // frame is a separate notification that may not have landed yet.
             items = items.filter((item) => !isPendingStatus(item, 'clearing'))
-            items.push({ id: `cleared-${clearedSeq++}`, type: 'conversation_cleared' })
+            items.push({ id: seqId('cleared', clearedSeq++), type: 'conversation_cleared' })
             continue
         }
         if (method === '_posthog/task_notification') {
             items.push({
-                id: `task-${taskSeq++}`,
+                id: seqId('task', taskSeq++),
                 type: 'task_notification',
                 status: stringifyOptional(params.status),
                 summary: stringifyOptional(params.summary),
@@ -2266,7 +2337,7 @@ export function foldLogFromCheckpoint(
             const level = typeof params.level === 'string' ? params.level : 'info'
             if (message) {
                 items.push({
-                    id: `console-${consoleSeq++}`,
+                    id: seqId('console', consoleSeq++),
                     type: 'debug',
                     text: message,
                     debugLevel: level,
@@ -2398,6 +2469,7 @@ function rendersThreadItemContent(item: ThreadItem): boolean {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface runStreamLogicValues {
+    olderHistoryState: OlderHistoryState
     showDebugLogs: boolean // debugLogsLogic
     foregroundStreamKeys: Set<string> // foregroundStreamLogic
     isDev: boolean | undefined // preflightLogic
@@ -2462,6 +2534,9 @@ export interface runStreamLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface runStreamLogicActions {
+    loadOlderHistory: () => {
+        value: true
+    }
     markContextLinesSeen: (
         taskId: string,
         lines: string[]
@@ -2709,6 +2784,9 @@ export interface runStreamLogicActions {
     setHistoryComplete: (complete: boolean) => {
         complete: boolean
     }
+    setOlderHistoryState: (state: OlderHistoryState) => {
+        state: OlderHistoryState
+    }
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
     }
@@ -2878,6 +2956,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         resetRecoveryBudget: true,
         recoveryRunChanged: true,
         setHistoryComplete: (complete: boolean) => ({ complete }),
+        setOlderHistoryState: (state: OlderHistoryState) => ({ state }),
+        loadOlderHistory: true,
         setStreamHasEnded: (ended: boolean) => ({ ended }),
         recoveryProgress: (phase: RecoveryPhase, attempt: number, maxAttempts: number) => ({
             phase,
@@ -3074,6 +3154,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setHistoryComplete: (_, { complete }) => complete,
                 reset: () => false,
+            },
+        ],
+        olderHistoryState: [
+            'none' as OlderHistoryState,
+            {
+                setOlderHistoryState: (_, { state }) => state,
+                reset: () => 'none' as OlderHistoryState,
             },
         ],
         streamHasEnded: [
@@ -3911,13 +3998,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.recoveryStartedAt = undefined
             }
         }
+        const readLatestHistory = (session: RunStreamRecovery, signal: AbortSignal): Promise<HistoryPage> =>
+            api.tasks.runs.getLogPage(session.taskId, session.runId, {
+                signal,
+                projectId: session.projectId,
+                tailBytes: HISTORY_TAIL_BYTES,
+            })
         const startHistoryPrefetch = (session: RunStreamRecovery): void => {
             dropHistoryPrefetch()
             const controller = new AbortController()
-            const entries = api.tasks.runs.getLogEntries(session.taskId, session.runId, {
-                signal: controller.signal,
-                projectId: session.projectId,
-            })
+            const entries = readLatestHistory(session, controller.signal)
             entries.catch(() => {})
             cache.disposables.add(() => () => controller.abort(), 'history-prefetch', { pauseOnPageHidden: false })
             cache.historyPrefetch = {
@@ -3927,9 +4017,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 entries,
             }
         }
-        const takeHistoryPrefetch = (session: RunStreamRecovery): Promise<Record<string, any>[]> | undefined => {
+        const takeHistoryPrefetch = (session: RunStreamRecovery): Promise<HistoryPage> | undefined => {
             const prefetch = cache.historyPrefetch as
-                | { projectId: number; taskId: string; runId: string; entries: Promise<Record<string, any>[]> }
+                | { projectId: number; taskId: string; runId: string; entries: Promise<HistoryPage> }
                 | undefined
             cache.historyPrefetch = undefined
             if (
@@ -3945,55 +4035,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             return prefetch.entries
         }
-        const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
-            const turnCompleteBeforeReconcile = values.turnComplete
-            const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
-            if (session.phase !== 'finalization') {
-                session.phase = 'history'
-            }
-            let prefetched = takeHistoryPrefetch(session)
-            const entries = await readWithRetry(session, () =>
-                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
-                    const pending = prefetched
-                    prefetched = undefined
-                    if (pending) {
-                        signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
-                            once: true,
-                        })
-                        return pending
-                    }
-                    return api.tasks.runs.getLogEntries(session.taskId, session.runId, {
-                        signal,
-                        projectId: session.projectId,
-                    })
-                })
-            )
-            session.check()
-            // Django log-N cursors index the same object entries, including non-notification records.
-            entries.filter(isRecord).forEach((raw, index) => {
-                const entry = normalizeNotificationEntry(raw)
-                if (entry && !entry.event_id) {
-                    session.legacyBacklog.set(`log-${index}`, entry)
-                }
-            })
-            const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
-            const echo = cache.retainedMessage
-                ? values.log.entries.findLast(
-                      ({ entry }) =>
-                          entry.notification.method === '_client/human_message' &&
-                          entry.notification.params?.content === cache.retainedMessage
-                  )
-                : undefined
-            const echoPersisted =
-                !!echo &&
-                history.some(
-                    (entry) =>
-                        entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
-                )
-            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
-            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
-            const bufferedEntries = new Set(session.buffer)
-            const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
+        const replayRunLog = (log: RunLog, runId: string, isLiveFrame: (stored: StoredEntry) => boolean): void => {
             // Rebuild state without publishing a partial transcript or repeating live reactions.
             cache.rebuildingHistory = true
             cache.coalesceContextUsage = true
@@ -4002,17 +4044,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             try {
                 let reachedSuccessor = false
                 for (const stored of log.entries) {
-                    if (cache.retainedMessage && !reachedSuccessor && stored.entry.source_run_id === session.runId) {
+                    if (cache.retainedMessage && !reachedSuccessor && stored.entry.source_run_id === runId) {
                         actions.prepareResumeRun()
                         reachedSuccessor = true
                     }
                     if (stored.entry.notification.method === '_client/human_message') {
                         actions.markTurnStarted()
-                    } else if (
-                        stored.source === 'live' &&
-                        (bufferedEntries.has(stored.entry) ||
-                            (stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
-                    ) {
+                    } else if (isLiveFrame(stored)) {
                         actions.ingestAcpFrame(stored.entry, 'live')
                     } else if (stored.source !== 'client') {
                         ingestFrame(stored.entry, 'replay')
@@ -4031,6 +4069,71 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     actions.setContextUsage(replayContextUsage)
                 }
             }
+        }
+        const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
+            // Django log-N cursors index the same object entries, including non-notification records.
+            entries.filter(isRecord).forEach((raw, index) => {
+                const entry = normalizeNotificationEntry(raw)
+                if (entry && !entry.event_id) {
+                    session.legacyBacklog.set(`log-${offset + index}`, entry)
+                }
+            })
+        }
+        const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
+            const turnCompleteBeforeReconcile = values.turnComplete
+            const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
+            if (session.phase !== 'finalization') {
+                session.phase = 'history'
+            }
+            let prefetched = takeHistoryPrefetch(session)
+            const page = await readWithRetry(session, () =>
+                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
+                    const pending = prefetched
+                    prefetched = undefined
+                    if (pending) {
+                        signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
+                            once: true,
+                        })
+                        return pending
+                    }
+                    return readLatestHistory(session, signal)
+                })
+            )
+            session.check()
+            rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
+            const historyWindow = mergeHistoryWindow(
+                cache.historyWindow as HistoryWindow | undefined,
+                session.runId,
+                page
+            )
+            cache.historyWindow = historyWindow
+            const entries = [...historyWindow.preamble, ...historyWindow.entries]
+            const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
+            const echo = cache.retainedMessage
+                ? values.log.entries.findLast(
+                      ({ entry }) =>
+                          entry.notification.method === '_client/human_message' &&
+                          entry.notification.params?.content === cache.retainedMessage
+                  )
+                : undefined
+            const echoPersisted =
+                !!echo &&
+                history.some(
+                    (entry) =>
+                        entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
+                )
+            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
+            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
+            const bufferedEntries = new Set(session.buffer)
+            const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
+            replayRunLog(
+                log,
+                session.runId,
+                (stored) =>
+                    stored.source === 'live' &&
+                    (bufferedEntries.has(stored.entry) ||
+                        (!!stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
+            )
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
                 ...history,
@@ -4071,7 +4174,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     task_id: session.taskId,
                     run_id: session.runId,
                     run_status: values.currentRunStatus,
-                    entry_count: entries.length,
+                    entry_count: page.count || entries.length,
+                    loaded_entry_count: historyWindow.entries.length,
+                    partial: historyWindow.offset > 0,
                     duration_ms: Math.round(performance.now() - cache.bootstrapStartedAt),
                     execution_type: 'sandbox',
                 })
@@ -4079,6 +4184,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (session.phase !== 'finalization') {
                 recordRecovery(session)
+            }
+            actions.setOlderHistoryState(historyWindow.offset > 0 ? 'idle' : 'none')
+            if (historyWindow.offset > 0) {
+                cache.disposables.add(() => {
+                    const timer = setTimeout(() => actions.loadOlderHistory(), OLDER_HISTORY_PRELOAD_DELAY_MS)
+                    return () => clearTimeout(timer)
+                }, 'older-history-preload')
             }
         }
 
@@ -5220,6 +5332,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.disposables.dispose('event-source')
             },
             reset: () => {
+                cache.historyWindow = undefined
                 if (!props.replayOnly) {
                     liveRunStreams().delete(props.streamKey)
                 }
@@ -5371,6 +5484,51 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 ])
             },
             ingestAcpFrame: ({ entry, source }) => ingestFrame(entry, source),
+            loadOlderHistory: async () => {
+                const session = sessionNow()
+                const historyWindow = cache.historyWindow as HistoryWindow | undefined
+                if (
+                    !session ||
+                    !historyWindow ||
+                    historyWindow.offset === 0 ||
+                    historyWindow.runId !== session.runId ||
+                    values.olderHistoryState !== 'idle'
+                ) {
+                    return
+                }
+                actions.setOlderHistoryState('loading')
+                try {
+                    const page = await session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) =>
+                        api.tasks.runs.getLogPage(session.taskId, session.runId, {
+                            signal,
+                            projectId: session.projectId,
+                            tailBytes: HISTORY_PAGE_BYTES,
+                            before: historyWindow.offset,
+                        })
+                    )
+                    if (sessionNow() !== session || cache.historyWindow !== historyWindow) {
+                        return
+                    }
+                    rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
+                    const next = prependHistoryPage(historyWindow, page)
+                    cache.historyWindow = next
+                    const history = normalizeHistory(
+                        [...next.preamble, ...next.entries],
+                        session.runId,
+                        values.isBootstrapResumeRun
+                    )
+                    const retained = values.log.entries.filter(({ source }) => source !== 'replay')
+                    const log = reconcileRunLog(history, retained, [])
+                    replayRunLog(log, session.runId, () => false)
+                    actions.replaceLog(log)
+                    cache.eventCoverage = new RunEventCoverage([...history, ...retained.map(({ entry }) => entry)])
+                    actions.setOlderHistoryState(next.offset > 0 ? 'idle' : 'none')
+                } catch {
+                    if (sessionNow() === session && cache.historyWindow === historyWindow) {
+                        actions.setOlderHistoryState('idle')
+                    }
+                }
+            },
         }
     }),
     beforeUnmount(({ props }) => {

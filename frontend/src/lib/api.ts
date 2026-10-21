@@ -483,6 +483,22 @@ export class ApiConfig {
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
 
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
+
 export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
@@ -5044,20 +5060,34 @@ const api = {
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch the latest turns of a run's resume-chain log (at least `tailBytes`, cut at a user turn) that
+             * end before entry index `before`. The page starts with `preamble` earlier entries that still set run
+             * state; `offset` is the full-log index of the first entry after them, and `count` is the full-log size.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal?: AbortSignal; projectId?: TeamType['id']; tailBytes: number; before?: number }
+            ): Promise<{ entries: Record<string, any>[]; offset: number; count: number; preamble: number }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .withQueryString({
+                        tail_bytes: options.tailBytes,
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: header('X-Log-Count'),
+                    preamble: header('X-Log-Preamble'),
                 }
-                return entries
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with

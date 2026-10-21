@@ -356,6 +356,7 @@ __all__ = [
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
+    "read_task_run_conversation_log_slice",
     "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
@@ -5250,6 +5251,28 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
         parts.append(json.dumps(marker) + "\n")
         parts.append(content)
     return "".join(parts)
+
+
+def read_task_run_conversation_log_slice(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    tail_bytes: int,
+    before: int | None = None,
+) -> contracts.TaskRunLogSliceDTO | None:
+    """The latest turns of the conversation log that end before index ``before``, at least ``tail_bytes`` long."""
+    from products.tasks.backend.logic.log_slice import (
+        slice_log_tail,  # noqa: PLC0415 — keep log parsing off the api import path
+    )
+
+    content = read_task_run_conversation_logs(run_id, task_id, team_id)
+    if content is None:
+        return None
+    sliced = slice_log_tail(content, tail_bytes, before)
+    return contracts.TaskRunLogSliceDTO(
+        content=sliced.content, offset=sliced.offset, count=sliced.count, preamble=sliced.preamble
+    )
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:

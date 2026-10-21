@@ -750,6 +750,20 @@ class TaskRunCreateResult:
 
 
 @dataclass(frozen=True)
+class TaskRunLogSliceDTO:
+    """Part of a run's conversation log.
+
+    ``content`` is JSONL. ``offset`` is the index in the full log of the first entry after the
+    ``preamble`` entries, and ``count`` is the number of entries in the full log.
+    """
+
+    content: str
+    offset: int
+    count: int
+    preamble: int = 0
+
+
+@dataclass(frozen=True)
 class TaskRunStreamInfoDTO:
     """The minimal run facts the SSE stream view needs without holding a model.
 

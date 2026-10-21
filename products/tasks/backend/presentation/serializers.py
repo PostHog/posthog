@@ -3448,6 +3448,34 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class TaskRunLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for reading part of a task run log"""
+
+    tail_bytes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at "
+            "least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry "
+            "and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run "
+            "state, such as the run start, usage, mode, commands and open permission requests."
+        ),
+    )
+    before = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, end the window before this entry index, so a client can page back through older "
+            "turns: pass the X-Log-Offset of the oldest page it holds."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if "before" in attrs and "tail_bytes" not in attrs:
+            raise serializers.ValidationError("Use before together with tail_bytes.")
+        return attrs
+
+
 class StreamReadTokenQuerySerializer(serializers.Serializer):
     """Query parameters for requesting a task run stream read token"""
 
