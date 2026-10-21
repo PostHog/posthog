@@ -927,6 +927,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 branch=branch,
             )
 
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+                from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
+                    register_report_task_spend,
+                )
+
+                register_report_task_spend(
+                    team_id=task.team_id,
+                    run_id=str(task_run.id),
+                    task_id=str(task.id),
+                    report_id=str(task.signal_report_id),
+                    stage=state.get("ai_stage"),
+                )
+
             def emit_created_events() -> None:
                 task_run.publish_stream_state_event()
                 observe_task_run_created(task_run)

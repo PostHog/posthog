@@ -172,6 +172,7 @@ class TestEmitSignalWiring:
             patch(f"{FACADE_MODULE_PATH}.SignalSourceConfig") as source_config,
             patch(f"{FACADE_MODULE_PATH}.posthoganalytics"),
             patch(f"{FACADE_MODULE_PATH}.async_connect", connect),
+            patch(f"{FACADE_MODULE_PATH}.complete_signal_pipeline"),
             patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(return_value=True)) as gate,
         ):
             source_config.is_source_enabled.return_value = True

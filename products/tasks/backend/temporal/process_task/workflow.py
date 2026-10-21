@@ -1675,11 +1675,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         await workflow.execute_activity(
                             complete_signal_spend,
                             run_id,
-                            start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            start_to_close_timeout=timedelta(minutes=15),
+                            schedule_to_close_timeout=timedelta(minutes=15),
+                            retry_policy=RetryPolicy(
+                                initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                            ),
                         )
-                    except Exception:
-                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+                    except temporalio.exceptions.ActivityError:
+                        workflow.logger.exception(
+                            "signals.spend.accounting_failed", extra={"run_id": run_id, "stage": "task_completion"}
+                        )
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent

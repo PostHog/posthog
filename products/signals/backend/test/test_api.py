@@ -84,6 +84,32 @@ GITHUB_ISSUE_EXTRA = {
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
+    @pytest.mark.parametrize("ai_approved, source_enabled", [(False, True), (True, False)])
+    @pytest.mark.parametrize("has_spend_owner", [False, True])
+    async def test_disabled_emission_completes_existing_spend(
+        self, team_stub: MagicMock, ai_approved: bool, source_enabled: bool, has_spend_owner: bool
+    ) -> None:
+        team_stub.organization.is_ai_data_processing_approved = ai_approved
+        signal_id = str(uuid.uuid4()) if has_spend_owner else None
+        with (
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=source_enabled),
+            patch("products.signals.backend.facade.api.complete_signal_pipeline") as complete,
+            patch("products.signals.backend.facade.api.async_connect") as connect,
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="zendesk",
+                source_type="ticket",
+                source_id="disabled-source",
+                description="An existing signal cannot enter the disabled pipeline",
+                signal_id=signal_id,
+            )
+        if signal_id:
+            complete.assert_called_once_with(team_id=team_stub.id, signal_id=signal_id)
+        else:
+            complete.assert_not_called()
+        connect.assert_not_called()
+
     @pytest.mark.parametrize(
         "source_product, source_type, extra",
         [

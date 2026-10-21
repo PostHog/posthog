@@ -1,24 +1,38 @@
 import asyncio
+import inspect
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.llm.gateway_usage import GatewayRequestCost
+
+from products.signals.backend.models import SignalScoutRun, SignalSpend
+from products.signals.backend.spend import complete_task_spend, record_task_spend
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 from products.tasks.backend.logic.services.gateway_usage import (
     _gateway_usage_client,
     _schedule_gateway_usage,
     schedule_gateway_usage,
 )
-from products.tasks.backend.temporal.gateway_usage import GatewayUsageInput, TaskRunGatewayUsageWorkflow
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.gateway_usage import (
+    GatewayUsageInput,
+    TaskRunGatewayUsageWorkflow,
+    reconcile_gateway_usage,
+)
 
 
 @pytest.mark.parametrize("failed_connection", [False, True])
@@ -214,3 +228,52 @@ async def test_callback_extends_deadline_during_activity_retries() -> None:
                 execution_timeout=timedelta(minutes=5),
             )
         assert settled
+
+
+class TestScoutSpendSettlement(BaseTest):
+    @parameterized.expand([(TaskRun.Status.COMPLETED,), (TaskRun.Status.FAILED,), (TaskRun.Status.CANCELLED,)])
+    def test_scout_finalization_waits_for_late_usage(self, status: str) -> None:
+        task = Task.objects.create(
+            team=self.team, title="Example scout", description="", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.state = {
+            "unprocessed_request_ids": ["pending-request"],
+            "token_cost": {"model-a": {"provider-a": {"cost_microusd": 100}}},
+        }
+        run.status = status
+        run.save(update_fields=["state", "status"])
+        scout = SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+        )
+        with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        with (
+            patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
+            self.assertRaises(TaskTokenUsageUnavailable),
+        ):
+            complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
+        self.assertIsNone(spend.finalized_at)
+        self.assertTrue(spend.accounting_failed)
+        assert spend.billing_amounts == {}
+        with patch(
+            "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),
+        ):
+            assert (
+                inspect.unwrap(reconcile_gateway_usage)(GatewayUsageInput(run_id=str(run.id), team_id=self.team.id))
+                == 0
+            )
+        spend.refresh_from_db()
+        self.assertIsNone(spend.finalized_at)
+        assert spend.billing_amounts == {}
+        complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        spend.refresh_from_db()
+        scout.refresh_from_db()
+        self.assertIsNotNone(spend.finalized_at)
+        assert not spend.accounting_failed
+        assert spend.token_cost_microusd == 150
+        assert spend.task_count == 1
+        assert scout.total_spend == Decimal("4.0150")
+        assert sum(spend.billing_amounts.values()) == 40_150

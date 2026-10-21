@@ -402,6 +402,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |LegacySignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -864,6 +865,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |LegacySignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

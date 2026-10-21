@@ -24,6 +24,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import (
     MultiTurnSession,
     turn_failure_error_type,
+    wait_for_task_completion,
 )
 from products.tasks.backend.logic.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 from products.tasks.backend.logic.services.local_skills import (
@@ -66,4 +67,5 @@ __all__ = [
     "poll_for_turn",
     "resolve_sandbox_context_for_local_dev",
     "turn_failure_error_type",
+    "wait_for_task_completion",
 ]

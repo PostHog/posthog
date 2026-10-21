@@ -18,7 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
-from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage
+from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
@@ -225,6 +225,24 @@ def _token_usage(run: TaskRun) -> TaskRunTokenUsage:
 
 def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage:
     return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
+
+
+def get_task_runs_spend(*, team_id: int, task_ids: list[UUID]) -> list[TaskRunSpend]:
+    runs = TaskRun.objects.filter(team_id=team_id, task_id__in=task_ids)
+    result = []
+    for run in runs:
+        usage = _token_usage(run)
+        result.append(
+            TaskRunSpend(
+                run_id=run.id,
+                task_id=run.task_id,
+                cost_microusd=usage.cost_microusd,
+                complete=usage.complete,
+                is_terminal=run.is_terminal,
+                stage=str((run.state or {}).get("ai_stage") or "task"),
+            )
+        )
+    return result
 
 
 def _token_cost_microusd(run: TaskRun) -> int | None:

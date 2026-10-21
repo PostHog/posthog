@@ -8,10 +8,13 @@ from temporalio.common import RetryPolicy
 
 from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -24,7 +27,7 @@ _PATCH_SIGNAL_DROPPED = "signal-dropped-telemetry-v1"
 _MAX_ERROR_LENGTH = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class CaptureSignalDroppedInput:
     team_id: int
     source_product: str
@@ -35,6 +38,7 @@ class CaptureSignalDroppedInput:
     error_type: str
     error: str
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
 
 
 def summarize_drop_error(error: BaseException) -> tuple[str, str]:
@@ -67,6 +71,7 @@ def signal_dropped_input(
         # Flatten before scheduling: the raw `extra` can nest large customer-derived
         # payloads, and the activity input is recorded verbatim in workflow history.
         extra=_telemetry_props_from_extra(signal.extra),
+        signal_id=signal.signal_id,
     )
 
 
@@ -103,6 +108,10 @@ def capture_signal_dropped_event(team: Team, input: CaptureSignalDroppedInput) -
 async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> None:
     """Emit a lifecycle event when the pipeline drops a signal, so drops are trackable per signal."""
     metrics.increment_dropped(stage=input.stage, reason=input.error_type)
+    if input.signal_id:
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=input.team_id, signal_id=input.signal_id, billing_exempt=system_source_exempt(input.source_product)
+        )
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         capture_signal_dropped_event(team, input)
