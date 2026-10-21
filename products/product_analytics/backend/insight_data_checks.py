@@ -79,7 +79,7 @@ MAX_EXECUTION_SECONDS = 5
 # ClickHouse applies them to the total across all shards, so this one sits above what a check reads at EVENT_BUDGET.
 MAX_BYTES_READ = 10_000_000_000
 # The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
-MAX_SAMPLE_BYTES_READ = 250_000_000
+MAX_SAMPLE_BYTES_READ = 1_000_000_000
 
 # A person cannot repeat an action this fast, but an app that sends an event twice does.
 REPEAT_WINDOW_MILLISECONDS = 100
