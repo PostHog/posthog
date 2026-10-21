@@ -2086,7 +2086,8 @@ def _infer_json_extract_type(
     if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
         return None
 
-    runtime_type = parse_sql_runtime_type(type_arg.value, dialect=dialect)
+    # The Trino backend translates HogQL's ClickHouse type names, so the target is ClickHouse syntax there too.
+    runtime_type = parse_sql_runtime_type(type_arg.value, dialect="clickhouse" if dialect == "trino" else dialect)
     if runtime_type.family == "unknown":
         return None
     result_type = constant_type_from_runtime_type(runtime_type)

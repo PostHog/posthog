@@ -36,6 +36,7 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
     ProcessTaskTransientError,
+    RepositoryAccessError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
     TaskInvalidStateError,
@@ -1195,6 +1196,18 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     blobless=blobless_clone,
                 )
 
+            if _is_repository_access_denied_clone_error(clone_result):
+                raise RepositoryAccessError(
+                    f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
+                    "GitHub app is installed on this repository's account and can read this repository.",
+                    {
+                        "repository": input.repository,
+                        "sandbox_id": input.sandbox_id,
+                        "exit_code": clone_result.exit_code,
+                        "has_github_token": bool(input.github_token),
+                    },
+                )
+
             if clone_result.exit_code != 0:
                 error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
                 raise RepositoryCloneError(
@@ -1218,6 +1231,20 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
             _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
+
+def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:
+    if result.exit_code == 0:
+        return False
+
+    # Git asks for a username when GitHub answers 401, which is how GitHub hides a private
+    # repository from a request without a usable token.
+    output = f"{result.stdout}\n{result.stderr}".casefold()
+    return (
+        "could not read username" in output
+        or "authentication failed for" in output
+        or "remote: repository not found" in output
+    )
 
 
 def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
