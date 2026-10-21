@@ -256,6 +256,11 @@ export interface ExecToolOptions {
      * is the case where an agent has no way to reach a built-in skill at all.
      */
     builtInSkillHint?: BuiltInSkillHint
+    /**
+     * The tools a scout run with a picked tool list holds. A catalog tool outside this set is
+     * refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     */
+    heldTools?: ReadonlySet<string>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1670,7 +1675,8 @@ function findTool(
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
     name: string,
-    context: Context | undefined
+    context: Context | undefined,
+    heldTools: ReadonlySet<string> | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1687,6 +1693,12 @@ function findTool(
             throw new ExecCommandError(
                 `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
+            )
+        }
+        if (heldTools && !heldTools.has(name) && getToolDefinitions()[name] !== undefined) {
+            throw new ExecCommandError(
+                `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
+                'tool_not_granted'
             )
         }
         throw new ExecCommandError(
@@ -1888,7 +1900,14 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        infoArgs,
+                        context,
+                        options.heldTools
+                    )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1938,7 +1957,8 @@ export function createExecTool(
                         scopeGatedTools,
                         flagGatedTools,
                         schemaToolName,
-                        context
+                        context,
+                        options.heldTools
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -1996,7 +2016,14 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName, context)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        toolName,
+                        context,
+                        options.heldTools
+                    )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,

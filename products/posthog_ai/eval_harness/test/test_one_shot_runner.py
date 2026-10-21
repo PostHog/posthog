@@ -67,11 +67,18 @@ class _StubReporter:
     ) -> None:
         self.done.append((case_name, status))
 
-    async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
+    async def experiment_started(
+        self, experiment_name: str, planned_cases: int, log_dir: Path, *, case_names: Sequence[str] = ()
+    ) -> None:
         self.started.append((experiment_name, planned_cases))
 
     async def record_summary(
-        self, experiment_name: str, summary: Any, error_count: int, trial_stats: Sequence[ScorerTrialStats] = ()
+        self,
+        experiment_name: str,
+        summary: Any,
+        error_count: int,
+        trial_stats: Sequence[ScorerTrialStats] = (),
+        case_results: Sequence[Any] = (),
     ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
 
