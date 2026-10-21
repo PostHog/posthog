@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from .cli import HarnessOptions, parse_args
 from .django_env import setup_django
 from .env_preflight import load_env_file
-from .ports import PERSONHOG_ROUTER_PORT
+from .ports import AI_GATEWAY_REDIS_URL, PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 from .terminal import open_terminal
 from .transcript import RunTranscript, write_console
@@ -46,6 +46,10 @@ def _run(
     # singleton is already built. A PERSONHOG_ADDR leaked from a sourced dev .env
     # would otherwise silently point eval reads at the dev persons DB.
     os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
+
+    # Django builds its ai-gateway cache alias from this at django.setup(), and under
+    # TEST=1 the setting has no default, so the credential blobs would go nowhere.
+    os.environ["AI_GATEWAY_REDIS_URL"] = AI_GATEWAY_REDIS_URL
 
     setup_django(keep_logging=transcript is not None)
     if transcript is not None:

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import io
 import os
 import sys
 import json
+import time
 import shutil
 import signal
 import hashlib
 import logging
+import secrets
 import zipfile
 import contextlib
 import subprocess
@@ -14,7 +17,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from django.conf import settings
-from django.db import connections
+from django.core.management import call_command
+
+import requests
 
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
 from products.tasks.backend.facade.agents import (
@@ -23,7 +28,14 @@ from products.tasks.backend.facade.agents import (
     LocalSkillsCache,
 )
 
-from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT, SKILL_ARCHIVE_PORT
+from .ports import (
+    AI_GATEWAY_PORT,
+    AI_GATEWAY_REDIS_URL,
+    MCP_PORT,
+    PERSONHOG_REPLICA_PORT,
+    PERSONHOG_ROUTER_PORT,
+    SKILL_ARCHIVE_PORT,
+)
 from .providers import PreflightError
 
 logger = logging.getLogger(__name__)
@@ -31,67 +43,185 @@ logger = logging.getLogger(__name__)
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 _ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
+EVAL_AI_PRODUCT = "posthog_ai"
+"""The gateway product eval tasks resolve to through their ``posthog_ai`` origin."""
 
-def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
-    """Start the LLM gateway as a subprocess.
+AI_GATEWAY_EVAL_DATABASE = "ai_gateway_evals"
+AI_GATEWAY_EVAL_ALLOWANCE_USD = "10000"
+"""The highest overspend allowance the gateway accepts. Each run token still caps one run."""
 
-    Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
-    The sandbox's agent-server uses this to proxy LLM calls to Anthropic, through the
-    ``posthog_ai`` product that eval tasks select with their origin.
+
+def ai_gateway_repo() -> Path:
+    """The local ``PostHog/ai-gateway`` clone, at the path ``bin/start-ai-gateway`` uses."""
+    override = os.environ.get("AI_GATEWAY_REPO")
+    return Path(override) if override else Path.home() / "Development" / "ai-gateway"
+
+
+def _ai_gateway_binary() -> Path:
+    # .run/ is gitignored in the gateway repo.
+    return ai_gateway_repo() / ".run" / "eval-gateway"
+
+
+def ensure_ai_gateway_binary() -> None:
+    """Build the Go ai-gateway from the local clone, during preflight.
+
+    The sandboxed agent's model calls go through the Go gateway, as they do in
+    production for PostHog AI runs. The build is incremental, so only the first
+    one after a pull is slow.
     """
-    gateway_dir = Path(settings.BASE_DIR) / "services" / "llm-gateway"
-    venv_dir = gateway_dir / ".venv"
-    uvicorn_bin = venv_dir / "bin" / "uvicorn"
-
-    if not uvicorn_bin.exists():
-        raise SubprocessStartupError(
-            f"LLM gateway venv not found at {venv_dir}. "
-            "Run `bin/start-llm-gateway` once or `cd services/llm-gateway && uv venv .venv && uv pip install -e .`"
+    repo = ai_gateway_repo()
+    if not (repo / "cmd" / "gateway").is_dir():
+        raise PreflightError(
+            f"No PostHog/ai-gateway clone at {repo}. The sandboxed agent's model calls go through it. "
+            f"Run `git clone git@github.com:PostHog/ai-gateway.git {repo}`, "
+            "or set AI_GATEWAY_REPO to the path of your clone."
         )
-    # The LLM gateway uses pydantic BaseSettings with env_prefix="LLM_GATEWAY_".
-    # DATABASE_URL and LLM_GATEWAY_ANTHROPIC_API_KEY come from the parent env
-    # (e.g. .env.local / op run). We need to point it at the test database.
-    conn = connections["default"]
-    # The test DB setup rewrites settings_dict["NAME"] to the test DB name in
-    # place, so don't re-prefix it.
-    db_name = conn.settings_dict["NAME"]
-    db_user = conn.settings_dict.get("USER", "posthog")
-    db_password = conn.settings_dict.get("PASSWORD", "posthog")
-    db_host = conn.settings_dict.get("HOST", "localhost")
-    db_port = conn.settings_dict.get("PORT", "5432")
-    test_db_url = f"postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    if shutil.which("go") is None:
+        raise PreflightError("`go` not found on PATH. The harness builds the ai-gateway from your clone.")
 
-    # No team rate-limit multiplier: the gateway keys multipliers by team id, but
-    # each eval case runs as its own freshly minted team, so a mapping like {"1": 10}
-    # never matches. Rate limits are per team, so every case gets the full base
-    # budget (hundreds of requests/minute), which is already ample for eval traffic.
-    env = {
-        **os.environ,
-        "UV_PROJECT_ENVIRONMENT": str(venv_dir),
-        "LLM_GATEWAY_DATABASE_URL": test_db_url,
-        "LLM_GATEWAY_DEBUG": "true",
-        "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
-    }
+    logger.info("Building the ai-gateway from %s", repo)
+    result = subprocess.run(
+        ["go", "build", "-o", str(_ai_gateway_binary()), "./cmd/gateway"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=10 * 60,
+    )
+    if result.returncode != 0:
+        tail = "\n".join(((result.stdout or "") + (result.stderr or "")).splitlines()[-30:])
+        raise PreflightError(f"Failed to build the ai-gateway (go exit {result.returncode}):\n{tail}")
 
-    logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
-    _, stop = LONG_LIVED_SUBPROCESSES.start(
-        name="LLM gateway",
-        port=LLM_GATEWAY_PORT,
-        cmd=[
-            str(uvicorn_bin),
-            "llm_gateway.main:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            str(LLM_GATEWAY_PORT),
-        ],
-        cwd=gateway_dir,
-        env=env,
-        log_prefix="llm-gateway",
+
+def _ai_gateway_compose(*args: str) -> subprocess.CompletedProcess[str]:
+    # PostHog's dev env exports COMPOSE_PROJECT_NAME=posthog, which outranks the
+    # gateway compose file's own project name.
+    return subprocess.run(
+        ["docker", "compose", *args],
+        cwd=ai_gateway_repo(),
+        env={**os.environ, "COMPOSE_PROJECT_NAME": "ai-gateway"},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5 * 60,
     )
 
-    logger.info("LLM gateway ready on port %d", LLM_GATEWAY_PORT)
+
+def start_ai_gateway() -> Callable[[], None]:
+    """Start the Go ai-gateway on a non-default port, in resolver mode.
+
+    It shares the Postgres and Valkey containers of the gateway repo's compose file
+    with a dev-stack gateway, but uses its own database and Valkey DB index, so eval
+    ledger rows and team policy blobs never mix with dev ones. The containers stay up
+    after the run, as they do for ``bin/start-ai-gateway``.
+    """
+    _ai_gateway_compose("up", "-d", "--wait", "postgres", "valkey")
+    exists = _ai_gateway_compose(
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "postgres",
+        "-tAc",
+        f"SELECT 1 FROM pg_database WHERE datname = '{AI_GATEWAY_EVAL_DATABASE}'",
+    ).stdout.strip()
+    if exists != "1":
+        _ai_gateway_compose("exec", "-T", "postgres", "createdb", "-U", "postgres", AI_GATEWAY_EVAL_DATABASE)
+
+    # A dev .env can carry AI_GATEWAY_* settings meant for Django or for a dev gateway.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("AI_GATEWAY_")}
+    env.update(
+        {
+            "AI_GATEWAY_ENV": "dev",
+            "AI_GATEWAY_AUTH_MODE": "resolver",
+            "AI_GATEWAY_LISTEN_ADDR": f":{AI_GATEWAY_PORT}",
+            "AI_GATEWAY_POSTGRES_DSN": (
+                f"postgres://postgres:postgres@localhost:5435/{AI_GATEWAY_EVAL_DATABASE}?sslmode=disable"
+            ),
+            "AI_GATEWAY_REDIS_URL": AI_GATEWAY_REDIS_URL,
+            "AI_GATEWAY_ANTHROPIC_API_KEY": os.environ["LLM_GATEWAY_ANTHROPIC_API_KEY"],
+            # The gateway refuses to boot without an OpenAI key, which only codex runs use.
+            "AI_GATEWAY_OPENAI_API_KEY": os.environ.get("LLM_GATEWAY_OPENAI_API_KEY") or "unused",
+            "AI_GATEWAY_LOG_FORMAT": "text",
+            "AI_GATEWAY_LOG_LEVEL": "info",
+        }
+    )
+    binary = _ai_gateway_binary()
+    migrate = subprocess.run([str(binary), "migrate"], env=env, capture_output=True, text=True, timeout=120)
+    if migrate.returncode != 0:
+        raise SubprocessStartupError(f"ai-gateway ledger migration failed:\n{migrate.stdout}{migrate.stderr}")
+
+    logger.info("Starting ai-gateway on port %d", AI_GATEWAY_PORT)
+    _, stop = LONG_LIVED_SUBPROCESSES.start(
+        name="ai-gateway",
+        port=AI_GATEWAY_PORT,
+        cmd=[str(binary)],
+        cwd=ai_gateway_repo(),
+        env=env,
+        log_prefix="ai-gateway",
+    )
+    try:
+        _wait_for_ai_gateway_ready()
+    except Exception:
+        stop()
+        raise
+    logger.info("ai-gateway ready on port %d", AI_GATEWAY_PORT)
     return stop
+
+
+def _wait_for_ai_gateway_ready(timeout_seconds: float = 120) -> None:
+    # The gateway listens before its model catalog is built. Until a provider listing
+    # succeeds, /readyz answers 503 and /v1/models is empty. A bad provider key never gets past this.
+    deadline = time.monotonic() + timeout_seconds
+    body = ""
+    while time.monotonic() < deadline:
+        try:
+            response = requests.get(f"http://localhost:{AI_GATEWAY_PORT}/readyz", timeout=5)
+        except requests.RequestException as e:
+            body = str(e)
+        else:
+            if response.status_code == 200:
+                return
+            body = response.text[:500]
+        time.sleep(1)
+    raise SubprocessStartupError(
+        f"ai-gateway did not become ready in {timeout_seconds:.0f}s. Check the provider API keys. Last /readyz: {body}"
+    )
+
+
+def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
+    """Give the master demo team a ``phs_`` key the worker mints per-run tokens with.
+
+    Each run's ``phe_`` token bills the minting team, so only the master team needs
+    admission and spend headroom, not the per-case teams. The overspend allowance
+    replaces a ledger top-up: the gateway admits a zero-balance team up to it.
+    A model listing and one mint check the catalog and the credential, so a broken
+    setup fails here and not as a model error in every case.
+    """
+    mint_key = f"phs_{secrets.token_hex(24)}"
+    call_command("llm_gateway_team", "set-allowance", str(team_id), AI_GATEWAY_EVAL_ALLOWANCE_USD, stdout=io.StringIO())
+    call_command("setup_local_gateway_credential", "--phs", mint_key, "--team", str(team_id), stdout=io.StringIO())
+    call_command("llm_gateway_team", "refresh", str(team_id), stdout=io.StringIO())
+
+    base_url = f"http://localhost:{AI_GATEWAY_PORT}"
+    headers = {"Authorization": f"Bearer {mint_key}"}
+    models = requests.get(f"{base_url}/v1/models", headers=headers, timeout=10)
+    models.raise_for_status()
+    model_ids = {entry.get("id") for entry in models.json().get("data", [])}
+    if agent_model not in model_ids:
+        raise SubprocessStartupError(f"The ai-gateway model catalog does not serve {agent_model!r}")
+    mint = requests.post(
+        f"{base_url}/v1/tokens",
+        json={"cap_usd": "0.01", "ttl_seconds": 60, "product": EVAL_AI_PRODUCT, "obo": str(team_id)},
+        headers=headers,
+        timeout=10,
+    )
+    if not 200 <= mint.status_code < 300:
+        raise SubprocessStartupError(
+            f"ai-gateway refused to mint a run token: HTTP {mint.status_code} {mint.text[:300]}"
+        )
+    logger.info("ai-gateway mint key provisioned for team_id=%d", team_id)
+    return mint_key
 
 
 def start_mcp_server(

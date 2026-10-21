@@ -7,7 +7,7 @@ This file explains how it fits together.
 
 ## Why it exists
 
-The sandboxed evals need heavy shared infrastructure: a committed test database, an in-process Django server the sandbox can call back into, an LLM gateway, an MCP server, and a Temporal server plus worker.
+The sandboxed evals need heavy shared infrastructure: a committed test database, an in-process Django server the sandbox can call back into, the Go AI gateway, an MCP server, and a Temporal server plus worker.
 Under pytest that infrastructure lived in session fixtures, and suites ran strictly one at a time, with Braintrust parallelizing only _within_ a suite.
 Wall-clock was dominated by suites queueing behind each other while sandbox capacity sat idle.
 
@@ -16,7 +16,7 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 The `EvalAsync` call itself lives behind an `EvalEngine` seam (`../engines/`): `_BaseEvalRun.run()` hands a neutral `ExperimentSpec` to the engine resolved by `engines/registry.resolve_engine()` (shared via `EvalContext.engine`) and gets back a neutral `ExperimentResult` (`engines/types.py`), so a future PostHog-native engine can slot in behind the same interface — implementing the `EvalEngine` protocol and passing the conformance suite — without touching the run base or any suite.
 
 Not every suite is sandboxed anymore: each suite declares a `SUITE_KIND` (`requirements.py`), the kind maps to a set of `Infra` requirements, and the harness boots only the union of what the selected suites need.
-A run of one-shot suites never pays for — or fails preflight on — the sandbox provider, Temporal, the live server, the LLM gateway, or the MCP server.
+A run of one-shot suites never pays for — or fails preflight on — the sandbox provider, Temporal, the live server, the AI gateway, or the MCP server.
 
 ## Modules
 
@@ -31,7 +31,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
 | `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
-| `services.py`      | Starts the LLM gateway, MCP server, skill archive server, and personhog subprocesses; builds local skills.                        |
+| `services.py`      | Starts the AI gateway, MCP server, skill archive server, and personhog subprocesses; provisions the gateway mint key; builds local skills. |
 | `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                                         |
 | `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                                   |
 | `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                                         |
@@ -52,14 +52,14 @@ The sequence as written is the sandboxed (full) path; a one-shot-only run perfor
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
 1. `__main__` creates the run transcript, then loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, forces `SELF_CAPTURE=0`, and runs `django.setup()` and `setup_test_environment()`. Eval telemetry still uses the explicit regional client configured by the harness.
-   The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing key or toolchain fails here, before any database work.
+   The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) and the AI gateway build (`go build` in the `PostHog/ai-gateway` clone) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
-5. The LLM gateway (`:13308`) starts and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
+5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5), and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
 6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
 7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
-8. The master Hedgebox team is seeded.
+8. The master Hedgebox team is seeded. It then gets the AI gateway mint key: a `phs_` key, gateway admission, and an overspend allowance. One model listing and one token mint check that path before any case starts.
 
 The async phase then starts the Temporal dev server on the main loop, applies the provider's settings overrides, terminates stale workflows, starts the Temporal worker on its own thread and loop, and fans the suites out with `asyncio.gather`.
 

@@ -7,11 +7,11 @@ The harness builds product skills from the current checkout and uses native bund
 `--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
 
 This is the eval harness for PostHog AI 2.0. It does **not** run under pytest.
-It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
+It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, AI gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
 
 The harness also hosts non-sandboxed suite kinds — see [Suite kinds](#suite-kinds).
-A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, LLM gateway, or MCP server.
+A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, AI gateway, or MCP server.
 
 Two other docs sit next to this one:
 
@@ -37,7 +37,7 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -117,6 +117,19 @@ Dependency warnings, SDK progress bars, and direct setup prints stay in the tran
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
 Native subprocess output always goes to the transcript.
 
+### AI gateway
+
+Sandboxed agents call their model through the Go [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway), as PostHog AI runs do in production.
+The harness builds and starts it from a local clone at `~/Development/ai-gateway`, the same path `bin/start-ai-gateway` uses. Set `AI_GATEWAY_REPO` to use a clone at a different path.
+
+```bash
+git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
+```
+
+The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
+Each run gets a capped `phe_` token minted with a key on the master demo team, so spend is per run and never reaches a real wallet.
+
 ### Interactive view
 
 The view is `phrocs evals`, the same Bubble Tea program that renders `hogli start`.
@@ -170,7 +183,7 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
-It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
+It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's AI gateway uses to proxy the agent's OpenAI calls.
 Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
@@ -226,7 +239,7 @@ The first modal run pays a one-time remote image build; later runs reuse the cac
 
 Modal prerequisites, all checked by preflight before anything boots:
 
-- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the LLM gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
+- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the AI gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 
