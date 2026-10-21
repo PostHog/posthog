@@ -307,6 +307,7 @@ def compile_hogql_to_trino_sql(
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         trigger="trino",
+        include_managed_trino_external_tables=True,
     )
     placeholders = find_placeholders(parsed)
     if placeholders.has_filters:

@@ -667,6 +667,21 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
 
+    @parameterized.expand(
+        [
+            ("from", "select * from ext_db__lake.billing.invoices"),
+            ("join", "select e.event from events e join ext_db__lake.billing.invoices i on i.id = e.uuid"),
+            ("subquery", "select * from (select id from ext_db__lake.billing.invoices)"),
+        ]
+    )
+    def test_create_refuses_tenant_trino_catalog_table(self, _name: str, query: str):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "test_1", "query": {"kind": "HogQLQuery", "query": query}},
+        )
+        assert response.status_code == 400, response.content
+        assert "Views can't read ext_db__lake.billing.invoices" in response.json()["detail"]
+
     def test_create_with_malformed_query_returns_validation_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

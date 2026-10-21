@@ -19,6 +19,7 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
+from posthog.hogql.database.direct_trino_table import find_managed_trino_external_table_reference
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -649,6 +650,17 @@ class DataWarehouseSavedQuerySerializer(
             )
         elif find_placeholders.placeholder_expressions or find_placeholders.has_filters:
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
+
+        # Views are validated, typed and materialized on ClickHouse, which cannot read
+        # tenant-created Trino catalogs. Refuse here so the user sees why, not "Unknown table".
+        external_table = find_managed_trino_external_table_reference(select_ast)
+        if external_table is not None:
+            raise exceptions.ValidationError(
+                detail=(
+                    f"Views can't read {external_table} because it lives in your own Trino catalog. "
+                    "Query it from the SQL editor with the managed warehouse connection instead."
+                )
+            )
 
         try:
             prepare_and_print_ast(

@@ -27,6 +27,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
+from posthog.hogql.database.direct_trino_table import MANAGED_TRINO_EXTERNAL_CATALOG_PATTERN
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
     DATA_WAREHOUSE_EXPERIMENTS,
@@ -1788,10 +1789,13 @@ class Database(BaseModel):
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
         include_flag_evaluations_table: bool | None = None,
+        include_managed_trino_external_tables: bool = False,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_managed_trino_external_tables`` adds the managed warehouse's tenant-created ``ext_*``
+        Trino catalog tables. Only the managed Trino compiler sets it: no other engine can read them.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
         whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
         """
@@ -1803,7 +1807,7 @@ class Database(BaseModel):
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
 
         cache_key = None
-        if use_cached_sources and not schema_table_names:
+        if use_cached_sources and not schema_table_names and not include_managed_trino_external_tables:
             cache_key = Database._sources_cache_key(
                 team=team,
                 user=user,
@@ -1828,6 +1832,7 @@ class Database(BaseModel):
                     connection_id=connection_id,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
                     allowed_system_tables=allowed_system_tables,
+                    include_managed_trino_external_tables=include_managed_trino_external_tables,
                     # Cached sources store built views: the cache serves editor assist, which
                     # enumerates every table on each request, so deferral would rebuild the views
                     # per request instead of amortizing them across the TTL.
@@ -1962,6 +1967,7 @@ class Database(BaseModel):
         allowed_system_tables: Collection[str] | None = None,
         defer_revenue_views: bool = True,
         schema_table_names: set[str] | None = None,
+        include_managed_trino_external_tables: bool = False,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -2215,6 +2221,11 @@ class Database(BaseModel):
                         tables_query = tables_query.exclude(id__in=backing_table_ids)
                     if is_direct_query:
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
+                    elif include_managed_trino_external_tables:
+                        tables_query = tables_query.exclude(
+                            Q(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
+                            & ~_managed_trino_external_table_q()
+                        )
                     else:
                         tables_query = tables_query.exclude(
                             external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
@@ -2249,9 +2260,17 @@ class Database(BaseModel):
                     # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
                     # keep it hydrated there instead of lazily reloading it per table.
                     _attach_external_data_sources(
-                        warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query
+                        warehouse_tables,
+                        team_id=team.pk,
+                        defer_job_inputs=not (is_direct_query or include_managed_trino_external_tables),
                     )
                     _preload_active_external_data_schemas(warehouse_tables)
+                    if include_managed_trino_external_tables:
+                        warehouse_tables = [
+                            table
+                            for table in warehouse_tables
+                            if not is_managed_trino_external_table(table) or _should_include_external_trino_table(table)
+                        ]
                     if is_direct_query:
                         warehouse_tables = [
                             table
@@ -2589,10 +2608,14 @@ class Database(BaseModel):
             with timings.measure("build_tables", emit_span=True):
                 sync_warnings_now = datetime.now(UTC)
                 for table in sources.warehouse_tables:
+                    # Managed external Trino tables are only fetched when the managed Trino compiler
+                    # asks for them, so a default-scope build keeps them.
+                    is_external_trino = not database._is_direct_query() and is_managed_trino_external_table(table)
                     if (
                         not database._is_direct_query()
                         and table.external_data_source
                         and table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
+                        and not is_external_trino
                     ):
                         continue
 
@@ -2620,7 +2643,7 @@ class Database(BaseModel):
                             )
 
                         if table.external_data_source:
-                            if not database._is_direct_query():
+                            if not database._is_direct_query() and not is_external_trino:
                                 warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                         else:
                             self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
@@ -2663,7 +2686,10 @@ class Database(BaseModel):
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                                if table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
+                                if (
+                                    table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
+                                    and not is_external_trino
+                                ):
                                     database._direct_access_warehouse_table_names.add(joined_table_chain)
                                 if index == 0:
                                     primary_table = table_for_key
@@ -3466,6 +3492,44 @@ def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_que
         return [warehouse_table.name]
 
     return [get_data_warehouse_table_name(source, warehouse_table.name)]
+
+
+def _managed_trino_external_table_q() -> Q:
+    from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — keeps the warehouse facade off this module's import path
+        DIRECT_TRINO_CATALOG_OPTION,
+        DIRECT_TRINO_URL_PATTERN,
+    )
+
+    return Q(
+        url_pattern=DIRECT_TRINO_URL_PATTERN,
+        **{f"options__{DIRECT_TRINO_CATALOG_OPTION}__regex": MANAGED_TRINO_EXTERNAL_CATALOG_PATTERN.pattern},
+    )
+
+
+def is_managed_trino_external_table(warehouse_table: DataWarehouseTable) -> bool:
+    """True for a table in a tenant-created ``ext_*`` catalog of the managed Trino warehouse."""
+    from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — keeps the warehouse facade off this module's import path
+        DIRECT_TRINO_CATALOG_OPTION,
+        DIRECT_TRINO_URL_PATTERN,
+    )
+
+    source = warehouse_table.external_data_source
+    catalog = (warehouse_table.options or {}).get(DIRECT_TRINO_CATALOG_OPTION)
+    return (
+        source is not None
+        and source.access_method == ExternalDataSourceAccessMethod.DIRECT
+        and warehouse_table.url_pattern == DIRECT_TRINO_URL_PATTERN
+        and isinstance(catalog, str)
+        and MANAGED_TRINO_EXTERNAL_CATALOG_PATTERN.match(catalog) is not None
+    )
+
+
+def _should_include_external_trino_table(warehouse_table: DataWarehouseTable) -> bool:
+    source = warehouse_table.external_data_source
+    if source is None or not source.is_dynamic_managed_warehouse:
+        return False
+    schemas = _get_active_external_data_schemas(warehouse_table)
+    return not schemas or any(schema.should_sync for schema in schemas)
 
 
 def _should_include_connection_table(

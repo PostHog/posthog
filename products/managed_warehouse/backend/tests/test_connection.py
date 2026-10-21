@@ -737,6 +737,74 @@ def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSch
 
 @pytest.mark.django_db
 class TestReconcileManagedWarehouseTables:
+    def test_external_catalog_table_compiles_for_trino_and_stays_out_of_clickhouse(self) -> None:
+        from posthog.schema import HogQLQuery
+
+        from posthog.hogql.database.database import Database
+
+        from products.data_warehouse.backend.facade.api import reconcile_managed_trino_schemas
+        from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
+        from products.managed_warehouse.backend.trino_compiler import compile_hogql_to_trino_sql
+        from products.warehouse_sources.backend.facade.source_management import SourceSchema
+
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _ensure(team)
+        name = "ext_db__lake.billing.invoices"
+        ExternalDataSchema.objects.create(team=team, source=source, name=name, should_sync=True)
+        reconcile_managed_trino_schemas(
+            source_id=source.id,
+            source_schemas=[
+                SourceSchema(
+                    name=name,
+                    supports_incremental=False,
+                    supports_append=False,
+                    columns=[("id", "bigint", False)],
+                    source_catalog="ext_db__lake",
+                    source_schema="billing",
+                    source_table_name="invoices",
+                )
+            ],
+            team_id=team.id,
+        )
+        membership = ManagedWarehouseTeamMembership(
+            team_id=team.pk,
+            organization_id=str(org.pk),
+            schema_name="production",
+            enabled=True,
+            backfill_enabled=True,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_production",
+                persons_table="persons_production",
+                groups_table="groups_production",
+                data_imports_schema="posthog_data_imports_production",
+            ),
+            earliest_event_date=None,
+        )
+
+        with (
+            patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query=f"SELECT id FROM {name}"),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+
+        assert 'FROM "ext_db__lake"."billing"."invoices"' in compiled.sql
+        assert not Database.create_for(team=team).has_table(name)
+        assert Database.create_for(team=team, connection_id=str(source.id)).has_table(name)
+
     def test_flag_switch_reconciles_the_same_source_and_table_in_both_engines(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -751,6 +819,9 @@ class TestReconcileManagedWarehouseTables:
         cursor.fetchall.side_effect = [
             [("posthog", "events")],
             [("posthog", "events", "uuid", "varchar", "YES")],
+            [("org_example",), ("ext_db__lake",)],
+            [("posthog", "events")],
+            [("posthog", "events", "id", "bigint", "YES")],
         ]
         connection = MagicMock(catalog="org_example")
         connection.cursor.return_value = cursor
@@ -769,6 +840,10 @@ class TestReconcileManagedWarehouseTables:
         assert schema.table.options["direct_trino_catalog"] == "org_example"
         assert schema.table.columns is not None
         assert schema.table.columns["uuid"]["hogql"] == "string"
+        external = ExternalDataSchema.objects.get(source=source, name="ext_db__lake.posthog.events")
+        assert external.table is not None
+        assert external.table.name == "ext_db__lake.posthog.events"
+        assert external.table.options["direct_trino_catalog"] == "ext_db__lake"
         source.refresh_from_db()
         assert source.job_inputs == {}
         assert source.is_dynamic_managed_warehouse
@@ -1797,3 +1872,35 @@ def test_deadline_bounds_polling_and_cleanup_without_masking_timeout(operation: 
                 discover_managed_trino_schemas("example-org", 1)
     assert [method for method, _ in calls] == ["POST", "DELETE"]
     assert calls[-1][1] == 0.5
+
+
+def test_discovery_reads_external_catalogs_and_isolates_a_failing_one() -> None:
+    from products.managed_warehouse.backend.logic import sql_editor_trino
+    from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+        DiscoveredTrinoTable,
+        TrinoColumn,
+    )
+
+    columns = (TrinoColumn(name="id", data_type="bigint", nullable=False),)
+
+    def discover(cursor: object, *, catalog: str) -> list[DiscoveredTrinoTable]:
+        if catalog == "ext_db__broken":
+            raise RuntimeError("catalog is unreachable")
+        schema = "public" if catalog == "warehouse" else "billing"
+        return [DiscoveredTrinoTable(catalog=catalog, schema=schema, name="invoices", columns=columns)]
+
+    connection = MagicMock(catalog="warehouse")
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("warehouse",), ("system",), ("ext_db__broken",), ("ext_db__lake",), ("ext_x",)]
+    with (
+        patch.object(sql_editor_trino, "connect_managed_warehouse_trino", return_value=nullcontext(connection)),
+        patch.object(sql_editor_trino, "bounded_trino_cursor", return_value=nullcontext((cursor, MagicMock()))),
+        patch.object(sql_editor_trino, "discover_trino_catalog", side_effect=discover),
+    ):
+        discovery = sql_editor_trino.discover_managed_trino_schemas("example-org", 1)
+
+    assert [(s.name, s.source_catalog, s.source_schema, s.source_table_name) for s in discovery.schemas] == [
+        ("public.invoices", "warehouse", "public", "invoices"),
+        ("ext_db__lake.billing.invoices", "ext_db__lake", "billing", "invoices"),
+    ]
+    assert discovery.unavailable_catalogs == frozenset({"ext_db__broken"})
