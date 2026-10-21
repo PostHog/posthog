@@ -7,7 +7,7 @@ import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { LogMessage, LogsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
@@ -26,22 +26,8 @@ export function buildSessionLogsQuery(
             date_from: start.toISOString(),
             date_to: end.toISOString(),
         },
-        filterGroup: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            key: 'session_id',
-                            value: sessionId,
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogAttribute,
-                        },
-                    ],
-                },
-            ],
-        },
+        filterGroup: { type: FilterLogicalOperator.And, values: [] },
+        sessionId,
         severityLevels: [],
         serviceNames: [],
         orderBy: 'earliest',
