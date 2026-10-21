@@ -54,8 +54,8 @@ def build_housekeeping_script(request_cores: float | None) -> str:
             f"({build_sampler_start_command(request_cores)})",
             f"echo {HOUSEKEEPING_SAMPLER_EXIT_KEY}:$?",
             f"cat {shlex.quote(CPU_BILLING_STATE_PATH)} 2>/dev/null | emit {HOUSEKEEPING_CPU_BILLING_STATE_KEY}",
-            f"if [ -r {CPU_STAT_PATH} ]; then cat {CPU_STAT_PATH} | emit {HOUSEKEEPING_CPU_STAT_KEY}; "
-            f"else cat {CPUACCT_USAGE_PATH} 2>/dev/null | emit {HOUSEKEEPING_CPUACCT_USAGE_KEY}; fi",
+            f"cat {CPU_STAT_PATH} 2>/dev/null | emit {HOUSEKEEPING_CPU_STAT_KEY}",
+            f"cat {CPUACCT_USAGE_PATH} 2>/dev/null | emit {HOUSEKEEPING_CPUACCT_USAGE_KEY}",
             f"echo {HOUSEKEEPING_TIME_NS_KEY}:$(date +%s%N)",
         ]
     lines.append("exit 0")

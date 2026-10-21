@@ -21,7 +21,10 @@ TIME = "time_ns:3000000000\n"
         (MANIFEST + "sampler_exit:0\n" + STATE + CPU_STAT + TIME, ("2.4.282", True, 1_500_000, 1_000_000)),
         ("sampler_exit:1\n" + CPU_STAT + TIME, (None, False, 1_500_000, None)),
         (
-            'agent_manifest:{"version": ""}\nsampler_exit:0\n' + STATE + "cpuacct_usage:2500000000\n" + TIME,
+            'agent_manifest:{"version": ""}\nsampler_exit:0\n'
+            + STATE
+            + "cpu_stat:user_usec 1000000\ncpuacct_usage:2500000000\n"
+            + TIME,
             (None, True, 2_500_000, 1_500_000),
         ),
         ("agent_manifest:not json\nsampler_exit:0\n" + STATE + CPU_STAT, (None, True, 1_500_000, None)),
