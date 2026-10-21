@@ -2130,6 +2130,11 @@ class TestStorybookStaticDirsCoverageCheck:
                 ["posthog/templates/replay_player_frame"],
                 id="covered-only-by-another-filter",
             ),
+            pytest.param(
+                {"frontend": ["frontend/**", "common/storybook/**", "{a,b,c,d,e,f,g,h,i,j}" * 9]},
+                ["posthog/templates/replay_player_frame"],
+                id="brace-groups-over-the-expansion-cap",
+            ),
         ],
     )
     def test_flags_static_dirs_the_frontend_filter_misses(

@@ -30,6 +30,7 @@ STATIC_DIRS = re.compile(r"staticDirs:\s*\[(?P<body>.*?)\n\s*\]", re.DOTALL)
 STATIC_DIR_STRING = re.compile(r"""(?P<to>\bto:\s*)?['"](?P<path>[^'"]+)['"]""")
 LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
 BRACES = re.compile(r"\{([^{}]*)\}")
+MAX_BRACE_EXPANSIONS = 256
 
 
 class StorybookStaticDirsCoverageCheck(WorkflowCheck):
@@ -122,6 +123,13 @@ def _filter_patterns(wf: Workflow) -> list[str]:
 
 
 def _expand_braces(pattern: str) -> list[str]:
+    # The filter comes from the PR under lint, so an entry with many brace groups must not
+    # expand into millions of globs. An entry over the cap stays unexpanded and covers nothing.
+    expansions = 1
+    for group in BRACES.findall(pattern):
+        expansions *= len(group.split(","))
+        if expansions > MAX_BRACE_EXPANSIONS:
+            return [pattern]
     match = BRACES.search(pattern)
     if match is None:
         return [pattern]
