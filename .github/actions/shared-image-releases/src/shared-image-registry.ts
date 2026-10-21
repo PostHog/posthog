@@ -3,7 +3,7 @@ import {existsSync, mkdtempSync, readFileSync, rmSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {command, CommandOptions, configureCopyClient} from './shared-image-command'
-import {DIGEST, REVISION, CANONICAL_SOURCE_REPOSITORY, ImageBinding} from './shared-image-releases'
+import {DIGEST, REVISION, ORDERED_ALIAS, CANONICAL_SOURCE_REPOSITORY, ImageBinding} from './shared-image-releases'
 
 export type Outcome = 'present-at-expected-digest' | 'absent' | 'integrity-mismatch' | 'unknown'
 export interface Publication {
@@ -61,14 +61,12 @@ export class ReleaseRegistry {
     const tags = new Set<string>()
     const tokens = new Set<string>()
     let token: string | undefined
-    let nonempty = false
     do {
       const page = JSON.parse(await this.aws(destination, [
         'list-images', '--no-paginate', '--max-results', '1000', '--output', 'json',
         ...(token ? ['--next-token', token] : [])
       ])) as {imageIds?: {imageTag?: string; imageDigest?: string}[]; nextToken?: string}
       if (!Array.isArray(page.imageIds)) throw new Error(`${destination.repository}: invalid frontier page`)
-      nonempty ||= page.imageIds.length > 0
       for (const image of page.imageIds) {
         if (image.imageTag !== undefined && typeof image.imageTag !== 'string') throw new Error('Invalid frontier tag')
         if (image.imageTag) tags.add(image.imageTag)
@@ -79,7 +77,7 @@ export class ReleaseRegistry {
       }
       if (token) tokens.add(token)
     } while (token)
-    return {tags, nonempty}
+    return {tags, nonempty: [...tags].some(tag => ORDERED_ALIAS.test(tag))}
   }
 
   read(destination: ImageBinding, tag: string, expected: string): Promise<Readback> {

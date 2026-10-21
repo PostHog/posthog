@@ -15,6 +15,7 @@ const external = command as jest.MockedFunction<typeof command>
 let repo: string
 let options: PublisherOptions
 let tags: Map<string, Map<string, string>>
+let untagged: Map<string, Set<string>>
 let manifests: Map<string, string>
 let base: string
 const git = (...args: string[]): string => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {
@@ -53,7 +54,10 @@ const invoke = async (executable: string, args: string[], configuration: Command
     const repository = args[args.indexOf('--repository-name') + 1]
     const entries = tags.get(repository) ?? new Map<string, string>()
     if (args[1] === 'list-images') {
-      const all = [...entries].map(([imageTag, imageDigest]) => ({imageTag, imageDigest}))
+      const all = [
+        ...Array.from(untagged.get(repository) ?? [], imageDigest => ({imageDigest})),
+        ...[...entries].map(([imageTag, imageDigest]) => ({imageTag, imageDigest}))
+      ]
       const offset = args.includes('--next-token') ? Number(args[args.indexOf('--next-token') + 1]) : 0
       return JSON.stringify({imageIds: all.slice(offset, offset + 1), ...(offset + 1 < all.length ? {nextToken: String(offset + 1)} : {})})
     }
@@ -87,6 +91,7 @@ beforeEach(() => {
   repo = mkdtempSync(path.join(tmpdir(), 'shared-image-publisher-'))
   git('init', '-b', 'main'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
   tags = new Map(['workers/worker', 'workers/other'].map(repository => [repository, new Map<string, string>()]))
+  untagged = new Map([...tags.keys()].map(repository => [repository, new Set<string>()]))
   manifests = new Map()
   options = {
     cwd: repo, revision: '', digest: '', alias: '', force: [],
@@ -302,7 +307,7 @@ describe('shared-image publication', () => {
     } finally { diagnostic.mockRestore() }
   })
 
-  test.each(['ordinary', 'seed', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision', 'present seed from another revision', 'present seed with historical destination changed'])('bootstrap: %s', async mode => {
+  test.each(['ordinary', 'seed', 'interrupted copy retry', 'stray tag', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision', 'present seed from another revision', 'present seed with historical destination changed'])('bootstrap: %s', async mode => {
     const entries = tags.get('workers/worker')!
     entries.clear()
     if (mode === 'seed') tags.get('workers/other')!.clear()
@@ -326,7 +331,8 @@ describe('shared-image publication', () => {
       return invoke(exe, args, config)
     })
     if (mode === 'unavailable seed') entries.set(options.alias, options.digest)
-    if (mode === 'missing seed') entries.set(options.alias, options.digest)
+    if (mode === 'missing seed') { untagged.get('workers/worker')!.add(image(base)); entries.set(options.alias, options.digest) }
+    if (mode === 'stray tag') entries.set('latest', image(base))
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
     if (mode === 'seed digest from another revision' || mode === 'present seed from another revision') options.bootstrap!.digest = image(options.revision)
     if (mode.startsWith('present seed')) entries.set(alias(base), options.bootstrap!.digest)
@@ -335,9 +341,31 @@ describe('shared-image publication', () => {
       options.bootstrap = {channel: 'posthog-cloud/worker', revision: future, digest: image(future)}
       git('checkout', '--detach', options.revision)
     }
+    if (mode === 'interrupted copy retry') {
+      const children = untagged.get('workers/worker')!
+      const child = image(base, `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`, 'child manifest')
+      external.mockImplementation(async (exe, args, config) => {
+        if (exe === 'helper' && args[1] === 'publish' && !children.size) {
+          children.add(child)
+          throw new Error('copy interrupted after child upload')
+        }
+        return invoke(exe, args, config)
+      })
+      expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({
+        decision: 'blocked', outcome: 'unknown', reason: expect.stringContaining('copy interrupted after child upload')
+      })
+      expect(entries.size).toBe(0)
+      expect(children).toEqual(new Set([child]))
+      expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'))).toBe(false)
+    }
     const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))!
-    const succeeds = ['seed', 'retry after advancement', 'retry without source', 'missing historical policy'].includes(mode)
+    const succeeds = ['seed', 'interrupted copy retry', 'stray tag', 'retry after advancement', 'retry without source', 'missing historical policy'].includes(mode)
     expect(result.decision).toBe(succeeds ? mode.startsWith('retry') ? 'present' : 'published' : 'blocked')
+    if (mode === 'interrupted copy retry' || mode === 'stray tag') {
+      expect(result).toMatchObject({outcome: 'present-at-expected-digest', tag: alias(base), digest: image(base)})
+      expect(entries.get(alias(base))).toBe(image(base))
+    }
+    if (mode === 'stray tag') expect(entries.get('latest')).toBe(image(base))
     if (['conflict', 'missing seed', 'unavailable seed'].includes(mode)) expect(result.reason).toContain(mode === 'conflict' ? 'seed digest conflict' : mode === 'missing seed' ? 'seed missing in nonempty destination' : 'seed readback unavailable: Error: seed read failed')
     if (mode === 'ordinary') expect(result.reason).toContain('empty ordered frontier requires explicit bootstrap')
     if (mode === 'newer seed') expect(result.reason).toContain('seed is newer than the executing revision')
