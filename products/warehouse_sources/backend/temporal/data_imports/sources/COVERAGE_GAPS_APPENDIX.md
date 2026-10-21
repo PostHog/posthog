@@ -5712,18 +5712,18 @@ Note: Downloaded the official bundled OpenAPI specification and enumerated GET c
 
 ## Harvest — gaps
 
-Today (15): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoices`, `projects`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `users`
+Today (19): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoice_payments`, `invoices`, `projects`, `pto_requests`, `pto_types`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `user_cost_rates`, `users`
 
 Diffed against: <https://help.getharvest.com/api-v2/>
 
-- [ ] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high)
-- [ ] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium)
+- [x] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high) Shipped as `invoice_payments`, fanned out over `invoices`.
+- [x] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium) Shipped as `user_cost_rates`, fanned out over `users` (full refresh only).
 - [ ] `User billable rates (GET /v2/users/{USER_ID}/billable_rates)` — track billing rate changes and compare historical pricing across users and projects (medium)
 - [ ] `Invoice messages (GET /v2/invoices/{INVOICE_ID}/messages)` — analyze invoice communication, payment reminders, and collection follow-up activity (medium)
 - [ ] `Estimate messages (GET /v2/estimates/{estimate_ID}/messages)` — connect estimate follow-up activity with acceptance outcomes and sales cycle duration (medium)
-- [ ] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium)
+- [x] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium) Shipped as `pto_requests`.
 - [ ] `Time off balances (GET /v2/pto/balances)` — measure accrued, used, pending, and remaining leave by employee and policy (medium)
-- [ ] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium)
+- [x] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium) Shipped as `pto_types` (active policies, full refresh).
 - [ ] `Work schedules (GET /v2/pto/work_schedules)` — compare tracked hours and leave against expected working days and capacity (medium)
 
 Note: Read the official API index and selected pages, extracting documented GET collection paths. Compared them with fifteen static tables; time entries include applied rates, while rate collections add effective history. Invoice, estimate, and rate collections need parent fan-out; leave collections require appropriate permissions. Excluded writes, settings, duplicate assignment views, and reports derivable from existing detail tables.
