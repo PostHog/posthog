@@ -197,7 +197,6 @@ class TestDevTokens(APIBaseTest):
         assert [t["status"] for t in usage["tokens"]] == ["live", "live"]
 
     def test_reserve_locks_the_user_row_before_summing_the_window(self):
-        # Two concurrent mints each see the other's reservation only if the sum runs under the lock.
         with patch(_POST, return_value=_minted()), CaptureQueriesContext(connection) as queries:
             assert self.client.post(URL).status_code == 201
         sqls = [q["sql"] for q in queries.captured_queries]
@@ -270,7 +269,6 @@ class TestDevTokens(APIBaseTest):
         post.assert_not_called()
 
     def test_cli_exchange_refuses_a_code_another_request_consumed(self):
-        # Two exchanges can both read the grant; only the one whose delete removed it may mint.
         code = self._authorize()
         with patch.object(cache, "delete", return_value=False), patch(_POST) as post:
             response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
