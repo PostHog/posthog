@@ -2,6 +2,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -56,27 +57,37 @@ describe('offlineExperimentsLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
-    it('keeps the selected sub-tab when pending experiment loaders finish', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
-        })
-        const tabs = offlineEvaluationsLogic()
-        tabs.mount()
-        expect(tabs.values.activeTab).toBe('experiments')
-        const logic = offlineExperimentsLogic(props)
-        logic.mount()
-        tabs.actions.setActiveTab('datasets')
-        await jest.advanceTimersByTimeAsync(400)
-        expect(tabs.values.activeTab).toBe('datasets')
-        expect(router.values.searchParams.tab).toBe('datasets')
-        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
-        expect(tabs.values.activeTab).toBe('experiments')
-        expect(router.values.searchParams.tab).toBe('experiments')
-        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'unknown' })
-        expect(tabs.values.activeTab).toBe('experiments')
-    })
+    it.each(['new', 'dataset-1'])(
+        'keeps the selected sub-tab and destination when opening dataset %s',
+        async (datasetId) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
+                [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+            })
+            const tabs = offlineEvaluationsLogic()
+            tabs.mount()
+            expect(tabs.values.activeTab).toBe('experiments')
+            const logic = offlineExperimentsLogic(props)
+            logic.mount()
+            tabs.actions.setActiveTab('datasets')
+            await jest.advanceTimersByTimeAsync(400)
+            expect(tabs.values.activeTab).toBe('datasets')
+            expect(router.values.searchParams.tab).toBe('datasets')
+            router.actions.push(urls.aiObservabilityDataset(datasetId), { search: 'regression' })
+            expect(tabs.values.activeTab).toBe('datasets')
+            logic.actions.suggestScorerIds([overviewScorers[0].id])
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(
+                urls.aiObservabilityDataset(datasetId)
+            )
+            expect(router.values.searchParams).toEqual({ search: 'regression' })
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
+            expect(tabs.values.activeTab).toBe('experiments')
+            expect(router.values.searchParams.tab).toBe('experiments')
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'unknown' })
+            expect(tabs.values.activeTab).toBe('experiments')
+        }
+    )
 
     it.each([undefined, 'experiments', 'datasets'])(
         'opens datasets and preserves filters when offline evals are disabled and tab is %s',

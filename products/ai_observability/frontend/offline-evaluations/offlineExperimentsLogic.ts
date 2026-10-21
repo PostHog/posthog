@@ -15,6 +15,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { cleanTagFilters, restoreTagFilters, saveTagFilters } from '../components/resourceTagFilters'
@@ -601,7 +602,11 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
         const location = ():
             | [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }]
             | undefined => {
-            if (router.values.searchParams.tab === 'datasets') {
+            if (
+                removeProjectIdIfPresent(router.values.location.pathname) !==
+                    urls.aiObservabilityOfflineEvaluations() ||
+                router.values.searchParams.tab === 'datasets'
+            ) {
                 return
             }
             return [
