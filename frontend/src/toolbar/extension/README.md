@@ -64,8 +64,8 @@ The page tools run the floating toolbar's own logics in the content script, and 
 - `flagsToolbarLogic` for feature flags.
 - `eventDebugMenuLogic` for the event debugger, and `webVitalsToolbarLogic` for web vitals.
 - `screenshotUploadLogic` for screenshots for events.
-
-The panel shows their controls. It sends each command to the tool it belongs to, and gets their state back through a port.
+- `experimentsLogic` and `experimentsTabLogic` for web experiments. The page previews a variant by changing its own DOM, and goes back to its original state when the user leaves the experiment, saves it, or closes the tool.
+  The panel shows their controls and gets their state through a port.
 
 ```mermaid
 flowchart LR
@@ -75,8 +75,6 @@ flowchart LR
     content -- toolbarConfigLogic with the extension's tokens --> logics[Toolbar logics]
     logics -- bearer token --> api[PostHog API]
     logics -- overlays --> page[(Page)]
-    content -- window.postMessage --- agent[Page agent]
-    agent -- posthog-js --> page
 ```
 
 - **Sign-in.** The panel calls PostHog with the PostHog session cookie for the checks it runs before the page tools.
@@ -87,23 +85,21 @@ flowchart LR
   If that fails, or the tokens expire again, the panel shows **Connect**, which runs the same flow in a tab the user can see.
 - **Refresh.** The content script refreshes the tokens on a 401 like the floating toolbar does, and sends the new tokens to the panel to store.
 - **Storage.** In extension mode `toolbarConfigLogic` doesn't read the page's URL hash or write the page's `localStorage`, so it leaves the floating toolbar's session on the page alone.
-- **State.** Each tool's state is one memoized slice. The page posts only the slices that changed, at most every 100 ms, so a panel component re-renders only for its own tool.
-- **posthog-js.** The content script can't reach the page's `window.posthog`, so the panel injects `page-agent.js` into the page's world with the content script.
-  The content script asks the page agent for the page's posthog-js settings when the page tools start, and stands in for posthog-js with them.
-  When a page loads posthog-js later, the page agent reports it, and the page tools start again with it.
-  For flag overrides the page agent calls posthog-js and reports the flag state back. A change it doesn't answer fails after 5 seconds.
+- **posthog-js.** The content script can't reach the page's `window.posthog`.
+  The panel reads the version, the scroll-depth setting, the heatmap setting and the flag state in the page's world, and passes them on.
+  For flag overrides the panel also injects `page-agent.js` into the page's world.
+  The content script sends it requests through `window.postMessage`, and the page agent calls posthog-js and reports the flag state back.
   The page agent also forwards each event posthog-js captures, for the event debugger and the web vitals of the page load, and reads the debug info.
-- **Event debugger.** The debugger starts the first time the user opens it. The page keeps up to 5,000 events, like the floating toolbar.
-  While the debugger is open, its slice carries the newest 200 rows the filters show, and the properties of the open event.
-  The page agent sends the payload of `$snapshot` events only while the debugger shows them.
+- **Event debugger.** The page keeps up to 5,000 events, like the floating toolbar.
+  Each state message carries only the newest 200 rows the filters show, and the properties of the open event.
   **Export** downloads every filtered event from the page.
-- **Forms.** The panel edits its own copy of the action form, so typing doesn't wait for the page, and sends the form after a short pause.
-  It sends the form right away before any command that changes it on the page, and takes the page's copy only when the page changed the form itself, for example when the user picks an element.
-  The page counts the matches of the selectors the panel shows, and counts again when the page changes.
+  When a page loads posthog-js after the panel connected, the panel checks again for a few seconds and reconnects.
+- **Action form.** The panel edits its own copy of the action form, so typing doesn't wait for the page, and sends the form to the page.
+  It takes the page's copy only when the page changes the form itself, for example when the user picks an element for a step.
+  The page counts the matches of the selectors the form shows.
 - **Injection.** The panel injects the content script on first use. The script answers a ping, so the panel doesn't inject it twice.
-- **Navigation.** When a single-page app changes the URL, the port stays open and the page tools follow the new URL.
-  A new document closes the port. The panel then connects again and turns the mode the user picked back on.
-  The page tools stop 30 seconds after the last panel disconnects, so a quick reopen keeps their data.
+- **Navigation.** The panel opens a new port when the tab loads a page or the user switches tabs, and turns the mode the user picked back on.
+  The page tools turn off when the last panel disconnects.
 
 ## Check the flows by hand
 
@@ -114,7 +110,7 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 3. Click **Heatmap**. Check the clickmap counts, the heatmap canvas, the scroll depth type, **Filter to area**, **Load all**, and **Save to PostHog**.
 4. Reload the page. The heatmap comes back.
 5. In Inspect, select an element and click **Create action from this element**. Name the action, check the match count, and save it.
-6. Click **Actions**, open an action, add an element with **Select Element**, and save.
+6. Click **Actions**, open an action, add an element with **Select element**, and save. Delete the action you created.
 7. Click **Flags**. Turn a flag on, pick a variant, save a payload, and turn a multivariate flag off. The page reacts to each change. Click **Clear overrides**.
 8. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
 9. Switch to a tab with another site, then back. The panel shows the state of each tab.
@@ -122,4 +118,6 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 11. Click **Events** and use the page. The events stream in. Open one, search, pause and resume, and export them.
 12. Click **Web vitals**. The project's P90 metrics show, and the page load's metrics fill in as posthog-js reports them.
 13. Click **More**. Check the debug info, open the current session recording, turn on **Hide PII on this page**, and add a screenshot to an event.
-14. Switch the browser to dark mode. The panel follows it.
+14. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Go back: the page shows its original state.
+15. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
+16. Switch the browser to dark mode. The panel follows it.

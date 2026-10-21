@@ -312,7 +312,9 @@ describe('experimentsTabLogic', () => {
 
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
-            }).delay(0)
+            })
+                .toDispatchActions(['submitExperimentFormFailure'])
+                .toNotHaveDispatchedActions(['submitExperimentFormSuccess'])
 
             expect(lemonToast.error).toHaveBeenCalledWith('Invalid experiment config')
         })
@@ -385,6 +387,31 @@ describe('experimentsTabLogic', () => {
                     theExperimentsTabLogic.actions.selectExperiment(2)
                     theExperimentsTabLogic.actions.applyVariant('test')
                 })
+        })
+
+        it('puts the page back when the user leaves a previewed experiment', async () => {
+            document.body.innerHTML = '<h1>Original headline</h1>'
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            }).toDispatchActions(['getExperimentsSuccess'])
+
+            theExperimentsTabLogic.actions.selectExperiment(2)
+            theExperimentsTabLogic.actions.applyVariant('test')
+            expect(document.querySelector('h1')?.innerHTML).toEqual('<b> Hello world! </b>')
+
+            theExperimentsTabLogic.actions.selectExperiment(null)
+            expect(document.querySelector('h1')?.innerHTML).toEqual('Original headline')
+        })
+
+        it('keeps a new experiment form when the experiment list reloads', async () => {
+            theExperimentsTabLogic.actions.newExperiment()
+            theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Shorter headline')
+
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            }).toDispatchActions(['getExperimentsSuccess'])
+
+            expect(theExperimentsTabLogic.values.experimentForm.name).toEqual('Shorter headline')
         })
 
         it('can switch between variants', async () => {
