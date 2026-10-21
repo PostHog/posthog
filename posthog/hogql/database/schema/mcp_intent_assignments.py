@@ -51,7 +51,7 @@ RAW_TABLE_ALIAS = "raw_mcp_intent_assignments"
 class RawMCPIntentAssignmentsTable(Table):
     description: str = (
         "Every intent topic assignment row, one per run. Rows for the same intent are only merged in the "
-        "background; query the deduplicated `mcp_intent_assignments` table instead."
+        "background; query the deduplicated `posthog.mcp_intent_assignments` table instead."
     )
     fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
 
