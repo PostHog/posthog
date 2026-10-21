@@ -60,9 +60,10 @@ WHERE team_id = %(target_team_id)s AND `$session_id` = %(session_id)s
 SYNC_INSERT_SETTINGS = {"insert_distributed_sync": 1}
 
 # dmat_* columns are per-team slot allocations, so the target team reads these properties from `properties` instead.
+# `writable_events` exists only on the ingestion hosts, so write to the shards through the same writable cluster it uses.
 COPY_EVENTS_QUERY = (
     """
-INSERT INTO writable_events (
+INSERT INTO FUNCTION cluster(%(writable_cluster)s, %(database)s, 'sharded_events', sipHash64(distinct_id)) (
     uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at,
     person_id, person_created_at, person_properties,
     group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
@@ -250,7 +251,15 @@ async def _copy_session_recording(input: CopySessionInput) -> CopySessionResult:
         raise
 
     window_params = {**params, "start": start, "end": end}
-    await sync_to_async(sync_execute)(COPY_EVENTS_QUERY, window_params, settings=SYNC_INSERT_SETTINGS)
+    await sync_to_async(sync_execute)(
+        COPY_EVENTS_QUERY,
+        {
+            **window_params,
+            "writable_cluster": settings.CLICKHOUSE_WRITABLE_CLUSTER,
+            "database": settings.CLICKHOUSE_DATABASE,
+        },
+        settings=SYNC_INSERT_SETTINGS,
+    )
     event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, window_params)
 
     await sync_to_async(sync_execute)(

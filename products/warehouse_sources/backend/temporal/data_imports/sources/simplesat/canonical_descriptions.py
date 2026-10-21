@@ -63,4 +63,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "modified": "When the response was last modified.",
         },
     },
+    "customers": {
+        "description": "A customer (survey respondent) in the Simplesat account.",
+        "docs_url": "https://developer.simplesat.io/api",
+        "columns": {
+            "id": "The unique ID of the customer.",
+            "external_id": "The customer's ID in an external system, such as a help desk or CRM.",
+            "name": "The customer's name.",
+            "email": "The customer's email address.",
+            "company": "The company the customer belongs to.",
+            "language": "The customer's preferred language code.",
+            "tags": "The tags applied to the customer.",
+            "custom_attributes": "Custom attributes stored on the customer.",
+            "subscribed": "Whether the customer is subscribed to receive surveys.",
+            "created": "When the customer was created.",
+            "modified": "When the customer was last modified.",
+        },
+    },
 }

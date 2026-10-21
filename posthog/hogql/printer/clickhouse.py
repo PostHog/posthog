@@ -685,13 +685,13 @@ class ClickHousePrinter(BasePrinter):
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
         """
-        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        Wraps a StringJSONDatabaseField in JSONDropKeysPool() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
 
         `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
         document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
-        `$feature_flags` map, where JSONDropKeys cannot reach a restricted `$feature/<key>`, so the map is dropped and
-        merged back without the restricted flags.
+        `$feature_flags` map, where JSONDropKeysPool cannot reach a restricted `$feature/<key>`, so the map is dropped
+        and merged back without the restricted flags.
         """
         if not self.context.restricted_properties:
             return field_sql
@@ -703,7 +703,7 @@ class ClickHousePrinter(BasePrinter):
         # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
         # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
         # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
-        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # would incorrectly skip JSONDropKeysPool wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
@@ -735,13 +735,19 @@ class ClickHousePrinter(BasePrinter):
             }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not is_events_json_document:
-            # A String JSON column holds '' when its producer omits the value.
-            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
-            # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+        if is_events_json_document:
             # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
-            stripped = f"if(empty({field_sql}), '', {stripped})"
+            # The UDF reads RowBinary, which encodes a JSON column differently from a String. Without toString the
+            # worker misreads the row and waits for more input until ClickHouse times out the pipe.
+            stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(toString({field_sql}), {keys_placeholder})"
+        else:
+            # A String JSON column holds '' when its producer omits the value, and the UDF fails to parse ''.
+            # ClickHouse can evaluate both branches of `if`, so the UDF gets '{}' in place of '' and the outer
+            # `if` discards that result.
+            guarded_sql = f"if(empty({field_sql}), '{{}}', {field_sql})"
+            stripped = (
+                f"if(empty({field_sql}), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}({guarded_sql}, {keys_placeholder}))"
+            )
         if not mask_stored_feature_flags:
             return stripped
 

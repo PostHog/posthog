@@ -1,6 +1,6 @@
 # Dockerfile for the base sandbox image.
 
-FROM golang:1.23 AS agent-shadow-builder
+FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
 COPY packages/agent/agent-shadow/ ./
@@ -161,8 +161,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.281
-ARG AGENT_TARBALL_SHA256="f5d32f5b731478e0259decd8caff5d11635950dc16cccd692570580819e9d634"
+ARG AGENT_VERSION=2.4.284
+ARG AGENT_TARBALL_SHA256="24141e653fa23d6ad84555ac909795d5fd989fb5cd7d802152c0723a1a6bc0a4"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \

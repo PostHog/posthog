@@ -189,7 +189,7 @@ class Auth0Source(ResumableSource[Auth0SourceConfig, Auth0ResumeConfig]):
             name=ExternalDataSourceType.AUTH0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Auth0",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["okta", "identity", "sso", "authentication", "ciam"],
             caption="""Enter your Auth0 tenant domain and a machine-to-machine application's credentials to pull your users, tenant logs, and tenant configuration into the PostHog Data warehouse.
 
