@@ -485,6 +485,18 @@ fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InF
     Ok(poll)
 }
 
+fn commit_tick(granularity: CompletionGranularity, commit_interval: Duration) -> Duration {
+    const HEALTH_TICK: Duration = Duration::from_secs(1);
+    // A commit can resume a partition, so a tick longer than the commit
+    // interval delays the resume.
+    match granularity {
+        CompletionGranularity::Group if !commit_interval.is_zero() => {
+            commit_interval.min(HEALTH_TICK)
+        }
+        _ => HEALTH_TICK,
+    }
+}
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -517,6 +529,7 @@ pub struct IngestionConsumer {
     batch_size_bytes: usize,
     batch_timeout: Duration,
     max_in_flight_batches: usize,
+    commit_tick: Duration,
     handle: Handle,
     group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
@@ -571,6 +584,7 @@ impl IngestionConsumer {
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
             max_in_flight_batches: options.max_in_flight_batches.max(1),
+            commit_tick: commit_tick(options.completion_granularity, options.commit_interval),
             handle,
             group_id: options.group_id,
         }
@@ -653,6 +667,10 @@ impl IngestionConsumer {
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
+            commit_tick: commit_tick(
+                config.consumer_completion_granularity,
+                Duration::from_millis(config.consumer_commit_interval_ms),
+            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -857,7 +875,7 @@ impl IngestionConsumer {
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> Result<(), Failure> {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+        let mut heartbeat = tokio::time::interval(self.commit_tick);
         loop {
             // A rebalance can drop the front poll (its partitions were
             // revoked and its purged messages will never complete), so
@@ -1386,6 +1404,22 @@ mod tests {
             .iter()
             .map(|&number| TopicPartition::new("events", number))
             .collect()
+    }
+
+    #[rstest::rstest]
+    #[case::group_below_a_second(CompletionGranularity::Group, 200, 200)]
+    #[case::group_above_a_second(CompletionGranularity::Group, 5_000, 1_000)]
+    #[case::group_immediate(CompletionGranularity::Group, 0, 1_000)]
+    #[case::poll(CompletionGranularity::Poll, 200, 1_000)]
+    fn the_commit_tick_follows_the_commit_interval(
+        #[case] granularity: CompletionGranularity,
+        #[case] commit_interval_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
+        assert_eq!(
+            commit_tick(granularity, Duration::from_millis(commit_interval_ms)),
+            Duration::from_millis(expected_ms)
+        );
     }
 
     #[test]
