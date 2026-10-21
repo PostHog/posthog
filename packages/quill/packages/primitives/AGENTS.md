@@ -382,6 +382,8 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 </Combobox>
 ```
 
+A highlighted Combobox or Autocomplete item paints its content in the foreground color. Put `data-keep-color` on a child that must keep its own color, such as a colored product icon.
+
 Multi-select with chips:
 
 ```tsx

@@ -167,7 +167,7 @@ New sources use Zendesk's current custom objects API. The legacy Sunshine API (v
             iconPath="/static/services/zendesk_sunshine.png",
             iconClassName="rounded dark:bg-white p-[2px]",
             docsUrl="https://posthog.com/docs/cdp/sources/zendesk-sunshine",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

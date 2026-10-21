@@ -125,8 +125,12 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
-    "report": "📥",
     ADHOC_INSIGHT_KIND: "📈",
+}
+
+# A kind with a product logo shows it in the card summary instead of an emoji in the title.
+_KIND_ICON_PATH: dict[str, str] = {
+    "report": "/static/icons/self-driving.png",
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
@@ -146,7 +150,6 @@ _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
     "FunnelsQuery": "Funnel",
-    "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
     "PathsV2Query": "Journeys",
@@ -439,10 +442,17 @@ def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
 
 def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
     link = _tracked_url(card.open_url or url, kind)
-    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    title = f"*<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    summary: list[dict] = [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]
+    icon_path = _KIND_ICON_PATH.get(kind)
+    if icon_path:
+        icon_url = slack_fetchable_image_url(f"{settings.SITE_URL}{icon_path}")
+        summary.insert(0, {"type": "image", "image_url": icon_url, "alt_text": card.label})
+    else:
+        title = f"{_KIND_EMOJI[kind]}  {title}"
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
+        {"type": "context", "elements": summary},
     ]
     if compact:
         return blocks
@@ -1078,7 +1088,6 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         title=report.title or "Untitled report",
         status=_humanize(report.status),
         details=(_count(report.signal_count, "signal"),),
-        body=report.summary,
         timestamp=report.updated_at,
     )
 

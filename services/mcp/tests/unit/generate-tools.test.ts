@@ -2260,6 +2260,40 @@ describe('generateToolCode with confirmed_action', () => {
     })
 })
 
+describe('object-json-string cast', () => {
+    const resolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/service-names/',
+            operation: {
+                operationId: 'things_service_names_retrieve',
+                parameters: [
+                    { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                    { in: 'query', name: 'dateRange', required: false, schema: { type: 'string' } },
+                ],
+            },
+        })
+
+    it('wraps the param with castObjectToJsonString and imports the helper', () => {
+        const result = generateToolCode(
+            'things-service-names',
+            {
+                operation: 'things_service_names_retrieve',
+                enabled: true,
+                param_overrides: { dateRange: { cast: 'object-json-string' } },
+            },
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('z.preprocess(castObjectToJsonString')
+        expect(result.castHelperImports.has('castObjectToJsonString')).toBe(true)
+    })
+})
+
 describe('optional param with state fallback', () => {
     const resolved = (): ResolvedOperation =>
         makeResolved({

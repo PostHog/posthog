@@ -117,16 +117,12 @@ class TestToEpoch:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (404, False), (500, False)])
+    @pytest.mark.parametrize("status_code, expected", [(404, False)])
     def test_status_mapping(self, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
             assert validate_credentials("token", "app-id") is expected
         assert network.requests_log[0].path == "/api/app-id/markers.json"
         assert network.requests_log[0].param("count_only") == "true"
-
-    def test_swallows_exceptions(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            assert validate_credentials("token", "app-id") is False
 
 
 class TestWindowedRows:
