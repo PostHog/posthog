@@ -3653,15 +3653,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
         thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
-        stream_base_url = (
-            None
-            if thin_tail_withheld
-            else tasks_facade.resolve_stream_base_url(
-                distinct_id=request.user.distinct_id,
-                organization_id=self.team.organization_id,
-                force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
-            )
-        )
+        stream_base_url = None if thin_tail_withheld else tasks_facade.resolve_stream_base_url()
         route: StreamTokenRoute = "thin_tail_withheld"
         if not thin_tail_withheld:
             route = "proxy" if stream_base_url else "django"
