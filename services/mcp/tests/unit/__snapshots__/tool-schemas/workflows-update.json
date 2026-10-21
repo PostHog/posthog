@@ -181,7 +181,7 @@
                 "maxLength": 255,
                 "type": "string"
             },
-            "maxItems": 32,
+            "maxItems": 10,
             "type": "array"
         },
         "trigger_masking": {
