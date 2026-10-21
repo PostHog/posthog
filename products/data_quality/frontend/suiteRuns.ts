@@ -48,6 +48,8 @@ interface SuiteRunPollCache {
 
 interface SuiteRunPollActions {
     finishSuiteRun: (suiteRun: DataQualitySuiteRunApi) => unknown
+    /** Store a running response without resetting the poll, so its progress reaches the UI. */
+    updateActiveSuiteRun?: (suiteRun: DataQualitySuiteRunApi) => unknown
     scheduleSuiteRunPoll: () => unknown
     pollActiveSuiteRun: () => unknown
     setPollTimedOut: () => unknown
@@ -134,6 +136,7 @@ export function suiteRunPollListeners({
                 actions.finishSuiteRun(polled)
                 return
             }
+            actions.updateActiveSuiteRun?.(polled)
             if (cache.pollElapsedMs >= POLL_TIMEOUT_MS) {
                 actions.setPollTimedOut()
                 return

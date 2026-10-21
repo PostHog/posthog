@@ -196,6 +196,9 @@ export interface dataQualityChecksLogicActions {
         checkId: string
         enabled: boolean
     }
+    updateActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi) => {
+        suiteRun: DataQualitySuiteRunApi
+    }
     upsertCheck: (check: DataQualityCheckApi) => {
         check: DataQualityCheckApi
     }
@@ -235,6 +238,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         scheduleSuiteRunPoll: true,
         pollActiveSuiteRun: true,
         finishSuiteRun: (suiteRun: DataQualitySuiteRunApi) => ({ suiteRun }),
+        updateActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi) => ({ suiteRun }),
         setPollTimedOut: true,
         loadCheckRuns: (checkId: string) => ({ checkId }),
         openFailingRows: (checkId: string) => ({ checkId }),
@@ -308,6 +312,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             {
                 setActiveSuiteRun: (_, { suiteRun }) => suiteRun,
                 finishSuiteRun: (_, { suiteRun }) => suiteRun,
+                updateActiveSuiteRun: (_, { suiteRun }) => suiteRun,
             },
         ],
         pollTimedOut: [

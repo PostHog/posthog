@@ -271,6 +271,30 @@ export const DataQualityChecksPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Preview a question on at most ten rows. Full check runs still examine every row in scope. Preview uses the same billed evaluator and shared decision cache but creates no check run.
+ */
+export const dataQualityChecksQuestionPreviewCreateBodyColumnNameDefault = ``
+
+export const DataQualityChecksQuestionPreviewCreateBody = /* @__PURE__ */ zod
+    .object({
+        subject_type: zod
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
+            .describe(
+                "Kind of object: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
+            ),
+        subject_uuid: zod.uuid().describe('Id of the table, view, metric, or PostHog table.'),
+        column_name: zod
+            .string()
+            .default(dataQualityChecksQuestionPreviewCreateBodyColumnNameDefault)
+            .describe('Column evaluated in single-column mode. Leave blank in row mode.'),
+        config: zod
+            .record(zod.string(), zod.unknown())
+            .describe("Question configuration using the question check type's schema."),
+    })
+    .describe('The subject a request names, wherever it names it: a body, a query string, or both.')
+
+/**
  * Change how often this subject's checks run, or stop running them automatically. Name the subject with subject_type and subject_uuid in the body.
  */
 export const DataQualityChecksSchedulePartialUpdateBody = /* @__PURE__ */ zod

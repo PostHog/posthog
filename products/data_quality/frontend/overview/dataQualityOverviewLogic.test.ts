@@ -566,6 +566,19 @@ describe('dataQualityOverviewLogic', () => {
         expect(router.values.location.pathname).not.toMatch(/\/sql$/)
     })
 
+    it('does not open an earlier SQL run for a check that is now a question', async () => {
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue([
+            { compiled_query: '' },
+            { compiled_query: 'SELECT 1' },
+        ])
+        await mountLogic()
+
+        logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed', { check_type: 'question' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).not.toMatch(/\/sql$/)
+    })
+
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
         ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/data-quality'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],

@@ -59,8 +59,7 @@ class QuestionConfig(CheckConfig):
         return json.dumps(NoulQuestion(instructions=self.question).to_json(), sort_keys=True, separators=(",", ":"))
 
 
-def question_input_query(subject: SubjectRef, config: QuestionConfig, column_name: str) -> ast.SelectQuery:
-    """One exhaustive projection, grouped by the exact evaluator input with source multiplicities."""
+def _question_input_rows(subject: SubjectRef, config: QuestionConfig, column_name: str) -> ast.SelectQuery:
     names = config.input_columns(column_name)
     if config.input_mode == "column":
         input_expression: ast.Expr = ast.Call(name="toString", args=[column(names[0])])
@@ -86,15 +85,33 @@ def question_input_query(subject: SubjectRef, config: QuestionConfig, column_nam
                 ast.Constant(value="]"),
             ],
         )
-    input_rows = ast.SelectQuery(
+    return ast.SelectQuery(
         select=[ast.Alias(alias="input", expr=input_expression)],
         select_from=subject_source(subject),
     )
+
+
+def _group_question_inputs(input_rows: ast.SelectQuery) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=[ast.Field(chain=["input"]), ast.Alias(alias="row_count", expr=ast.Call(name="count", args=[]))],
         select_from=ast.JoinExpr(table=input_rows),
         group_by=[ast.Field(chain=["input"])],
     )
+
+
+def question_input_query(subject: SubjectRef, config: QuestionConfig, column_name: str) -> ast.SelectQuery:
+    """One exhaustive projection, grouped by the exact evaluator input with source multiplicities."""
+    return _group_question_inputs(_question_input_rows(subject, config, column_name))
+
+
+QUESTION_PREVIEW_ROW_LIMIT = 10
+
+
+def question_preview_query(subject: SubjectRef, config: QuestionConfig, column_name: str) -> ast.SelectQuery:
+    rows = _question_input_rows(subject, config, column_name)
+    # Limit source rows before grouping, so a preview cannot scan every distinct input.
+    rows.limit = ast.Constant(value=QUESTION_PREVIEW_ROW_LIMIT)
+    return _group_question_inputs(rows)
 
 
 @frozen
@@ -185,7 +202,12 @@ class QuestionChunkEvaluator:
         if self.clock() >= self.run_deadline:
             raise RuntimeError("Question evaluation timed out with incomplete coverage.")
 
-    def run(self, inputs: Sequence[WeightedInput]) -> QuestionChunkResult:
+    def run(
+        self,
+        inputs: Sequence[WeightedInput],
+        *,
+        on_decisions: Callable[[dict[str, float]], None] | None = None,
+    ) -> QuestionChunkResult:
         self.check_deadline()
         if len(inputs) > self.max_chunk_inputs:
             raise ValueError("Question manifest chunk exceeds its input limit.")
@@ -262,6 +284,8 @@ class QuestionChunkEvaluator:
             if len(decisions) != len(requests):
                 self.wait(min(0.25, max(0, deadline - self.clock())))
         self.check_deadline()
+        if on_decisions is not None:
+            on_decisions({request.input: decisions[key] for key, request in requests.items()})
         return QuestionChunkResult(
             examined_row_count=null_rows + sum(weights.values()),
             failed_row_count=null_rows

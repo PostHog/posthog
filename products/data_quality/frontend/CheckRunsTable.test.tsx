@@ -38,6 +38,35 @@ function metricRun(overrides: Partial<DataQualityCheckRunApi>): DataQualityCheck
 
 describe('CheckRunsTable', () => {
     afterEach(cleanup)
+    it('withholds a failure rate when a question run has incomplete coverage', () => {
+        initKeaTests()
+        render(
+            <CheckRunsTable
+                runs={[
+                    metricRun({
+                        check_type: 'question',
+                        status: 'errored',
+                        question_result: {
+                            status: 'errored',
+                            examined_row_count: 4000,
+                            failed_row_count: 15,
+                            failure_rate: 0.00375,
+                            unique_input_count: 400,
+                            reused_decision_count: 350,
+                            new_decision_count: 50,
+                            completed_chunk_count: 3,
+                            total_chunk_count: 4,
+                            coverage_complete: false,
+                        },
+                    }),
+                ]}
+            />
+        )
+        expect(screen.getByText('Incomplete coverage')).toBeInTheDocument()
+        expect(screen.getByText('3 / 4 batches completed')).toBeInTheDocument()
+        expect(screen.queryByText(/failed rows/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/0\.4%/)).not.toBeInTheDocument()
+    })
     it('describes each run in the terms of its check type', () => {
         initKeaTests()
         render(

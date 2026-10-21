@@ -16,7 +16,7 @@ import {
     dataQualityRunsList,
     dataQualityRunsRetrieve,
 } from './generated/api'
-import type { DataQualityCheckApi, DataQualitySuiteRunApi } from './generated/api.schemas'
+import type { DataQualityCheckApi, DataQualitySuiteRunApi, QuestionProgressApi } from './generated/api.schemas'
 import { CheckTypeEnumApi } from './generated/api.schemas'
 
 jest.mock('lib/api', () => {
@@ -262,6 +262,33 @@ describe('dataQualityChecksLogic', () => {
 
         expect(logic.values.isSuiteRunning).toBe(false)
         expect(lemonToast.warning).toHaveBeenCalledWith('1 passed, 1 failed')
+    })
+
+    it('shows the checkpoint progress of each running poll', async () => {
+        const progress = (evaluated: number): QuestionProgressApi[] => [
+            {
+                check_id: 'check-1',
+                preparing: false,
+                evaluated_row_count: evaluated,
+                total_row_count: 100,
+                completed_chunk_count: evaluated / 10,
+                total_chunk_count: 10,
+            },
+        ]
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock)
+            .mockResolvedValueOnce(buildSuiteRun({ question_progress: progress(20) }))
+            .mockResolvedValueOnce(buildSuiteRun({ question_progress: progress(50) }))
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        await advancePoll(3000)
+        expect(logic.values.activeSuiteRun?.question_progress).toEqual(progress(20))
+
+        await advancePoll(3000)
+        expect(logic.values.activeSuiteRun?.question_progress).toEqual(progress(50))
+        expect(dataQualityRunsRetrieve).toHaveBeenCalledTimes(2)
+        expect(logic.values.isSuiteRunning).toBe(true)
     })
 
     it('ignores a stale poll after a newer run has replaced the active one', async () => {

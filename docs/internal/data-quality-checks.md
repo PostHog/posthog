@@ -38,7 +38,7 @@ The table above applies to the REST routes only. The MCP tools declare `query:re
 They run separate prepare, chunk, and finalize Temporal activities alongside SQL checks.
 `DurableQuestionRunner` stores one definition, executing principal, selected manifest, persistent 15-minute deadline, and inference reservations per suite/check.
 A unique constraint retains each chunk checkpoint once, and finalization records one history row.
-The current SQL check path is unchanged. Views, staged refreshes, PostHog tables, previews, and the editor are not yet supported.
+The current SQL check path is unchanged. Views, staged refreshes, and PostHog tables are not yet supported by question checks.
 Query and inference tags carry check and run identifiers without source values.
 
 `QuestionConfig` accepts a column input or explicitly selected row fields, a yes/no assertion, an inclusive minimum probability (default 0.8), and an inclusive allowed failure rate (default 0).
@@ -57,6 +57,12 @@ A manifest freezes the definition, the explicitly supplied model revision, and t
 A deployment with a different evaluator version rejects the manifest and its checkpoints.
 A retry must reuse that manifest; a new run must prepare a new one.
 Empty manifests skip.
+
+The check editor supports one column or selected row fields, a yes/no question, a minimum probability of Yes, and an allowed failure rate. It labels full runs **All rows in scope** and keeps question checks at warning severity.
+
+**Preview up to 10 rows** calls `POST /api/projects/:id/data_quality_checks/question_preview/` with the subject, column, and question configuration. The query limits source rows before grouping and uses the full-run input formatting, permissions, billed gateway, and decision cache. Preview decisions never create a saved check or run. Question or input changes discard the preview; threshold changes recompute its verdict from returned probabilities. Null column values fail without inference.
+
+Retrieving one suite run includes optional `question_progress` entries while question executions are active. Preparation freezes all inputs before evaluation; progress then reports checkpointed rows and completed batches against the frozen totals. Current source access gates these counts. Run history shows complete or incomplete coverage, evaluated rows, failed rows and rate only when coverage is complete, and distinct new/reused decisions. Decision counts describe reuse, not exact credit charges.
 
 Redis keys are project-scoped hashes of the exact input, question schema, model id, immutable model or deployment revision, and evaluator contract version.
 Thresholds are excluded.

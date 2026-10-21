@@ -6,10 +6,11 @@ import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag,
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { CheckRunsTable } from './CheckRunsTable'
-import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
+import { SEVERITY_TAG_TYPES, checkDisplayName, checkInputLabel, checkTypeLabel } from './checksConstants'
 import { CheckStatusCell } from './CheckStatusCell'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
+import { CheckTypeEnumApi } from './generated/api.schemas'
 import type { DataQualityCheckApi, DataQualityOutputColumnApi } from './generated/api.schemas'
 
 interface ChecksTableProps extends DataQualityChecksLogicProps {
@@ -80,7 +81,7 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                 {
                     title: 'Column',
                     key: 'column_name',
-                    render: (_, check) => check.column_name || '-',
+                    render: (_, check) => <span className="break-words">{checkInputLabel(check)}</span>,
                 },
                 {
                     title: 'Severity',
@@ -131,6 +132,10 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                                 {
                                     label: 'Open failing rows in SQL editor',
                                     tooltip: "The query behind this check's latest run",
+                                    disabledReason:
+                                        check.check_type === CheckTypeEnumApi.Question
+                                            ? 'Question checks do not provide a failing rows SQL query.'
+                                            : undefined,
                                     onClick: () => openFailingRows(check.id),
                                 },
                                 {

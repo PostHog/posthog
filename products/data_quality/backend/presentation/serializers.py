@@ -473,8 +473,34 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         }
 
 
+@extend_schema_serializer(component_name="QuestionProgress")
+class QuestionProgressSerializer(serializers.Serializer):
+    check_id = serializers.CharField(help_text="Check whose frozen inputs are being evaluated.")
+    preparing = serializers.BooleanField(help_text="Whether the complete input snapshot is still being prepared.")
+    total_row_count = serializers.IntegerField(
+        help_text="Rows in the complete frozen input set. Available after preparation."
+    )
+    evaluated_row_count = serializers.IntegerField(help_text="Rows in completed durable checkpoints.")
+    completed_chunk_count = serializers.IntegerField(help_text="Completed evaluation batches.")
+    total_chunk_count = serializers.IntegerField(help_text="Batches in the complete frozen input set.")
+
+
 @extend_schema_serializer(component_name="DataQualitySuiteRun")
 class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
+    question_progress = QuestionProgressSerializer(
+        many=True,
+        read_only=True,
+        required=False,
+        help_text="Active question execution coverage, populated when retrieving one suite run.",
+    )
+
+    def to_representation(self, instance: DataQualitySuiteRun) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        data["question_progress"] = QuestionProgressSerializer(
+            self.context.get("question_progress", []), many=True
+        ).data
+        return data
+
     status = serializers.CharField(
         read_only=True, help_text="running, completed, failed, or empty (nothing matched the trigger)."
     )
@@ -499,6 +525,7 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
             "subject_type",
             "subject_uuid",
             "workflow_id",
+            "question_progress",
             "checks_passed",
             "checks_failed",
             "checks_errored",
@@ -570,3 +597,40 @@ class CheckTypeSerializer(serializers.Serializer):
     description = serializers.CharField(help_text="What the check asserts and what counts as a failure.")
     requires_column = serializers.BooleanField(help_text="Whether column_name must be set for this type.")
     config_schema = CheckConfigField(help_text="JSON schema the config object is validated against.")
+
+
+@extend_schema_serializer(component_name="QuestionPreviewRequest")
+class QuestionPreviewRequestSerializer(DataQualitySubjectRefSerializer):
+    column_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Column evaluated in single-column mode. Leave blank in row mode.",
+    )
+    config = CheckConfigField(help_text="Question configuration using the question check type's schema.")
+
+
+class QuestionPreviewInputSerializer(serializers.Serializer):
+    input = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Exact text sent to the evaluator, or null for a null column value.",
+    )
+    row_count = serializers.IntegerField(help_text="Number of preview rows with this input.")
+    probability = serializers.FloatField(
+        allow_null=True, help_text="Probability of Yes, or null for a deterministic null-column failure."
+    )
+
+
+class QuestionPreviewSerializer(serializers.Serializer):
+    inputs = QuestionPreviewInputSerializer(many=True, help_text="Decisions for this small preview only.")
+    row_limit = serializers.IntegerField(
+        help_text="Maximum number of source rows in a preview. Full runs examine all rows in scope."
+    )
+    examined_row_count = serializers.IntegerField(help_text="Source rows included in this preview.")
+    reused_decision_count = serializers.IntegerField(
+        help_text="Distinct decisions reused from the shared question cache."
+    )
+    new_decision_count = serializers.IntegerField(
+        help_text="New distinct decisions returned by the evaluator, not a billing total."
+    )

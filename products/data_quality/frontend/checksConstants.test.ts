@@ -1,10 +1,26 @@
 import { dayjs } from 'lib/dayjs'
 
-import { byStatusAttention, checkRunDisplayName, failingForLabel, runResultCell } from './checksConstants'
+import {
+    byStatusAttention,
+    checkInputLabel,
+    checkRunDisplayName,
+    failingForLabel,
+    runResultCell,
+} from './checksConstants'
 import { CheckTypeEnumApi } from './generated/api.schemas'
 
 describe('checksConstants', () => {
     const now = dayjs('2026-08-19T12:00:00Z')
+
+    it('shows the selected input fields for a row question instead of an empty column', () => {
+        expect(
+            checkInputLabel({
+                check_type: CheckTypeEnumApi.Question,
+                column_name: '',
+                config: { input_mode: 'row', columns: ['category', 'description'] },
+            })
+        ).toEqual('category, description')
+    })
 
     // A red tag alone never says "since when", and the answer can be older than any page of run
     // history, so it has to come off the check rather than be derived from the runs on screen.

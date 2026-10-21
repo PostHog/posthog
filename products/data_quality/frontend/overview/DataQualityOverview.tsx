@@ -31,7 +31,7 @@ import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import { DataQualitySchedule } from '../DataQualitySchedule'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
-import { SubjectTypeEnumApi } from '../generated/api.schemas'
+import { CheckTypeEnumApi, SubjectTypeEnumApi } from '../generated/api.schemas'
 import { DataQualityEmptyState } from './DataQualityEmptyState'
 import {
     NEW_CHECK_ACTION_ID,
@@ -454,6 +454,10 @@ function SubjectChecks({ group }: { group: SubjectGroup }): JSX.Element {
                                 {
                                     label: 'Open failing rows in SQL editor',
                                     tooltip: "The query behind this check's latest run",
+                                    disabledReason:
+                                        check.check_type === CheckTypeEnumApi.Question
+                                            ? 'Question checks do not provide a failing rows SQL query.'
+                                            : undefined,
                                     onClick: () => openFailingRows(check),
                                 },
                                 {
