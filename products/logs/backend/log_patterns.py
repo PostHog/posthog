@@ -118,6 +118,17 @@ _PLACEHOLDER_PATTERNS = {
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
 
+# Stored patterns carry the ingestion consumer's mask tokens, and grouping them adds Drain's `<*>`
+# on top, so the same message can render as `job <ID> done` in one window and `job <*> done` in
+# the next. The names mirror nodejs/src/logs/log-pattern-mask.ts, and klog's severity letter is
+# part of its token because Drain wildcards `I<KLOGTIME>` whole.
+_FINGERPRINT_PLACEHOLDER_RE = re.compile(
+    _PLACEHOLDER_RE.pattern + r"|(?:\b[IWEF])?<KLOGTIME>|<(?:N|TIMESTAMP|UUID|IP|HOST|HEX|ID|EMAIL|JSON_ARRAY)>"
+)
+# The ingestion consumer stores a JSON body without a message field as its masked key set, for example
+# `<JSON:<ID>,status>`. The key set is the whole identity of that pattern, so its nested mask tokens stay.
+_JSON_KEY_SET_RE = re.compile(r"<JSON:.*>", re.DOTALL)
+
 # Templates whose literal content is thinner than this compile to uselessly broad
 # predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
 _MIN_LITERAL_CHARS = 3
@@ -294,9 +305,9 @@ def _escape_literal(text: str) -> str:
     return r"\s+".join(re.escape(token) for token in text.split(" "))
 
 
-def _literal_runs(template: str) -> list[str]:
+def _literal_runs(template: str, placeholder_re: re.Pattern[str] = _PLACEHOLDER_RE) -> list[str]:
     # Stripped, non-empty literal fragments between the template's placeholders.
-    return [stripped for literal in _PLACEHOLDER_RE.split(template) if (stripped := literal.strip())]
+    return [stripped for literal in placeholder_re.split(template) if (stripped := literal.strip())]
 
 
 def extract_match_literal(template: str, raw_examples: list[str]) -> str | None:
@@ -328,7 +339,9 @@ def pattern_fingerprint(template: str) -> str:
     *inside* a literal run splits it and changes the fingerprint — that is content-level
     divergence, not wobble, so the two templates are correctly treated as different patterns.
     """
-    literals = sorted(set(_literal_runs(template)))
+    if _JSON_KEY_SET_RE.fullmatch(template):
+        return template
+    literals = sorted(set(_literal_runs(template, _FINGERPRINT_PLACEHOLDER_RE)))
     return "\x00".join(literals) if literals else template
 
 
