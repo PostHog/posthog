@@ -1,8 +1,11 @@
 import contextlib
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from confluent_kafka import KafkaError
 from parameterized import parameterized
@@ -340,6 +343,34 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                     organization_id=self.organization.id,
                 )
         assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == 1
+
+    @parameterized.expand(
+        [
+            ("a_retry_of_a_recent_deletion", timedelta(hours=1), 1),
+            ("a_new_deletion_of_a_revived_person", timedelta(hours=25), 2),
+        ]
+    )
+    def test_logs_a_deletion_once_per_deletion_of_the_person(self, _name: str, earlier_by: timedelta, logged: int):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Person",
+            activity="deleted",
+            item_id=str(p.pk),
+            created_at=timezone.now() - earlier_by,
+        )
+        with _no_publish():
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == logged
 
     def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})

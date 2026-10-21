@@ -296,7 +296,7 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
         ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
-class GatewayTokenUnavailableError(ProcessTaskFatalError):
+class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
     """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
