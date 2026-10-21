@@ -105,15 +105,17 @@ function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.El
 
 const REORDER_MS = 220
 
-function useSettleOnReorder(listRef: RefObject<HTMLUListElement>): void {
-    const lefts = useRef(new Map<string, number>())
+function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string): void {
+    const previous = useRef(order)
     useLayoutEffect(() => {
-        const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        listRef.current?.querySelectorAll<HTMLElement>('[data-pulse-key]').forEach((tile) => {
-            const key = tile.dataset.pulseKey ?? ''
-            const left = tile.getBoundingClientRect().left
-            const before = lefts.current.get(key)
-            if (!still && before !== undefined && Math.abs(before - left) > 1) {
+        const before = previous.current.split('|')
+        previous.current = order
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        listRef.current?.querySelectorAll<HTMLElement>('[data-pulse-key]').forEach((tile, index) => {
+            const was = before.indexOf(tile.dataset.pulseKey ?? '')
+            if (was !== -1 && was !== index) {
                 tile.animate(
                     [
                         { opacity: 0, transform: 'translateY(4px)' },
@@ -125,14 +127,13 @@ function useSettleOnReorder(listRef: RefObject<HTMLUListElement>): void {
                     }
                 )
             }
-            lefts.current.set(key, left)
         })
-    })
+    }, [order, listRef])
 }
 
 export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Element {
     const listRef = useRef<HTMLUListElement>(null)
-    useSettleOnReorder(listRef)
+    useSettleOnReorder(listRef, metrics.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
     const { pulsePins, pulsePinsUnavailableReason } = useValues(todayHighlightsLogic)
     const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =

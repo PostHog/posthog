@@ -36,22 +36,37 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
-            results, pin_results = await asyncio.gather(sources, _resolve_pins(inputs))
-        else:
-            results, pin_results = await sources, []
-        await temporalio.workflow.execute_activity(
-            finalize_highlights_activity,
-            FinalizeHighlightsInputs(
-                team_id=inputs.team_id,
-                highlights_id=inputs.highlights_id,
-                results=list(results),
-                pins=inputs.pins,
-                pin_results=pin_results,
-            ),
-            start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-        )
+        if not (temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins):
+            await _finalize(inputs, list(await sources), [])
+            return
+        results, first = await asyncio.gather(sources, _resolve_pins(inputs, inputs.pins))
+        pin_results = [first]
+        await _finalize(inputs, list(results), pin_results)
+        for _ in range(PIN_ATTEMPTS - 1):
+            last = pin_results[-1]
+            if not last.pending or last.failed:
+                break
+            await asyncio.sleep(PIN_RETRY_SECONDS)
+            pin_results.append(await _resolve_pins(inputs, [pin for pin in inputs.pins if pin.key in last.pending]))
+        if len(pin_results) > 1:
+            await _finalize(inputs, list(results), pin_results)
+
+
+async def _finalize(
+    inputs: ComputeHighlightsInputs, results: list[HighlightSourceResult], pin_results: list[ResolvePinsResult]
+) -> None:
+    await temporalio.workflow.execute_activity(
+        finalize_highlights_activity,
+        FinalizeHighlightsInputs(
+            team_id=inputs.team_id,
+            highlights_id=inputs.highlights_id,
+            results=results,
+            pins=inputs.pins,
+            pin_results=pin_results,
+        ),
+        start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+    )
 
 
 async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> HighlightSourceResult:
@@ -64,6 +79,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
                 local_day=inputs.local_day,
                 scopes=inputs.scopes,
                 source_name=source_name,
+                pinned=[pin.key for pin in inputs.pins],
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
@@ -72,32 +88,19 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
         return HighlightSourceResult(source_name=source_name, found=None, failed=True)
 
 
-async def _resolve_pins(inputs: ComputeHighlightsInputs) -> list[ResolvePinsResult]:
-    results: list[ResolvePinsResult] = []
-    remaining: list[PinnedNumber] = inputs.pins
-    for attempt in range(PIN_ATTEMPTS):
-        if attempt:
-            await asyncio.sleep(PIN_RETRY_SECONDS)
-        try:
-            result = await temporalio.workflow.execute_activity(
-                resolve_pins_activity,
-                ResolvePinsInputs(
-                    team_id=inputs.team_id,
-                    user_id=inputs.user_id,
-                    local_day=inputs.local_day,
-                    scopes=inputs.scopes,
-                    pins=remaining,
-                ),
-                start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
-            )
-        except ActivityError:
-            return [
-                *results,
-                ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in remaining], failed=True),
-            ]
-        results.append(result)
-        if not result.pending:
-            break
-        remaining = [pin for pin in remaining if pin.key in result.pending]
-    return results
+async def _resolve_pins(inputs: ComputeHighlightsInputs, pins: list[PinnedNumber]) -> ResolvePinsResult:
+    try:
+        return await temporalio.workflow.execute_activity(
+            resolve_pins_activity,
+            ResolvePinsInputs(
+                team_id=inputs.team_id,
+                user_id=inputs.user_id,
+                local_day=inputs.local_day,
+                scopes=inputs.scopes,
+                pins=pins,
+            ),
+            start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError:
+        return ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in pins], failed=True)

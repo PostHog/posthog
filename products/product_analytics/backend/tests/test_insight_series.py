@@ -16,8 +16,8 @@ from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.product_analytics.backend import insight_series
-from products.product_analytics.backend.facade.api import get_insight_series
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext
+from products.product_analytics.backend.facade.api import chartable_insights, get_insight_series
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesPending
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
 
@@ -457,7 +457,8 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
 
         self.assertIsNone(get_insight_series(team=self.team, user=self.user, short_id=insight.short_id))
 
-    def test_a_query_that_is_not_cached_yet_returns_none_and_does_not_block(self) -> None:
+    @parameterized.expand([("returns none", False), ("raises when asked", True)])
+    def test_a_query_that_is_not_cached_yet_does_not_block(self, _name: str, raise_if_pending: bool) -> None:
         self._signups((2, "Chrome"))
         insight = self._insight(series=[{"kind": "EventsNode", "event": "signed up"}])
 
@@ -465,9 +466,35 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             patch.object(insight_series, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
             patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation") as enqueue,
         ):
-            found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
+            try:
+                found: Any = get_insight_series(
+                    team=self.team, user=self.user, short_id=insight.short_id, raise_if_pending=raise_if_pending
+                )
+            except InsightSeriesPending:
+                found = "pending"
 
-        self.assertEqual((found, enqueue.call_count), (None, 1))
+        self.assertEqual((found, enqueue.call_count), ("pending" if raise_if_pending else None, 1))
+
+    def test_the_pin_search_offers_only_matching_insights_that_show_as_a_series(self) -> None:
+        line = self._insight(series=[{"kind": "EventsNode", "event": "signed up"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Sign-ups by browser",
+            saved=True,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "signed up"}],
+                    "trendsFilter": {"display": "ActionsPie"},
+                },
+            },
+        )
+        Insight.objects.create(team=self.team, name="Revenue", saved=True, query=line.query)
+
+        found = chartable_insights(team=self.team, user=self.user, search="sign", limit=20)
+
+        self.assertEqual([insight.short_id for insight in found], [line.short_id])
 
     def test_an_insight_the_person_cannot_view_returns_none(self) -> None:
         self.organization.available_product_features = [

@@ -13,6 +13,7 @@ class TodayHighlights(ProductTeamModel):
     user_id = models.BigIntegerField()
     local_day = models.DateField()
     key = models.CharField(max_length=32)
+    pins_key = models.CharField(max_length=32, default="", db_default="", blank=True)
     status = models.CharField(max_length=16, choices=HighlightsStatus.choices, default=HighlightsStatus.COMPUTING.value)
     content = models.JSONField(default=dict)
     failed_sources = models.BooleanField(default=False)

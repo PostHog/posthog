@@ -190,6 +190,24 @@ def _sql_series(
     )
 
 
+def is_chartable(query: dict[str, Any], interval: str | None = None) -> bool:
+    source = query.get("source", query)
+    if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
+        settings = query.get("chartSettings") or {}
+        return (
+            query.get("display") in CHARTED_SQL_DISPLAYS
+            and bool((settings.get("xAxis") or {}).get("column"))
+            and any(axis.get("column") for axis in settings.get("yAxis") or [])
+        )
+    trends = source.get("trendsFilter") or {}
+    if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
+        return False
+    interval = interval or source.get("interval") or "day"
+    if interval not in LOOKBACK:
+        interval = "day"
+    return not (interval == "day" and (source.get("dateRange") or {}).get("daysOfWeek"))
+
+
 def insight_series(
     team: Team,
     user: User,
@@ -209,6 +227,8 @@ def insight_series(
         variables = dashboard.variables
     filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
     source = query.get("source", query)
+    if not is_chartable(query, dashboard_filters.get("interval")):
+        return None
     if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
         return _sql_series(
             team,
@@ -221,14 +241,10 @@ def insight_series(
             raise_if_pending=raise_if_pending,
         )
     trends = source.get("trendsFilter") or {}
-    if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
-        return None
     interval = dashboard_filters.get("interval") or source.get("interval") or "day"
     if interval not in LOOKBACK:
         interval = "day"
     date_range = source.get("dateRange") or {}
-    if interval == "day" and date_range.get("daysOfWeek"):
-        return None
     kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}
     bounded.update(

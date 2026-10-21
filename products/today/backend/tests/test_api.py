@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import time_machine
@@ -277,6 +277,14 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
             ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
             ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
+            ("insights to pin with only today", "get", "pin_candidates", ["today:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "insights to pin with insight access",
+                "get",
+                "pin_candidates",
+                ["today:read", "insight:read"],
+                status.HTTP_200_OK,
+            ),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -443,27 +451,38 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ),
         )
 
-    @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
     def test_pinned_numbers_lead_the_pulse_and_a_new_pin_starts_a_new_computation(self) -> None:
         cache.clear()
-        self._get(_temporal(), pulse=("k1", "k2"))
-        pins = [{"key": key, "name": key} for key in ("k2", "k2", "a", "b", "c", "d")]
-
-        with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
-            saved = self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json")
-            read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
-        connect = _temporal()
-        self._get(connect, pulse=("k1", "k2"))
-        after = self._get(_temporal(), pulse=("k1", "k2")).json()
+        with time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock:
+            self._get(_temporal(), pulse=("k1", "k2"))
+            pins = [{"key": key, "name": key} for key in ("k2", "k2", "a", "b", "c", "d")]
+            clock.shift(timedelta(seconds=1))
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                saved = self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json"
+                )
+                read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
+            connect = _temporal()
+            during = self._get(connect, pulse=("k1", "k2")).json()
+            after = self._get(_temporal(), pulse=("k1", "k2")).json()
 
         self.assertEqual(
             (
                 [pin["key"] for pin in saved.json()["pins"]],
                 read.json() == saved.json(),
                 connect.return_value.start_workflow.called,
-                [(m["key"], m["reason"]) for m in after["pulse"]],
+                (during["status"], [m["key"] for m in during["pulse"]]),
+                [m["key"] for m in after["pulse"]],
+                [(pin["key"], pin["status"]) for pin in after["pins"]],
             ),
-            (["k2", "a", "b", "c"], True, True, [("k2", "pinned"), ("k1", None)]),
+            (
+                ["k2", "a", "b", "c"],
+                True,
+                True,
+                ("computing", ["k1", "k2"]),
+                ["k2", "k1"],
+                [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],
+            ),
         )
 
     def test_saving_too_many_pins_is_rejected(self) -> None:

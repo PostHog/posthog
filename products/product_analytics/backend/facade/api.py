@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Q, QuerySet
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -25,6 +25,7 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
+    ChartableInsight,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
@@ -233,6 +234,34 @@ def save_saved_insight_query(
         insight.last_modified_by = user
         insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
     return None
+
+
+CHARTABLE_INSIGHTS_SCANNED = 200
+
+
+def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> list[ChartableInsight]:
+    """Saved insights the person may view that show as a series over time, most recently viewed first."""
+    from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
+        insight_series,
+    )
+
+    insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
+    if search.strip():
+        insights = insights.filter(Q(name__icontains=search.strip()) | Q(derived_name__icontains=search.strip()))
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = access.filter_queryset_by_access_level(insights, resource="insight")
+    found: list[ChartableInsight] = []
+    newest_first = with_last_viewed_at(insights).order_by(F("last_viewed_at").desc(nulls_last=True), "-id")
+    for insight in newest_first[:CHARTABLE_INSIGHTS_SCANNED]:
+        if insight.short_id and insight_series.is_chartable(insight.query or {}):
+            found.append(
+                ChartableInsight(
+                    short_id=insight.short_id, name=insight.name or insight.derived_name or "Untitled insight"
+                )
+            )
+            if len(found) == limit:
+                break
+    return found
 
 
 def get_insight_series(

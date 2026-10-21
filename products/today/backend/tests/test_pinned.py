@@ -71,6 +71,15 @@ class TestPinnedNumbers(BaseTest):
                 False,
             ),
             (
+                "a tile removed from its dashboard",
+                [PinnedNumber("insight:ready", dashboard_id=8)],
+                None,
+                [],
+                [],
+                [],
+                False,
+            ),
+            (
                 "a key metric with no events in either week",
                 [PinnedNumber("quiet")],
                 None,
@@ -122,9 +131,13 @@ class TestPinnedNumbers(BaseTest):
             variables=None,
             tiles=(DashboardInsightTile(insight_short_id="ready", filters_overrides=None),),
         )
+
+        def tile(**kwargs: Any) -> DashboardInsights | None:
+            return growth if kwargs["dashboard_id"] == 7 else None
+
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
-            patch.object(routine, "dashboard_insights", return_value=growth),
+            patch.object(routine, "dashboard_insight_tile", side_effect=tile),
             patch.object(pinned, "get_key_metrics", return_value=key_metrics),
         ):
             result = pinned.resolve_pins(

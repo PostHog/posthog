@@ -17,6 +17,7 @@ from ..facade.contracts import (
     ImpactWorking,
     KeyClause,
     PageLink,
+    PinCandidates,
     PreviewLine,
     PullRequestLink,
     PulsePin,
@@ -325,6 +326,22 @@ class PulsePinsSerializer(DataclassSerializer):
         if len(pins) > MAX_PINS_IN_REQUEST:
             raise serializers.ValidationError(f"Send at most {MAX_PINS_IN_REQUEST} pins.")
         return pins
+
+
+class PinCandidatesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=200, help_text="Text to find in insight names."
+    )
+
+
+class PinCandidatesSerializer(DataclassSerializer):
+    results = PulsePinSerializer(
+        many=True,
+        help_text="Saved insights the person can view that show as a number over time, most recently viewed first. Up to 20.",
+    )
+
+    class Meta:
+        dataclass = PinCandidates
 
 
 class HighlightMetricSerializer(DataclassSerializer):

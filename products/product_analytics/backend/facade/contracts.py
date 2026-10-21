@@ -135,6 +135,12 @@ class TeamEmailAccess:
     person_emails: bool
 
 
+@dataclass(frozen=True)
+class ChartableInsight:
+    short_id: str
+    name: str
+
+
 class InsightSeriesPending(Exception):
     pass
 

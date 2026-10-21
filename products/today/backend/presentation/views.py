@@ -30,6 +30,8 @@ from .serializers import (
     FigureMarksSerializer,
     HighlightsSerializer,
     KeyClausesQuerySerializer,
+    PinCandidatesQuerySerializer,
+    PinCandidatesSerializer,
     PulsePinsSerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
@@ -85,7 +87,7 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
+    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins", "pin_candidates"]
     scope_object_write_actions = ["set_pulse_pins"]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -142,6 +144,20 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound()
         saved = api.set_pulse_pins(team=self.team, user=user, pins=request.validated_data.pins)
         return Response(PulsePinsSerializer(saved).data)
+
+    @validated_request(
+        query_serializer=PinCandidatesQuerySerializer,
+        responses={200: OpenApiResponse(response=PinCandidatesSerializer)},
+        summary="Find insights to pin",
+        description="Saved insights the person can view whose number the home can show, matching `search`, most recently viewed first. 404 when the person does not have the new navigation. A scoped key needs insight:read as well, because the results name insights.",
+    )
+    @action(detail=False, methods=["get"], url_path="pin_candidates", required_scopes=["today:read", "insight:read"])
+    def pin_candidates(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        found = api.pin_candidates(team=self.team, user=user, search=request.validated_query_data["search"])
+        return Response(PinCandidatesSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},

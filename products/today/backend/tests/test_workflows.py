@@ -84,7 +84,7 @@ async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_other
 
 
 @pytest.mark.asyncio
-async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_together(
+async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_again(
     environment: WorkflowEnvironment,
 ) -> None:
     finalized: list[FinalizeHighlightsInputs] = []
@@ -129,5 +129,5 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_togethe
 
     assert (asked, [[result.pending for result in inputs.pin_results] for inputs in finalized]) == (
         [["insight:a", "insight:slow"], ["insight:slow"]],
-        [[["insight:slow"], []]],
+        [[["insight:slow"]], [["insight:slow"], []]],
     )

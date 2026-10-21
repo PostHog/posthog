@@ -29,6 +29,7 @@ class HighlightSourceInputs:
     local_day: str
     scopes: list[str] | None
     source_name: str
+    pinned: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)

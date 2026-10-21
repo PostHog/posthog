@@ -23,14 +23,7 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import (
-    HighlightInterval,
-    HighlightLabel,
-    HighlightMetricReason,
-    HighlightPinStatus,
-    HighlightPriority,
-    HighlightsStatus,
-)
+from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPinStatus, HighlightPriority, HighlightsStatus
 from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
@@ -70,15 +63,16 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
         PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
         for pin in pulse_pins.get_pins(team_id=team.id, user_id=user.id)
     ]
-    key = _key(team, user, scopes, pins)
+    key = _key(team, user, scopes)
+    pins_key = _pins_key(pins)
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
         .order_by("-created_at")
     )
     latest = rows.first()
-    if latest is None or _is_due(latest, now):
-        _start(team, user, scopes, day, key, pins)
+    if latest is None or latest.pins_key != pins_key or _is_due(latest, now):
+        _start(team, user, scopes, day, key, pins, pins_key)
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -95,11 +89,17 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     )
 
 
-def _key(team: Team, user: User, scopes: frozenset[str] | None, pins: Sequence[PinnedNumber]) -> str:
+def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    pinned = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
-    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}:{pinned}".encode()).hexdigest()[:32]
+    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
+
+
+def _pins_key(pins: Sequence[PinnedNumber]) -> str:
+    if not pins:
+        return ""
+    signature = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
+    return hashlib.sha256(signature.encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:
@@ -110,11 +110,20 @@ def _is_due(row: TodayHighlights, now: datetime) -> bool:
 
 
 def _start(
-    team: Team, user: User, scopes: frozenset[str] | None, day: date, key: str, pins: list[PinnedNumber]
+    team: Team,
+    user: User,
+    scopes: frozenset[str] | None,
+    day: date,
+    key: str,
+    pins: list[PinnedNumber],
+    pins_key: str,
 ) -> None:
-    if not cache.add(f"today_highlights:start:{team.id}:{user.id}:{key}:{day.isoformat()}", True, START_LOCK_SECONDS):
+    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}"
+    if not cache.add(lock, True, START_LOCK_SECONDS):
         return
-    row = TodayHighlights.objects.for_team(team.id).create(team_id=team.id, user_id=user.id, local_day=day, key=key)
+    row = TodayHighlights.objects.for_team(team.id).create(
+        team_id=team.id, user_id=user.id, local_day=day, key=key, pins_key=pins_key
+    )
     inputs = ComputeHighlightsInputs(
         team_id=team.id,
         user_id=user.id,
@@ -146,6 +155,7 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
         User.objects.get(id=inputs.user_id),
         date.fromisoformat(inputs.local_day),
         None if inputs.scopes is None else frozenset(inputs.scopes),
+        frozenset(inputs.pinned),
     )
     if source is None or not context.allows(*source.scopes):
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)
@@ -215,7 +225,7 @@ def build_highlights(
         for metric in found[source.name].pulse if source.name in found else ():
             offered.setdefault(metric.key, metric)
     resolved = {**offered, **(pinned or {})}
-    chosen = [replace(resolved[key], reason=HighlightMetricReason.PINNED) for key in pins if key in resolved]
+    chosen = [resolved[key] for key in pins if key in resolved]
     pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pins)][:PULSE_TILES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(

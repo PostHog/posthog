@@ -8,7 +8,12 @@ from posthog.dataclasses import frozen
 from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
-from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile, dashboard_insights
+from products.dashboards.backend.facade.api import (
+    DashboardInsights,
+    DashboardInsightTile,
+    dashboard_insight_tile,
+    dashboard_insights,
+)
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
@@ -19,7 +24,6 @@ from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
 from ..highlight_types import Context, Found, Source
-from ..pulse_pins import get_pins
 
 ROUTINE_WINDOW_DAYS = 28
 DAILY_ROUTINE_DAYS = 8
@@ -36,7 +40,6 @@ FRECENCY_TILES = 4
 DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
-PINNED_DASHBOARD_TILES = 500
 
 
 @frozen
@@ -47,7 +50,7 @@ class ViewedItem:
 
 
 def find(context: Context) -> Found:
-    pinned = {pin.key for pin in get_pins(team_id=context.team.id, user_id=context.user.id)}
+    pinned = context.pinned
     budget = FRECENCY_TILES - len(pinned)
     ranking = pulse_ranking(context.user, context.team)
     if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
@@ -163,13 +166,12 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
 def dashboard_tile_metric(
     context: Context, dashboard_id: int, short_id: str, *, raise_if_pending: bool = False
 ) -> contracts.HighlightMetric | None:
-    dashboard = dashboard_insights(
-        team=context.team, user=context.user, dashboard_id=dashboard_id, limit=PINNED_DASHBOARD_TILES
+    dashboard = dashboard_insight_tile(
+        team=context.team, user=context.user, dashboard_id=dashboard_id, short_id=short_id
     )
-    tile = next((tile for tile in dashboard.tiles if tile.insight_short_id == short_id), None) if dashboard else None
-    if dashboard is None or tile is None:
+    if dashboard is None:
         return None
-    return _tile_metric(context, dashboard, tile, raise_if_pending=raise_if_pending)
+    return _tile_metric(context, dashboard, dashboard.tiles[0], raise_if_pending=raise_if_pending)
 
 
 def _tile_metric(

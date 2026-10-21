@@ -55575,7 +55575,6 @@ export namespace Schemas {
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
-     * * `pinned` - You keep this on your home
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -55584,7 +55583,6 @@ export namespace Schemas {
       Routine: 'routine',
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
-      Pinned: 'pinned',
     } as const;
 
     export interface HighlightMover {
@@ -55638,8 +55636,7 @@ export namespace Schemas {
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
-       * * `key_metric` - Project key metric
-       * * `pinned` - You keep this on your home */
+       * * `key_metric` - Project key metric */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -89447,6 +89444,29 @@ export namespace Schemas {
       synced_at: string;
     }
 
+    export interface PulsePin {
+      /**
+         * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.
+         * @maxLength 200
+         */
+      key: string;
+      /**
+         * Name to show for the number until the highlights compute its value.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.
+         * @nullable
+         */
+      dashboard_id?: number | null;
+    }
+
+    export interface PinCandidates {
+      /** Saved insights the person can view that show as a number over time, most recently viewed first. Up to 20. */
+      results: PulsePin[];
+    }
+
     export interface PinnedSceneTabs {
       /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
@@ -93153,24 +93173,6 @@ export namespace Schemas {
       truncated: boolean;
       /** The maximum number of PRs returned. */
       limit: number;
-    }
-
-    export interface PulsePin {
-      /**
-         * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.
-         * @maxLength 200
-         */
-      key: string;
-      /**
-         * Name to show for the number until the highlights compute its value.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.
-         * @nullable
-         */
-      dashboard_id?: number | null;
     }
 
     export interface PulsePins {
@@ -133261,6 +133263,14 @@ export namespace Schemas {
      * @pattern ^[A-Z0-9]{4,12}$
      */
     room: string;
+    };
+
+    export type TodayPinCandidatesRetrieveParams = {
+    /**
+     * Text to find in insight names.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type TodayReportsKeyClausesRetrieveParams = {

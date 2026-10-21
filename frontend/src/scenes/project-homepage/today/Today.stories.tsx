@@ -778,7 +778,7 @@ function storyHighlights(): HighlightsApi {
     const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
     const chosen = storyPins.flatMap((pin) => {
         const metric = offered.find((candidate) => candidate.key === pin.key)
-        return metric ? [{ ...metric, reason: 'pinned' as const }] : []
+        return metric ? [metric] : []
     })
     const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
     const pins = storyPins.map((pin) => ({
@@ -841,14 +841,12 @@ const meta: Meta = {
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
                 '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
-                '/api/projects/:team_id/insights/': ({ request }) => {
-                    const params = new URL(request.url).searchParams
-                    const search = (params.get('search') ?? '').toLowerCase()
-                    const results =
-                        params.get('insight') === 'TRENDS'
-                            ? SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
-                            : []
-                    return [200, { results, count: results.length }]
+                '/api/projects/:team_id/today/pin_candidates/': ({ request }) => {
+                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
+                    const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search)).map(
+                        (insight) => ({ key: `insight:${insight.short_id}`, name: insight.name, dashboard_id: null })
+                    )
+                    return [200, { results }]
                 },
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [

@@ -182,9 +182,9 @@ class TestBuildHighlights(SimpleTestCase):
         )
 
         self.assertEqual(
-            ([(m.key, m.reason) for m in built.pulse], [(pin.key, pin.status) for pin in built.pins]),
+            ([m.key for m in built.pulse], [(pin.key, pin.status) for pin in built.pins]),
             (
-                [("insight:pinned", "pinned"), ("offered", "pinned"), ("suggested", None)],
+                ["insight:pinned", "offered", "suggested"],
                 [
                     ("insight:pinned", "ready"),
                     ("offered", "ready"),

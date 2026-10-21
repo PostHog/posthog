@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from functools import partial
 
@@ -45,7 +46,7 @@ def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
                 pending.extend(key_metrics)
             else:
                 by_key = {metric.key: metric for metric in found}
-                metrics.extend(tile(by_key[key]) for key in key_metrics if key in by_key)
+                metrics.extend(replace(tile(by_key[key]), reason=None) for key in key_metrics if key in by_key)
     return ResolvePinsResult(
         keys=[pin.key for pin in inputs.pins],
         found=PINNED_METRICS.dump_json(metrics).decode(),
@@ -57,12 +58,12 @@ def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
 def _insight(context: Context, pin: PinnedNumber, pending: list[str]) -> contracts.HighlightMetric | None:
     short_id = pin.key.removeprefix(INSIGHT_PREFIX)
     try:
-        on_dashboard = (
+        metric = (
             dashboard_tile_metric(context, pin.dashboard_id, short_id, raise_if_pending=True)
             if pin.dashboard_id is not None
-            else None
+            else insight_metric(context, short_id, raise_if_pending=True)
         )
-        return on_dashboard or insight_metric(context, short_id, raise_if_pending=True)
+        return replace(metric, reason=None) if metric is not None else None
     except InsightSeriesPending:
         pending.append(pin.key)
         return None

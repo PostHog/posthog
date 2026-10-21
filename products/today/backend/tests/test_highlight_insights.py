@@ -15,8 +15,6 @@ from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
-from products.today.backend.facade.contracts import PulsePin
-from products.today.backend.logic import pulse_pins
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
@@ -405,11 +403,6 @@ class TestRoutineInsights(BaseTest):
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_suggestions_skip_pinned_insights_and_leave_their_places_free(self) -> None:
-        pulse_pins.set_pins(
-            team_id=self.team.id,
-            user_id=self.user.id,
-            pins=[PulsePin(key="insight:pinned", name="Pinned"), PulsePin(key="signup_event", name="Sign-ups")],
-        )
         for ref in ("pinned", "first", "second", "third"):
             FileSystemViewLog.objects.create(
                 team=self.team,
@@ -430,6 +423,8 @@ class TestRoutineInsights(BaseTest):
             patch.object(routine, "pulse_ranking", return_value="frecency"),
             patch.object(routine, "get_insight_series", side_effect=series),
         ):
-            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+            pulse = routine.find(
+                Context(self.team, self.user, TODAY, pinned=frozenset({"insight:pinned", "signup_event"}))
+            ).pulse
 
         self.assertEqual((len(pulse), "pinned" in queried), (2, False))

@@ -96,7 +96,6 @@ export interface HighlightValueFormatApi {
  * * `routine` - You open this often
  * * `dashboard` - On a dashboard you open often
  * * `key_metric` - Project key metric
- * * `pinned` - You keep this on your home
  */
 export type HighlightMetricReasonEnumApi =
     (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
@@ -105,7 +104,6 @@ export const HighlightMetricReasonEnumApi = {
     Routine: 'routine',
     Dashboard: 'dashboard',
     KeyMetric: 'key_metric',
-    Pinned: 'pinned',
 } as const
 
 export interface HighlightMoverApi {
@@ -159,8 +157,7 @@ export interface HighlightMetricApi {
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
-     * * `key_metric` - Project key metric
-     * * `pinned` - You keep this on your home */
+     * * `key_metric` - Project key metric */
     reason: HighlightMetricReasonEnumApi | null
     /**
      * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -316,6 +313,11 @@ export interface PulsePinApi {
      * @nullable
      */
     dashboard_id?: number | null
+}
+
+export interface PinCandidatesApi {
+    /** Saved insights the person can view that show as a number over time, most recently viewed first. Up to 20. */
+    results: PulsePinApi[]
 }
 
 export interface PulsePinsApi {
@@ -597,6 +599,14 @@ export interface ReportPageApi {
      * @nullable
      */
     last_seen: string | null
+}
+
+export type TodayPinCandidatesRetrieveParams = {
+    /**
+     * Text to find in insight names.
+     * @maxLength 200
+     */
+    search?: string
 }
 
 export type TodayReportsKeyClausesRetrieveParams = {

@@ -8,9 +8,9 @@ import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { insightsList } from 'products/product_analytics/frontend/generated/api'
 import {
     todayHighlightsRetrieve,
+    todayPinCandidatesRetrieve,
     todayPulsePinsRetrieve,
     todayPulsePinsUpdate,
 } from 'products/today/frontend/generated/api'
@@ -24,12 +24,10 @@ import type {
 export const HIGHLIGHTS_POLL_MS = 2_000
 const HIGHLIGHTS_WAIT_MS = 2_000
 const PULSE_SEARCH_DEBOUNCE_MS = 200
-const PULSE_SEARCH_LIMIT = 10
-const PENDING_PINS_RETRY_MS = 60_000
-const PENDING_PINS_RETRIES = 3
+const PENDING_PINS_RETRY_MS = 10_000
+const PENDING_PINS_RETRIES = 6
 const PINS_LOAD_RETRY_MS = 5_000
 const PINS_LOAD_RETRIES = 3
-const CHARTED_INSIGHT_KINDS = ['TRENDS', 'SQL'] as const
 export const PULSE_TILES = 4
 
 export interface PulsePlaceholderTile extends PulsePinApi {
@@ -121,16 +119,10 @@ export interface todayHighlightsLogicActions {
         errorObject?: any
     }
     loadPulseInsightResultsSuccess: (
-        pulseInsightResults: {
-            key: string
-            name: string
-        }[],
+        pulseInsightResults: PulsePinApi[],
         payload?: string
     ) => {
-        pulseInsightResults: {
-            key: string
-            name: string
-        }[]
+        pulseInsightResults: PulsePinApi[]
         payload?: string
     }
     loadPulsePins: () => any
@@ -250,27 +242,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             {
                 loadPulseInsightResults: async (search: string, breakpoint) => {
                     await breakpoint(PULSE_SEARCH_DEBOUNCE_MS)
-                    const pages = await Promise.all(
-                        CHARTED_INSIGHT_KINDS.map((insight) =>
-                            insightsList(String(values.currentProjectId), {
-                                basic: true,
-                                saved: true,
-                                insight,
-                                limit: PULSE_SEARCH_LIMIT,
-                                order: '-last_viewed_at',
-                                search: search.trim() || undefined,
-                            })
-                        )
-                    )
+                    const found = await todayPinCandidatesRetrieve(String(values.currentProjectId), { search })
                     breakpoint()
-                    return pages
-                        .flatMap((page) => page.results)
-                        .sort((a, b) => (b.last_viewed_at ?? '').localeCompare(a.last_viewed_at ?? ''))
-                        .filter((insight) => insight.short_id)
-                        .map((insight) => ({
-                            key: `insight:${insight.short_id}`,
-                            name: insight.name || insight.derived_name || 'Untitled insight',
-                        }))
+                    return found.results
                 },
             },
         ],
@@ -378,7 +352,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                                     : 'computing',
                         }
                 )
-                const tiles = [...pinned, ...suggested].slice(0, Math.max(PULSE_TILES, pinned.length))
+                const tiles = [...pinned, ...suggested].slice(0, PULSE_TILES)
                 if (!pulseOrderHeld) {
                     return tiles
                 }
