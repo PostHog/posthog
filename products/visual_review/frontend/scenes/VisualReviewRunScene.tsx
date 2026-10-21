@@ -463,7 +463,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 reviewPending={reviewPending}
                             />
                         ) : (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <LemonCheckbox
                                     checked={addImagesToComment}
                                     onChange={setAddImagesToComment}
@@ -524,7 +524,7 @@ export function VisualReviewRunScene(): JSX.Element {
             <div className="border rounded-lg overflow-hidden">
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
-                    <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-2">
                         {initialSnapshotsLoading ? (
                             <>
                                 <LemonSkeleton className="h-4 w-40" />
@@ -533,7 +533,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         ) : (
                             <>
                                 {/* Review summary (left) — what humans decided */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Review</span>
                                     {[
                                         reviewPending > 0 && (
@@ -556,7 +556,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         )}
                                 </span>
                                 {/* Diff summary (right) — what the system found */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Diff</span>
                                     {[
                                         diffChanged > 0 && (
