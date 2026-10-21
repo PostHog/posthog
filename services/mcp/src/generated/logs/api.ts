@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,6 +78,11 @@ export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
+
+export const logsAlertsCreateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsCreateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsCreateBodyGroupingOneOnOverflowDefault = `degrade_visible`
 
 export const LogsAlertsCreateBody = () => zod.object({
     name: zod
@@ -1829,6 +1834,41 @@ export const LogsAlertsCreateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsCreateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsCreateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsCreateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const LogsAlertsRetrieveParams = () => zod.object({
@@ -1890,6 +1930,11 @@ export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
 export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
+
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault = `degrade_visible`
 
 export const LogsAlertsPartialUpdateBody = () => zod.object({
     name: zod
@@ -3641,6 +3686,41 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const LogsAlertsDestroyParams = () => zod.object({
@@ -5705,6 +5785,80 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         .array(zod.string())
         .default(logsAttributesRetrieveQueryServiceNamesDefault)
         .describe('Filter attributes to those appearing in logs from these services.'),
+})
+
+export const LogsContextCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const logsContextCreateBodyQueryOneLimitDefault = 100
+export const logsContextCreateBodyQueryOneLimitMax = 500
+
+export const LogsContextCreateBody = () => zod.object({
+    query: zod
+        .object({
+            anchor: zod
+                .object({
+                    logUuid: zod.string().optional().describe('uuid of one log line. Needs `timestamp`.'),
+                    timestamp: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe('ISO 8601 timestamp of the `logUuid` log line.'),
+                    traceId: zod.string().optional().describe('Trace id, 32 hex characters or base64.'),
+                    attribute: zod
+                        .object({
+                            key: zod.string().describe('Log attribute key, e.g. \"workflow_run_id\".'),
+                            value: zod.string().describe('Exact attribute value to follow.'),
+                        })
+                        .optional()
+                        .describe('Follow every log with this attribute value.'),
+                    around: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe(
+                            'ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans.'
+                        ),
+                })
+                .describe('Exactly one anchor: a log line, a trace, or an attribute value.'),
+            padding: zod
+                .string()
+                .optional()
+                .describe(
+                    'Time on each side of the anchor: \"30s\", \"5m\", \"1h\" (max 6h). Default 30s for a trace, 5m otherwise.'
+                ),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Keep only these severities in the timeline.'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Restrict the timeline to these services. Default: the trace's services, the log's service, or all."
+                ),
+            include: zod
+                .array(zod.enum(['spans']).describe('\* `spans` - Spans'))
+                .optional()
+                .describe('\"spans\" adds spans_summary for a trace anchor.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsContextCreateBodyQueryOneLimitMax)
+                .default(logsContextCreateBodyQueryOneLimitDefault)
+                .describe('Maximum timeline rows.'),
+            after: zod.string().optional().describe('`next_cursor` of a previous call with the same anchor.'),
+        })
+        .describe('The context query.'),
 })
 
 export const LogsCountCreateParams = () => zod.object({
