@@ -182,12 +182,12 @@ def _record_managed_warehouse_node_metrics(result: ManagedWarehouseShadowResult,
             "failed",
             MANAGED_WAREHOUSE_ENGINE,
             tier=tier,
-            run_mode=UNKNOWN_RUN_MODE,
+            run_mode=result.run_mode,
             error_class=error_class(result.error),
         ).add(1)
         return
-    get_node_finished_metric("completed", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=UNKNOWN_RUN_MODE).add(1)
-    get_node_duration_metric(MANAGED_WAREHOUSE_ENGINE, run_mode=UNKNOWN_RUN_MODE).record(result.duration_seconds)
+    get_node_finished_metric("completed", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=result.run_mode).add(1)
+    get_node_duration_metric(MANAGED_WAREHOUSE_ENGINE, run_mode=result.run_mode).record(result.duration_seconds)
     get_node_rows_materialized_metric(MANAGED_WAREHOUSE_ENGINE).record(result.row_count)
     if result.file_size_bytes > 0:
         get_node_total_storage_mib_metric(MANAGED_WAREHOUSE_ENGINE).record(result.file_size_bytes / (1024 * 1024))
