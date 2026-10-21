@@ -265,6 +265,17 @@ sys.stdout.write(str(result))
 # that preloaded jemalloc.
 _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 
+# The pod authenticates to AWS through its service account token and never needs the instance
+# metadata service. Turning it off keeps the AWS SDK inside chdb from asking that service for
+# credentials when a read carries none.
+_CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
+
+# A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
+# redirects by default, so a URL that passes validation can send chdb to an internal address. The
+# ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
+# follows no redirect, and a URL that needs one fails over to the cluster.
+_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0}
+
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
     # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
@@ -273,11 +284,14 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
     try:
         process = subprocess.run(
             [sys.executable, "-c", _CHDB_SUBPROCESS_SCRIPT],
-            input=query,
+            input=chdb_set_statements(_CHDB_GUARD_SETTINGS) + query,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+            env={
+                **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
+            },
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"chdb query timed out after {timeout}s")
@@ -637,6 +651,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # a dataset that outgrows the budget reports the size of the customer's table rather than
         # a fault. get_count keeps the largest tables off chdb for the same reason.
         "chdb query timed out after",
+        # chdb follows no redirect (see _CHDB_GUARD_SETTINGS), so a URL that needs one, such as a
+        # path-style URL on the wrong region, is read by the cluster, which checks every hop.
+        "too many redirects",
     )
     # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
     # On Linux the same error means the engine lost Delta support and has to reach error tracking.

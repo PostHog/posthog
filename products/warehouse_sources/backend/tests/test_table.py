@@ -354,10 +354,11 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_child_process_does_not_inherit_a_preloaded_allocator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_child_process_runs_with_hardened_environment_and_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LD_PRELOAD", "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2")
         monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
         monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "false")
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
         with patch(
             "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
@@ -368,6 +369,8 @@ class TestRunChdbQuery:
         assert "LD_PRELOAD" not in child_env
         assert "MALLOC_CONF" not in child_env
         assert child_env["AWS_REGION"] == "us-east-1"
+        assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
 
     @pytest.mark.parametrize(
         "stderr",
@@ -378,6 +381,8 @@ class TestRunChdbQuery:
             # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
             "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
             "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+            "Code: 579. DB::Exception: Too many redirects while trying to access "
+            "https://s3.amazonaws.com/bucket/table/. (TOO_MANY_REDIRECTS)",
         ],
     )
     def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:
