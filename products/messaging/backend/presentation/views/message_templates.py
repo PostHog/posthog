@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
+from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -179,6 +180,7 @@ class MessageTemplateCategoryField(serializers.Field):
 
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
 _MAX_TEMPLATE_TAGS = 10
+_MAX_TAG_LENGTH = 255  # Tag.name column limit.
 
 
 class MessageTemplateSerializer(serializers.Serializer):
@@ -191,7 +193,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="What the template is for and when to use it.",
     )
     tags = serializers.ListField(
-        child=serializers.CharField(max_length=255),  # Tag.name column limit.
+        child=serializers.CharField(max_length=_MAX_TAG_LENGTH),
         required=False,
         max_length=_MAX_TEMPLATE_TAGS,
         help_text=(
@@ -232,6 +234,13 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="Unpublished edits to a transactional template's content. Sends keep using `content`. Saving "
         "`content` publishes it and clears the draft. Set null to discard the draft.",
     )
+
+    def validate_tags(self, tags: list[str]) -> list[str]:
+        # The stored name is the tagified one, and lowercasing can lengthen a string: "\u0130" becomes two
+        # code points. Checking the submitted length alone lets an over-long name reach Tag.name.
+        if any(len(tagify(tag)) > _MAX_TAG_LENGTH for tag in tags):
+            raise serializers.ValidationError(f"A tag may be at most {_MAX_TAG_LENGTH} characters once lowercased.")
+        return tags
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")

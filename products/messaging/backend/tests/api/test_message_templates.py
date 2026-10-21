@@ -107,6 +107,29 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = self.client.patch(url, {"tags": []}, format="json")
         assert response.json()["tags"] == []
 
+    def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
+        # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["\u0130" * 128]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_tags_only_update_leaves_the_template_row_alone(self):
+        before = MessageTemplate.objects.get(pk=self.message_template.id).updated_at
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        # A row save here would write back every column this request read, losing a concurrent content edit.
+        assert MessageTemplate.objects.get(pk=self.message_template.id).updated_at == before
+
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK

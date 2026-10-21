@@ -111,29 +111,8 @@ export interface messageTemplatesLogicActions {
     setTransactionalOnly: (transactionalOnly: boolean) => {
         transactionalOnly: boolean
     }
-    updateTemplateTags: ({ template, tags }: { template: MessageTemplate; tags: string[] }) => {
+    templateTagsSaved: (template: MessageTemplate) => {
         template: MessageTemplate
-        tags: string[]
-    }
-    updateTemplateTagsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    updateTemplateTagsSuccess: (
-        templates: MessageTemplate[],
-        payload?: {
-            template: MessageTemplate
-            tags: string[]
-        }
-    ) => {
-        templates: MessageTemplate[]
-        payload?: {
-            template: MessageTemplate
-            tags: string[]
-        }
     }
     updateTemplate: ({ templateId, template }: { template: Partial<MessageTemplate>; templateId: string }) => {
         templateId: string
@@ -191,12 +170,20 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         setCreatedByFilter: (createdBy: number | null) => ({ createdBy }),
         setTransactionalOnly: (transactionalOnly: boolean) => ({ transactionalOnly }),
         setTagsFilter: (tagsFilter: string[]) => ({ tagsFilter }),
+        templateTagsSaved: (template: MessageTemplate) => ({ template }),
     }),
     reducers({
         search: ['' as string, { setSearch: (_, { search }) => search }],
         createdByFilter: [null as number | null, { setCreatedByFilter: (_, { createdBy }) => createdBy }],
         transactionalOnly: [false, { setTransactionalOnly: (_, { transactionalOnly }) => transactionalOnly }],
         tagsFilter: [[] as string[], { setTagsFilter: (_, { tagsFilter }) => tagsFilter }],
+        templates: [
+            [] as MessageTemplate[],
+            {
+                templateTagsSaved: (state, { template }) =>
+                    state.map((t: MessageTemplate) => (t.id === template.id ? template : t)),
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         templates: [
@@ -244,17 +231,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
                     } catch {
                         lemonToast.error('Failed to update template')
-                        return values.templates
-                    }
-                },
-                updateTemplateTags: async ({ template, tags }: { template: MessageTemplate; tags: string[] }) => {
-                    try {
-                        // Only the tags go over the wire, so this never republishes the template's content.
-                        const updated = await api.messaging.updateTemplate(template.id, { tags })
-                        actions.loadTags()
-                        return values.templates.map((t: MessageTemplate) => (t.id === template.id ? updated : t))
-                    } catch {
-                        lemonToast.error('Failed to save tags')
                         return values.templates
                     }
                 },
@@ -313,3 +289,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         actions.loadTagsIfNeeded()
     }),
 ])
+
+// A plain function rather than a listener, because the caller awaits it to keep its editor open on
+// a rejection, and a kea listener that rethrows raises an unhandled rejection on the way out.
+export async function saveTemplateTags(template: MessageTemplate, tags: string[]): Promise<void> {
+    const updated = await api.messaging.updateTemplate(template.id, { tags })
+    messageTemplatesLogic.findMounted()?.actions.templateTagsSaved(updated)
+    tagsModel.findMounted()?.actions.loadTags()
+}

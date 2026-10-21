@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { messageTemplatesLogic, saveTemplateTags } from './messageTemplatesLogic'
 import type { MessageTemplate } from './types'
 
 const template = (id: string, name: string, tags: string[]): MessageTemplate =>
@@ -61,11 +61,21 @@ describe('messageTemplatesLogic', () => {
             },
         })
 
-        await expectLogic(logic, () =>
-            logic.actions.updateTemplateTags({ template: template('a', 'Welcome', []), tags: ['growth'] })
-        ).toFinishAllListeners()
+        await saveTemplateTags(template('a', 'Welcome', []), ['growth'])
 
         expect(bodies).toEqual([{ tags: ['growth'] }])
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth'])
+    })
+
+    it('rejects a failed tag save, so the editor it was opened from stays open', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id/': () => [400, { detail: 'too many tags' }],
+            },
+        })
+
+        await expect(saveTemplateTags(template('a', 'Welcome', []), ['growth'])).rejects.toThrow()
+        expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
     })
 })

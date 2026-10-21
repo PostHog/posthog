@@ -18,6 +18,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import MaxTool from 'scenes/max/MaxTool'
@@ -26,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
-import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { messageTemplatesLogic, saveTemplateTags } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
@@ -51,7 +52,6 @@ export function MessageTemplatesTable(): JSX.Element {
         setCreatedByFilter,
         setTransactionalOnly,
         setTagsFilter,
-        updateTemplateTags,
     } = useActions(messageTemplatesLogic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
@@ -165,6 +165,9 @@ export function MessageTemplatesTable(): JSX.Element {
                                                     onClick: () =>
                                                         LemonDialog.openForm({
                                                             title: 'Edit tags',
+                                                            // A rejected save keeps the dialog open, so the
+                                                            // selection survives a validation error or a retry.
+                                                            shouldAwaitSubmit: true,
                                                             initialValues: { tags: [...(template.tags ?? [])] },
                                                             content: (
                                                                 <LemonField name="tags">
@@ -181,8 +184,16 @@ export function MessageTemplatesTable(): JSX.Element {
                                                                     />
                                                                 </LemonField>
                                                             ),
-                                                            onSubmit: ({ tags }) =>
-                                                                updateTemplateTags({ template, tags }),
+                                                            onSubmit: async ({ tags }) => {
+                                                                try {
+                                                                    await saveTemplateTags(template, tags)
+                                                                } catch (error: any) {
+                                                                    lemonToast.error(
+                                                                        `Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`
+                                                                    )
+                                                                    throw error
+                                                                }
+                                                            },
                                                         }),
                                                 },
                                                 {

@@ -119,8 +119,11 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
         template = team_template(team_id, template_id)
         # The editor sends the tags with every save, so only write them when they change.
         tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(template)
-        _apply_fields(template, fields)
-        template.save()
+        # Tags live on their own rows. Saving the template too would write back every column this
+        # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
+        if fields:
+            _apply_fields(template, fields)
+            template.save()
         if tags_changed:
             set_tags_on_object(tags, template)
             cleanup_orphan_tags(team_id)

@@ -263,6 +263,9 @@ export interface messageTemplateLogicActions {
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
     }
+    saveTags: (tags: string[]) => {
+        tags: string[]
+    }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
@@ -453,6 +456,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         duplicateTemplate: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
+        saveTags: (tags: string[]) => ({ tags }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
         setDeferredExternalEdit: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredExternalEdit: true,
@@ -711,6 +715,22 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setTemplateValue: () => actions.autoSaveDraft(),
+        saveTags: async ({ tags }) => {
+            // An unsaved template has no row yet, so its tags ride the create.
+            if (!props.id || props.id === 'new') {
+                actions.setTemplateValue('tags', tags)
+                return
+            }
+            // Tags are metadata: they apply live and must not publish a transactional template's draft,
+            // which a full form save would.
+            try {
+                const updated = await api.messaging.updateTemplate(props.id, { tags })
+                actions.setTemplate({ ...values.template, tags: updated.tags })
+                actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
+            } catch (error: any) {
+                lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+            }
+        },
         setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {
             if (!values.draftsEnabled) {

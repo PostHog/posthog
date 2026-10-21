@@ -67,6 +67,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         keepMyTemplateVersion,
         setTransactionalTab,
         discardDraft,
+        saveTags,
     } = useActions(logic)
     const {
         template,
@@ -367,7 +368,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
                 <SceneTags
                     tags={[...(template.tags ?? [])]}
-                    onSave={(tags) => setTemplateValue('tags', tags)}
+                    onSave={saveTags}
                     loading={isTemplateSubmitting}
                     dataAttrKey="message-template"
                 />
