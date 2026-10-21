@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TodayAccountMenu } from './TodayAccountMenu'
+import { TodayMoreMenu } from './TodayMoreMenu'
 import { TodayOrgMenu } from './TodayOrgMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
@@ -35,6 +36,7 @@ export function TodayRail(): JSX.Element {
             <TodayOrgMenu />
             {TODAY_RAIL_PANES.map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
+                <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
             </div>
             <TodayAccountMenu />

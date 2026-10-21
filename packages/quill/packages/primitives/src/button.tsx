@@ -70,9 +70,10 @@ export type ButtonProps = ButtonPrimitive.Props &
         /**
          * A dot on the top-right corner that flags something waiting behind the button, such as unread
          * items. Say what it means in the `aria-label`. Off the app background, set
-         * `--quill-button-indicator-ring` to the surface behind the button.
+         * `--quill-button-indicator-ring` to the surface behind the button. `warning` and `destructive`
+         * color the dot for a problem rather than news.
          */
-        indicator?: boolean
+        indicator?: 'default' | 'warning' | 'destructive'
         /** Text shown on hover and focus. Icon-only buttons need one, matching their `aria-label`. */
         tooltip?: React.ReactNode
         /**
@@ -130,7 +131,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             left = false,
             elevated = false,
             loading = false,
-            indicator = false,
+            indicator,
             disabled,
             tooltip,
             disabledReason,
@@ -168,7 +169,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 {...props}
             >
                 {children}
-                {indicator && <span aria-hidden data-slot="button-indicator" className="quill-button__indicator" />}
+                {indicator && (
+                    <span
+                        aria-hidden
+                        data-slot="button-indicator"
+                        data-variant={indicator}
+                        className="quill-button__indicator"
+                    />
+                )}
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )

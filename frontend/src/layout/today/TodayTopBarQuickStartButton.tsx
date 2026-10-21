@@ -33,7 +33,7 @@ export function TodayTopBarQuickStartButton(): JSX.Element | null {
             <Button
                 variant="outline"
                 size="icon"
-                indicator={hasTasksLeft}
+                indicator={hasTasksLeft ? 'default' : undefined}
                 aria-label={hasTasksLeft ? `Quick start, ${tasksLeft}` : 'Quick start'}
                 aria-pressed={isOpen}
                 // The menu covers the tooltip, so the tooltip stays off while the menu is open.

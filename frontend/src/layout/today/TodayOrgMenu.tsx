@@ -21,7 +21,7 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { IconPersonAdd } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -34,7 +34,9 @@ import { userLogic } from 'scenes/userLogic'
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-const linkItem = (to: string): JSX.Element => <Button size="row" left render={<LinkPrimitive to={to} />} />
+import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { SEVERITY_INDICATOR, SEVERITY_TEXT_CLASS } from './todayRailSeverity'
+import { todayRailStatusLogic } from './todayRailStatusLogic'
 
 /** The org switcher shortcut opens this menu too. */
 export function TodayOrgMenu(): JSX.Element {
@@ -44,6 +46,7 @@ export function TodayOrgMenu(): JSX.Element {
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingEntryUrl } = useValues(billingLogic)
+    const { orgSeverity, orgProblems, billingSeverity, billingText } = useValues(todayRailStatusLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -67,8 +70,12 @@ export function TodayOrgMenu(): JSX.Element {
                             render={
                                 <Button
                                     size="icon"
-                                    aria-label={currentOrganization?.name ?? 'Select organization'}
-                                    className="relative size-10 rounded-md data-[popup-open]:bg-[var(--fill-selected)]"
+                                    indicator={SEVERITY_INDICATOR[orgSeverity]}
+                                    aria-label={[
+                                        currentOrganization?.name ?? 'Select organization',
+                                        ...orgProblems,
+                                    ].join(', ')}
+                                    className="relative size-10 rounded-md [--quill-button-indicator-ring:var(--chrome)] data-[popup-open]:bg-[var(--fill-selected)]"
                                     data-attr="today-rail-org-menu"
                                 />
                             }
@@ -81,7 +88,6 @@ export function TodayOrgMenu(): JSX.Element {
                         mediaId={currentOrganization?.logo_media_id ?? ''}
                         size="medium"
                     />
-                    {pendingInvites.length > 0 && <PendingInviteDot className="absolute top-1 right-1" />}
                 </DropdownMenuTrigger>
                 <TooltipContent side="right">{currentOrganization?.name ?? 'Select organization'}</TooltipContent>
             </Tooltip>
@@ -142,16 +148,25 @@ export function TodayOrgMenu(): JSX.Element {
                     }}
                     data-attr="today-rail-invite-members"
                 >
-                    <IconPlusSmall />
+                    <IconPersonAdd />
                     Invite members
                 </DropdownMenuItem>
                 {isCloudOrDev && billingEntryUrl && (
-                    <DropdownMenuItem render={linkItem(billingEntryUrl)} data-attr="today-rail-billing">
+                    <DropdownMenuItem
+                        render={todayMenuLinkItem(billingEntryUrl)}
+                        description={
+                            billingText && <span className={SEVERITY_TEXT_CLASS[billingSeverity]}>{billingText}</span>
+                        }
+                        data-attr="today-rail-billing"
+                    >
                         <IconReceipt />
                         Billing & usage
                     </DropdownMenuItem>
                 )}
-                <DropdownMenuItem render={linkItem(urls.settings('organization'))} data-attr="today-rail-org-settings">
+                <DropdownMenuItem
+                    render={todayMenuLinkItem(urls.settings('organization'))}
+                    data-attr="today-rail-org-settings"
+                >
                     <IconGear />
                     Organization settings
                 </DropdownMenuItem>

@@ -569,6 +569,14 @@
         box-shadow: 0 0 0 2px var(--quill-button-indicator-ring, var(--background));
     }
 
+    .quill-button__indicator[data-variant='warning'] {
+        background-color: var(--warning-foreground);
+    }
+
+    .quill-button__indicator[data-variant='destructive'] {
+        background-color: var(--destructive-foreground);
+    }
+
     /* =========================================================================
        Loading
        ========================================================================= */

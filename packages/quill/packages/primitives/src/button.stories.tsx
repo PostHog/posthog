@@ -160,15 +160,21 @@ export const IconOnly = {
 export const WithIndicator = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Button size="icon" indicator aria-label="Notifications, 3 unread">
+            <Button size="icon" indicator="default" aria-label="Notifications, 3 unread">
                 <BellIcon />
             </Button>
-            <Button variant="outline" size="icon" indicator aria-label="Notifications, 3 unread">
+            <Button variant="outline" size="icon" indicator="default" aria-label="Notifications, 3 unread">
                 <BellIcon />
             </Button>
-            <Button variant="outline" indicator>
+            <Button variant="outline" indicator="default">
                 <BellIcon />
                 Inbox
+            </Button>
+            <Button variant="outline" size="icon" indicator="warning" aria-label="Billing, usage limit close">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator="destructive" aria-label="Billing, payment failed">
+                <BellIcon />
             </Button>
         </div>
     ),
