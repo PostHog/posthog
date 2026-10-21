@@ -46,7 +46,7 @@ from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
-from products.engineering_analytics.backend.logic.materialized_ci import MaterializedCI
+from products.engineering_analytics.backend.logic.materialized_ci import MaterializedCI, ci_tables
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -309,12 +309,11 @@ class CuratedGitHubSource:
         A cached CI answer skips the query that would have applied the table permissions, so a caller must
         ask this before it serves one.
         """
-        depot = self._depot_job_attempts()
-        tables = [self._tables.pull_requests, self._tables.workflow_runs, self._tables.workflow_jobs]
-        if depot is not None:
-            tables.append(depot.table)
         catalog = self._catalog()
-        return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables if table)
+        return all(
+            catalog.has_table(table) and not catalog.is_table_access_denied(table)
+            for table in ci_tables(self._tables, self._depot_job_attempts())
+        )
 
     def ci_data_freshness(self) -> CIDataFreshness:
         """When the runs and jobs this handle reads were last synced from their sources."""
