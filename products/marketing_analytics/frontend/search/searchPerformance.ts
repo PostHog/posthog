@@ -142,7 +142,7 @@ export function searchPerformanceSourceNotice(
         }[status]
     })
     const label = source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]
-    return `${label}: ${issues.join(' ')} Data from this source will appear when the tables are ready.${source.source_type === 'GoogleSearchConsole' && !detail ? ' This view requires its dedicated table to keep metrics consistent.' : ''}`
+    return `${label}: ${issues.join(' ')}`
 }
 
 export const SEARCH_SOURCE_TYPES = ['GoogleAds', 'BingAds', 'GoogleSearchConsole']

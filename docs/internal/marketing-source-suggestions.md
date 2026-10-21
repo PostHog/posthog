@@ -112,8 +112,6 @@ Keywords and queries includes paid keywords from ad platforms and organic querie
 Search Console keyword rankings require a synced `search_analytics_by_query` table, and landing page rankings require `search_analytics_by_page`.
 Drill-downs use `search_analytics_by_query_page`.
 A missing or stale dedicated table shows a source notice and excludes that source from the ranking; it does not fall back to query-and-page data because aggregation by page can change clicks, impressions, CTR, and position.
-Query rankings can omit queries that Google does not return through its property aggregation.
-These search views show breakdowns, not property-wide SEO totals; future SEO totals must use the date table aggregated by property rather than summing query or page rankings.
 The integration and paid/organic filters determine which sources appear.
 Each search table has a reload control and query duration.
 Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.

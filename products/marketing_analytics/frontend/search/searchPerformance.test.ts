@@ -90,6 +90,8 @@ describe('search performance sources', () => {
             'example.search_analytics_by_query_page',
         ],
         ['GoogleSearchConsole', ['search_analytics_by_query'], 'keyword', true, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'keyword', false, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'page', false, undefined],
     ] as const)('uses the right table for %s %s %s details=%s', (source_type, schemas, breakdown, detail, expected) => {
         expect(
             searchPerformanceSource(
@@ -158,9 +160,6 @@ describe('search performance sources', () => {
             } as ExternalDataSource
             expect(searchPerformanceSource(source, breakdown)).toBeNull()
             expect(searchPerformanceSourceNotice(source, breakdown)).toContain('out of date')
-            expect(searchPerformanceSourceNotice(source, breakdown)).toContain(
-                'dedicated table to keep metrics consistent'
-            )
             expect(searchPerformanceSource(source, breakdown, true)).toEqual({
                 sourceType: 'GoogleSearchConsole',
                 statsTable: 'example.search_analytics_by_query_page',
