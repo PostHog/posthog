@@ -9739,6 +9739,29 @@
         "update_feature_flag_params": {
             "description": "When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.",
             "type": "boolean"
+        },
+        "variant_notes": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "variant_screenshot_media_ids": {
+            "additionalProperties": {
+                "items": {
+                    "type": "string"
+                },
+                "type": "array"
+            },
+            "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         }
     },
     "required": ["id"],

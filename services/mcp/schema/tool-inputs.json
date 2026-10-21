@@ -587,6 +587,29 @@
             },
             "required": ["id"]
         },
+        "ExperimentVariantNotesSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant."
+        },
+        "ExperimentVariantScreenshotMediaIdsSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
