@@ -587,7 +587,7 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.points?.radius ?? 0
+    const radius = series.points?.radius
     const isDrawable = (i: number): boolean =>
         i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
 
@@ -600,7 +600,7 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
             continue
         }
         // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
-        const r = radius > 0 ? radius : !isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0
+        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
         if (r <= 0) {
             continue
         }

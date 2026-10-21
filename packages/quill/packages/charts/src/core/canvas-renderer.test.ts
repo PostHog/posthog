@@ -166,9 +166,10 @@ describe('hog-charts canvas-renderer', () => {
                 radius: 5,
                 arcs: [5, 5],
             },
+            { name: 'draws no dot when the radius is explicitly zero', labels: ['a'], data: [10], radius: 0, arcs: [] },
         ])('$name', ({ labels, data, radius, arcs }) => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data, points: radius ? { radius } : undefined })
+            const series = makeSeries({ key: 's1', data, points: radius === undefined ? undefined : { radius } })
             drawPoints(makeDrawContextWithGaps(ctx, labels, new Set([50])), series)
             expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual(arcs)
         })
