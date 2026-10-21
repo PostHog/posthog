@@ -23,6 +23,9 @@ class MessageTemplate(UUIDTModel):
     transactional_hog_flow_id = models.UUIDField(null=True, blank=True)
     # Unpublished edits to a transactional template. Sends keep using `content` until the draft is published.
     draft_content = models.JSONField(null=True, blank=True)
+    # For emails carrying codes or reset links: sends keep no rendered body or subject, and clicks keep only
+    # the link's origin.
+    sensitive = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "posthog_messagetemplate"

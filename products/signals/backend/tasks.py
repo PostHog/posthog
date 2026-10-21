@@ -28,6 +28,10 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.first_report_notification_tasks import (
+    dispatch_first_report_notification as dispatch_first_report_notification,
+    sweep_first_report_notifications as sweep_first_report_notifications,
+)
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
