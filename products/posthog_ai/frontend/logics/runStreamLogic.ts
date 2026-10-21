@@ -2101,6 +2101,16 @@ export function foldLogFromCheckpoint(
         }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            // A Stop or a steer ends the turn early. Without a notice the thread reads as a turn that went quiet.
+            if (params.stopReason === 'cancelled') {
+                items.push({
+                    id: `turn-cancelled-${separatorSeq}`,
+                    type: 'status',
+                    status: 'turn_cancelled',
+                    isComplete: true,
+                    ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+                })
+            }
             items.push({
                 id: `turn-${separatorSeq++}`,
                 type: 'turn_separator',
