@@ -252,14 +252,13 @@ pub fn upload_with_retry_and_concurrency(
         Ok(client) => UploadTransport {
             client,
             accelerated_unreachable: AtomicBool::new(false),
+            // A release-ID retry reuses this transport and belongs to the same CLI run.
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
         },
         Err(e) => return (summary, Err(e)),
     };
-    // A release-ID retry belongs to the same CLI run, but starts new batch attempts.
-    let upload_run_id = uuid::Uuid::now_v7().to_string();
     let res = upload_inner(
         &input_sets,
-        &upload_run_id,
         batch_size,
         force,
         skip_on_conflict,
@@ -285,7 +284,6 @@ pub fn upload_with_retry_and_concurrency(
                 .collect();
             let res = upload_inner(
                 &sets_without_release,
-                &upload_run_id,
                 batch_size,
                 force,
                 skip_on_conflict,
@@ -315,13 +313,13 @@ fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
         .context("Failed to initialize symbol set upload thread pool")
 }
 
-/// Shared S3 upload transport for one run: a single client, because reusing its
-/// connection pool avoids paying a TCP + TLS handshake per uploaded chunk, and
-/// the run-wide latch that stops attempts against the accelerated endpoint once
-/// it is known to be unreachable.
+/// Shared S3 upload transport and tracking ID for one run. Reusing the client avoids
+/// a TCP + TLS handshake per chunk; the run-wide latch stops attempts against the
+/// accelerated endpoint once it is known to be unreachable.
 struct UploadTransport {
     client: Client,
     accelerated_unreachable: AtomicBool,
+    upload_run_id: String,
 }
 
 impl UploadTransport {
@@ -340,7 +338,6 @@ impl UploadTransport {
 
 fn upload_inner(
     input_sets: &[SymbolSetUpload],
-    upload_run_id: &str,
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
@@ -398,7 +395,7 @@ fn upload_inner(
             force,
             skip_on_conflict,
             &upload_attempt_id,
-            upload_run_id,
+            &transport.upload_run_id,
         )?;
 
         let id_map: HashMap<&str, HashedUpload> = batch
@@ -436,7 +433,7 @@ fn upload_inner(
         }
         let uploaded = content_hashes.len();
 
-        finish_upload(content_hashes, &upload_attempt_id, upload_run_id)?;
+        finish_upload(content_hashes, &upload_attempt_id, &transport.upload_run_id)?;
         summary.uploaded += uploaded;
     }
 
@@ -1227,6 +1224,7 @@ mod tests {
         UploadTransport {
             client: Client::new(),
             accelerated_unreachable: AtomicBool::new(false),
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
         }
     }
 
