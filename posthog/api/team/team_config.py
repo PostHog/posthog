@@ -17,7 +17,16 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    MAX_BLOCKED_HOSTS,
+    MAX_BLOCKED_IPS,
+    MIN_BLOCKED_IPV4_PREFIX,
+    MIN_BLOCKED_IPV6_PREFIX,
+    BlocklistEntryError,
+    TeamFeatureFlagPolicyConfig,
+    normalize_blocked_hosts,
+    normalize_blocked_ips,
+)
 from products.replay_vision.backend.facade.workflow_scan_limits import (
     MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
     MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
@@ -452,9 +461,42 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         ),
     )
 
+    blocked_hosts = serializers.ListField(
+        child=serializers.CharField(max_length=2000),
+        required=False,
+        help_text=(
+            f"Domains whose requests to /flags and /decide get an empty response, up to {MAX_BLOCKED_HOSTS}. "
+            "Matched against the Origin header, or the Referer header when Origin is missing. A domain also "
+            "blocks its subdomains. Entries are stored lowercase without duplicates, and a pasted URL is "
+            "reduced to its domain."
+        ),
+    )
+    blocked_ips = serializers.ListField(
+        child=serializers.CharField(max_length=2000),
+        required=False,
+        help_text=(
+            f"IPv4 or IPv6 addresses or CIDR ranges whose requests to /flags and /decide get an empty "
+            f"response, up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for "
+            f"IPv4 and /{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form "
+            "without duplicates."
+        ),
+    )
+
     class Meta:
         model = TeamFeatureFlagPolicyConfig
-        fields = ["require_tags"]
+        fields = ["require_tags", "blocked_hosts", "blocked_ips"]
+
+    def validate_blocked_hosts(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_hosts(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
+
+    def validate_blocked_ips(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_ips(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):

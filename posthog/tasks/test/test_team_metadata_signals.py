@@ -7,6 +7,8 @@ from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task
 
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestTeamMetadataInvalidationSignals(BaseTest):
@@ -136,3 +138,10 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
             project.delete()
 
         self.assertIn(team_id, cleared_team_ids)
+
+    def test_flag_policy_save_refreshes_team_metadata_cache(self) -> None:
+        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=["example.com"])
+
+        mock_task.delay.assert_called_once_with(self.team.id)

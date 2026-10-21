@@ -27,6 +27,7 @@ from posthog.storage.team_metadata_cache import (
 )
 from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 
 
@@ -448,6 +449,8 @@ class TestVerifyTeamMetadata(BaseTest):
             # TeamFeatureFlagsConfig fields are tracked separately from TEAM_METADATA_FIELDS.
             ("minimal_flag_called_events", True),
             ("property_matching_version", 2),
+            ("flags_blocked_hosts", ["example.com"]),
+            ("flags_blocked_ips", ["203.0.113.7"]),
         ]
     )
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
@@ -487,6 +490,8 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
 
         self.assertIs(metadata["minimal_flag_called_events"], False)
         self.assertEqual(metadata["property_matching_version"], 1)
+        self.assertEqual(metadata["flags_blocked_hosts"], [])
+        self.assertEqual(metadata["flags_blocked_ips"], [])
 
     def test_reflects_gated_config_row(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
@@ -509,6 +514,9 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
             team=gated_team,
             defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
         )
+        TeamFeatureFlagPolicyConfig.objects.create(
+            team=gated_team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.0/24"]
+        )
         ungated_team = self.organization.teams.create(name="Ungated team")
 
         batch_result = _batch_load_team_metadata([gated_team, ungated_team])
@@ -525,6 +533,13 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
         self.assertEqual(batch_result[gated_team.id]["property_matching_version"], 2)
         self.assertIs(batch_result[ungated_team.id]["minimal_flag_called_events"], False)
         self.assertEqual(batch_result[ungated_team.id]["property_matching_version"], 1)
+        for team in (gated_team, ungated_team):
+            single_result = _serialize_team_to_metadata(team)
+            for field in ("flags_blocked_hosts", "flags_blocked_ips"):
+                self.assertEqual(batch_result[team.id][field], single_result[field])
+        self.assertEqual(batch_result[gated_team.id]["flags_blocked_hosts"], ["example.com"])
+        self.assertEqual(batch_result[gated_team.id]["flags_blocked_ips"], ["203.0.113.0/24"])
+        self.assertEqual(batch_result[ungated_team.id]["flags_blocked_hosts"], [])
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")

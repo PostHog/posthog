@@ -371,6 +371,10 @@ export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCap
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2919,6 +2923,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
                     ),
+                blocked_hosts: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax))
+                    .optional()
+                    .describe(
+                        'Domains whose requests to \/flags and \/decide get an empty response, up to 100. Matched against the Origin header, or the Referer header when Origin is missing. A domain also blocks its subdomains. Entries are stored lowercase without duplicates, and a pasted URL is reduced to its domain.'
+                    ),
+                blocked_ips: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
+                    .optional()
+                    .describe(
+                        'IPv4 or IPv6 addresses or CIDR ranges whose requests to \/flags and \/decide get an empty response, up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates.'
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -3223,6 +3239,10 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionSc
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5785,6 +5805,24 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                    ),
+                blocked_hosts: zod
+                    .array(
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax)
+                    )
+                    .optional()
+                    .describe(
+                        'Domains whose requests to \/flags and \/decide get an empty response, up to 100. Matched against the Origin header, or the Referer header when Origin is missing. A domain also blocks its subdomains. Entries are stored lowercase without duplicates, and a pasted URL is reduced to its domain.'
+                    ),
+                blocked_ips: zod
+                    .array(
+                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax)
+                    )
+                    .optional()
+                    .describe(
+                        'IPv4 or IPv6 addresses or CIDR ranges whose requests to \/flags and \/decide get an empty response, up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates.'
                     ),
             })
             .optional(),

@@ -29,6 +29,8 @@ from posthog.storage.team_metadata_cache import (
 )
 from posthog.tasks.utils import CeleryQueue
 
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
 logger = structlog.get_logger(__name__)
 
 
@@ -145,26 +147,41 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
         raise
 
 
-@receiver(post_save, sender=Team)
-def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
-    """Update team metadata cache when a Team is saved."""
-    if not settings.FLAGS_REDIS_URL:
-        return
-
+def _enqueue_team_metadata_update_on_commit(team_id: int) -> None:
     def enqueue_task() -> None:
         try:
-            update_team_metadata_cache_task.delay(instance.id)
+            update_team_metadata_cache_task.delay(team_id)
         except Exception as e:
             _record_enqueue_failure()
             logger.exception(
                 "Failed to enqueue cache update task",
-                team_id=instance.id,
+                team_id=team_id,
                 error=str(e),
             )
 
     # Use transaction.on_commit to ensure the database changes are committed
     # before we update the cache
     transaction.on_commit(enqueue_task)
+
+
+@receiver(post_save, sender=Team)
+def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
+    """Update team metadata cache when a Team is saved."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    _enqueue_team_metadata_update_on_commit(instance.id)
+
+
+@receiver(post_save, sender=TeamFeatureFlagPolicyConfig)
+def update_team_metadata_cache_on_flag_policy_save(
+    sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, **kwargs: Any
+) -> None:
+    """The cached team carries this row's request blocklists, and the flags service reads them only from the cache."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    _enqueue_team_metadata_update_on_commit(instance.team_id)
 
 
 @receiver(pre_delete, sender=Team)
