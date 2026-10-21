@@ -15,7 +15,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.dataclasses import frozen
 from posthog.models import Integration, Organization, Team, User
 
-from products.docs_freshness.backend.facade.api import accept_pull_request_event
+from products.docs_freshness.backend.facade.api import accept_pull_request_event, accept_push_event
 from products.docs_freshness.backend.facade.contracts import PullRequestHead
 from products.docs_freshness.backend.logic.impact_check import docs_agent_origin_key
 from products.docs_freshness.backend.temporal import ACTIVITIES, WORKFLOWS
@@ -41,6 +41,17 @@ _PAYLOAD = {
     "repository": {"full_name": "PostHog/posthog"},
     "pull_request": {"number": 42, "state": "open", "head": {"sha": _HEAD_SHA}},
 }
+_PUSH = {
+    "ref": "refs/heads/master",
+    "deleted": False,
+    "repository": {"full_name": "PostHog/posthog"},
+    "commits": [{"id": _MERGE_SHA, "message": "feat(insights): rename the key label (#42)\n\nbody"}],
+}
+_ACCEPT_BY_EVENT_TYPE = {"pull_request": accept_pull_request_event, "push": accept_push_event}
+_SYNCHRONIZE_OPEN = ("pull_request", _PAYLOAD, _OPEN)
+_SYNCHRONIZE_SUPERSEDED = ("pull_request", _PAYLOAD, _SUPERSEDED)
+_SYNCHRONIZE_MERGED = ("pull_request", _PAYLOAD, _MERGED)
+_LANDED_PUSH = ("push", _PUSH, _MERGED)
 
 
 @frozen
@@ -94,18 +105,30 @@ def owner() -> Iterator[User]:
 
 
 @pytest.mark.parametrize(
-    "pull_request_per_delivery,merge_ref_exit_codes,landed_exit_code,expected_verdicts,expected_checked_refs,expected_agent_tasks,capture_failures",
+    "deliveries,merge_ref_exit_codes,landed_exit_code,expected_verdicts,expected_checked_refs,expected_agent_tasks,capture_failures",
     [
-        pytest.param([_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="flagged"),
-        pytest.param([_OPEN, _OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="redelivered"),
-        pytest.param([_OPEN], [3, 3, 1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="merge_ref_lags_then_settles"),
-        pytest.param([_OPEN], [0], 0, ["clear"], {_MERGE_REF}, 0, 0, id="clear"),
-        pytest.param([_SUPERSEDED], [0], 0, [], set(), 0, 0, id="superseded"),
-        pytest.param([_OPEN], [4], 0, ["unmergeable"], {_MERGE_REF}, 0, 0, id="unmergeable_after_last_attempt"),
-        pytest.param([_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 1, id="capture_fails_after_agent_start"),
-        pytest.param([_MERGED], [4], 1, ["flagged"], {_MERGE_SHA}, 1, 0, id="merged_before_check_uses_landed_commit"),
+        pytest.param([_SYNCHRONIZE_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="flagged"),
+        pytest.param([_SYNCHRONIZE_OPEN] * 2, [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="redelivered"),
         pytest.param(
-            [_OPEN, _MERGED],
+            [_SYNCHRONIZE_OPEN], [3, 3, 1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="merge_ref_lags_then_settles"
+        ),
+        pytest.param([_SYNCHRONIZE_OPEN], [0], 0, ["clear"], {_MERGE_REF}, 0, 0, id="clear"),
+        pytest.param([_SYNCHRONIZE_SUPERSEDED], [0], 0, [], set(), 0, 0, id="superseded"),
+        pytest.param(
+            [_SYNCHRONIZE_OPEN], [4], 0, ["unmergeable"], {_MERGE_REF}, 0, 0, id="unmergeable_after_last_attempt"
+        ),
+        pytest.param(
+            [_SYNCHRONIZE_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 1, id="capture_fails_after_agent_start"
+        ),
+        pytest.param(
+            [_SYNCHRONIZE_MERGED], [4], 1, ["flagged"], {_MERGE_SHA}, 1, 0, id="merged_before_check_uses_landed_commit"
+        ),
+        pytest.param([_LANDED_PUSH], [4], 1, ["flagged"], {_MERGE_SHA}, 1, 0, id="landed_push_checks_unchecked_head"),
+        pytest.param(
+            [_SYNCHRONIZE_OPEN, _LANDED_PUSH], [1], 1, ["flagged"], {_MERGE_REF}, 1, 0, id="landed_push_after_check"
+        ),
+        pytest.param(
+            [_SYNCHRONIZE_OPEN, _LANDED_PUSH],
             [4],
             1,
             ["unmergeable", "flagged"],
@@ -115,7 +138,7 @@ def owner() -> Iterator[User]:
             id="unmergeable_then_landed",
         ),
         pytest.param(
-            [_OPEN, _OPEN],
+            [_SYNCHRONIZE_OPEN, _SYNCHRONIZE_OPEN],
             [4, 4, 4, 4, 4, 4, 1],
             0,
             ["unmergeable", "flagged"],
@@ -124,10 +147,33 @@ def owner() -> Iterator[User]:
             0,
             id="unmergeable_then_merge_ref_appears",
         ),
+        pytest.param(
+            [("push", {**_PUSH, "ref": "refs/heads/feature"}, _MERGED)], [4], 1, [], set(), 0, 0, id="non_master_push"
+        ),
+        pytest.param(
+            [("push", {**_PUSH, "commits": [{"id": _MERGE_SHA, "message": "Revert a change"}]}, _MERGED)],
+            [4],
+            1,
+            [],
+            set(),
+            0,
+            0,
+            id="push_without_pull_request_number",
+        ),
+        pytest.param(
+            [("push", _PUSH, {**_MERGED, "merge_commit_sha": "d" * 40})],
+            [4],
+            1,
+            [],
+            set(),
+            0,
+            0,
+            id="push_of_another_pull_requests_commit",
+        ),
     ],
 )
 async def test_verdict_for_head(
-    pull_request_per_delivery: list[dict[str, Any]],
+    deliveries: list[tuple[str, dict[str, Any], dict[str, Any]]],
     merge_ref_exit_codes: list[int],
     landed_exit_code: int,
     expected_verdicts: list[str],
@@ -190,13 +236,16 @@ async def test_verdict_for_head(
                 activities=ACTIVITIES,
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                for pull_request in pull_request_per_delivery:
+                awaited_runs = 0
+                for event_type, payload, pull_request in deliveries:
                     github.get_pull_request.return_value = pull_request
-                    await sync_to_async(accept_pull_request_event)(_PAYLOAD)
-                    try:
-                        await started_handles[-1].result()
-                    except WorkflowFailureError:
-                        failed_runs += 1
+                    await sync_to_async(_ACCEPT_BY_EVENT_TYPE[event_type])(payload)
+                    while awaited_runs < len(started_handles):
+                        try:
+                            await started_handles[awaited_runs].result()
+                        except WorkflowFailureError:
+                            failed_runs += 1
+                        awaited_runs += 1
 
     assert [event["properties"]["verdict"] for event in captured] == expected_verdicts
     assert len({event["uuid"] for event in captured}) == len(captured)

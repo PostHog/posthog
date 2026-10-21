@@ -8,6 +8,13 @@ class PullRequestHead:
     head_sha: str
 
 
+@frozen
+class LandedCommit:
+    repository: str
+    pr_number: int
+    merge_sha: str
+
+
 class DocsFreshnessCheckError(Exception):
     pass
 

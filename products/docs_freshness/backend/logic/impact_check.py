@@ -17,6 +17,7 @@ from posthog.ph_client import ph_scoped_capture
 
 from products.docs_freshness.backend.facade.contracts import (
     DocsFreshnessCheckError,
+    LandedCommit,
     MergeRefBehindHead,
     MergeRefMissing,
     PullRequestHead,
@@ -115,7 +116,21 @@ def record_verdict(head: PullRequestHead, verdict_name: VerdictName, verdict: Im
     capture_verdict(config, head, verdict_name, verdict)
 
 
-def _checked_ref(config: DocsFreshnessSettings, head: PullRequestHead) -> str | None:
+def landed_pull_request_head(commit: LandedCommit) -> PullRequestHead | None:
+    config = configured_settings()
+    if config is None:
+        return None
+    pull_request = _read_pull_request(config, commit.pr_number)
+    head_sha = pull_request.get("head_sha")
+    if not pull_request.get("merged") or pull_request.get("merge_commit_sha") != commit.merge_sha:
+        logger.info("docs_freshness: commit is not the landed pull request", pr_number=commit.pr_number)
+        return None
+    if not isinstance(head_sha, str):
+        return None
+    return PullRequestHead(repository=commit.repository, pr_number=commit.pr_number, head_sha=head_sha)
+
+
+def _read_pull_request(config: DocsFreshnessSettings, pr_number: int) -> dict[str, Any]:
     github = GitHubIntegration.first_for_team_repository(
         config.team_id, CHECKED_REPOSITORY, source="docs_freshness", priority=Priority.BATCH
     )
@@ -123,11 +138,14 @@ def _checked_ref(config: DocsFreshnessSettings, head: PullRequestHead) -> str | 
         raise DocsFreshnessCheckError(
             f"No GitHub integration for team {config.team_id} can access {CHECKED_REPOSITORY}"
         )
-    pull_request = github.get_pull_request(CHECKED_REPOSITORY, head.pr_number)
+    pull_request = github.get_pull_request(CHECKED_REPOSITORY, pr_number)
     if not pull_request.get("success"):
-        raise DocsFreshnessCheckError(
-            f"Reading pull request {head.pr_number} failed: {pull_request.get('error')}"[:300]
-        )
+        raise DocsFreshnessCheckError(f"Reading pull request {pr_number} failed: {pull_request.get('error')}"[:300])
+    return pull_request
+
+
+def _checked_ref(config: DocsFreshnessSettings, head: PullRequestHead) -> str | None:
+    pull_request = _read_pull_request(config, head.pr_number)
     if pull_request.get("head_sha") != head.head_sha:
         return None
     if pull_request.get("state") == "open":

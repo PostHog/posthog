@@ -3,14 +3,16 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.docs_freshness.backend.facade.contracts import MergeRefMissing, PullRequestHead
+from products.docs_freshness.backend.facade.contracts import LandedCommit, MergeRefMissing, PullRequestHead
 from products.docs_freshness.backend.logic.impact_check import ImpactVerdict, VerdictName, pull_request_merge_ref
-from products.docs_freshness.backend.temporal.activities import check_head, record_verdict
+from products.docs_freshness.backend.temporal.activities import check_head, record_verdict, start_landed_check
 from products.docs_freshness.backend.temporal.constants import (
     CHECK_HEAD_TIMEOUT,
+    CHECK_LANDED_COMMIT_WORKFLOW,
     CHECK_PULL_REQUEST_HEAD_WORKFLOW,
     DURABLE_RETRY_POLICY,
     RECORD_VERDICT_TIMEOUT,
+    START_LANDED_CHECK_TIMEOUT,
 )
 from products.docs_freshness.backend.temporal.contracts import RecordVerdictInput
 
@@ -50,5 +52,19 @@ class CheckPullRequestHeadWorkflow(PostHogWorkflow):
             record_verdict,
             RecordVerdictInput(head=head, verdict_name=verdict_name, verdict=verdict),
             start_to_close_timeout=RECORD_VERDICT_TIMEOUT,
+            retry_policy=DURABLE_RETRY_POLICY,
+        )
+
+
+@workflow.defn(name=CHECK_LANDED_COMMIT_WORKFLOW)
+class CheckLandedCommitWorkflow(PostHogWorkflow):
+    inputs_cls = LandedCommit
+
+    @workflow.run
+    async def run(self, commit: LandedCommit) -> None:
+        await workflow.execute_activity(
+            start_landed_check,
+            commit,
+            start_to_close_timeout=START_LANDED_CHECK_TIMEOUT,
             retry_policy=DURABLE_RETRY_POLICY,
         )
