@@ -68,18 +68,20 @@ const monitoringConfig: MetricThresholdConfigApi = {
     },
     monitoring: monitoringDefinition,
 }
+const monitoringStartedAt = '2026-08-26T00:00:00Z'
 const monitoringCheck: SignalReportCheckApi = {
     ...check,
     title: 'Checkout errors stay low',
     config: monitoringConfig,
     status: 'active',
-    soak_minutes: 1440,
+    soak_minutes: 10080,
     run_interval_minutes: 360,
     next_run_at: '2026-08-29T18:00:00Z',
+    created_at: '2026-08-25T00:00:00Z',
     monitoring_timing: {
         state: 'scheduled',
-        started_at: '2026-08-29T00:00:00Z',
-        ends_at: '2026-08-30T00:00:00Z',
+        started_at: monitoringStartedAt,
+        ends_at: '2026-09-02T00:00:00Z',
         next_measurement_at: '2026-08-29T18:00:00Z',
     },
 }
@@ -169,7 +171,7 @@ export const MonitoringDefinitionFlagOff: Story = {
 }
 
 export const MonitoringDefinition: Story = {
-    args: { report: { ...report, monitoring_started_at: '2026-08-29T00:00:00Z' } },
+    args: { report: { ...report, monitoring_started_at: monitoringStartedAt } },
     parameters: {
         check: monitoringCheck,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
@@ -195,13 +197,15 @@ export const MonitoringFixedTarget: Story = {
 
 export const MetricCheck: Story = {}
 export const MonitoringWindowEnded: Story = {
-    args: { report: { ...report, monitoring_started_at: '2026-08-28T00:00:00Z' } },
+    args: MonitoringDefinition.args,
     parameters: {
         check: {
             ...monitoringCheck,
+            soak_minutes: 4320,
+            next_run_at: '2026-08-29T00:00:00Z',
             monitoring_timing: {
                 state: 'window_ended',
-                started_at: '2026-08-28T00:00:00Z',
+                started_at: monitoringStartedAt,
                 ends_at: '2026-08-29T00:00:00Z',
                 next_measurement_at: null,
             },
