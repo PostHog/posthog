@@ -160,6 +160,9 @@ def coarsens_for_merge_parallelism(
         return False
     if operator_requested:
         return True
+    # The automatic path never coarsens a table this fine, so the flag result could not change anything.
+    if (schema.partition_count or 0) < COARSEN_MIN_PARTITIONS:
+        return False
     return merge_auto_coarsen_enabled(schema) if auto_coarsen is None else auto_coarsen
 
 

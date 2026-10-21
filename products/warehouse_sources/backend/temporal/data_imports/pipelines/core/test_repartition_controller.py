@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import tempfile
 import contextlib
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -558,6 +559,7 @@ class TestPartitionMeasurementRecord:
                 "healthy": True,
             },
             "partition_mode": "md5",
+            "partition_count": ctrl.COARSEN_MIN_PARTITIONS,
             **({"coarsen_requested": _NOMINATION} if nominated else {}),
         }
 
@@ -992,7 +994,7 @@ class TestMergeCoarsenPolicy:
         sync_type: str,
         count: int,
         each: int,
-        settings: dict[str, int],
+        settings: dict[str, Any],
         expected_count: int | None,
         expected_reason: str | None,
     ):
@@ -1065,24 +1067,26 @@ class TestMergeCoarsenPolicy:
             assert pending["partition_count"] == expected_count
 
     @pytest.mark.parametrize(
-        "sync_type, nominated, expected_calls",
+        "sync_type, nominated, count, expected_calls",
         [
-            (_KEYED, False, 1),
-            (_KEYED, True, 0),
-            (_FULL_REFRESH, False, 0),
+            (_KEYED, False, 85, 1),
+            (_KEYED, True, 85, 0),
+            (_FULL_REFRESH, False, 85, 0),
+            (_KEYED, False, 8, 0),
         ],
         ids=[
             "a_keyed_md5_table_evaluates_the_flag_once",
             "a_nomination_skips_the_flag",
             "a_table_the_policy_cannot_reach_skips_the_flag",
+            "a_table_too_fine_to_coarsen_skips_the_flag",
         ],
     )
     def test_the_flag_is_evaluated_only_when_it_can_change_the_policy(
-        self, team, sync_type: str, nominated: bool, expected_calls: int
+        self, team, sync_type: str, nominated: bool, count: int, expected_calls: int
     ):
-        schema = self._schema(team, sync_type, partition_count=85, nominated=nominated)
+        schema = self._schema(team, sync_type, partition_count=count, nominated=nominated)
 
-        flag_check = self._detect(team, schema, self._md5_layout(85, 20))
+        flag_check = self._detect(team, schema, self._md5_layout(count, 20))
 
         assert flag_check.call_count == expected_calls
         if expected_calls:
