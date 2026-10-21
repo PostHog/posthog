@@ -8,21 +8,23 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
-    AUTO_REGION,
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
     text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    GCS_EXAMPLE_URL,
+    parse_gcs_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -52,17 +54,15 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The bucket picks where the stored key is sent, so changing it must re-require the key.
-        return ["bucket"]
+        # The URL picks the bucket the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: GoogleCloudStorageSourceConfig) -> ObjectStoreConfig:
-        return ObjectStoreConfig(
-            provider=ObjectStoreProvider.GCS,
-            bucket=config.bucket.strip(),
-            region=AUTO_REGION,
+        return ObjectStoreConfig.from_url(
+            ObjectStoreProvider.GCS,
+            parse_gcs_url(config.url_pattern),
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
-            prefix=normalize_prefix(config.path),
         )
 
     def discovery_options(self, config: GoogleCloudStorageSourceConfig) -> DiscoveryOptions:
@@ -82,8 +82,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
             fields=cast(
                 list[FieldType],
                 [
-                    text_field("bucket", "Bucket", "my-company-exports"),
-                    *folder_fields("bucket"),
+                    url_field(GCS_EXAMPLE_URL),
                     text_field(
                         "access_key_id",
                         "HMAC access key",

@@ -174,7 +174,9 @@ describe('runCancellationLogic', () => {
                 error: { code: -32000, message: 'Agent unavailable' },
             })
         }
-        await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.requestCancellation())
+            .toFinishAllListeners()
+            .toDispatchActions(['cancellationFailed'])
         expect(logic.values.cancellationState).toBeNull()
         expect(lemonToast.error).toHaveBeenCalled()
         await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
