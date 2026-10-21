@@ -1,8 +1,8 @@
 """Signals billing — legacy report charges and finalized usage in the same credit units.
 
-New work snapshots the self-driving-usage-based-billing flag. Usage-mode reports do not
-produce a flat PR charge; their owner rows recognize settled spend on UTC completion days.
-Flag changes never reinterpret existing work or historical daily quantities.
+Usage reporting and quota refresh evaluate the organization's self-driving-usage-based-billing
+date. Work created before that UTC cutoff retains report billing. Newer work contributes
+settled spend on its completion days. Missing or invalid dates use report billing.
 
 Legacy mode: a flat credit charge per report that ships an implementation PR.
 
@@ -64,7 +64,12 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
-from products.signals.backend.spend_billing import spend_billing_credits_by_team
+from products.signals.backend.spend_billing import (
+    billing_days,
+    spend_billing_credits_by_team,
+    usage_billed_reports,
+    usage_billing_cutoff,
+)
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -100,7 +105,6 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
-        report__usage_based_billing=False,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
         task__team_id=F("team_id"),
@@ -181,8 +185,16 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
         raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
-    if report.usage_based_billing and (
-        SignalSpend.objects.for_team(report.team_id).filter(report_id=report.id).exclude(billing_amounts={}).exists()
+    cutoff = usage_billing_cutoff(report.team.organization_id)
+    if (
+        cutoff is not None
+        and usage_billed_reports({report.team.organization_id: cutoff}).filter(id=report.id).exists()
+        and (
+            SignalSpend.objects.for_team(report.team_id)
+            .filter(report_id=report.id)
+            .exclude(billing_amounts={})
+            .exists()
+        )
     ):
         raise BillingExemptionError(f"Report {report.id} already has recognized usage; use a billing credit instead.")
     if first_billable_pr_run_at(report.id) is not None:
@@ -208,6 +220,13 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     uses it to refuse late exemptions. It applies the exact same fail-closed filters as the usage
     query, so the two can never disagree about whether a billable run exists.
     """
+    # This is the fixed-report refund boundary; usage-billed reports need a cost-based credit.
+    report = SignalReport.objects.select_related("team").filter(id=report_id).first()
+    if report is None:
+        return None
+    cutoff = usage_billing_cutoff(report.team.organization_id)
+    if cutoff is not None and usage_billed_reports({report.team.organization_id: cutoff}).filter(id=report.id).exists():
+        return None
     row = (
         _bridges_with_pr_run()
         .filter(report_id=report_id)
@@ -345,7 +364,11 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
 
 
 def _report_billing_credits_by_team(
-    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+    begin: datetime,
+    end: datetime,
+    organization_id: str | uuid.UUID | None = None,
+    *,
+    cutoffs: dict[uuid.UUID, datetime],
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
@@ -365,7 +388,7 @@ def _report_billing_credits_by_team(
     bridges = _bridges_with_pr_run(
         task__runs__created_at__gte=begin,
         task__runs__created_at__lt=end,
-    )
+    ).exclude(report_id__in=usage_billed_reports(cutoffs).values("id"))
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
     report_team: dict[uuid.UUID, int] = {}
@@ -417,11 +440,28 @@ def _report_billing_credits_by_team(
 def get_signals_billing_credits_by_team(
     begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
 ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
-    """Daily credit quantities from each owner's frozen billing mode, in existing billing units."""
-    totals = dict(_report_billing_credits_by_team(begin, end, organization_id))
-    for team_id, credits in spend_billing_credits_by_team(
-        begin, end, organization_id=str(organization_id) if organization_id is not None else None
-    ).items():
+    """Shared by daily reporting and the 15-minute quota refresh, including today's settled spend."""
+    days = billing_days(begin, end)
+    if not days:
+        return []
+    if organization_id is not None:
+        organizations = {uuid.UUID(str(organization_id))}
+    else:
+        # Only evaluate flags for orgs with usage in this window, once per org for both meters.
+        organizations = set(
+            _bridges_with_pr_run(task__runs__created_at__gte=begin, task__runs__created_at__lt=end)
+            .values_list("team__organization_id", flat=True)
+            .distinct()
+        )
+        organizations.update(
+            SignalSpend.objects.unscoped()
+            .filter(billing_amounts__has_any_keys=days)
+            .values_list("team__organization_id", flat=True)
+            .distinct()
+        )
+    cutoffs = {org_id: cutoff for org_id in organizations if (cutoff := usage_billing_cutoff(org_id)) is not None}
+    totals = dict(_report_billing_credits_by_team(begin, end, organization_id, cutoffs=cutoffs))
+    for team_id, credits in spend_billing_credits_by_team(begin, end, cutoffs=cutoffs).items():
         totals[team_id] = totals.get(team_id, 0) + credits
     return list(totals.items())
 

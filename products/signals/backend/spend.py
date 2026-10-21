@@ -25,12 +25,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.spend_billing import (
-    apply_report_billing,
-    recognize_spend,
-    scout_spend_exempt,
-    usage_billing_enabled,
-)
+from products.signals.backend.spend_billing import apply_report_billing, recognize_spend, scout_spend_exempt
 
 logger = structlog.get_logger(__name__)
 
@@ -230,7 +225,6 @@ def _locked_spend(
     team_id: int,
     signal_id: str | None = None,
     scout_run_id: str | None = None,
-    report_id: str | None = None,
 ) -> SignalSpend:
     if (signal_id is None) == (scout_run_id is None):
         raise ValueError("Spend must have exactly one owner")
@@ -238,18 +232,25 @@ def _locked_spend(
     queryset = SignalSpend.objects.for_team(team_id)
     spend = queryset.select_for_update().filter(**owner).first()
     if spend is None:
-        legacy_exists = LegacySignalSpend.objects.for_team(team_id).filter(**owner).exists()
-        report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
-        usage_billing = not legacy_exists and (report.usage_based_billing if report else usage_billing_enabled(team_id))
+        first_cost_at = (
+            LegacySignalSpend.objects.for_team(team_id)
+            .filter(**owner)
+            .order_by("created_at")
+            .values_list("created_at", flat=True)
+            .first()
+        )
         scout = SignalScoutRun.objects.for_team(team_id).filter(id=scout_run_id).first() if scout_run_id else None
-        queryset.get_or_create(
+        if scout:
+            first_cost_at = min(first_cost_at, scout.created_at) if first_cost_at else scout.created_at
+        spend, created = queryset.get_or_create(
             team_id=team_id,
             **owner,
             defaults={
-                "usage_based_billing": usage_billing,
                 "billing_exempt": scout_spend_exempt(scout) if scout else False,
             },
         )
+        if created and first_cost_at is not None:
+            queryset.filter(id=spend.id).update(created_at=first_cost_at)
         spend = queryset.select_for_update().get(**owner)
     return spend
 
@@ -328,7 +329,7 @@ def record_task_spend(
     if run is None:
         return
     with transaction.atomic():
-        spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id, report_id=report_id)
+        spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id)
         if run.task_id not in spend.task_ids:
             spend.task_ids.append(run.task_id)
         if report_id:
@@ -400,7 +401,7 @@ def complete_signal_pipeline(
 ) -> None:
     try:
         with transaction.atomic():
-            spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
+            spend = _locked_spend(team_id=team_id, signal_id=signal_id)
             spend.billing_exempt = spend.billing_exempt or billing_exempt
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
             if report:
@@ -420,7 +421,7 @@ def complete_signal_pipeline(
 def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     try:
         with transaction.atomic():
-            spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
+            spend = _locked_spend(team_id=team_id, signal_id=signal_id)
             spend.report_id = UUID(report_id)
             spend.finalized_at = None
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()

@@ -5088,10 +5088,14 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         SignalSpend.objects.for_team(team.id).create(
             team=team,
             signal_id=uuid4(),
-            usage_based_billing=True,
             billing_amounts={period.start.date().isoformat(): 150_000},
         )
-        self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [(team.id, 1515)])
+        SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
+        with (
+            patch("posthoganalytics.get_feature_flag", return_value=period.start.date().isoformat()),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+        ):
+            self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [(team.id, 1515)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:

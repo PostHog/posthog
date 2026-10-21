@@ -11,6 +11,7 @@ from django.apps import apps
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
 from products.signals.backend.billing import (
@@ -32,8 +33,15 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
-from products.signals.backend.spend_billing import report_usage_billing_mode
+from products.signals.backend.spend_billing import USAGE_BILLING_FLAG
 from products.skills.backend.models.skills import LLMSkill
+
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    list_limited_team_attributes,
+    update_all_orgs_billing_quotas,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import (
@@ -502,15 +510,16 @@ class TestBillingExemptions(BaseTest):
 class TestSpendBasedBilling(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.usage_billing = True
+        self.cutoff: str | bool | None = "2026-06-10"
         self.flag = patch(
-            "products.signals.backend.spend_billing.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: (
-                self.usage_billing if key == "self-driving-usage-based-billing" else False
-            ),
+            "products.signals.backend.spend_billing.posthoganalytics.get_feature_flag",
+            side_effect=lambda *args, **kwargs: self.cutoff,
         )
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+        trial = patch("products.signals.backend.spend_billing.posthoganalytics.feature_enabled", return_value=False)
+        self.trial_mock = trial.start()
+        self.addCleanup(trial.stop)
 
     def _generation(
         self, signal_id: str, cost: int | None, *, request_id: str = "request", team: Team | None = None
@@ -553,31 +562,90 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 15}
         assert SignalSpend.objects.for_team(self.team.id).count() == 1
 
-    def test_flag_changes_apply_only_to_new_work(self) -> None:
-        legacy, usage = str(uuid4()), str(uuid4())
+    def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": 90, "todays_usage": 0, "limit": 100},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+        signal_id = str(uuid4())
         with time_machine.travel(_at(10), tick=False):
-            self.usage_billing = False
-            self._generation(legacy, 100_000, request_id="legacy")
-            self.usage_billing = True
-            self._generation(usage, 200_000, request_id="usage")
-            complete_signal_pipeline(team_id=self.team.id, signal_id=legacy)
-            self.usage_billing = False
-            complete_signal_pipeline(team_id=self.team.id, signal_id=usage)
-        assert self._day(10) == {self.team.id: 20}
-        self.flag_mock.side_effect = RuntimeError("flag unavailable")
+            self._generation(signal_id, 200_000)
+            assert self._day(10) == {}
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+        with time_machine.travel(_at(10) + timedelta(minutes=10), tick=False):
+            update_all_orgs_billing_quotas()
+            self.organization.refresh_from_db()
+            assert self.organization.usage is not None
+            assert self.organization.usage["signals_credits"]["usage"] == 90
+            assert self.organization.usage["signals_credits"]["todays_usage"] == 20
+            assert self.team.api_token in list_limited_team_attributes(
+                QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
         with time_machine.travel(_at(11), tick=False):
-            new = str(uuid4())
-            self._generation(new, 100_000, request_id="unknown-mode")
-            complete_signal_pipeline(team_id=self.team.id, signal_id=new)
-        assert self._day(10) == {self.team.id: 20}
-        assert self._day(11) == {}
-        self.assertIsNone(SignalSpend.objects.for_team(self.team.id).get(signal_id=new).usage_based_billing)
+            assert dict(get_teams_with_signals_credits_used_in_period(_at(10, 0), _at(11, 0))) == {self.team.id: 20}
 
-    def test_legacy_and_usage_reports_do_not_charge_both_meters(self) -> None:
+    def test_cutoff_uses_work_creation_and_is_evaluated_when_reporting(self) -> None:
+        legacy, usage = str(uuid4()), str(uuid4())
+        self.cutoff = None
+        with time_machine.travel(_at(10, 0) - timedelta(microseconds=1), tick=False):
+            self._generation(legacy, 100_000, request_id="legacy")
+        with time_machine.travel(_at(10, 0), tick=False):
+            self._generation(usage, 200_000, request_id="usage")
+        with time_machine.travel(_at(11), tick=False):
+            complete_signal_pipeline(team_id=self.team.id, signal_id=legacy)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=usage)
+        assert self._day(11) == {}
+        self.cutoff = "2026-06-10"
+        assert self._day(10) == {}
+        assert self._day(11, organization_id=str(self.organization.id)) == {self.team.id: 20}
+        org_id = str(self.organization.id)
+        self.flag_mock.assert_called_with(
+            USAGE_BILLING_FLAG,
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_match", False),
+            ("no_result", None),
+            ("no_date", True),
+            ("empty", ""),
+            ("invalid", "2026-02-30"),
+            ("noncanonical", "20260610"),
+            ("timestamp", "2026-06-10T00:00:00Z"),
+        ]
+    )
+    def test_missing_or_invalid_cutoff_falls_back_to_report_billing(
+        self, _name: str, cutoff: str | bool | None
+    ) -> None:
+        self.cutoff = cutoff
+        signal_id = str(uuid4())
         with time_machine.travel(_at(10), tick=False):
-            legacy_report = _make_report(self.team)
+            report = _make_report(self.team)
+            _make_pr_run(self.team, report, created_at=_at(10))
+            self._generation(signal_id, 200_000)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
+        assert self._day(10) == {self.team.id: 1500}
+        self.flag_mock.side_effect = RuntimeError("flag unavailable")
+        assert self._day(10) == {self.team.id: 1500}
+
+    @parameterized.expand([("report",), ("signal",)])
+    def test_legacy_and_usage_reports_do_not_charge_both_meters(self, existing_work: str) -> None:
+        legacy_signal = str(uuid4())
+        with time_machine.travel(_at(9), tick=False):
+            legacy_report = _make_report(self.team) if existing_work == "report" else None
+            if existing_work == "signal":
+                self._generation(legacy_signal, 50_000, request_id="existing-signal")
+        with time_machine.travel(_at(10), tick=False):
+            if legacy_report is None:
+                legacy_report = SignalReport.objects.create(team=self.team, triggering_signal_id=legacy_signal)
             _make_pr_run(self.team, legacy_report, created_at=_at(10))
-            legacy_signal = str(uuid4())
             self._generation(legacy_signal, 100_000, request_id="existing-report")
             complete_signal_pipeline(team_id=self.team.id, signal_id=legacy_signal, report_id=str(legacy_report.id))
             signal_id = str(uuid4())
@@ -586,7 +654,6 @@ class TestSpendBasedBilling(BaseTest):
                 team=self.team,
                 status=SignalReport.Status.READY,
                 triggering_signal_id=signal_id,
-                usage_based_billing=report_usage_billing_mode(team_id=self.team.id, signal_id=signal_id),
             )
             _make_pr_run(self.team, report, created_at=_at(10))
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
@@ -613,6 +680,11 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, self.organization.id)) == {
             self.team.id: 2
         }
+        self.flag_mock.side_effect = lambda key, org_id, **kwargs: (
+            "2026-06-11" if org_id == str(other_org.id) else "2026-06-10"
+        )
+        assert self._day(10) == {self.team.id: 1}
+        assert self._day(10, organization_id=str(other_org.id)) == {}
 
     @parameterized.expand([("source",), ("report",)])
     def test_system_funded_work_keeps_spend_but_does_not_bill(self, exemption: str) -> None:
@@ -624,7 +696,6 @@ class TestSpendBasedBilling(BaseTest):
                 report = SignalReport.objects.create(
                     team=self.team,
                     status=SignalReport.Status.READY,
-                    usage_based_billing=True,
                     billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
                 )
             complete_signal_pipeline(
@@ -640,15 +711,14 @@ class TestSpendBasedBilling(BaseTest):
 
     @parameterized.expand([("trial", True), ("unknown", None)])
     def test_free_trial_and_unknown_trial_state_keep_the_legacy_meter(self, _name: str, trial: bool | None) -> None:
-        self.flag_mock.side_effect = lambda key, *args, **kwargs: (
-            True if key == "self-driving-usage-based-billing" else trial
-        )
+        self.trial_mock.return_value = trial
         signal_id = str(uuid4())
         with time_machine.travel(_at(10), tick=False):
+            report = _make_report(self.team)
+            _make_pr_run(self.team, report, created_at=_at(10))
             self._generation(signal_id, 100_000)
-            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-        assert self._day(10) == {}
-        assert not report_usage_billing_mode(team_id=self.team.id, signal_id=signal_id)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
+        assert self._day(10) == {self.team.id: 1500}
 
     def test_scout_deletion_preserves_recognized_billing(self) -> None:
         task = _task_model().objects.create(team=self.team, title="Synthetic scout", description="")
@@ -657,7 +727,7 @@ class TestSpendBasedBilling(BaseTest):
             team=self.team, task_run=run, skill_name="synthetic-scout", skill_version=1
         )
         SignalSpend.objects.for_team(self.team.id).create(
-            team=self.team, scout_run=scout, usage_based_billing=True, billing_amounts={"2026-06-10": 40_000}
+            team=self.team, scout_run=scout, billing_amounts={"2026-06-10": 40_000}
         )
         scout.delete()
         assert self._day(10) == {self.team.id: 4}

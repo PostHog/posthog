@@ -40,7 +40,6 @@ class Migration(migrations.Migration):
                         base_field=models.CharField(max_length=100), default=list, size=None
                     ),
                 ),
-                ("usage_based_billing", models.BooleanField(default=False, null=True)),
                 ("billing_exempt", models.BooleanField(default=False)),
                 ("billing_amounts", models.JSONField(default=dict)),
                 ("token_cost_microusd", models.BigIntegerField(default=0)),

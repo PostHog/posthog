@@ -343,7 +343,6 @@ class SignalReport(UUIDModel):
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
     # flipped afterwards, so no usage report can observe the value changing. Null = billable.
     billing_exempt_reason = models.CharField(max_length=30, choices=BillingExemptReason, null=True, blank=True)
-    usage_based_billing = models.BooleanField(default=False, db_default=False, null=True)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
@@ -3754,7 +3753,6 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     task_count = models.PositiveIntegerField(default=0)
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    usage_based_billing = models.BooleanField(default=False, null=True)
     billing_exempt = models.BooleanField(default=False)
     billing_amounts = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)

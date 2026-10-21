@@ -151,7 +151,6 @@ def test_direct_steering_drop_finalizes_its_known_cost() -> None:
     )
     driver = str(uuid4())
     with (
-        patch("products.signals.backend.spend.usage_billing_enabled", return_value=True),
         patch("products.signals.backend.facade.api.SignalSourceConfig.is_source_enabled", return_value=True),
         patch(
             "products.signals.backend.emission.direct_gate.steering_filters_signal", new=AsyncMock(return_value=True)
@@ -786,6 +785,8 @@ class TestSignalSpend(BaseTest):
         old = LegacySignalSpend.objects.for_team(self.team.id).create(
             team_id=self.team.id, signal_id=driver, source_id="old-call", stage="grouping", token_cost_microusd=100
         )
+        old.created_at -= timedelta(days=3)
+        old.save(update_fields=["created_at"])
         LegacySignalSpend.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             scout_run=scout,
@@ -799,6 +800,7 @@ class TestSignalSpend(BaseTest):
         for _ in range(2):
             migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).created_at == old.created_at
         owner = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         assert (owner.token_cost_microusd, owner.task_count) == (200, 1)
         assert owner.finalized_at is None  # Legacy status cannot prove teardown completion.
@@ -827,7 +829,7 @@ class TestSignalSpend(BaseTest):
         run = self._run(report=report)
         self._set_task_cost(run, 10_000)
         SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(
-            finalized_at=timezone.now(), usage_based_billing=True, billing_amounts={"2026-10-01": 50_000}
+            finalized_at=timezone.now(), billing_amounts={"2026-10-01": 50_000}
         )
         before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
         run.state = {"ai_stage": "research", "token_cost": {"model": {"provider": {"cost_microusd": 20_000}}}}
@@ -984,7 +986,10 @@ class TestSignalSpend(BaseTest):
                 skill_name="example-scout",
                 skill_version=1,
             )
+        scout.created_at -= timedelta(days=1)
+        scout.save(update_fields=["created_at"])
         record_task_spend(team_id=self.team.id, run_id=str(task_run.id), scout_run_id=str(scout.id), stage="scout")
+        assert SignalSpend.objects.for_team(self.team.id).get(scout_run=scout).created_at == scout.created_at
         assert scout.total_spend is None
         scout.refresh_from_db()
         assert scout.total_spend == (Decimal("16.3456") if settled_before_owner else Decimal("4"))
@@ -1018,8 +1023,7 @@ class TestSignalSpend(BaseTest):
         scout = SignalScoutRun.objects.for_team(self.team.id).create(
             team=self.team, task_run=run, skill_name="example-scout", skill_version=1
         )
-        with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
-            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
         with (
             patch("products.signals.backend.tasks.settle_scout_spend.delay") as enqueue,
             self.captureOnCommitCallbacks(execute=True),

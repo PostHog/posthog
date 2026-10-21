@@ -1,12 +1,13 @@
 """Billing decisions and daily recognition for cumulative owner spend."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from uuid import UUID
+
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 import structlog
 import posthoganalytics
-
-from posthog.models import Team
 
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
@@ -32,49 +33,52 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
     )
 
 
-def usage_billing_enabled(team_id: int) -> bool | None:
+def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
     try:
-        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
-
-        def enabled(key: str) -> bool | None:
-            return posthoganalytics.feature_enabled(
-                key,
-                organization_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        # Trials keep their existing report meter (and no PR means no charge).
-        # Unknown trial status must not silently turn free research into billable usage.
-        usage = enabled(USAGE_BILLING_FLAG)
-        if usage is not True:
-            if usage is None:
-                logger.warning("signals.spend.billing_mode_unknown", team_id=team_id)
-            return usage
-        trial = enabled(SELF_DRIVING_FREE_TRIAL_FLAG)
-        if trial is None:
-            logger.warning("signals.spend.billing_trial_status_unknown", team_id=team_id)
-        return not trial if trial is not None else None
+        org_id = str(organization_id)
+        value = posthoganalytics.get_feature_flag(
+            USAGE_BILLING_FLAG,
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if not isinstance(value, str):
+            return None
+        cutoff = date.fromisoformat(value)
+        if cutoff.isoformat() != value:
+            return None
+        # Trials, including an unknown trial status, retain the report meter.
+        trial = posthoganalytics.feature_enabled(
+            SELF_DRIVING_FREE_TRIAL_FLAG,
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        return datetime.combine(cutoff, time.min, UTC) if trial is False else None
+    except ValueError:
+        logger.warning("signals.spend.billing_cutoff_invalid", organization_id=str(organization_id))
+        return None
     except Exception:
-        logger.exception("signals.spend.billing_flag_unavailable", team_id=team_id)
+        logger.exception("signals.spend.billing_flag_unavailable", organization_id=str(organization_id))
         return None
 
 
-def report_usage_billing_mode(
-    *, team_id: int, signal_id: str | None = None, scout_run_id: str | None = None
-) -> bool | None:
-    if signal_id or scout_run_id:
-        owner = {"signal_id": signal_id} if signal_id else {"scout_run_id": scout_run_id}
-        spend = SignalSpend.objects.for_team(team_id).filter(**owner).first()
-        if spend is not None:
-            return spend.usage_based_billing
-    return usage_billing_enabled(team_id)
+def usage_billed_reports(cutoffs: dict[UUID, datetime]) -> QuerySet[SignalReport]:
+    eligible = Q(pk__in=[])
+    for organization_id, cutoff in cutoffs.items():
+        older_signal = SignalSpend.objects.unscoped().filter(
+            team_id=OuterRef("team_id"), signal_id=OuterRef("triggering_signal_id"), created_at__lt=cutoff
+        )
+        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff) & ~Q(Exists(older_signal))
+    return SignalReport.objects.filter(eligible)
 
 
 def recognize_spend(spend: SignalSpend, *, now: datetime) -> None:
-    if not spend.usage_based_billing or spend.billing_exempt or not spend.finalized_at:
+    if spend.billing_exempt or not spend.finalized_at:
         return
     total = int(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count) * 10_000)
     recognized = sum(spend.billing_amounts.values())
@@ -89,26 +93,38 @@ def recognize_spend(spend: SignalSpend, *, now: datetime) -> None:
         spend.billing_amounts[day] = spend.billing_amounts.get(day, 0) + total - recognized
 
 
-def spend_billing_credits_by_team(
-    begin: datetime, end: datetime, *, organization_id: str | None = None
-) -> dict[int, int]:
+def billing_days(begin: datetime, end: datetime) -> list[str]:
     if end <= begin:
-        return {}
+        return []
     days = []
     day = begin.astimezone(UTC).date()
     last_day = (end.astimezone(UTC) - timedelta(microseconds=1)).date()
     while day <= last_day:
         days.append(day.isoformat())
         day += timedelta(days=1)
+    return days
+
+
+def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime]) -> dict[int, int]:
+    days = billing_days(begin, end)
+    if not days or not cutoffs:
+        return {}
+    eligible = Q(pk__in=[])
+    for organization_id, cutoff in cutoffs.items():
+        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
+    # Resumed work on an older report must not acquire a second, spend-based charge.
+    reports = usage_billed_reports(cutoffs).filter(id=OuterRef("report_id"), team_id=OuterRef("team_id"))
     # Deliberately cross-team: both usage reporting and organization quota use this meter.
-    spends = SignalSpend.objects.unscoped().filter(billing_amounts__has_any_keys=days)
-    if organization_id is not None:
-        spends = spends.filter(team__organization_id=organization_id)
+    spends = (
+        SignalSpend.objects.unscoped()
+        .filter(eligible, billing_exempt=False, billing_amounts__has_any_keys=days)
+        .filter(Q(report_id__isnull=True) | Exists(reports))
+    )
     totals: dict[tuple[int, str], int] = {}
     for team_id, amounts in spends.values_list("team_id", "billing_amounts").iterator(chunk_size=1000):
-        for date in days:
-            if date in amounts:
-                totals[team_id, date] = totals.get((team_id, date), 0) + amounts[date]
+        for day in days:
+            if day in amounts:
+                totals[team_id, day] = totals.get((team_id, day), 0) + amounts[day]
     credits: dict[int, int] = {}
     # Round once per team/day, so a period recount equals the daily reports billing sums.
     for (team_id, _), amount in totals.items():
@@ -117,8 +133,5 @@ def spend_billing_credits_by_team(
 
 
 def apply_report_billing(spend: SignalSpend, report: SignalReport) -> None:
-    # Existing reports keep their original meter, including work resumed after a flag change.
-    if report.usage_based_billing is not True:
-        spend.usage_based_billing = report.usage_based_billing
     if report.billing_exempt_reason:
         spend.billing_exempt = True

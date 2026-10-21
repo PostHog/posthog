@@ -34,6 +34,7 @@ def backfill_owner_spend(apps, schema_editor):
                 if run and run["task__signal_report_id"]:
                     spend.report_id = run["task__signal_report_id"]
                 receipts = list(Source._base_manager.using(alias).filter(team_id=source.team_id, **owner))
+                spend.created_at = min(spend.created_at, *(receipt.created_at for receipt in receipts))
                 spend.token_cost_microusd = spend.llm_cost_microusd + sum(
                     receipt.token_cost_microusd or 0 for receipt in receipts
                 )
