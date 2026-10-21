@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
@@ -34,7 +34,7 @@ QUALAROO_BASE_URL = "https://api.qualaroo.com/api/v1"
 DEFAULT_PROBE_PATH = "/nudges.json"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QualarooResumeConfig:
     # Offset of the next page to fetch. Offset pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
@@ -42,6 +42,9 @@ class QualarooResumeConfig:
     # Progress of an endpoint that is listed once per nudge: the nudges that are done, the nudge in
     # progress, and the page cursor of that nudge. The shared fan-out helper owns the shape.
     fanout_state: Optional[dict[str, Any]] = None
+    # Upper `end_date` bound of the fan-out, fixed at sync start and kept across resumes. Without it a
+    # response submitted to an already-synced nudge could fall below the watermark set by later nudges.
+    sync_end: Optional[str] = None
 
 
 def _client_config(api_key: str, api_secret: str) -> ClientConfig:
@@ -65,10 +68,12 @@ def _to_unix_seconds(value: Any) -> Optional[int]:
     return int((parsed - timedelta(seconds=1)).timestamp())
 
 
-def _incremental_window(cursor_path: str) -> IncrementalConfig:
+def _incremental_window(cursor_path: str, sync_end: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "start_date",
+        "end_param": "end_date",
+        "end_value": sync_end,
         "convert": _to_unix_seconds,
     }
 
@@ -88,14 +93,17 @@ def _fanout_source(
     assert config.fanout is not None
 
     initial_fanout_state: Optional[dict[str, Any]] = None
+    sync_end: Optional[str] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             initial_fanout_state = resume.fanout_state
+            sync_end = resume.sync_end
+    run_sync_end = sync_end or datetime.now(UTC).isoformat()
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state is not None:
-            resumable_source_manager.save_state(QualarooResumeConfig(fanout_state=state))
+            resumable_source_manager.save_state(QualarooResumeConfig(fanout_state=state, sync_end=run_sync_end))
 
     resource = build_dependent_resource(
         endpoint_configs=QUALAROO_ENDPOINTS,
@@ -108,7 +116,7 @@ def _fanout_source(
         db_incremental_field_last_value=db_incremental_field_last_value,
         should_use_incremental_field=should_use_incremental_field,
         incremental_field=incremental_field,
-        incremental_config_factory=_incremental_window,
+        incremental_config_factory=lambda cursor_path: _incremental_window(cursor_path, run_sync_end),
         # The client OffsetPaginator already sends `limit` on every request.
         page_size_param=None,
         parent_endpoint_extra={"data_selector_malformed_retryable": True},

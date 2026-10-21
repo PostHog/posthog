@@ -187,6 +187,33 @@ class TestResponsesFanOut:
 
         assert result.raised is None
         assert [request.param("start_date") for request in result.requests] == [None, expected_start_date]
+        end_dates = [request.param("end_date") for request in result.requests]
+        assert end_dates[0] is None
+        assert (end_dates[1] is not None) == inputs.get("should_use_incremental_field", True)
+
+    def test_resumed_incremental_sync_keeps_the_original_end_date(self) -> None:
+        sync_end = "2024-03-02T00:00:00+00:00"
+        result = _driver().run(
+            "responses",
+            route(
+                {
+                    "/nudges.json": [ScriptedResponse(json=[{"id": 11}, {"id": 22}])],
+                    "/nudges/22/responses.json": [ScriptedResponse(json=[{"id": 7, "time": "2024-03-01 10:00:00"}])],
+                }
+            ),
+            resume_state=QualarooResumeConfig(
+                fanout_state={"completed": ["/nudges/11/responses.json"], "current": None, "child_state": None},
+                sync_end=sync_end,
+            ),
+            incremental_field="time",
+            db_incremental_field_last_value="2024-03-01 00:00:00",
+        )
+
+        assert result.raised is None
+        child_requests = [request for request in result.requests if request.path.endswith("/responses.json")]
+        expected_end_date = str(int(datetime(2024, 3, 2, tzinfo=UTC).timestamp()) - 1)
+        assert [request.param("end_date") for request in child_requests] == [expected_end_date]
+        assert all(state.sync_end == sync_end for state in result.saved_states)
 
     def test_resumes_inside_the_nudge_in_progress(self) -> None:
         result = _driver().run(
