@@ -716,6 +716,7 @@ jobs:
                   git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
                   git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
                   echo "History depth: $(git rev-list --count HEAD)"
+              retry: 2
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
@@ -734,6 +735,7 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+              retry: 2
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
@@ -1012,6 +1014,22 @@ jobs:
               with:
                   python-version: 3.14.7
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
+            # Same as the first step of .depot/actions/setup-uv. Keep the two in sync.
+            - name: Download uv into the tool cache
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              continue-on-error: true
+              env:
+                  UV_VERSION: '0.12.13'
+                  UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
+              run: |
+                  dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
+                  archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
+                  echo "$UV_SHA256  $archive" | sha256sum -c -
+                  mkdir -p "$dir"
+                  tar -xzf "$archive" --strip-components=1 -C "$dir"
+                  touch "$dir.complete"
             - name: Install uv
               id: setup-uv
               if: steps.schema-cache.outputs.cache-matched-key == ''
@@ -1024,15 +1042,23 @@ jobs:
             - name: Install SAML dependencies
               if: steps.schema-cache.outputs.cache-matched-key == '' && steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              retry: 2
+            # A run step instead of dtolnay/rust-toolchain, because Depot accepts retry: only on run steps.
+            # It runs the same rustup commands and sets the same environment as that action.
             - name: Install Rust
               if: steps.schema-cache.outputs.cache-matched-key == ''
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
+              env:
+                  RUSTUP_PERMIT_COPY_RENAME: 1
+              run: |
+                  rustup toolchain install 1.91.1 --component cargo --profile minimal --no-self-update
+                  rustup default 1.91.1
+                  echo CARGO_INCREMENTAL=0 >> "$GITHUB_ENV"
+                  echo CARGO_TERM_COLOR=always >> "$GITHUB_ENV"
+              retry: 2
             - name: Install Python dependencies
               if: steps.schema-cache.outputs.cache-matched-key == ''
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Wait for database services
               if: steps.schema-cache.outputs.cache-matched-key == ''
               env:
@@ -1177,10 +1203,12 @@ jobs:
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              retry: 2
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -1575,6 +1603,7 @@ jobs:
                   enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             # Block deleting historical migration files (see safe-django-migrations.md).
             # Two steps, so a failed PR-files read fails the job instead of handing the
             # check an empty list. The read uses the ambient token, which only reads here.
@@ -1595,6 +1624,7 @@ jobs:
               run: |
                   git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
                   git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+              retry: 2
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1713,6 +1743,7 @@ jobs:
                   enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Validate changed product.yaml owners
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1789,6 +1820,21 @@ jobs:
               with:
                   python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Same as the first step of .depot/actions/setup-uv. Keep the two in sync.
+            - name: Download uv into the tool cache
+              continue-on-error: true
+              env:
+                  UV_VERSION: '0.12.13'
+                  UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
+              run: |
+                  dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
+                  archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
+                  echo "$UV_SHA256  $archive" | sha256sum -c -
+                  mkdir -p "$dir"
+                  tar -xzf "$archive" --strip-components=1 -C "$dir"
+                  touch "$dir.complete"
             # Direct install: The job later checks out the PR head, which may predate the local action, so its post step would fail.
             - name: Install uv
               id: setup-uv
@@ -1804,6 +1850,7 @@ jobs:
                   sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              retry: 2
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
@@ -1820,6 +1867,7 @@ jobs:
               working-directory: upstream-master
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
+              retry: 2
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
@@ -1909,6 +1957,7 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Get app token for CI report
               # Depot's ambient token must not write, so the CI report sections post with a
               # posthog-tests token that can write pull requests and nothing else. When the
@@ -2502,6 +2551,21 @@ jobs:
               with:
                   python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Same as the first step of .depot/actions/setup-uv. Keep the two in sync.
+            - name: Download uv into the tool cache
+              continue-on-error: true
+              env:
+                  UV_VERSION: '0.12.13'
+                  UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
+              run: |
+                  dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
+                  archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
+                  echo "$UV_SHA256  $archive" | sha256sum -c -
+                  mkdir -p "$dir"
+                  tar -xzf "$archive" --strip-components=1 -C "$dir"
+                  touch "$dir.complete"
             # Direct install: Generated changes target the PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv
@@ -2517,8 +2581,10 @@ jobs:
                   sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              retry: 2
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -2532,6 +2598,7 @@ jobs:
                       exit 0
                   fi
                   pnpm install --frozen-lockfile --filter @posthog/api-client --ignore-scripts --config.node-linker=isolated
+              retry: 2
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -3181,18 +3248,39 @@ jobs:
               with:
                   python-version: ${{ matrix.python-version }}
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # A run step instead of dtolnay/rust-toolchain, because Depot accepts retry: only on run steps.
+            # It runs the same rustup commands and sets the same environment as that action.
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
+              env:
+                  RUSTUP_PERMIT_COPY_RENAME: 1
+              run: |
+                  rustup toolchain install 1.91.1 --component cargo --profile minimal --no-self-update
+                  rustup default 1.91.1
+                  echo CARGO_INCREMENTAL=0 >> "$GITHUB_ENV"
+                  echo CARGO_TERM_COLOR=always >> "$GITHUB_ENV"
+              retry: 2
             - name: Save Python tool cache
               if: env.IS_MASTER == 'true' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
+            # Same as the first step of .depot/actions/setup-uv. Keep the two in sync.
+            - name: Download uv into the tool cache
+              continue-on-error: true
+              env:
+                  UV_VERSION: '0.12.13'
+                  UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
+              run: |
+                  dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
+                  archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
+                  echo "$UV_SHA256  $archive" | sha256sum -c -
+                  mkdir -p "$dir"
+                  tar -xzf "$archive" --strip-components=1 -C "$dir"
+                  touch "$dir.complete"
             # Direct install: Tests run the explicit PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv-tests
@@ -3207,6 +3295,7 @@ jobs:
               shell: bash
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              retry: 2
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/setup-sqlx-cli
@@ -3228,6 +3317,7 @@ jobs:
                       fi
                   fi
                   echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
+              retry: 2
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
@@ -3244,6 +3334,7 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              retry: 2
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -3257,6 +3348,7 @@ jobs:
                   if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
                       npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
                   fi
+              retry: 2
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
@@ -4547,6 +4639,22 @@ jobs:
                     echo "Trusted timing reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
                   fi
                   echo "available=$available" >> "$GITHUB_OUTPUT"
+            # Same as the first step of .depot/actions/setup-uv. Keep the two in sync.
+            - name: Download uv into the tool cache
+              if: steps.timing-reporter.outputs.available == 'true'
+              continue-on-error: true
+              env:
+                  UV_VERSION: '0.12.13'
+                  UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
+              run: |
+                  dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
+                  archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
+                  echo "$UV_SHA256  $archive" | sha256sum -c -
+                  mkdir -p "$dir"
+                  tar -xzf "$archive" --strip-components=1 -C "$dir"
+                  touch "$dir.complete"
             # Direct install: The trusted PR base used for reporting may predate the local action.
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: steps.timing-reporter.outputs.available == 'true'
