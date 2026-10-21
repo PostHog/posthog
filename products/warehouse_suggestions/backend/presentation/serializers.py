@@ -21,6 +21,8 @@ from ..facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
@@ -80,6 +82,20 @@ class MaterializePayloadSerializer(DataclassSerializer):
     unknown_sources = VisibleSourcesSerializer(
         help_text="Sources with no sync schedule, so their freshness is unknown."
     )
+    refresh_mode = serializers.ChoiceField(
+        choices=WarehouseSuggestionRefreshMode.choices,
+        help_text="incremental: each refresh reads only rows with a new incremental_key value and updates rows by "
+        "unique_key. full: each refresh rebuilds the whole table. Incremental is proposed only when the keys are "
+        "certain from the query.",
+    )
+    refresh_interval_basis = serializers.ChoiceField(
+        choices=WarehouseSuggestionRefreshIntervalBasis.choices,
+        allow_null=True,
+        help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
+        "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
+        "recorded.",
+    )
 
     class Meta:
         dataclass = MaterializeSuggestionPayload
@@ -92,6 +108,18 @@ class MaterializePayloadSerializer(DataclassSerializer):
                 "help_text": "How old the view's data can be today, in seconds. Null when its sources are live."
             },
             "freshness_after_seconds": {"help_text": "How old the data can be once materialized, in seconds."},
+            "incremental_key": {
+                "help_text": "Date or datetime output column whose advancing value marks new rows. "
+                "Null for a full refresh."
+            },
+            "unique_key": {
+                "help_text": "Output columns that identify a row, so a refresh updates rows instead of adding "
+                "duplicates. Empty for a full refresh."
+            },
+            "lookback_seconds": {
+                "help_text": "How far before the last refresh's highest incremental_key value each refresh reads "
+                "again, in seconds. The last incremental_key value is always read again."
+            },
         }
 
 

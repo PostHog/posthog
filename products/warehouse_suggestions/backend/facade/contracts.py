@@ -10,6 +10,8 @@ from .enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
@@ -53,6 +55,11 @@ class MaterializePayload:
     freshness_after_seconds: int
     live_sources: tuple[SourceRef, ...]
     unknown_sources: tuple[SourceRef, ...]
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
 SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload
@@ -76,6 +83,11 @@ class MaterializeSuggestionPayload:
     freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload
@@ -195,6 +207,10 @@ class SubjectAlreadyCertifiedError(Exception):
 
 
 class RefreshIntervalRefusedError(Exception):
+    pass
+
+
+class SuggestionOutdatedError(Exception):
     pass
 
 
