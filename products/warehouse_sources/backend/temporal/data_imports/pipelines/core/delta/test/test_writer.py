@@ -1293,14 +1293,15 @@ class TestDeltaliteWritePath:
 
     @parameterized.expand(
         [
-            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024),
-            ("row_group_cap_off", 0, None),
-            ("negative_cap_is_off", -1, None),
+            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024, True),
+            ("row_group_cap_off", 0, None, True),
+            ("negative_cap_is_off", -1, None, True),
+            ("probe_cache_off", 16 * 1024 * 1024, 16 * 1024 * 1024, False),
         ]
     )
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(
-        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None
+        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None, probe_cache: bool
     ):
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
@@ -1318,7 +1319,10 @@ class TestDeltaliteWritePath:
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
-            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+            override_settings(
+                DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap,
+                DATA_WAREHOUSE_DELTALITE_PROBE_CACHE=probe_cache,
+            ),
         ):
             wrote = await DeltaWriter(helper)._write_via_deltalite(
                 existing_delta_table=existing,
@@ -1332,6 +1336,9 @@ class TestDeltaliteWritePath:
         fake_table.upsert.assert_called_once()
         assert fake_table.upsert.call_args.kwargs["max_row_group_bytes"] == expected_max_row_group_bytes
         assert "isolate_source_rows" not in fake_table.upsert.call_args.kwargs
+        # The default leaves the argument out, so a deltalite build without it still works.
+        assert fake_table.upsert.call_args.kwargs.get("use_probe_cache", True) is probe_cache
+        assert ("use_probe_cache" in fake_table.upsert.call_args.kwargs) is not probe_cache
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
         # The delta-rs handle is not refreshed on the write path (a log listing per batch); the ref
