@@ -100,6 +100,7 @@ from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
+    SandboxWorkload,
     health_check_timeout_seconds,
 )
 
@@ -2717,6 +2718,15 @@ class TestResourceCreateKwargs:
         "config_kwargs, expected_cpu, expected_memory",
         [
             ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (2.0, 8.0), (65536, 65536)),
+            (
+                {
+                    "vm_runtime": True,
+                    "custom_image_name": "posthog-dev-stack",
+                    "workload": SandboxWorkload.SELF_DRIVING,
+                },
+                (0.5, 8.0),
+                (16384, 16384),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
