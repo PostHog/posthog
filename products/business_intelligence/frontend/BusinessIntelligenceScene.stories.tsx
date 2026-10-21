@@ -1,12 +1,16 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, AccessControlResourceType, AccessControlLevel } from '~/types'
+
+import { expect } from 'storybook/test'
 
 import { buildBIQuery, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -73,6 +77,17 @@ function WorksheetStage({
 
 const meta: Meta = {
     title: 'Products/Business intelligence/Worksheet exploration',
+    play: async () => {
+        await waitFor(() => {
+            const { dataNodeKey } = biSceneLogic({ tabId }).values
+            const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+            expect(logic?.values.responseLoading).toBe(false)
+            expect(logic?.values.response).toBeTruthy()
+        })
+        const { dataNodeKey } = biSceneLogic({ tabId }).values
+        // Mocked responses still measure real browser time, which varies between snapshots.
+        dataNodeLogic.findMounted({ key: dataNodeKey })!.actions.setElapsedTime(180)
+    },
     beforeEach: () => {
         const context = window.POSTHOG_APP_CONTEXT!
         const previous = context.resource_access_control

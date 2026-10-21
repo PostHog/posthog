@@ -4,9 +4,12 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
 import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -22,7 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
-import { FacetRail } from './components/FacetRail/FacetRail'
+import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
@@ -128,6 +131,7 @@ function TracingSceneContents(): JSX.Element {
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         openTrace,
         closeTrace,
@@ -222,7 +226,7 @@ function TracingSceneContents(): JSX.Element {
             : undefined
 
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+        <SceneContent className="@container/facet-rail-host h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
             <SceneTitleSection
                 name="Tracing"
                 description="Monitor and analyze distributed traces to understand service performance and debug issues."
@@ -230,20 +234,41 @@ function TracingSceneContents(): JSX.Element {
                     type: 'tracing',
                 }}
                 actions={
-                    <>
-                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
-                            Feedback
-                        </LemonButton>
-                        <LemonButton
-                            to={TRACING_DOCS_URL}
-                            onClick={onDocsLinkClick}
-                            type="secondary"
-                            size="small"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" onClick={onFeedbackClick}>
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={TRACING_DOCS_URL} target="_blank" />}
+                                onClick={onDocsLinkClick}
+                            >
+                                Documentation
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={onFeedbackClick}
+                            >
+                                Feedback
+                            </LemonButton>
+                            <LemonButton
+                                to={TRACING_DOCS_URL}
+                                onClick={onDocsLinkClick}
+                                type="secondary"
+                                size="small"
+                                targetBlank
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             {sceneTabsEnabled && (
@@ -283,8 +308,8 @@ function TracingSceneContents(): JSX.Element {
                         compareActive ? 'The heatmap is unavailable while comparing time windows' : null
                     }
                 />
-                <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                    {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
                         {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (

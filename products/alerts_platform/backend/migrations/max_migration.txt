@@ -1,1 +1,1 @@
-0016_platformalertdeliverypath
+0018_alert_destination

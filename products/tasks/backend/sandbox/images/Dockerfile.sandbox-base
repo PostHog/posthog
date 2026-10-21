@@ -1,6 +1,6 @@
 # Dockerfile for the base sandbox image.
 
-FROM golang:1.23 AS agent-shadow-builder
+FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
 COPY packages/agent/agent-shadow/ ./
@@ -90,7 +90,7 @@ RUN npm install -g yarn "pnpm@${PNPM_VERSION}" typescript ts-node nodemon
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -161,8 +161,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.277
-ARG AGENT_TARBALL_SHA256="f84f08b5090009612a4b0cb17c50717f90480a76321df069f00c8ffcd63d2f3d"
+ARG AGENT_VERSION=2.4.286
+ARG AGENT_TARBALL_SHA256="1d6c51d6dcf8556c18cded6686ce7cdd5ed9b24973b230682d5a855f94924884"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \

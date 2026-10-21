@@ -8,12 +8,17 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from typing import Any
+
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.alerts_platform.backend.facade.contracts import Grouping
+from products.alerts_platform.backend.facade.contracts import DestinationType, Grouping
 from products.alerts_platform.backend.facade.enums import (
     DeliveryPath,
     PlatformAlertCheckStatus,
@@ -34,7 +39,7 @@ def source_kind_choices() -> list[tuple[str, str]]:
     return PlatformAlertConfigurationSourceKind.choices
 
 
-class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
+class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
     Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
@@ -105,6 +110,20 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+    # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
+    # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
+    destinations_owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
+
+    activity_logging_on_delete = True
+
+    def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
+        # A copy its source owns is not logged, so its writes skip the read of the row before the update.
+        # Backfills and source edits write those copies one row at a time.
+        if self.owner != PlatformAlertOwner.PLATFORM:
+            return False, None
+        return super()._should_log_activity_for_update(**kwargs)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.
@@ -245,3 +264,32 @@ class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
                 name="platform_alert_delivery_path_one_per_episode",
             )
         ]
+
+
+class AlertDestination(TeamScopedRootMixin, UUIDModel):
+    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+
+    One row is one destination a person sees on the alert's page. It sends through the platform's
+    transport for its type.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="destinations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    # Encrypted as one document so its value types survive a read. A webhook URL or a routing key is a credential.
+    config = EncryptedJSONStringField(default=dict)
+    # The transitions it sends about, as `AlertEventKind` values.
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    disabled_reason = models.TextField(null=True, blank=True)
+
+    # The HogFunctions this replaced, so an id issued before the move still finds the destination.
+    legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdestination"

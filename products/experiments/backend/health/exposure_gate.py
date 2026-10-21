@@ -1,6 +1,7 @@
 """
-Loads the changes of a running experiment's flag since launch that can move exposed people: the split and the
-settings that decide the variant draw. Then asks ClickHouse whether anyone was exposed before each change. A change before the first exposure moved nobody, so it does not count.
+Loads the changes of a running experiment's flag since launch that can move exposed people: the split, the
+settings that decide the variant draw, and the release conditions. Then asks ClickHouse whether anyone was exposed
+before each change. A change before the first exposure moved nobody, so it does not count.
 
 The answer for a past window does not change, so it is cached per window and shared by every reader. A slow
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
@@ -18,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Any
 
 from django.core.cache import cache
 from django.db.models import F, Func, JSONField, Q, Value
@@ -44,7 +46,7 @@ from posthog.exceptions import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.bucketing_changes import (
     BucketingChangeShape,
     bucketing_changes_from_activity,
@@ -52,14 +54,26 @@ from products.experiments.backend.health.bucketing_changes import (
     changes_that_apply,
     conditions_follow_flag_aggregation,
 )
+from products.experiments.backend.health.condition_changes import (
+    ConditionsChangeShape,
+    conditions_change_from_activity,
+    conditions_net_effect,
+    parse_release_conditions,
+)
 from products.experiments.backend.health.context import (
+    MAX_FLAG_SAVES,
+    MAX_RELEASE_CONDITIONS,
     BucketingChange,
     BucketingSetting,
+    ChangeWindow,
+    ConditionsChange,
+    FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     Split,
     SplitChange,
+    changes_of_kind,
     parse_variants,
 )
 from products.experiments.backend.health.split_changes import (
@@ -76,6 +90,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.models.experiment import Experiment
 
 MAX_EXPOSURE_QUERIES = 20
+# Each override window costs a cache read, and a query when the answer is not cached. A window past this stays
+# unknown, so its override stays reported.
+MAX_OVERRIDE_WINDOWS = 20
 EXPOSURE_QUERY_TIMEOUT_SECONDS = 10
 # No query starts after this, so one request takes at most this plus one query's timeout.
 REQUEST_BUDGET_SECONDS = 10
@@ -235,6 +252,8 @@ class _ExposureGate:
             return None
         settled = answer or timezone.now() - window.end > _SETTLED_AFTER
         cache.set(cache_key, answer, _ANSWER_CACHE_SECONDS if settled else _RECENT_NOBODY_CACHE_SECONDS)
+        # Two kinds can ask the same window, and a prefetched miss would otherwise send the second to ClickHouse.
+        self._prefetched[cache_key] = answer
         return answer
 
     def _cache_key(self, window: _Window) -> str:
@@ -278,16 +297,20 @@ def _load_flag_history(
             reason=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS,
             launched_at=launched_at,
             team_timezone=team_timezone,
-            split_changes=(),
-            bucketing_changes=(),
+            changes=(),
         )
 
-    changes = _flag_changes_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
+    rows = _flag_rows_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
+    too_large = _too_large(rows)
+    if too_large is not None:
+        return FlagHistoryNotChecked(reason=too_large, launched_at=launched_at, team_timezone=team_timezone, changes=())
+    read = _flag_changes(rows, feature_flag_id=feature_flag_id)
     flag = experiment.feature_flag
     trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
+    bucketing = changes_of_kind(read, BucketingChange)
     relies_on_flag_aggregation = any(
         change.setting in (BucketingSetting.BUCKETING_IDENTIFIER, BucketingSetting.EXPERIENCE_CONTINUITY)
-        for change in changes.bucketing
+        for change in bucketing
     )
     if relies_on_flag_aggregation and not trust_flag_aggregation:
         # The check then counts every identifier change, so it can report one that moved nobody.
@@ -295,36 +318,39 @@ def _load_flag_history(
             _ConditionAggregationMismatch(), {"team_id": experiment.team_id, "feature_flag_id": feature_flag_id}
         )
     # A change the flag service does not read moved nobody, so it neither counts nor needs an exposure window.
-    changes = replace(
-        changes,
-        bucketing=changes_that_apply(
-            changes.bucketing,
-            feature_flag_id=feature_flag_id,
-            aggregation=flag.aggregation_group_type_index,
-            bucketing_identifier=flag.bucketing_identifier,
-            trust_flag_aggregation=trust_flag_aggregation,
-        ),
+    applied = changes_that_apply(
+        bucketing,
+        feature_flag_id=feature_flag_id,
+        aggregation=flag.aggregation_group_type_index,
+        bucketing_identifier=flag.bucketing_identifier,
+        trust_flag_aggregation=trust_flag_aggregation,
     )
+    # An applied bucketing change can move to a later save, so the changes are sorted again. The sort is stable,
+    # so the changes of one kind keep their order.
+    merged: list[FlagChange] = [change for change in read if not isinstance(change, BucketingChange)]
+    merged.extend(applied)
+    changes = tuple(sorted(merged, key=lambda change: change.changed_at))
     history = FlagHistory(
         launched_at=launched_at,
         team_timezone=team_timezone,
-        split_changes=changes.split,
-        bucketing_changes=changes.bucketing,
+        changes=changes,
         counted_since=None,
         exposed_before_first=False,
-        split_exposed_between=None,
-        bucketing_exposed_between=None,
+        exposed_between={},
+        release_conditions=parse_release_conditions(
+            flag.conditions,
+            flag_aggregation=flag.aggregation_group_type_index,
+            variant_keys=split_variant_keys(parse_variants(flag.variants)),
+        ),
+        exposed_during_overrides={},
     )
-    if not changes.times:
+    times = _change_times(changes)
+    if not times:
         return history
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
         return FlagHistoryNotChecked(
-            reason=reason,
-            launched_at=launched_at,
-            team_timezone=team_timezone,
-            split_changes=changes.split,
-            bucketing_changes=changes.bucketing,
+            reason=reason, launched_at=launched_at, team_timezone=team_timezone, changes=changes
         )
 
     timeline = _Timeline(
@@ -332,8 +358,8 @@ def _load_flag_history(
         current_key=experiment.get_feature_flag_key(),
         current_split=parse_variants(experiment.feature_flag.variants),
     )
-    starts = (launched_at, *changes.times[:-1])
-    walk = [timeline.window(start=start, end=end) for start, end in zip(starts, changes.times)]
+    starts = (launched_at, *times[:-1])
+    walk = [timeline.window(start=start, end=end) for start, end in zip(starts, times)]
     gate = _ExposureGate(experiment, launched_at, prefetch=walk)
     for window in walk:
         exposed_before = gate.exposed(window)
@@ -342,21 +368,10 @@ def _load_flag_history(
             break
     if history.counted_since is None:
         return history
-
-    split = history.counted_split_changes
-    bucketing = bucketing_net_effect(history.counted_bucketing_changes)
     return replace(
         history,
-        split_exposed_between=(
-            _exposed_between(gate, timeline, start=split[0].changed_at, end=split[-1].changed_at)
-            if split and same_assignment(split[0].before, split[-1].after)
-            else None
-        ),
-        bucketing_exposed_between=(
-            _exposed_between(gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at)
-            if bucketing and bucketing.shape == BucketingChangeShape.REVERTED
-            else None
-        ),
+        exposed_between=_exposed_between_set_backs(gate, timeline, history),
+        exposed_during_overrides=_exposed_during_overrides(gate, timeline, history),
     )
 
 
@@ -378,28 +393,23 @@ def _not_checked_reason(
     return None
 
 
-@frozen
-class _FlagChanges:
-    split: tuple[SplitChange, ...]
-    bucketing: tuple[BucketingChange, ...]
-
-    @property
-    def times(self) -> tuple[datetime, ...]:
-        # One save can change several things, so it is one point in time.
-        return tuple(
-            sorted({change.changed_at for change in self.split} | {change.changed_at for change in self.bucketing})
-        )
+def _change_times(changes: tuple[FlagChange, ...]) -> tuple[datetime, ...]:
+    # One save can change several things, so it is one point in time.
+    return tuple(sorted({change.changed_at for change in changes}))
 
 
 class _Timeline:
     """The flag's key and split at any time since launch, from its changes and its current state."""
 
-    def __init__(self, changes: _FlagChanges, *, current_key: str, current_split: Split) -> None:
-        self._changes = changes
-        self._key_changes = [change for change in changes.bucketing if change.setting == BucketingSetting.KEY]
+    def __init__(self, changes: tuple[FlagChange, ...], *, current_key: str, current_split: Split) -> None:
+        self._times = _change_times(changes)
+        self._split_changes = changes_of_kind(changes, SplitChange)
+        self._key_changes = [
+            change for change in changes_of_kind(changes, BucketingChange) if change.setting == BucketingSetting.KEY
+        ]
         # The changes come in time order, so a binary search finds the first change at or after a time.
         self._key_times = [change.changed_at for change in self._key_changes]
-        self._split_times = [change.changed_at for change in changes.split]
+        self._split_times = [change.changed_at for change in self._split_changes]
         self._current_key = current_key
         self._current_split = current_split
 
@@ -419,10 +429,10 @@ class _Timeline:
 
     def split_before(self, at: datetime) -> Split:
         index = bisect_left(self._split_times, at)
-        return self._changes.split[index].before if index < len(self._changes.split) else self._current_split
+        return self._split_changes[index].before if index < len(self._split_changes) else self._current_split
 
     def points_within(self, *, start: datetime, end: datetime) -> list[datetime]:
-        return [at for at in self._changes.times if start < at <= end]
+        return [at for at in self._times if start < at <= end]
 
 
 def _exposed_between(gate: _ExposureGate, timeline: _Timeline, *, start: datetime, end: datetime) -> bool | None:
@@ -445,17 +455,54 @@ def _exposed_between(gate: _ExposureGate, timeline: _Timeline, *, start: datetim
     return None if None in answers else False
 
 
+def _exposed_between_set_backs(
+    gate: _ExposureGate, timeline: _Timeline, history: FlagHistory
+) -> dict[ExperimentHealthFlagChangeKind, bool | None]:
+    """Asks, per kind, whether anyone was exposed between the first and the last counted change, when the last sets
+    back what the first changed."""
+    exposed_between: dict[ExperimentHealthFlagChangeKind, bool | None] = {}
+    split = history.counted(SplitChange)
+    if split and same_assignment(split[0].before, split[-1].after):
+        exposed_between[ExperimentHealthFlagChangeKind.SPLIT] = _exposed_between(
+            gate, timeline, start=split[0].changed_at, end=split[-1].changed_at
+        )
+    bucketing = bucketing_net_effect(history.counted(BucketingChange))
+    if bucketing and bucketing.shape == BucketingChangeShape.REVERTED:
+        exposed_between[ExperimentHealthFlagChangeKind.BUCKETING] = _exposed_between(
+            gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at
+        )
+    conditions = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
+    if conditions and conditions.shape == ConditionsChangeShape.REVERTED:
+        exposed_between[ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS] = _exposed_between(
+            gate, timeline, start=conditions.first.changed_at, end=conditions.last.changed_at
+        )
+    return exposed_between
+
+
+def _exposed_during_overrides(
+    gate: _ExposureGate, timeline: _Timeline, history: FlagHistory
+) -> dict[ChangeWindow, bool | None]:
+    """Asks, per override that was set and removed again or removed and set back, whether anyone was exposed in
+    between. The set-back question above covers only the span of every change of a kind."""
+    effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
+    windows = [] if effect is None else [override.temporary_window for override in effect.overrides.removed]
+    asked = [window for window in dict.fromkeys(windows) if window is not None][:MAX_OVERRIDE_WINDOWS]
+    return {window: _exposed_between(gate, timeline, start=window.start, end=window.end) for window in asked}
+
+
 _PROJECTED = (
     "before_variants",
     "after_variants",
+    "before_groups",
+    "after_groups",
     "before_aggregation",
     "after_aggregation",
     *(f"{side}_{setting}" for side in ("before", "after") for setting in _SETTING_FIELDS),
 )
 
 
-def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) -> _FlagChanges:
-    rows = (
+def _flag_rows_since(*, team_id: int, feature_flag_id: int, since: datetime) -> list[dict[str, Any]]:
+    return list(
         ActivityLog.objects.filter(
             _changes_any_field(_FILTERS, *_SETTING_FIELDS.values()),
             team_id=team_id,
@@ -469,15 +516,29 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             job_type=KT("detail__trigger__job_type"),
             before_variants=_changed(_FILTERS, "before.multivariate.variants"),
             after_variants=_changed(_FILTERS, "after.multivariate.variants"),
+            before_groups=_changed(_FILTERS, "before.groups"),
+            after_groups=_changed(_FILTERS, "after.groups"),
             before_aggregation=_changed(_FILTERS, "before.aggregation_group_type_index"),
             after_aggregation=_changed(_FILTERS, "after.aggregation_group_type_index"),
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
             **{f"after_{setting}": _changed(field, "after") for setting, field in _SETTING_FIELDS.items()},
         )
-        .values("created_at", "job_type", *_PROJECTED)
+        .values("created_at", "job_type", *_PROJECTED)[: MAX_FLAG_SAVES + 1]
     )
-    split: list[SplitChange] = []
-    bucketing: list[BucketingChange] = []
+
+
+def _too_large(rows: list[dict[str, Any]]) -> FlagHistoryNotCheckedReason | None:
+    if len(rows) > MAX_FLAG_SAVES:
+        return FlagHistoryNotCheckedReason.TOO_MANY_SAVES
+    for row in rows:
+        for groups in (row["before_groups"], row["after_groups"]):
+            if isinstance(groups, list) and len(groups) > MAX_RELEASE_CONDITIONS:
+                return FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS
+    return None
+
+
+def _flag_changes(rows: list[dict[str, Any]], *, feature_flag_id: int) -> tuple[FlagChange, ...]:
+    changes: list[FlagChange] = []
     for row in rows:
         changed_at = row["created_at"]
         split_change = split_change_from_activity(
@@ -487,8 +548,8 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             after_variants=row["after_variants"],
         )
         if split_change is not None:
-            split.append(split_change)
-        bucketing.extend(
+            changes.append(split_change)
+        changes.extend(
             bucketing_changes_from_activity(
                 changed_at=changed_at,
                 feature_flag_id=feature_flag_id,
@@ -496,7 +557,19 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
                 after=_settings(row, "after"),
             )
         )
-    return _FlagChanges(split=tuple(split), bucketing=tuple(bucketing))
+        conditions_change = conditions_change_from_activity(
+            changed_at=changed_at,
+            job_type=row["job_type"],
+            before_groups=row["before_groups"],
+            after_groups=row["after_groups"],
+            before_aggregation=row["before_aggregation"],
+            after_aggregation=row["after_aggregation"],
+            before_variants=row["before_variants"],
+            after_variants=row["after_variants"],
+        )
+        if conditions_change is not None:
+            changes.append(conditions_change)
+    return tuple(changes)
 
 
 def _settings(row: dict[str, object], side: str) -> dict[BucketingSetting, object]:

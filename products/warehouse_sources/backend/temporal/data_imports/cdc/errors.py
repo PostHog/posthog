@@ -28,6 +28,7 @@ class CDCErrorCategory(enum.StrEnum):
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    POOLER_TENANT_NOT_FOUND = "pooler_tenant_not_found"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -113,6 +114,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Your database provider blocked the connection because your account or project exceeded a "
         "usage quota. Upgrade your provider's plan or wait for the quota to reset, then re-enable "
         "change data capture.",
+        False,
+    ),
+    CDCErrorCategory.POOLER_TENANT_NOT_FOUND: (
+        "Your connection pooler couldn't find your database project or user. Check that the project "
+        "is active and the pooler username is correct, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (

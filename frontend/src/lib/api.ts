@@ -215,7 +215,6 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
@@ -244,7 +243,6 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -1351,14 +1349,6 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
     }
 
-    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('recommendations')
-    }
-
-    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
-    }
-
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('quick_filters')
     }
@@ -1711,11 +1701,6 @@ export class ApiRequest {
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
-    }
-
-    // Max hands-free mode (ElevenLabs Scribe token proxy)
-    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
     }
 
     // Conversations (Support product)
@@ -2345,6 +2330,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            includeTags,
             signal,
         }: {
             parent?: string
@@ -2361,6 +2347,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            includeTags?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2380,6 +2367,7 @@ const api = {
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
+                    include_tags: includeTags,
                 })
                 .get({ signal })
         },
@@ -2459,8 +2447,17 @@ const api = {
             }
             return await request.get({ signal })
         },
-        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemShortcut().create({ data })
+        async create(data: {
+            path: string
+            href?: string
+            ref?: string
+            type?: string
+        }): Promise<{ shortcut: FileSystemEntry; created: boolean }> {
+            const url = new ApiRequest().fileSystemShortcut().assembleFullUrl()
+            const response = await api.createResponse(url, data)
+            const shortcut: FileSystemEntry = await getJSONFromSuccessResponse(response, 'POST', url)
+            // The API answers 200 instead of 201 when the user already has this shortcut.
+            return { shortcut, created: response.status === 201 }
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
@@ -4143,31 +4140,6 @@ const api = {
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
-        },
-
-        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
-            results: ErrorTrackingRecommendation[]
-        }> {
-            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
-        },
-
-        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
-        },
-
-        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
-        },
-
-        async refreshRecommendation(
-            id: string,
-            { force = true }: { force?: boolean } = {}
-        ): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendation(id)
-                .withAction('refresh')
-                .withQueryString({ force })
-                .create()
         },
 
         async createRule(
@@ -6316,6 +6288,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6379,16 +6353,6 @@ const api = {
             }
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
-        },
-        async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email',
-            sendsEmail?: boolean
-        ): Promise<BlastRadiusApi> {
-            return await new ApiRequest()
-                .hogFlows()
-                .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6569,23 +6533,6 @@ const api = {
     schema: {
         async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
             return await new ApiRequest().queryUpgrade().create({ data })
-        },
-    },
-
-    maxHandsFree: {
-        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
-            return await api.create(
-                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
-                undefined,
-                options
-            )
-        },
-        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
-            return await api.createResponse(
-                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
-                { text },
-                options
-            )
         },
     },
 

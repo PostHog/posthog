@@ -2,8 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconFlag, IconGear, IconPulse, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -50,6 +53,7 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
     const { setStatPreset, toggleType, toggleArea, toggleStability, setTheme, setSearch, clearAllFilters } = useActions(
         visualReviewSnapshotOverviewSceneLogic
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Theme is never neutral (always Light or Dark), so we don't count it
     // toward `isFiltered` — picking a side is the default state.
@@ -70,9 +74,16 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                 repoFullName={repoFullName}
                 activeTab="snapshots"
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                        Settings
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>
+                            <IconGear />
+                            Settings
+                        </Button>
+                    ) : (
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                            Settings
+                        </LemonButton>
+                    )
                 }
             />
             <VisualReviewTabs activeKey="snapshots" repoFullName={repoFullName} />

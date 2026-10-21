@@ -1117,6 +1117,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$virt_mcp_harness": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_mcp_harness`",
+                  "id": null,
+                  "name": "$virt_mcp_harness",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
@@ -8859,6 +8869,393 @@
           },
           "id": "system.information_schema.relationship_proposals",
           "name": "system.information_schema.relationship_proposals",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_checks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_status",
+                  "id": null,
+                  "name": "subject_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "column_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "column_name",
+                  "id": null,
+                  "name": "column_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_type",
+                  "id": null,
+                  "name": "check_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "last_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_status",
+                  "id": null,
+                  "name": "last_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "last_run_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_run_at",
+                  "id": null,
+                  "name": "last_run_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_checks",
+          "name": "system.information_schema.data_quality_checks",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_check_runs": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_id",
+                  "id": null,
+                  "name": "check_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "suite_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suite_run_id",
+                  "id": null,
+                  "name": "suite_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_type",
+                  "id": null,
+                  "name": "check_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "column_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "column_name",
+                  "id": null,
+                  "name": "column_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "failed_row_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "failed_row_count",
+                  "id": null,
+                  "name": "failed_row_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "observed_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "observed_value",
+                  "id": null,
+                  "name": "observed_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "error": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "error",
+                  "id": null,
+                  "name": "error",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "duration_ms",
+                  "id": null,
+                  "name": "duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_check_runs",
+          "name": "system.information_schema.data_quality_check_runs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_health": {
+          "certification": null,
+          "fields": {
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "health": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "health",
+                  "id": null,
+                  "name": "health",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "checks_total": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_total",
+                  "id": null,
+                  "name": "checks_total",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "checks_failing": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_failing",
+                  "id": null,
+                  "name": "checks_failing",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "checks_erroring": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_erroring",
+                  "id": null,
+                  "name": "checks_erroring",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_run_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_run_at",
+                  "id": null,
+                  "name": "last_run_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_health",
+          "name": "system.information_schema.data_quality_health",
           "row_count": null,
           "type": "system"
       },
@@ -15338,6 +15735,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$virt_mcp_harness": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_mcp_harness`",
+                  "id": null,
+                  "name": "$virt_mcp_harness",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
@@ -23080,6 +23487,393 @@
           },
           "id": "system.information_schema.relationship_proposals",
           "name": "system.information_schema.relationship_proposals",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_checks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_status",
+                  "id": null,
+                  "name": "subject_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "column_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "column_name",
+                  "id": null,
+                  "name": "column_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_type",
+                  "id": null,
+                  "name": "check_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "last_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_status",
+                  "id": null,
+                  "name": "last_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "last_run_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_run_at",
+                  "id": null,
+                  "name": "last_run_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_checks",
+          "name": "system.information_schema.data_quality_checks",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_check_runs": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_id",
+                  "id": null,
+                  "name": "check_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "suite_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suite_run_id",
+                  "id": null,
+                  "name": "suite_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_type",
+                  "id": null,
+                  "name": "check_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "column_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "column_name",
+                  "id": null,
+                  "name": "column_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "failed_row_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "failed_row_count",
+                  "id": null,
+                  "name": "failed_row_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "observed_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "observed_value",
+                  "id": null,
+                  "name": "observed_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "error": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "error",
+                  "id": null,
+                  "name": "error",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "duration_ms",
+                  "id": null,
+                  "name": "duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_check_runs",
+          "name": "system.information_schema.data_quality_check_runs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.information_schema.data_quality_health": {
+          "certification": null,
+          "fields": {
+              "subject_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_type",
+                  "id": null,
+                  "name": "subject_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_uuid",
+                  "id": null,
+                  "name": "subject_uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "subject_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "subject_name",
+                  "id": null,
+                  "name": "subject_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "health": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "health",
+                  "id": null,
+                  "name": "health",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "checks_total": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_total",
+                  "id": null,
+                  "name": "checks_total",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "checks_failing": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_failing",
+                  "id": null,
+                  "name": "checks_failing",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "checks_erroring": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "checks_erroring",
+                  "id": null,
+                  "name": "checks_erroring",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_run_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_run_at",
+                  "id": null,
+                  "name": "last_run_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.information_schema.data_quality_health",
+          "name": "system.information_schema.data_quality_health",
           "row_count": null,
           "type": "system"
       },

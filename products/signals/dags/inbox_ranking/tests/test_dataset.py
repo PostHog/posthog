@@ -10,6 +10,7 @@ import pyarrow as pa
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Organization, Team, User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -775,7 +776,11 @@ class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
             properties={"impressions": [{"report_id": UUID_A, "rank": 1, "source_products": ["error_tracking"]}]},
         )
 
-        rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        with patch.object(queries, "execute_hogql_query", wraps=queries.execute_hogql_query) as query:
+            rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert query.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
+        assert query.call_args.kwargs["settings"].max_execution_time == 600
+        assert query.call_args.kwargs["workload"] == queries.etl_workload()
         assert [row[0] for row in rows] == [UUID_A]
 
 
@@ -881,6 +886,8 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
             ("reasonless_resolve", "ready", "resolved", None, 1),
             ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
             ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("no_action_needed_resolve", "ready", "resolved", "no_action_needed", 0),
+            ("manual_fix_resolve", "ready", "resolved", "fixed_outside_posthog", 1),
             ("other_dismissal", "ready", "suppressed", "other", 0),
         ]
     )
@@ -1189,6 +1196,7 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
 
     def fake_sync_execute(sql, params, **kwargs):
         captured["params"] = params
+        captured["query_kwargs"] = kwargs
         return rows
 
     def fake_write_parquet(client, bucket, key, table, **kwargs):
@@ -1221,6 +1229,9 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
 def test_each_embeddings_asset_snapshots_its_own_rendering(monkeypatch, asset, table, rendering):
     written = _run_embeddings_asset(monkeypatch, asset, [(2, UUID_A, [0.5, 0.25], False, T1)])
 
+    assert written["query_kwargs"]["ch_user"] == ClickHouseUser.SIGNALS
+    assert written["query_kwargs"]["settings"] == dag.REPORT_EMBEDDINGS_QUERY_SETTINGS
+    assert written["query_kwargs"]["workload"] == queries.etl_workload()
     assert written["params"]["rendering"] == rendering
     assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
     assert written["table"].schema == EMBEDDINGS_SCHEMA
@@ -1263,6 +1274,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_engagement_export,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1271,6 +1283,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.ENGAGEMENT_EXPORT,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

@@ -580,14 +580,14 @@ describe('scoutFleetLogic', () => {
 
     // The whole point of materializing on open: a project the coordinator never reached has no
     // configs at all, and the roster has no other way to get any.
-    it('fills an empty roster from the fleet the sync materializes', async () => {
+    it.each(['roster', 'onboarding'] as const)('fills an empty fleet for %s', async (surface) => {
         mockSignalsScoutConfigSync.mockResolvedValue([BASE_CONFIG])
         logic.actions.loadScoutConfigsSuccess([])
 
-        logic.actions.materializeScoutFleet()
+        logic.actions.materializeScoutFleet(surface)
 
         await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
-        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface: 'roster' })
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface })
         expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
         expect(logic.values.scoutFleetSynced).toBe(true)
         expect(logic.values.scoutFleetSyncOutcome).toBe('synced')

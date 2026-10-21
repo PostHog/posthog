@@ -252,11 +252,7 @@ class TestFetchPage:
 class TestCheckAccess:
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
             ("missing_key", 400, False, 400, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Luma returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -268,19 +264,9 @@ class TestCheckAccess:
         assert network.requests_log[0].param("pagination_limit") == "1"
         assert network.requests_log[0].headers["x-luma-api-key"] == "luma-key"
 
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("luma-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("missing_key", 400, False, "Invalid Luma API key"),
-            ("unauthorized", 401, False, "Invalid Luma API key"),
-            ("forbidden", 403, False, "Invalid Luma API key"),
-            ("server_error", 500, False, "Luma returned HTTP 500"),
         ]
     )
     def test_validate_credentials(

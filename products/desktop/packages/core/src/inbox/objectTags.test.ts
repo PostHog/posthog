@@ -78,6 +78,6 @@ describe("objectWebPath", () => {
 
   it("returns null for a flag cited by key", () => {
     expect(objectWebPath("flag", "my-flag-key")).toBeNull();
-    expect(objectWebPath("flag", "42")).toBe("/feature_flags/42");
+    expect(objectWebPath("flag", "42")).toBe("/feature-flags/42");
   });
 });

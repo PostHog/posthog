@@ -1,7 +1,8 @@
 import datetime
+import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -33,6 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    is_unreachable_vendor_error,
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -114,6 +119,36 @@ def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     """
     error_msg_lower = error_msg.lower()
     return any(pattern.lower() in error_msg_lower for pattern in patterns)
+
+
+CredentialProbe = TypeVar("CredentialProbe", bound=Callable[..., tuple[bool, str | None]])
+
+_GUARDED_PROBE = "_reports_unreachable_vendor"
+
+
+def _report_unreachable_vendor(probe: CredentialProbe) -> CredentialProbe:
+    """Wrap a `validate_credentials` override so that an unreachable vendor gives `(False, message)`.
+
+    The API calls the probe while a person creates or edits a source. A raised transport error there
+    shows them a message that blames their credentials. Every other error still raises."""
+
+    @functools.wraps(probe)
+    def guarded(self: "_BaseSource[Any]", *args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        try:
+            return probe(self, *args, **kwargs)
+        except Exception as error:
+            if not is_unreachable_vendor_error(error):
+                raise
+            # The class name only: a transport error message can repeat a URL that holds a credential.
+            logger.warning(
+                "validate_credentials could not reach the vendor",
+                source_type=str(self.source_type),
+                error_class=type(error).__name__,
+            )
+        return False, unreachable_vendor_message(self._vendor_label())
+
+    setattr(guarded, _GUARDED_PROBE, True)
+    return cast(CredentialProbe, guarded)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -413,10 +448,27 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Every override gets the guard, so a new source cannot forget it.
+        probe = cls.__dict__.get("validate_credentials")
+        if callable(probe) and not getattr(probe, _GUARDED_PROBE, False):
+            cls.validate_credentials = _report_unreachable_vendor(probe)  # type: ignore[method-assign]
+
+    def _vendor_label(self) -> str:
+        # The label is for a message only, so a source config that cannot build must not hide the result.
+        try:
+            return self.get_source_config.label or str(self.source_type.value)
+        except Exception:
+            return "the vendor"
+
     def validate_credentials(
         self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message.
+
+        Every override runs inside a guard that turns an unreachable vendor (a dropped connection, a
+        timeout, a server error) into `(False, message)`, so an override can let those errors raise.
 
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
@@ -472,6 +524,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
+
+    # Feature flag a team must have before the API lets it discover tables for or create a source of
+    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
+    # not be reachable through the API without the flag sets this as well.
+    requires_team_feature_flag: str | None = None
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.

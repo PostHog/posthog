@@ -9,7 +9,7 @@ import structlog
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
-DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+DEFAULT_DECISION_MODEL = "posthog/hogference/jeeves-0.1"
 PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
 

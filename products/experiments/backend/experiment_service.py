@@ -28,7 +28,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import (
+    ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY,
+    CohortSerializer,
+    get_flags_blocking_cohort_deletion,
+)
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -48,7 +52,6 @@ from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
@@ -78,6 +81,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
+    defined_event_names,
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
@@ -110,6 +114,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
@@ -155,6 +160,14 @@ DEFAULT_ROLLOUT_PERCENTAGE = 100
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 # The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
 ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
+
+# A launch whose start_date is older than this is a backdated launch (e.g. a move from another tool).
+BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
+
+
+def _is_imported_concluded(experiment: Experiment) -> bool:
+    """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
+    return experiment.end_date is not None and experiment.end_date <= timezone.now()
 
 
 def _parse_tag_names(value: Any) -> list[str]:
@@ -1067,10 +1080,10 @@ class ExperimentService:
         use, so an update can be checked for what it introduces rather than for
         everything it resends. See ``update_experiment``.
 
-        Scope must match the picker: the EventDefinition list endpoint is
-        project-scoped (see posthog/api/event_definition.py), so a user in a
-        multi-team project can pick an event ingested by a sibling team. We
-        mirror that scope here to avoid rejecting legitimate selections.
+        The lookup is `defined_event_names`, which the experiment health checks
+        also read. They count only the definitions that ingestion has seen, but
+        this accepts the events Wizard planned, so they can be picked before the
+        code that sends them ships.
         """
         all_event_names, _ = extract_entity_nodes(metrics)
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
@@ -1078,17 +1091,7 @@ class ExperimentService:
             return
 
         project_id = self.team.project_id
-        # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
-        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
-        # *primary* team, and primary_team.id == project.id by convention. This
-        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
-        # teams can validate against legacy primary-team events the picker shows.
-        existing = set(
-            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-            .filter(effective_project_id=project_id, name__in=event_names)
-            .values_list("name", flat=True)
-        )
-        unknown = event_names - existing
+        unknown = event_names - defined_event_names(project_id, event_names)
         if unknown:
             # Capture the rejected payload shape so we can identify clients
             # that send malformed metrics (e.g. event="").
@@ -1326,7 +1329,7 @@ class ExperimentService:
                 creation_mode=creation_mode,
                 analytics_properties=analytics_properties,
             )
-            if experiment.start_date is not None:
+            if experiment.start_date is not None and not _is_imported_concluded(experiment):
                 self._report_experiment_launched(
                     experiment,
                     launch_path="create_request",
@@ -1380,6 +1383,11 @@ class ExperimentService:
 
         analytics_metadata = experiment.get_analytics_metadata()
         analytics_metadata["creation_mode"] = creation_mode
+        analytics_metadata["is_imported"] = _is_imported_concluded(experiment)
+        if experiment.start_date is not None:
+            analytics_metadata["start_date"] = experiment.start_date.isoformat()
+        if experiment.end_date is not None:
+            analytics_metadata["end_date"] = experiment.end_date.isoformat()
         if event_source is not None:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
@@ -1408,8 +1416,9 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
+            health_context = load_health_context(experiment)
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
-            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
+            findings = evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1418,7 +1427,12 @@ class ExperimentService:
                 extra_metadata={
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
+                    "is_backdated": experiment.start_date is not None
+                    and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
                     "flag_age_seconds": int(flag_age.total_seconds()),
+                    # The launch doesn't move `last_called_at`, so this is the state before the launch, and the only
+                    # time it is recorded: a later call overwrites it. None when the organization's calls can't be read.
+                    "flag_called_before_launch": health_context.flag_called,
                     "health_finding_codes": [finding.code.value for finding in findings],
                     # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
                     # unambiguous when two codes use the same subcode.
@@ -1984,7 +1998,8 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -2001,6 +2016,18 @@ class ExperimentService:
             return
 
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            return
+
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
             return
 
         # Gated write inside unarchive_experiment's transaction: safe because an
@@ -2450,8 +2477,8 @@ class ExperimentService:
         The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
         round-trip through the flag API and are therefore user-editable — treat them as claims,
         not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
-        and no longer referenced by any active flag (the same protection the cohort API enforces
-        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        and no longer referenced by any flag that blocks its deletion through the cohort API.
+        Anything failing verification is skipped rather than fatal — a leftover
         cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
         """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
@@ -2463,12 +2490,12 @@ class ExperimentService:
                     reason="not_a_freeze_snapshot_name",
                 )
                 continue
-            if get_active_flags_using_cohort(cohort):
+            if get_flags_blocking_cohort_deletion(cohort):
                 logger.warning(
                     "experiment_freeze_snapshot_cleanup_skipped",
                     cohort_id=cohort.pk,
                     team_id=self.team.pk,
-                    reason="still_referenced_by_active_flags",
+                    reason="still_referenced_by_flags",
                 )
                 continue
             cohort.deleted = True
@@ -3723,12 +3750,13 @@ class ExperimentService:
                 )
 
         if launching:
-            self._report_experiment_launched(
-                experiment,
-                launch_path="update_start_date",
-                request=report_request,
-                event_source=event_source,
-            )
+            if not _is_imported_concluded(experiment):
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="update_start_date",
+                    request=report_request,
+                    event_source=event_source,
+                )
             self._notify_experiment_launched(experiment)
 
         return experiment

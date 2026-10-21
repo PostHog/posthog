@@ -214,6 +214,31 @@
         "params": [],
         "scope": "project"
     },
+    "analytics": {
+        "template": "/analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsList": {
+        "template": "/analytics/all",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsMine": {
+        "template": "/analytics/mine",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsProductHome": {
+        "template": "/analytics/product-analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsSpaces": {
+        "template": "/analytics/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "annotation": {
         "template": "/data-management/annotations/{id}",
         "params": ["id"],
@@ -400,7 +425,7 @@
         "scope": "project"
     },
     "cohortsStaffTools": {
-        "template": "/feature_flags/staff/cohorts",
+        "template": "/feature-flags/staff/cohorts",
         "params": [],
         "scope": "global"
     },
@@ -820,27 +845,27 @@
         "scope": "project"
     },
     "featureFlag": {
-        "template": "/feature_flags/{id}",
+        "template": "/feature-flags/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "featureFlagNew": {
-        "template": "/feature_flags/new",
+        "template": "/feature-flags/new",
         "params": [],
         "scope": "project"
     },
     "featureFlagTemplates": {
-        "template": "/feature_flags/templates",
+        "template": "/feature-flags/templates",
         "params": [],
         "scope": "project"
     },
     "featureFlags": {
-        "template": "/feature_flags",
+        "template": "/feature-flags",
         "params": [],
         "scope": "project"
     },
     "featureFlagsStaffTools": {
-        "template": "/feature_flags/staff",
+        "template": "/feature-flags/staff",
         "params": [],
         "scope": "global"
     },
@@ -1284,6 +1309,11 @@
         "params": [],
         "scope": "project"
     },
+    "onboardingWelcome": {
+        "template": "/welcome",
+        "params": [],
+        "scope": "project"
+    },
     "organizationBilling": {
         "template": "/organization/billing",
         "params": [],
@@ -1464,6 +1494,11 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionNewScanner": {
+        "template": "/replay-vision/new/goal",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1484,13 +1519,13 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerOverview": {
-        "template": "/replay-vision/{id}/overview",
+    "replayVisionScannerGoal": {
+        "template": "/replay-vision/{id}/goal",
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerTemplate": {
-        "template": "/replay-vision/{id}/template",
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1501,11 +1536,6 @@
     },
     "replayVisionTab": {
         "template": "/replay-vision",
-        "params": [],
-        "scope": "project"
-    },
-    "replayVisionTemplates": {
-        "template": "/replay-vision/new/template",
         "params": [],
         "scope": "project"
     },
@@ -1573,6 +1603,11 @@
         "template": "/signup",
         "params": [],
         "scope": "global"
+    },
+    "simpleOnboarding": {
+        "template": "/onboarding/simple",
+        "params": [],
+        "scope": "project"
     },
     "site": {
         "template": "/site/{url}",
@@ -1809,6 +1844,11 @@
         "params": [],
         "scope": "project"
     },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
+        "params": [],
+        "scope": "project"
+    },
     "variable": {
         "template": "/data-management/variables/{id}",
         "params": ["id"],
@@ -1836,16 +1876,6 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
-        "params": [],
-        "scope": "project"
-    },
-    "views": {
-        "template": "/views",
-        "params": [],
-        "scope": "project"
-    },
-    "viewsNew": {
-        "template": "/views/new",
         "params": [],
         "scope": "project"
     },

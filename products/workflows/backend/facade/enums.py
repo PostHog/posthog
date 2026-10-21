@@ -126,3 +126,12 @@ class SetupStepKey(LabeledStrEnum):
     SENDING_RULES = "sending-rules", "Sending rules"
     EMAIL_TEMPLATE = "email-template", "Email template"
     FIRST_WORKFLOW = "first-workflow", "First workflow"
+
+
+class RealtimeAudienceCohortState(LabeledStrEnum):
+    """How far a realtime cohort audience's membership has come, as the audience size response reports it."""
+
+    READY = "ready", "Ready"
+    BUILDING = "building", "Building"
+    REBUILDING = "rebuilding", "Rebuilding"
+    NEEDS_ATTENTION = "needs_attention", "Needs attention"
