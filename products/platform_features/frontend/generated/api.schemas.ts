@@ -1462,12 +1462,15 @@ export type ActivityLogListParams = {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -1481,6 +1484,9 @@ export type ActivityLogListParams = {
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1567,12 +1573,15 @@ export const ActivityLogListScope = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1586,6 +1595,9 @@ export const ActivityLogListScope = {
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 /**
@@ -1659,12 +1671,15 @@ export const ActivityLogListScope = {
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `KnowledgeSource` - KnowledgeSource
+ * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
@@ -1678,6 +1693,9 @@ export const ActivityLogListScope = {
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
+ * * `ReviewRepository` - ReviewRepository
+ * * `ReviewProjectSettings` - ReviewProjectSettings
+ * * `ReviewInstallationClaim` - ReviewInstallationClaim
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1752,12 +1770,15 @@ export const ActivityLogListScopesItem = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1771,6 +1792,9 @@ export const ActivityLogListScopesItem = {
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 export type AdvancedActivityLogsListParams = {

@@ -16,10 +16,13 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog.settings import (
     BODY_RETRY_CODES,
+    COLUMN_STATISTICS_BATCH_SIZE,
     CONTENT_TYPE,
     ENDPOINTS,
     ERROR_MESSAGES,
+    PARENT_ENDPOINTS,
     REQUEST_TIMEOUT_SECONDS,
+    TABLE_OPTIMIZER_TYPES,
     TARGET_PREFIXES,
     GlueEndpoint,
 )
@@ -82,6 +85,15 @@ def error_for_response(response: requests.Response) -> AwsGlueError:
     return error_class(code, message)
 
 
+def page_items(endpoint: GlueEndpoint, body: dict[str, Any]) -> list[dict[str, Any]]:
+    items = body.get(endpoint.result_key, [])
+    if endpoint.names_only and isinstance(items, list) and all(isinstance(item, str) for item in items):
+        items = [{"Name": item} for item in items]
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ValueError("AWS Glue returned an invalid list response.")
+    return items
+
+
 class AwsGlueClient:
     def __init__(self, config: AwsGlueDataCatalogSourceConfig, api_version: str) -> None:
         if not config.aws_access_key_id or not config.aws_secret_access_key:
@@ -136,6 +148,15 @@ class AwsGlueClient:
             raise ValueError("AWS Glue returned an invalid response.")
         return result
 
+    def request_endpoint(self, endpoint: GlueEndpoint, params: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            return self.request(endpoint.operation, params)
+        except AwsGlueError as error:
+            # ListTableOptimizerRuns fails when the table has no optimizer of the requested type.
+            if endpoint.missing_is_empty and error.code == "EntityNotFoundException":
+                return None
+            raise
+
     def pages(
         self,
         endpoint: GlueEndpoint,
@@ -144,13 +165,13 @@ class AwsGlueClient:
     ) -> Iterator[GluePage]:
         token = start_token
         while True:
-            params = {"MaxResults": endpoint.page_size, **payload}
+            params = {"MaxResults": endpoint.page_size, **payload} if endpoint.paginated else {**payload}
             if token:
                 params["NextToken"] = token
-            body = self.request(endpoint.operation, params)
-            items = body[endpoint.result_key]
-            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-                raise ValueError("AWS Glue returned an invalid list response.")
+            body = self.request_endpoint(endpoint, params)
+            if body is None:
+                return
+            items = page_items(endpoint, body)
             next_token = body.get("NextToken") or None
             if next_token is not None and not isinstance(next_token, str):
                 raise ValueError("AWS Glue returned an invalid pagination token.")
@@ -162,14 +183,18 @@ class AwsGlueClient:
             token = next_token
 
 
+def endpoint_spec(endpoint: str) -> GlueEndpoint:
+    return ENDPOINTS[endpoint] if endpoint in ENDPOINTS else PARENT_ENDPOINTS[endpoint]
+
+
 def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_payload: dict[str, Any]) -> dict[str, Any]:
     row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
     row["region"] = region
-    for column in ENDPOINTS[endpoint].timestamp_columns:
+    for column in endpoint_spec(endpoint).timestamp_columns:
         value = row.get(column)
         if isinstance(value, int | float) and not isinstance(value, bool):
             row[column] = datetime.fromtimestamp(value, tz=UTC)
-    for key in ("DatabaseName", "TableName", "JobName", "CatalogId"):
+    for key in ("DatabaseName", "TableName", "JobName", "CrawlerName", "CatalogId", "Type"):
         if key in parent_payload:
             row[_CAMEL_BOUNDARY.sub("_", key).lower()] = parent_payload[key]
     if endpoint == "partitions":
@@ -181,12 +206,34 @@ def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_paylo
 def parent_payload(endpoint: str, parent: dict[str, Any]) -> dict[str, Any]:
     if endpoint == "job_runs":
         return {"JobName": parent["name"]}
+    if endpoint == "crawls":
+        return {"CrawlerName": parent["name"]}
+    if endpoint == "workflow_runs":
+        return {"Name": parent["name"], "IncludeGraph": False}
     payload = {"DatabaseName": parent["name"] if endpoint == "tables" else parent["database_name"]}
     if parent.get("catalog_id"):
         payload["CatalogId"] = parent["catalog_id"]
-    if endpoint == "partitions":
+    if endpoint in ("partitions", "table_versions", "column_statistics", "table_optimizer_runs"):
         payload["TableName"] = parent["name"]
     return payload
+
+
+def parent_payloads(endpoint: str, parent: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = parent_payload(endpoint, parent)
+    if endpoint == "column_statistics":
+        columns = (parent.get("storage_descriptor") or {}).get("Columns") or []
+        names = [column["Name"] for column in columns if isinstance(column, dict) and column.get("Name")]
+        return [
+            {**payload, "ColumnNames": names[start : start + COLUMN_STATISTICS_BATCH_SIZE]}
+            for start in range(0, len(names), COLUMN_STATISTICS_BATCH_SIZE)
+        ]
+    if endpoint == "table_optimizer_runs":
+        # Table optimizers exist only for Iceberg tables, and the request requires a catalog ID.
+        table_type = str((parent.get("parameters") or {}).get("table_type", ""))
+        if table_type.upper() != "ICEBERG" or "CatalogId" not in payload:
+            return []
+        return [{**payload, "Type": optimizer_type} for optimizer_type in TABLE_OPTIMIZER_TYPES]
+    return [payload]
 
 
 def walk_rows(
@@ -195,15 +242,15 @@ def walk_rows(
     manager: ResumableSourceManager[AwsGlueDataCatalogResumeConfig],
     checkpoint: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
-    spec = ENDPOINTS[endpoint]
+    spec = endpoint_spec(endpoint)
     if spec.parent:
         for parents in walk_rows(client, spec.parent, manager):
             for parent in parents:
-                payload = parent_payload(endpoint, parent)
-                for page in client.pages(spec, payload):
-                    if page.items:
-                        yield [normalize_row(endpoint, item, client.region, payload) for item in page.items]
-                    manager.safe_point()
+                for payload in parent_payloads(endpoint, parent):
+                    for page in client.pages(spec, payload):
+                        if page.items:
+                            yield [normalize_row(endpoint, item, client.region, payload) for item in page.items]
+                        manager.safe_point()
         return
 
     state = manager.load_state() if checkpoint and manager.can_resume() else None
@@ -250,15 +297,20 @@ def aws_glue_data_catalog_source(
 
 
 def probe_endpoint(client: AwsGlueClient, endpoint: str) -> dict[str, Any] | None:
-    spec = ENDPOINTS[endpoint]
+    spec = endpoint_spec(endpoint)
     payload: dict[str, Any] = {}
     if spec.parent:
         parent = probe_endpoint(client, spec.parent)
         if parent is None:
             return None
-        payload = parent_payload(endpoint, parent)
-    body = client.request(spec.operation, {**payload, "MaxResults": 1})
-    items = body.get(spec.result_key) or []
+        payloads = parent_payloads(endpoint, parent)
+        if not payloads:
+            return None
+        payload = payloads[0]
+    body = client.request_endpoint(spec, {**payload, "MaxResults": 1} if spec.paginated else payload)
+    if body is None:
+        return None
+    items = page_items(spec, body)
     return normalize_row(endpoint, items[0], client.region, payload) if items else None
 
 

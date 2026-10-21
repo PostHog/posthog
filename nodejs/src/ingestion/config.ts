@@ -175,6 +175,7 @@ export type IngestionConsumerConfig = {
     // The saga's per-source move guard in SYNC mode; an over-limit source
     // comes back skipped_move_limit for the merge-mode policy.
     PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
+    PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -368,6 +369,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
+        PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
@@ -499,6 +501,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
     INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
 
@@ -552,6 +557,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         // createFlagEvaluationsService.
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
         INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // An empty topic skips the startup topic-existence check. While it is empty, a
+        // FLAG_EVALUATIONS_ONLY team's flag calls reach no realtime destination, so set it
+        // on every lane that sets INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. Enable
+        // ordering: (1) create the realtime_only_events_json topic, (2) start the CDP
+        // consumers that read it, (3) set INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC. A
+        // consumer group that joins after step 3 can start past the first routed calls.
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,

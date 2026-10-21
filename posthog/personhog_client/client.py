@@ -48,6 +48,8 @@ from posthog.personhog_client.proto import (
     DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse,
+    GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -81,6 +83,8 @@ from posthog.personhog_client.proto import (
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
     ListGroupsResponse,
+    ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse,
     ListPersonTombstoneQueueRequest,
     ListPersonTombstoneQueueResponse,
     PersonHogServiceStub,
@@ -269,6 +273,16 @@ class PersonHogClient:
         self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
     ) -> EnsurePersonVersionFloorsResponse:
         return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def get_distinct_id_rows(
+        self, request: GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> GetDistinctIdRowsResponse:
+        return self._stub.GetDistinctIdRows(request, timeout=timeout or self._timeout)
+
+    def list_persons_for_team(
+        self, request: ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> ListPersonsForTeamResponse:
+        return self._stub.ListPersonsForTeam(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

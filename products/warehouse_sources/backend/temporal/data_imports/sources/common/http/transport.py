@@ -20,20 +20,28 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import requests
+import structlog
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import InvalidHeader, MaxRetryError, ResponseError
 from urllib3.util.retry import Retry
+from urllib3.util.timeout import Timeout
+
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
+
+logger = structlog.get_logger(__name__)
 
 RequestTimeout = float | tuple[float, float] | tuple[float, None]
 
@@ -55,7 +63,78 @@ def resolve_request_timeout(timeout: RequestTimeout | None) -> RequestTimeout:
     return default_request_timeout() if timeout is None else timeout
 
 
-_monotonic = time.monotonic
+def _monotonic() -> float:
+    # Read at each call, so a fake clock that replaces `time.monotonic` reaches the deadlines too.
+    return time.monotonic()
+
+
+# A try never gets a timeout shorter than this. urllib3 rejects a timeout of 0.
+_SHORTEST_TRY_SECONDS = 0.001
+
+_request_deadline: ContextVar[float | None] = ContextVar("warehouse_source_request_deadline", default=None)
+
+
+def current_request_deadline() -> float | None:
+    """The deadline of the enclosing `request_deadline` block, a `time.monotonic()` value, if any."""
+    return _request_deadline.get()
+
+
+@contextmanager
+def request_deadline(deadline: float | None = None) -> Iterator[None]:
+    """Make requests in the block end by `deadline`, a `time.monotonic()` value.
+
+    For a caller that retries a request itself, so that all of its tries share one deadline. Each
+    try gets only the time that is left, and the adapter starts no retry that the deadline cuts off.
+    An earlier deadline that is already in effect wins. With no `deadline`, the block ends
+    `retry_budget_seconds()` from now.
+    """
+    if deadline is None:
+        deadline = _monotonic() + retry_budget_seconds()
+    current = _request_deadline.get()
+    token = _request_deadline.set(deadline if current is None else min(current, deadline))
+    try:
+        yield
+    finally:
+        _request_deadline.reset(token)
+
+
+def _cut(seconds: Any, left: float) -> Any:
+    # None means no deadline, and urllib3 uses a sentinel object for its own default. Both stay as they are.
+    if isinstance(seconds, int | float):
+        return min(float(seconds), left)
+    return seconds
+
+
+class _DeadlineTimeout(Timeout):
+    """A urllib3 `Timeout` that cuts the timeouts of each try to the time left before a deadline.
+
+    urllib3 clones the timeout at the start of each try, also for the adapter's own retries.
+    """
+
+    def __init__(self, connect: Any, read: Any, total: Any, *, deadline: float) -> None:
+        super().__init__(connect=connect, read=read, total=total)
+        self._try_connect = connect
+        self._try_read = read
+        self._deadline = deadline
+
+    def clone(self) -> Timeout:
+        left = max(self._deadline - _monotonic(), _SHORTEST_TRY_SECONDS)
+        total = _cut(self.total, left)
+        # Connect and read time add up, so a total is what keeps a slow connect from adding to the read.
+        # A timeout that sets no connect or no read stays open, because that is the source's opt-out.
+        if total is None and self._try_connect is not None and self._try_read is not None:
+            total = left
+        return Timeout(connect=_cut(self._try_connect, left), read=_cut(self._try_read, left), total=total)
+
+
+def _deadline_timeout(timeout: RequestTimeout | Timeout, deadline: float) -> _DeadlineTimeout:
+    # Some sources pass a urllib3 `Timeout`, which `requests` accepts too.
+    if isinstance(timeout, Timeout):
+        raw = cast(Any, timeout)  # the stubs hide the configured values, and `connect_timeout` needs a started clock
+        return _DeadlineTimeout(raw._connect, raw._read, timeout.total, deadline=deadline)
+    connect, read = timeout if isinstance(timeout, tuple) else (timeout, timeout)
+    return _DeadlineTimeout(connect, read, None, deadline=deadline)
+
 
 # The same policy as the `requests` default: no retry, and a read error keeps its own type.
 NO_RETRY = Retry(0, read=False)
@@ -95,8 +174,11 @@ class BoundedRetry(Retry):
 
     Two more limits keep one request from holding a worker:
 
-    - All retries of one request share `retry_budget_seconds()`, counted from the first failure.
-      When it is spent, the last response or error goes to the caller.
+    - All tries of one request end by one deadline. In `TrackedHTTPAdapter` it is the request
+      deadline (see `request_deadline`). Outside it, it is `retry_budget_seconds()` after the first
+      failure. No wait starts that would end at or after the deadline: the last response or error
+      goes to the caller. A `Retry-After` counts with the delay that the server asked for, before
+      the cap, so a server that asks for a day gets its 429 back at once and no capped wait.
     - A wait ends early when the worker starts to shut down, so the caller can hand the run off.
     """
 
@@ -125,11 +207,23 @@ class BoundedRetry(Retry):
             ),
         )
         now = _monotonic()
-        deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
-        if now >= deadline:
+        deadline = _request_deadline.get()
+        if deadline is None:
+            deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
+        if now + retry._requested_wait(response) >= deadline:
             raise MaxRetryError(_pool, url or "", error or ResponseError("retry budget spent"))
         retry._retry_deadline = deadline
         return retry
+
+    def _requested_wait(self, response: Any) -> float:
+        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns,
+        # but with the delay the server asked for and not the capped one. A capped wait ends before the
+        # server is ready, so a retry after it fails again and only holds the worker.
+        if self.respect_retry_after_header and response is not None:
+            retry_after = super().get_retry_after(response)
+            if retry_after:
+                return retry_after
+        return self.get_backoff_time()
 
     def sleep_for_retry(self, response: Any = None) -> bool:
         retry_after = self.get_retry_after(response)
@@ -182,6 +276,38 @@ DEFAULT_RETRY = BoundedRetry(
 )
 
 
+def _note_oob_domain(request: PreparedRequest) -> None:
+    """Record a request to an out-of-band interaction domain, without refusing it.
+
+    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is recorded
+    as well as the first request.
+    """
+    if not is_cloud():
+        return
+
+    try:
+        host = urlparse(request.url or "").hostname
+    except Exception as exc:
+        # Detection never fails a request: a malformed URL is the connection's problem to report.
+        # `requests` rejects a URL it cannot parse before `send()`, so reaching this means the two
+        # parsers disagree. The URL stays out of the line because it carries the credential that
+        # `record_request` scrubs; it logs the same request a moment later.
+        logger.warning("security.oob_domain_url_unparsed", error=type(exc).__name__)
+        return
+
+    if host is None:
+        return
+
+    try:
+        oob_domain = matched_oob_domain(host)
+    except Exception:
+        logger.exception("security.oob_domain_check_failed", host=host)
+        return
+
+    if oob_domain is not None:
+        logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
+
+
 class TrackedHTTPAdapter(HTTPAdapter):
     """`HTTPAdapter` that records every dispatched request via the observer.
 
@@ -200,6 +326,9 @@ class TrackedHTTPAdapter(HTTPAdapter):
 
     A request that reaches `send()` with `timeout=None` gets `default_request_timeout()`, so a
     stalled host cannot hold a worker without limit. Pass `NO_REQUEST_TIMEOUT` to opt out.
+
+    All tries of one `send()` end by one deadline: the caller's `request_deadline`, or
+    `retry_budget_seconds()` after the call starts.
     """
 
     def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), capture: bool = True, **kwargs: Any) -> None:
@@ -224,18 +353,24 @@ class TrackedHTTPAdapter(HTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
+        _note_oob_domain(request)
         started = time.monotonic()
+        deadline = _request_deadline.get()
+        if deadline is None:
+            deadline = _monotonic() + retry_budget_seconds()
         response: Response | None = None
         exception: BaseException | None = None
         try:
-            response = super().send(
-                request,
-                stream=stream,
-                timeout=resolve_request_timeout(timeout),
-                verify=verify,
-                cert=cert,
-                proxies=proxies,
-            )
+            with request_deadline(deadline):
+                response = super().send(
+                    request,
+                    stream=stream,
+                    # `requests` accepts a urllib3 `Timeout` here, which its stubs do not list.
+                    timeout=cast(Any, _deadline_timeout(resolve_request_timeout(timeout), deadline)),
+                    verify=verify,
+                    cert=cert,
+                    proxies=proxies,
+                )
             return response
         except BaseException as exc:
             exception = exc

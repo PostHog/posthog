@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
+    ExternalDataSourceSerializers,
+)
 
 
 class TestWarehouseSourcesFacade(BaseTest):
@@ -86,6 +89,61 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert [r.source_type for r in results] == ["Postgres"]
         assert results[0].last_run_at == newest.created_at
         assert results[0].latest_error == "permission denied for table users"
+
+    @parameterized.expand(
+        [
+            ("all_completed", [(ExternalDataSchema.Status.COMPLETED, True)], "Completed"),
+            (
+                "one_running",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.RUNNING, True)],
+                "Running",
+            ),
+            (
+                "one_failed",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, True)],
+                "Failed",
+            ),
+            (
+                "failed_but_disabled",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, False)],
+                "Completed",
+            ),
+            (
+                "billing_limit_reached",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True)],
+                "Billing limits",
+            ),
+            (
+                "one_paused",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.PAUSED, True)],
+                "Paused",
+            ),
+            ("no_schema_state", [(None, True)], "Running"),
+        ]
+    )
+    def test_list_source_health_status_matches_source_list(
+        self, _name: str, schema_states: list[tuple[str | None, bool]], expected: str
+    ) -> None:
+        self.source.status = "Running"
+        self.source.save()
+        self.schema.delete()
+        for index, (status, should_sync) in enumerate(schema_states):
+            ExternalDataSchema.objects.create(
+                team_id=self.team.pk,
+                source=self.source,
+                name=f"schema_{index}",
+                should_sync=should_sync,
+                status=status,
+                latest_error=None if should_sync else "old error",
+            )
+
+        [health] = api.list_source_health(self.team.pk)
+        serializer_status = ExternalDataSourceSerializers(context={"get_team": lambda: self.team}).get_status(
+            self.source
+        )
+
+        assert health.status == expected
+        assert serializer_status == expected
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(

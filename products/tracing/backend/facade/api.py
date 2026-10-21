@@ -17,7 +17,7 @@ Do NOT:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema import (
     CachedTraceSpansAttributeBreakdownQueryResponse,
@@ -58,7 +58,13 @@ from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
+from products.tracing.backend.service_health_query_runner import (
+    run_service_health_query as _run_service_health_query,
+    service_health_byte_cap_message as _service_health_byte_cap_message,
+)
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
+
+from .contracts import ServiceHealthParams
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -258,3 +264,11 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
     the returned columns.
     """
     return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id)
+
+
+def run_service_health_query(*, team: "Team", params: ServiceHealthParams) -> dict[str, Any]:
+    return _run_service_health_query(team=team, params=params)
+
+
+def service_health_byte_cap_message(*, team: "Team", params: ServiceHealthParams) -> str:
+    return _service_health_byte_cap_message(team=team, params=params)

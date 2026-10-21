@@ -21,8 +21,8 @@ export const urls = {
         return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
     },
     experiments: (): string => '/experiments',
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+    featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
     organizationBilling: (products?: string[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -31,8 +31,6 @@ export const urls = {
     sessionProfile: (id: string): string => `/sessions/${id}`,
     settings: (section: string = 'project', setting?: string): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
-    survey: (id: string): string => `/surveys/${id}`,
-    surveys: (tab?: string): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
 }
 

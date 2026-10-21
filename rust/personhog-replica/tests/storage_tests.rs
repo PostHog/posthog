@@ -4,8 +4,8 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    GroupKey, PersonVersionFloorResult, StorageError, TombstoneTarget, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -175,6 +175,91 @@ async fn test_get_group() {
     let fetched_props: serde_json::Value =
         serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
     assert_eq!(fetched_props, properties);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_create_group_returns_existing_group_on_duplicate_key() {
+    let ctx = TestContext::new().await;
+    let first_properties = serde_json::json!({"name": "First"});
+    let first_created_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    let first = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &first_properties,
+            first_created_at,
+        )
+        .await
+        .expect("first create failed");
+
+    let second = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &serde_json::json!({"name": "Second"}),
+            chrono::Utc::now(),
+        )
+        .await
+        .expect("a duplicate create should return the existing group");
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.created_at, first.created_at);
+    assert_eq!(second.version, first.version);
+    let second_props: serde_json::Value =
+        serde_json::from_str(second.group_properties.as_deref().unwrap()).unwrap();
+    assert_eq!(second_props, first_properties);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_create_group_returns_a_group_committed_while_its_insert_waits() {
+    let ctx = TestContext::new().await;
+
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    let held_id: i64 = sqlx::query_scalar(
+        "INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, version) VALUES ($1, 0, 'company_race', '{}'::jsonb, NOW(), 0) RETURNING id::bigint",
+    )
+    .bind(ctx.team_id)
+    .fetch_one(&mut *holder)
+    .await
+    .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let create = tokio::spawn(async move {
+        storage
+            .create_group(
+                team_id,
+                0,
+                "company_race",
+                &serde_json::json!({}),
+                chrono::Utc::now(),
+            )
+            .await
+    });
+
+    // Commit the held row only after the create's INSERT waits on it. The row then commits
+    // after the INSERT starts.
+    wait_until_blocked_by(&ctx, holder_pid).await;
+    holder.commit().await.unwrap();
+
+    let group = create
+        .await
+        .unwrap()
+        .expect("a create that waits on a committed insert should return the stored group");
+    assert_eq!(group.id, held_id);
 
     ctx.cleanup().await.ok();
 }
@@ -1599,23 +1684,14 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
-#[rstest]
-#[case::statement_timeout(Some(200), "statement timeout")]
-#[case::lock_timeout(None, "lock timeout")]
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
-    #[case] statement_timeout_ms: Option<u64>,
-    #[case] expected_error: &str,
-) {
+async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row() {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("upsert_locked_user", None)
         .await
         .expect("Failed to insert person");
-    let storage = match statement_timeout_ms {
-        Some(ms) => TestContext::storage_with_statement_timeout(ms),
-        None => ctx.storage.clone(),
-    };
+    let storage = ctx.storage_with_hash_key_override_statement_timeout(200);
 
     // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
     // person row.
@@ -1637,9 +1713,12 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
     assert!(
         matches!(
             &result,
-            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains(expected_error)
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Statement,
+                ..
+            })
         ),
-        "expected a {expected_error}, got {result:?}"
+        "expected a statement timeout, got {result:?}"
     );
     assert_eq!(ctx.hash_key_override_count(person.id).await.unwrap(), 0);
 
@@ -3133,7 +3212,7 @@ async fn test_split_person_rejects_a_tombstoned_distinct_id() {
 }
 
 #[tokio::test]
-async fn test_split_person_preserves_created_at_of_existing_person() {
+async fn test_split_person_revive_keeps_the_tombstone_created_at() {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("preexist_keeper@example.com", None)
@@ -3143,16 +3222,8 @@ async fn test_split_person_preserves_created_at_of_existing_person() {
         .await
         .unwrap();
 
-    // Pre-create the person the split will upsert into (same deterministic
-    // UUIDv5), with a created_at in the past.
-    let namespace = Uuid::from_bytes([
-        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
-        0x22,
-    ]);
-    let split_uuid = Uuid::new_v5(
-        &namespace,
-        format!("{}:preexist_split@example.com", ctx.team_id).as_bytes(),
-    );
+    let split_uuid =
+        personhog_common::persons::person_uuid(ctx.team_id, "preexist_split@example.com");
     let old_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
         .unwrap()
         .with_timezone(&chrono::Utc);
@@ -3160,8 +3231,8 @@ async fn test_split_person_preserves_created_at_of_existing_person() {
     sqlx::query(
         r#"INSERT INTO posthog_person
         (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL)"#,
+         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL, true)"#,
     )
     .bind(existing_id)
     .bind(split_uuid)
@@ -3181,77 +3252,179 @@ async fn test_split_person_preserves_created_at_of_existing_person() {
         .await
         .expect("Split should succeed");
 
-    // The upsert keeps the existing person's created_at; the response must
-    // report it so callers publish the value that matches Postgres.
+    // Callers publish the returned created_at, so it must match the revived row.
     assert_eq!(results[0].new_person_uuid, split_uuid);
     assert_eq!(results[0].new_person_created_at, old_created_at);
     assert_eq!(results[0].new_person_version, 101); // source person version 0 + 101
 
-    let upserted = ctx
+    let revived = ctx
         .storage
         .get_person_by_uuid(ctx.team_id, split_uuid)
         .await
         .expect("Lookup should succeed")
-        .expect("Upserted person should exist");
-    assert_eq!(upserted.created_at, old_created_at);
-    assert_eq!(upserted.version, Some(101));
+        .expect("Revived person should exist");
+    assert_eq!(revived.id, existing_id);
+    assert_eq!(revived.created_at, old_created_at);
+    assert_eq!(revived.version, Some(101));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::source_person_created_by_the_distinct_id(true)]
+#[case::another_live_person(false)]
+#[tokio::test]
+async fn test_split_person_never_reuses_a_live_person(#[case] live_is_source: bool) {
+    let ctx = TestContext::new().await;
+    let split_did = "live_target_split@example.com";
+    let derived_uuid = personhog_common::persons::person_uuid(ctx.team_id, split_did);
+    let properties = serde_json::json!({"email": "kept@example.com"});
+
+    let (source, live) = if live_is_source {
+        let source = ctx
+            .insert_person_with_uuid(split_did, Some(properties.clone()), derived_uuid)
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(source.id, "live_target_keeper@example.com")
+            .await
+            .unwrap();
+        (source.clone(), source)
+    } else {
+        let live = ctx
+            .insert_person_with_uuid(
+                "live_target_other@example.com",
+                Some(properties.clone()),
+                derived_uuid,
+            )
+            .await
+            .unwrap();
+        let source = ctx
+            .insert_person("live_target_keeper@example.com", None)
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(source.id, split_did)
+            .await
+            .unwrap();
+        (source, live)
+    };
+    let source_version_before = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, source.uuid)
+        .await
+        .unwrap()
+        .expect("source exists")
+        .version;
+
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, source.id, &[split_did.to_string()])
+        .await
+        .expect("Split should succeed");
+
+    let new_uuid = results[0].new_person_uuid;
+    assert_ne!(new_uuid, derived_uuid);
+    assert_ne!(new_uuid, source.uuid);
+    assert_eq!(results[0].new_person_version, 101); // source person version 0 + 101
+
+    let owner = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, split_did)
+        .await
+        .unwrap()
+        .expect("The split mapping reads as live");
+    assert_eq!(owner.uuid, new_uuid);
+    assert_eq!(owner.version, Some(101));
+    assert_eq!(owner.properties.as_deref(), Some("{}"));
+
+    let untouched = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, live.uuid)
+        .await
+        .unwrap()
+        .expect("The live person stays live");
+    assert_eq!(untouched.id, live.id);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(untouched.properties.as_deref().unwrap())
+            .unwrap(),
+        properties
+    );
+    if live_is_source {
+        assert_eq!(untouched.version, source_version_before);
+    } else {
+        assert_eq!(untouched.version, Some(0));
+    }
 
     ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
-async fn test_split_person_preserves_high_version_of_existing_person() {
+async fn test_split_person_mixed_targets_keep_request_order() {
     let ctx = TestContext::new().await;
-    let person = ctx
-        .insert_person("highver_keeper@example.com", None)
-        .await
-        .unwrap();
-    ctx.add_distinct_id_to_person(person.id, "highver_split@example.com")
-        .await
-        .unwrap();
+    let creator = "mixed_creator@example.com";
+    let revived = "mixed_revived@example.com";
+    let fresh = "mixed_fresh@example.com";
+    let creator_uuid = personhog_common::persons::person_uuid(ctx.team_id, creator);
+    let revived_uuid = personhog_common::persons::person_uuid(ctx.team_id, revived);
+    let fresh_uuid = personhog_common::persons::person_uuid(ctx.team_id, fresh);
 
-    let namespace = Uuid::from_bytes([
-        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
-        0x22,
-    ]);
-    let split_uuid = Uuid::new_v5(
-        &namespace,
-        format!("{}:highver_split@example.com", ctx.team_id).as_bytes(),
-    );
-    let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let source = ctx
+        .insert_person_with_uuid(creator, None, creator_uuid)
+        .await
+        .unwrap();
+    for did in [revived, fresh, "mixed_keeper@example.com"] {
+        ctx.add_distinct_id_to_person(source.id, did).await.unwrap();
+    }
+    let tombstone_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let tombstone_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
     sqlx::query(
         r#"INSERT INTO posthog_person
         (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), 200, false, NULL)"#,
+         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 500, false, NULL, true)"#,
     )
-    .bind(existing_id)
-    .bind(split_uuid)
+    .bind(tombstone_id)
+    .bind(revived_uuid)
     .bind(ctx.team_id)
+    .bind(tombstone_created_at)
     .execute(&ctx.pool)
     .await
     .unwrap();
 
+    let request = [creator, revived, fresh].map(String::from);
     let results = ctx
         .storage
-        .split_person(
-            ctx.team_id,
-            person.id,
-            &["highver_split@example.com".to_string()],
-        )
+        .split_person(ctx.team_id, source.id, &request)
         .await
         .expect("Split should succeed");
 
-    assert_eq!(results[0].new_person_uuid, split_uuid);
-    assert_eq!(results[0].new_person_version, 200);
+    let dids: Vec<&str> = results.iter().map(|r| r.distinct_id.as_str()).collect();
+    assert_eq!(dids, vec![creator, revived, fresh]);
+    assert_ne!(results[0].new_person_uuid, creator_uuid);
+    assert_eq!(results[0].new_person_version, 101);
+    assert_eq!(results[1].new_person_uuid, revived_uuid);
+    assert_eq!(results[1].new_person_version, 501);
+    assert_eq!(results[1].new_person_created_at, tombstone_created_at);
+    assert_eq!(results[2].new_person_uuid, fresh_uuid);
+    assert_eq!(results[2].new_person_version, 101);
 
-    let upserted = ctx
+    for result in &results {
+        let owner = ctx
+            .storage
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .await
+            .unwrap()
+            .expect("Each split mapping reads as live");
+        assert_eq!(owner.uuid, result.new_person_uuid);
+    }
+    let kept = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .get_person_by_distinct_id(ctx.team_id, "mixed_keeper@example.com")
         .await
-        .expect("Lookup should succeed")
-        .expect("Person should exist");
-    assert_eq!(upserted.version, Some(200));
+        .unwrap()
+        .expect("The source keeps its other distinct id");
+    assert_eq!(kept.id, source.id);
 
     ctx.cleanup().await.ok();
 }
@@ -4284,7 +4457,13 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     };
 
     assert!(
-        matches!(result, Err(StorageError::Query(_))),
+        matches!(
+            result,
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Lock,
+                ..
+            })
+        ),
         "expected the lock_timeout to fail the request, got {result:?}"
     );
     assert!(started.elapsed() < Duration::from_secs(20));

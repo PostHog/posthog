@@ -638,22 +638,28 @@ def get_cluster(
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
 
-    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    creds = get_clickhouse_creds(ch_user)
     overrides = dict(connection_overrides or {})
+    caller_owns_credential = bool(overrides.keys() & {"user", "password", "credential_provider"})
     bootstrap_credential_provider: Callable[[], str] | None = None
     if is_file_backed_user(creds, creds.user):
         bootstrap_credential_provider = creds.read_password
-        bootstrap_client = default_client(host=host, password=creds.read_password())
-        if not overrides.keys() & {"user", "password", "credential_provider"}:
-            overrides["credential_provider"] = creds.read_password
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.read_password())
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, credential_provider=creds.read_password)
+    elif creds.user != settings.CLICKHOUSE_USER:
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, password=creds.password)
     else:
-        bootstrap_client = default_client(host=host)
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
 
     return ClickhouseCluster(
         bootstrap_client,

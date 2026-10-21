@@ -17,7 +17,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -110,6 +110,17 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
     """
 
 
+class GoogleSearchConsoleServerError(Exception):
+    """Raised when listing sites/sitemaps hits a transient Google-side 5xx.
+
+    Unlike `_query_search_analytics`, `list_sites`/`list_sitemaps` have no inline retry
+    budget, so a 5xx otherwise reaches `get_non_retryable_errors`/error tracking as a bare
+    HTTPError. Its messages carry a `(retryable)` marker that `get_retryable_errors`
+    matches, so Temporal retries the activity and the self-recovering failure is logged as
+    a warning instead of tracked as noise.
+    """
+
+
 @dataclasses.dataclass
 class GoogleSearchConsoleResumeConfig:
     current_date: str  # ISO date currently being fetched
@@ -182,11 +193,25 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     check whether either canonical form *is* registered and point the user at it, so a
     dead-end "not visible" error becomes "enter this exact value instead".
 
+    A ``www.`` hostname, with or without a scheme, also matches the domain property of the bare
+    domain, because that property covers every subdomain.
+
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
+
+    A domain property entered where only the site's root URL-prefix property is registered
+    gets that URL-prefix property suggested.
     """
     if site_url.startswith("sc-domain:"):
+        domain = site_url.removeprefix("sc-domain:").strip().strip("/").lower()
+        if not domain:
+            return None
+        registered_set = set(registered)
+        for scheme in ("https", "http"):
+            for host in (domain, f"www.{domain}"):
+                if f"{scheme}://{host}/" in registered_set:
+                    return f"{scheme}://{host}/"
         return None
     parsed = urlparse(site_url)
     if parsed.scheme:
@@ -202,7 +227,12 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     if not host:
         return None
     registered_set = set(registered)
-    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+    for candidate in (
+        f"https://{host}/",
+        f"http://{host}/",
+        f"sc-domain:{host}",
+        f"sc-domain:{host.removeprefix('www.')}",
+    ):
         if candidate in registered_set:
             return candidate
     return None
@@ -244,7 +274,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
     )
     return OAuthCredentials(
@@ -648,6 +678,13 @@ def _property_rows(
         if e.response is not None and _is_quota_error(e.response):
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Console quota exhausted while listing {resource_name}; the next sync picks it up (retryable)"
+            ) from e
+        # A transient Google-side 5xx, same class `_query_search_analytics` retries inline — these
+        # two calls have no inline retry budget of their own, so mark it the same way rather than
+        # letting a bare HTTPError fall through and get logged as an exception.
+        if e.response is not None and _is_server_error(e.response):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
             ) from e
         raise
 

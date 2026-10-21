@@ -8,7 +8,7 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
-RECOMMENDATIONS_PATH = "/error_tracking?activeTab=recommendations"
+RECOMMENDATIONS_PATH = "/error-tracking?activeTab=recommendations"
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 # Same command the source maps fix wizard modal shows (sourceMapsFixWizardLogic.wizardCommand).
 WIZARD_COMMAND = "npx -y @posthog/wizard@latest upload-source-maps"

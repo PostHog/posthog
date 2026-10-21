@@ -14,6 +14,7 @@ import { VISION_ALERT_NOTIFICATION_TYPE_SLACK, pendingVisionAlertNotificationVie
 
 export function ScannerAlertNotifications(): JSX.Element {
     const {
+        autoSavesDestinations,
         existingHogFunctionsLoading,
         destinationGroups,
         pendingNotifications,
@@ -63,12 +64,19 @@ export function ScannerAlertNotifications(): JSX.Element {
 
     return (
         <AlertNotificationDestinationEditor
-            description="Each destination receives every notification this alert sends."
+            description={
+                autoSavesDestinations
+                    ? 'Each destination receives every notification this alert sends. Added and removed destinations save automatically.'
+                    : 'Each destination receives every notification this alert sends.'
+            }
             destinations={{
                 showExisting: true,
                 existingLoading: existingHogFunctionsLoading,
                 existing: existingDestinations,
                 pending: pendingDestinations,
+                pendingTooltip: autoSavesDestinations
+                    ? 'Not added yet. If it stays pending, save the alert to add it.'
+                    : undefined,
             }}
             notificationType={{
                 options: VISION_ALERT_NOTIFICATION_TYPE_OPTIONS,

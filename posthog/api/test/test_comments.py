@@ -7,11 +7,13 @@ from unittest import mock
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.comments import CommentPagination
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
@@ -252,7 +254,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             content="Canvas created",
             payload={
                 "canvas_name": "Research canvas",
-                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}",
+                "canvas_url": f"https://app.posthog.com/project/{self.team.id}/code/canvas/channel/{canvas_id}",
             },
         )
         root = Comment.objects.create(
@@ -1356,6 +1358,39 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert len(response.json()["results"]) == 2
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
+
+    @parameterized.expand(
+        [
+            ("list", False),
+            ("thread", True),
+        ]
+    )
+    def test_pages_comments_written_in_the_same_instant(self, _name: str, as_thread: bool) -> None:
+        root = self._create_comment({"content": "root", "scope": "Notebook", "item_id": "1"}) if as_thread else None
+        reply_to = {"source_comment": root["id"]} if root else {}
+        tied_ids = [
+            self._create_comment({"content": f"tied {index}", "scope": "Notebook", "item_id": "1", **reply_to})["id"]
+            for index in range(9)
+        ]
+        newest_id = self._create_comment({"content": "newest", "scope": "Notebook", "item_id": "1", **reply_to})["id"]
+        # created_at is auto_now_add, so the tie has to be forced once the comments exist
+        Comment.objects.filter(id__in=tied_ids).update(created_at=timezone.now() - timedelta(hours=1))
+        Comment.objects.filter(id=newest_id).update(created_at=timezone.now())
+
+        url: str | None = (
+            f"/api/projects/{self.team.id}/comments/{root['id']}/thread"
+            if root
+            else f"/api/projects/{self.team.id}/comments/?scope=Notebook&item_id=1"
+        )
+        paged_ids: list[str] = []
+        with mock.patch.object(CommentPagination, "page_size", 2):
+            while url:
+                payload = self.client.get(url).json()
+                paged_ids.extend(comment["id"] for comment in payload["results"])
+                url = payload["next"]
+                assert len(paged_ids) <= 10
+
+        assert paged_ids == [newest_id, *reversed(tied_ids)]
 
     @parameterized.expand(
         [
@@ -2490,7 +2525,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         assert person.id == str(self.user.id)
 
 
-class TestCommentHelperFunctions(APIBaseTest):
+class TestCommentHelperFunctions(SimpleTestCase):
     @parameterized.expand(
         [
             ("with_slug", "Notebook", "123", "/notebook/abc", "/notebook/abc#panel=discussion"),
@@ -2505,7 +2540,7 @@ class TestCommentHelperFunctions(APIBaseTest):
             ("without_slug_insight", "Insight", "456", "", "/insights/456#panel=discussion"),
             ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
-            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
+            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature-flags/10#panel=discussion"),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
             # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
             (

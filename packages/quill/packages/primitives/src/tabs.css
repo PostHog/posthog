@@ -21,6 +21,15 @@
         border: 1px solid var(--border);
     }
 
+    /*
+     * --background sits below the list's --card in dark mode, so the active tab would sink. Lift it toward the
+     * foreground. Set only here: elsewhere the fill falls back to --background read on the trigger itself, which
+     * callers override per trigger to hide it.
+     */
+    :is(.dark, [theme='dark']) .quill-tabs__list--variant-default {
+        --quill-tabs-active-bg: color-mix(in oklab, var(--foreground) 12%, var(--card));
+    }
+
     .quill-tabs__list--variant-line {
         gap: 0.25rem;
         background-color: transparent;
@@ -46,9 +55,13 @@
 
     .quill-tabs__indicator--variant-default {
         z-index: -1;
-        background-color: var(--background);
+        background-color: var(--quill-tabs-active-bg, var(--background));
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
+    }
+
+    :is(.dark, [theme='dark']) .quill-tabs__indicator--variant-default {
+        border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
     }
 
     /* Above the triggers: the active trigger paints an opaque fill down to 1px above the list's edge. */
@@ -118,7 +131,7 @@
 
     .quill-tabs__trigger[data-active] {
         color: var(--foreground);
-        background-color: var(--background) !important;
+        background-color: var(--quill-tabs-active-bg, var(--background)) !important;
     }
 
     .quill-tabs__trigger[data-active]:hover,

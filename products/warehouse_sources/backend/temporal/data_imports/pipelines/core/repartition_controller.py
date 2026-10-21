@@ -85,6 +85,39 @@ def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
 
 
+# The loader writes these sync types as incremental upserts on the primary key (CDC also upserts, but
+# detection excludes it).
+KEYED_MERGE_SYNC_TYPES = frozenset(
+    {ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.WEBHOOK, ExternalDataSchema.SyncType.XMIN}
+)
+
+
+def merge_target_partition_bytes() -> int:
+    return max(
+        target_partition_bytes(), int(getattr(settings, "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000))
+    )
+
+
+def split_budget_bytes(schema: ExternalDataSchema) -> int:
+    """The largest partition the size-driven split leaves alone on this table.
+
+    `target_partition_bytes` was sized for the delta-rs MERGE, whose working set grows with the
+    partition it merges into. Every keyed upsert now goes through deltalite first, and deltalite's
+    peak memory follows the shape of the files it rewrites, not the partition size. On an md5 table
+    each upsert touches every partition and rewrites at least one file in each, so a split there
+    makes every later merge slower and saves no memory.
+
+    Which engine writes is decided per batch: the delta-rs MERGE runs on a batch that deltalite
+    fails, and nothing records that per table. So a keyed-merge table still gets a budget, sized for
+    that fallback (`merge_target_partition_bytes`), rather than none. The writer refuses the
+    fallback on a partition above the base budget (`target_partition_bytes`) and retries the batch,
+    so the larger cap cannot lead to an oversized delta-rs MERGE.
+    """
+    if schema.sync_type in KEYED_MERGE_SYNC_TYPES:
+        return merge_target_partition_bytes()
+    return target_partition_bytes()
+
+
 def min_splittable_partition_bytes() -> int:
     """The smallest partition an OOM-triggered split is allowed to produce.
 
@@ -174,8 +207,11 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         return False
     if measurement.get("budget") != target_partition_bytes():
         return False
+    if measurement.get("split_budget") != split_budget_bytes(schema):
+        return False
     if (
-        ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        not schema.is_append
+        and ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
         >= repartition_oom_threshold()
     ):
         return False
@@ -188,6 +224,14 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
     ]
     return partition_measurement_holds(measurement, earlier_jobs)
+
+
+AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
+
+
+def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is an automatic split of an append table. An operator target is not."""
+    return schema.is_append and trigger_reason in AUTOMATIC_SPLIT_TRIGGERS
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
@@ -462,7 +506,14 @@ async def maybe_flag_for_repartition(
         max_bytes = max(partition_bytes.values())
 
         budget = target_partition_bytes()
-        over_budget = max_bytes > budget
+        # The budget bounds the working set of a merge, and an append sync never merges: it adds new
+        # files and reads no partition. So neither split trigger applies to an append table, and a
+        # split only rewrites every row for no gain. Coarsening still applies, because fewer files
+        # make reads of the table cheaper.
+        split_applies = not schema.is_append
+        # The size trigger only. The OOM trigger, its floor and coarsening stay on `budget`.
+        size_split_budget = split_budget_bytes(schema)
+        over_budget = split_applies and max_bytes > size_split_budget
 
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
         # largest partition looks within budget — the compressed at-rest size under-counts the merge's
@@ -470,7 +521,7 @@ async def maybe_flag_for_repartition(
         # Only query the OOM log when the size check didn't already trip: an over-budget table
         # repartitions regardless, so the count would only feed observability props there — skip the
         # per-sync indexed COUNT for it and report 0.
-        if over_budget:
+        if over_budget or not split_applies:
             oom_count = 0
             oom_triggered = False
         else:
@@ -492,18 +543,20 @@ async def maybe_flag_for_repartition(
                 "job_id": str(job.id),
                 "phase": phase,
                 "budget": budget,
+                "split_budget": size_split_budget,
                 "healthy": not over_budget and not oom_triggered and not coarsen_candidate,
             },
         )
 
         if not over_budget and not oom_triggered:
+            verdict = "within budget and no repeated OOMs" if split_applies else "append table, a split does not apply"
             await logger.adebug(
-                f"repartition: not needed, within budget and no repeated OOMs schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count} "
+                f"repartition: not needed, {verdict} schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={size_split_budget} recent_oom_count={oom_count} "
                 f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
-                budget_bytes=budget,
+                budget_bytes=size_split_budget,
                 recent_oom_count=oom_count,
                 partition_count=len(partition_bytes),
             )
@@ -517,7 +570,7 @@ async def maybe_flag_for_repartition(
         # killing a table whose partitions are already that small, and without this guard oom_history
         # drives the scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then
         # re-measures and re-emits the skip on every cooldown expiry forever.
-        split_budget = budget if over_budget else max(1, max_bytes // 2)
+        split_budget = size_split_budget if over_budget else max(1, max_bytes // 2)
         floor = min_splittable_partition_bytes()
         if not over_budget and split_budget < floor:
             await logger.adebug(
@@ -584,7 +637,7 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        # `split_budget` was computed with the floor check above: an over-budget table targets the
+        # `split_budget` was computed with the floor check above: an over-budget table targets its size
         # budget, while an OOM-triggered one targets roughly half its current largest partition to force
         # a meaningfully finer scheme (md5 grows buckets, numerical halves the row-size, datetime steps
         # one tier finer).

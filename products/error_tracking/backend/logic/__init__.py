@@ -95,7 +95,8 @@ def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
 
 def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
     return (
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=team_id, id=issue_id)
         .only("id", "name", "description", "status")
         .first()
     )
@@ -150,8 +151,8 @@ def build_issue_permalink_path(*, project_id: int, issue_id: UUID | str, fingerp
     plain issue URL when the issue has no fingerprints.
     """
     if fingerprint is None:
-        return f"/project/{project_id}/error_tracking/{issue_id}"
-    return f"/project/{project_id}/error_tracking/fingerprint/{quote(fingerprint, safe='')}"
+        return f"/project/{project_id}/error-tracking/{issue_id}"
+    return f"/project/{project_id}/error-tracking/fingerprint/{quote(fingerprint, safe='')}"
 
 
 def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:

@@ -5,6 +5,7 @@ import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -27,6 +28,8 @@ interface MetricsQueryNodeProps {
     cachedResults?: AnyResponseType
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
+    /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
+    embedded?: boolean
     /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
     editMode?: boolean
     setQuery?: (query: MetricsQuery) => void
@@ -136,7 +139,15 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         (props.query.language === 'promql' && props.query.promql ? truncate(props.query.promql, 80) : 'metric')
 
     return (
-        <div className="relative flex flex-col w-full h-full min-h-[200px]">
+        // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the
+        // parent can have no height, and a chart then needs the minimum to draw at all. The insight
+        // scene also gets a `dashboardId` when it opens from a tile, so `embedded` must also be set.
+        <div
+            className={cn(
+                'relative flex flex-col w-full h-full',
+                !(props.embedded && props.context.insightProps?.dashboardId != null) && 'min-h-[200px]'
+            )}
+        >
             {responseError && !responseLoading ? (
                 <div className="flex-1 flex items-center p-4 min-w-0">
                     <LemonBanner type="error" className="w-full">
@@ -144,7 +155,12 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
                     </LemonBanner>
                 </div>
             ) : hasPoints ? (
-                <MetricsPanel series={series} fallbackName={fallbackName} display={props.query.display} />
+                <MetricsPanel
+                    series={series}
+                    fallbackName={fallbackName}
+                    display={props.query.display}
+                    query={props.query}
+                />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
                     No data for this metric in the selected range.

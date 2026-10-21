@@ -13,7 +13,12 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, buil
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle, RootEditor
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    MessageHandle,
+    RootEditor,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
@@ -34,13 +39,18 @@ def deliver(
     configuration_id: str,
     evaluation_key: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
 
     for transition in announcement.transitions:
+        # On the first transition, because a retry skips a message already delivered and waits out
+        # a held one, so the overflow notice is sent once, and with the message that opens the batch.
+        overflowed = announcement.overflowed if transition is announcement.transitions[0] else 0
         key = _thread_key(
             configuration_id=configuration_id,
             provider=transport.provider,
@@ -53,7 +63,15 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
+                destination_id=destination_id,
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                    overflowed=overflowed,
+                ),
                 in_reply_to=None,
             )
             continue
@@ -75,7 +93,15 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
+                destination_id=destination_id,
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                    overflowed=overflowed,
+                ),
                 in_reply_to=claim.handle,
             )
         except Exception:
@@ -98,19 +124,32 @@ def _send(
     team_id: int,
     configuration_id: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     message: AlertMessage,
     in_reply_to: MessageHandle | None,
 ) -> MessageHandle | None:
     try:
         sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=in_reply_to)
-    except Exception:
+    except Exception as error:
         # Every failure class. Counting only the refusals a provider names leaves an outage
-        # reading as no delivery attempted at all.
+        # reading as no delivery attempted at all. A transport words its own refusals safely, and
+        # any other exception's text can carry a credential URL, so it is named by class.
         record_delivery(
-            team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=False
+            team_id=team_id,
+            configuration_id=configuration_id,
+            provider=transport.provider,
+            destination_id=destination_id,
+            succeeded=False,
+            error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
         raise
-    record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
+    record_delivery(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=transport.provider,
+        destination_id=destination_id,
+        succeeded=True,
+    )
     return sent
 
 

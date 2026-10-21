@@ -36,6 +36,7 @@ export interface scannerAlertNotificationLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
     addDisabledReason: string | undefined
+    autoSavesDestinations: boolean
     destinationGroups: VisionAlertDestinationGroup[]
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
@@ -120,6 +121,7 @@ export interface scannerAlertNotificationLogicActions {
 export interface scannerAlertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        autoSavesDestinations: (arg: string | undefined) => boolean
         selectedSlackIntegration: (
             slackIntegrations: IntegrationType[] | undefined,
             selectedSlackIntegrationId: number | null
@@ -237,6 +239,10 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
     })),
 
     selectors({
+        autoSavesDestinations: [
+            () => [(_, props: ScannerAlertNotificationLogicProps) => props.alertId],
+            (alertId: string | undefined): boolean => !!alertId,
+        ],
         selectedSlackIntegration: [
             (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
             (
@@ -365,7 +371,9 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
 
             if (failedNotifications.length > 0) {
                 lemonToast.error(
-                    `Alert saved, but ${failedNotifications.length} notification destination(s) could not be created. Reopen the alert to add them again.`
+                    values.autoSavesDestinations
+                        ? `Could not add ${failedNotifications.length} notification destination(s). Save the alert to try again.`
+                        : `Alert saved, but ${failedNotifications.length} notification destination(s) could not be created. Reopen the alert to add them again.`
                 )
                 actions.setPendingNotifications(failedNotifications)
             } else {

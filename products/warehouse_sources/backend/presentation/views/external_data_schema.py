@@ -42,15 +42,18 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -223,6 +226,12 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
 NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
+
+# The stored source settings cannot be read, for example after the instance encryption keys change.
+# Only new settings from the user can fix this, so it is not a bug to report.
+UNREADABLE_SOURCE_CONFIG_ERROR = (
+    "PostHog could not read the saved settings for this source. Reconnect the source, then try again."
 )
 
 # A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
@@ -1148,6 +1157,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if column_names and unknown_keys:
                 raise ValidationError(f"'{instance.name}' has no column named {', '.join(unknown_keys)} to merge on.")
 
+        # An incremental or append sync saves its progress as the latest value of the incremental
+        # field. Without a field no run saves progress, so every run reads the full history again.
+        # Only a request that switches the sync type, clears the field, or turns the sync on is judged,
+        # so a table already in that state still takes other edits, such as a disable. Turning the sync
+        # on is judged because source creation saves a disabled table without a field.
+        if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            stored_incremental_field = (instance.sync_type_config or {}).get("incremental_field")
+            resulting_incremental_field = (
+                data.get("incremental_field") if "incremental_field" in data else stored_incremental_field
+            )
+            switches_sync_type = resulting_sync_type != instance.sync_type
+            turns_sync_on = validated_data.get("should_sync") is True and not instance.should_sync
+            had_incremental_field = bool(stored_incremental_field)
+            if not resulting_incremental_field and (switches_sync_type or turns_sync_on or had_incremental_field):
+                replication = (
+                    "incremental" if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL else "append only"
+                )
+                raise ValidationError(
+                    f"'{instance.name}' needs an incremental field for {replication} replication. "
+                    "Choose the field that tracks when rows change, or switch it to full table replication."
+                )
+
         trigger_refresh = False
         # Update the validated_data with incremental fields
         if resulting_sync_type in incremental_style_types:
@@ -1685,7 +1716,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not isinstance(source_impl, WebhookSource):
             return
 
-        config = source_impl.parse_config(source.job_inputs)
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError) as e:
+            raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
         # rejects it), so there is no per-schema precedence to honor here.
         effective_api_version = source_impl.resolve_api_version(source.api_version)
@@ -2319,6 +2353,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
+        # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
+        # also pauses the schedule and takes a CDC table out of the publication. It runs even when
+        # should_sync is already false, so a retry after a failed pause pauses the schedule again.
+        serializer = self.get_serializer(instance, data={"should_sync": False}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
@@ -2338,22 +2379,47 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
-        credentials_valid, credentials_error = new_source.validate_credentials(
-            config, self.team_id, instance.name, api_version=effective_api_version
-        )
+        try:
+            credentials_valid, credentials_error = new_source.validate_credentials(
+                config, self.team_id, instance.name, api_version=effective_api_version
+            )
+        except Exception as e:
+            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                new_source, self.team_id, e
+            )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
+        stored_resource_id = (
+            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+            if new_source.uses_stable_schema_resource_ids
+            else None
+        )
         try:
             schemas = new_source.get_schemas(
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
+            # A stored resource id can outlive the stored name after an upstream rename. Discover every
+            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+            # filtered discovery.
+            if stored_resource_id is not None:
+                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                found_resource_id = (
+                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                )
+                if str(found_resource_id) != str(stored_resource_id):
+                    schemas = new_source.get_schemas(
+                        config, self.team_id, names=None, api_version=effective_api_version
+                    )
         except Exception as e:
             # `validate_credentials` above just probed the same connection successfully, so a
             # failure here that the source itself classifies is an expected customer or upstream
@@ -2384,7 +2450,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = next((s for s in schemas if s.name == instance.name), None)
+        schema = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}

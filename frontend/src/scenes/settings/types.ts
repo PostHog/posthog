@@ -23,6 +23,13 @@ export type SettingsLogicProps = {
 export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'User',
+} as const
+
 export type SettingSectionId =
     // Environment
     | 'environment-details'
@@ -96,7 +103,6 @@ export type SettingSectionId =
     | 'user-api-keys'
     | 'user-connected-apps'
     | 'user-customization'
-    | 'user-navigation'
     | 'user-feature-previews'
     | 'user-notifications'
     | 'user-personal-integrations'
@@ -138,7 +144,6 @@ export type SettingId =
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
-    | 'correlation-analysis'
     | 'csp-reporting'
     | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
@@ -198,7 +203,6 @@ export type SettingId =
     | 'heatmap-screenshot-cookie'
     | 'heatmaps-capture'
     | 'hedgehog-mode'
-    | 'homepage'
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
@@ -283,12 +287,7 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
-    | 'session-join-mode'
     | 'session-table-version'
-    | 'sidebar-auto-suggest'
-    | 'sidebar-items'
-    | 'sidebar-layout'
-    | 'sidebar-my-tools'
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
@@ -317,7 +316,9 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
+    | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
     | 'xaa-configuration'

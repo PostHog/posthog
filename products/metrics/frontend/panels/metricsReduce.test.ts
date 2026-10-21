@@ -102,8 +102,8 @@ describe('metricsReduce', () => {
             expect(seriesUnit([oneSeries('ms'), oneSeries('s')], undefined)).toBeUndefined()
         })
 
-        it('ignores series without a unit when the rest agree', () => {
-            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBe('ms')
+        it('returns undefined when one series has no unit, rather than lending it the others', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBeUndefined()
         })
 
         it('returns undefined when no series carries a unit', () => {
@@ -143,8 +143,8 @@ describe('metricsReduce', () => {
             expect(seriesUnit([oneSeries('ms'), oneSeries('s')], undefined)).toBeUndefined()
         })
 
-        it('ignores series without a unit when the rest agree', () => {
-            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBe('ms')
+        it('returns undefined when one series has no unit, rather than lending it the others', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBeUndefined()
         })
 
         it('returns undefined when no series carries a unit', () => {

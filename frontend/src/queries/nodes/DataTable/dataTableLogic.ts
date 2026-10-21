@@ -237,6 +237,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     props.dataNodeLogicKey ?? props.dataKey
                 ),
                 loadPriority: props.context?.insightProps?.loadPriority,
+                retainResponseOnUnmount: props.context?.insightProps?.retainResponseOnUnmount,
             }),
             ['response', 'responseLoading', 'responseError'],
         ],

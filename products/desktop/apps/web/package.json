@@ -16,6 +16,7 @@
     "@inversifyjs/strongly-typed": "2.2.0",
     "@pierre/diffs": "^1.2.10",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
+    "@posthog/api-client": "workspace:*",
     "@posthog/core": "workspace:*",
     "@posthog/di": "workspace:*",
     "@posthog/harness": "link:../../../../packages/agent/packages/harness",

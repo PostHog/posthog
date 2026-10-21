@@ -168,7 +168,7 @@ export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Elem
         <div className="mt-6 rounded border p-4">
             <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-base font-semibold mb-0">Change data capture (CDC)</h3>
-                <LemonTag type="completion">Alpha</LemonTag>
+                <LemonTag type="completion">Beta</LemonTag>
                 {cdc.enabled && <LemonTag type="success">Enabled</LemonTag>}
             </div>
             <p className="text-sm text-secondary mb-3">

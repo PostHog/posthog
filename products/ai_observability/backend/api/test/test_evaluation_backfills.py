@@ -168,9 +168,13 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
+    @parameterized.expand([("enabled", True), ("disabled_draft", False)])
     @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42, already_judged=8))
-    def test_estimate_counts_without_creating_a_row(self, _count, capture):
+    def test_estimate_counts_without_creating_a_row(self, _case, enabled, _count, capture):
+        self.evaluation.enabled = enabled
+        self.evaluation.save()
+
         response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -297,7 +301,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
+        assert stale.status_reason == "workflow_not_running"
         assert stale.finished_at is not None
         finished = [
             call.kwargs["properties"]
@@ -355,9 +360,9 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         response = self.client.get(f"{self.url}/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.CANCELLED
+        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.INTERRUPTED
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
@@ -558,14 +563,12 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @parameterized.expand(["create", "estimate"])
     @patch(CAPTURE)
-    def test_a_disabled_evaluation_cannot_be_backfilled(self, case, capture):
+    def test_a_disabled_evaluation_cannot_be_backfilled(self, capture):
         self.evaluation.enabled = False
         self.evaluation.save()
-        path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
 
-        response = self.client.post(path, _body(), format="json")
+        response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "Enable the evaluation before backfilling it."
