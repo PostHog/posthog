@@ -3,6 +3,7 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import {
     CachedNewExperimentQueryResponse,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentMetric,
@@ -1087,11 +1088,11 @@ describe('getEventCountQuery', () => {
             operator: PropertyOperator.Exact,
             value: 'p',
         } as const
-        const passed = {
+        const passed: EventsNode = {
             kind: NodeKind.EventsNode,
             event: '$ai_evaluation',
             properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
-        } as const
+        }
         const ratio: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.RATIO,
