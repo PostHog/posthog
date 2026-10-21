@@ -133,7 +133,7 @@ To sync campaigns, creative sets, and campaign operation logs, also add your **C
 AppLovin only serves the last 45 days of report data and the last 30 days of campaign operation logs, so anything older than that can't be backfilled.""",
             iconPath="/static/services/applovin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/applovin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["max", "appdiscovery", "axon", "mobile ads"],
             fields=cast(
                 list[FieldType],

@@ -110,12 +110,17 @@ def link_pull_request(
     if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
+            previous_state = pr.state
             pr.state = details.state
             if state_source == PullRequestStateSource.GITHUB:
                 pr.checked_at = timezone.now()
             pr.save(update_fields=["state", "checked_at", "updated_at"])
             # Wait for the complete PR batch and release its locks before locking shared reports.
             transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
+            if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+                from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+
+                schedule_pull_request_ready_push(pr, previous_state=previous_state)
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
@@ -282,6 +287,7 @@ def update_pull_request_state(
         )
         if pr is None:
             return 0
+        previous_state = pr.state
         if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
         update_fields = ["state", "checked_at", "updated_at"]
@@ -291,6 +297,9 @@ def update_pull_request_state(
         pr.checked_at = timezone.now()
         pr.save(update_fields=update_fields)
         schedule_participant_refresh(pr)
+        from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+
+        schedule_pull_request_ready_push(pr, previous_state=previous_state)
         for report in reports:
             apply_report_completion(report)
         return len(reports)

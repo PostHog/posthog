@@ -2,7 +2,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
+    _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
@@ -60,7 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
-from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
+from products.warehouse_sources_queue.backend.core.jobs_db import LoadedPrefix, UnfinishedEarlierBatches
 
 _COMPLETE_RUN = UnfinishedEarlierBatches(count=0, first_batch_index=None, states=())
 
@@ -772,9 +773,10 @@ class TestStagedCursorWaitsForTheFinalBatch:
     # A descending source stages the newest value of its run from the first batch. Promoting it on a
     # batch before the final one moves the watermark above rows that are not loaded yet.
 
-    @parameterized.expand([("mid_run_batch", False, 0), ("final_batch", True, 1)])
+    @parameterized.expand([("mid_run_batch", False, 0, 1), ("final_batch", True, 1, 0)])
+    @override_settings(DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED=True)
     def test_a_staged_cursor_is_promoted_only_by_the_final_batch(
-        self, _name: str, is_final_batch: bool, promotions: int
+        self, _name: str, is_final_batch: bool, promotions: int, prefix_promotions: int
     ) -> None:
         delta_table = MagicMock()
         delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
@@ -803,6 +805,12 @@ class TestStagedCursorWaitsForTheFinalBatch:
             mock_update = stack.enter_context(patch(f"{_PROCESSOR}.update_external_job_status"))
             mock_update.return_value.status = mock_job_cls.Status.COMPLETED
             mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
+            stack.enter_context(
+                patch(
+                    f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync",
+                    return_value=LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR),
+                )
+            )
 
             process_message(_message(is_final_batch=is_final_batch, run_uuid="wfrun-1-a2"))
 
@@ -810,6 +818,95 @@ class TestStagedCursorWaitsForTheFinalBatch:
         assert promote.call_count == promotions
         if promotions:
             promote.assert_called_with("wfrun-1-a2", merge_source_cursors=ANY)
+        # The final batch promotes the full staged value, so only a batch before it promotes a prefix.
+        promote_prefix = mock_job_cls.objects.prefetch_related.return_value.get.return_value.schema
+        assert promote_prefix.promote_loaded_prefix_value.call_count == prefix_promotions
+
+
+_PREFIX_CURSOR = {"field": "id", "value": 30, "job_rows_synced": 7}
+
+
+class _PromoteMocks(NamedTuple):
+    get_prefix: MagicMock
+    promote: MagicMock
+
+
+class TestPromoteLoadedPrefixes:
+    @staticmethod
+    def _signals(*indexes: int, **overrides: Any) -> list[ExportSignalMessage]:
+        return [ExportSignalMessage.from_dict(_message(batch_index=index, **overrides)) for index in indexes]
+
+    @staticmethod
+    def _promote(
+        signals: list[ExportSignalMessage],
+        prefix: LoadedPrefix | Exception,
+        *,
+        finals: list[ExportSignalMessage] | None = None,
+        enabled: bool = True,
+    ) -> _PromoteMocks:
+        schema = MagicMock()
+        with (
+            override_settings(DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED=enabled),
+            patch(f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync", side_effect=[prefix]) as get_prefix,
+            patch(f"{_PROCESSOR}.capture_exception"),
+        ):
+            _promote_loaded_prefixes(signals, finals or [], schema)
+        return _PromoteMocks(get_prefix=get_prefix, promote=schema.promote_loaded_prefix_value)
+
+    def test_a_loaded_prefix_promotes_the_value_of_the_last_batch_of_the_write(self) -> None:
+        get_prefix, promote = self._promote(
+            self._signals(3, 4, 5), LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR)
+        )
+
+        assert get_prefix.call_args.kwargs == {
+            "team_id": 1,
+            "schema_id": "schema-1",
+            "run_uuid": "run-1",
+            "first_batch_index": 3,
+            "last_batch_index": 5,
+        }
+        promote.assert_called_once_with(run_uuid="run-1", job_id="job-1", field="id", value=30, job_rows_synced=7)
+
+    @parameterized.expand(
+        [
+            # An earlier batch is missing, aged out, failed or waits for a retry.
+            ("gap_before_the_write", LoadedPrefix(is_complete=False, cursor=_PREFIX_CURSOR)),
+            # A pod without the setting, or a run that cannot promote, queued the batch.
+            ("batch_has_no_cursor", LoadedPrefix(is_complete=True, cursor=None)),
+            ("cursor_in_an_unknown_shape", LoadedPrefix(is_complete=True, cursor={"value": 30})),
+            # A queue read that fails must not fail a batch that already landed.
+            ("queue_read_fails", RuntimeError("queue down")),
+        ]
+    )
+    def test_no_promotion(self, _name: str, prefix: LoadedPrefix | Exception) -> None:
+        _get_prefix, promote = self._promote(self._signals(2), prefix)
+
+        promote.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("setting_off", {}, False, False),
+            ("final_batch_promotes_the_full_value", {}, True, True),
+            ("append", {"sync_type": "append"}, False, True),
+            ("full_refresh", {"sync_type": "full_refresh"}, False, True),
+            ("cdc", {"cdc_write_mode": "scd2_append"}, False, True),
+            ("first_ever_sync", {"is_first_ever_sync": True}, False, True),
+        ]
+    )
+    def test_a_write_that_cannot_promote_a_prefix_reads_nothing(
+        self, _name: str, overrides: dict[str, Any], completes_here: bool, enabled: bool
+    ) -> None:
+        signals = self._signals(2, **overrides)
+
+        get_prefix, promote = self._promote(
+            signals,
+            LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR),
+            finals=signals if completes_here else None,
+            enabled=enabled,
+        )
+
+        get_prefix.assert_not_called()
+        promote.assert_not_called()
 
 
 def _set_messages(count: int, *, sync_type: str = "full_refresh", final: bool = True) -> list[dict[str, Any]]:

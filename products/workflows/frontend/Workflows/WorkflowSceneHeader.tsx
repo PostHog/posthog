@@ -23,6 +23,7 @@ import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMe
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { WorkflowActions } from './WorkflowActions'
+import { workflowBackTo } from './workflowBackTo'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 import { WorkflowScenePanel } from './WorkflowScenePanel'
@@ -158,12 +159,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
-                // A broadcast isn't in the workflows list, so going back from here returns to the broadcast.
-                forceBackTo={
-                    workflow?.origin_product === 'broadcasts' && props.id && props.id !== 'new'
-                        ? { key: 'broadcast', name: workflow.name || 'the broadcast', path: urls.broadcast(props.id) }
-                        : undefined
-                }
+                forceBackTo={workflowBackTo(workflow, props.id)}
                 actions={
                     <>
                         <WorkflowActions {...props} />

@@ -61,7 +61,7 @@ class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/beehiiv",
             iconPath="/static/services/beehiiv.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
