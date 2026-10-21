@@ -1,5 +1,7 @@
 Run a retention query to analyze how many users return over time after performing an initial action. Retention insights show you how many users return during subsequent periods. They're useful for understanding user engagement and stickiness.
 
+Load the creating-insights skill before you build or change the query. It covers which runner fits the question, what the runners compute without SQL, and how to edit an answer without rewriting it in SQL.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters.
 
 Examples of use cases include:

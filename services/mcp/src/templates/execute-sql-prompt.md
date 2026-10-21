@@ -12,6 +12,8 @@ For governed measures, check for a matching approved metric before deriving a ne
 
 Default to typed runners for new product analytics and dashboard insights whenever their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series (`query-trends`). Use the matching typed runner for funnels, retention, stickiness, paths, and lifecycle; do not approximate their standard calculation rules with SQL.
 
+Before you write SQL that counts, compares, or charts events, load the `creating-insights` skill. It lists what the typed runners compute without SQL.
+
 When both methods fit, use the typed runner. SQL familiarity, SQL examples, or an earlier SQL discovery call do not justify SQL for the final analysis. Use SQL directly for the SQL-specific tasks above, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
 
 Both typed queries and SQL support visualizations. Save supported dashboard analyses as native query nodes. A chart or table request, or a harness needing a separate rendering call, does not justify SQL.
