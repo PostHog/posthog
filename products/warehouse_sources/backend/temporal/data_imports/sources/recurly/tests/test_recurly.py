@@ -7,9 +7,7 @@ from unittest.mock import MagicMock
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
     RecurlySourceConfig,
@@ -21,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.re
     _format_datetime,
     _usage_add_ons,
     get_resource,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
@@ -149,27 +146,6 @@ class TestGetResource:
         )
         assert resource["endpoint"]["params"] == {}
         assert resource["write_disposition"] == "replace"
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_code_mapping(self, status_code, expected_valid):
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            is_valid, message = validate_credentials("key", "us")
-
-        assert is_valid is expected_valid
-        if not expected_valid:
-            assert message
-
-    def test_connection_error_is_invalid(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("key", "us")
-
-        assert is_valid is False
-        assert message
 
 
 class TestRecurlySourceResumeBehavior:

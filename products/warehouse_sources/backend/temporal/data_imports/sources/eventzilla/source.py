@@ -52,7 +52,7 @@ class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeC
             name=ExternalDataSourceType.EVENTZILLA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventzilla",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Eventzilla API key to automatically pull your Eventzilla data into the PostHog Data warehouse.
 
 You can generate an API key in your Eventzilla account under **Settings > App Management**.""",

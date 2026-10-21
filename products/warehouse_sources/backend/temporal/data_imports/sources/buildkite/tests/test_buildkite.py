@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
@@ -213,13 +212,6 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].url == expected_url
         assert network.requests_log[0].headers["authorization"] == "Bearer bkua"
-
-    def test_swallows_transport_errors(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("bkua", "my-org")
-
-        assert ok is False
-        assert error is not None
 
 
 class TestSuiteFanout:

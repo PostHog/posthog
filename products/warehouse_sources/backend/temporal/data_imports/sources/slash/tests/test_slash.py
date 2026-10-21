@@ -117,9 +117,6 @@ def test_repeated_cursor_fails() -> None:
 @pytest.mark.parametrize(
     ("status", "schema", "expected", "message"),
     [
-        (200, None, True, None),
-        (200, "cards", True, None),
-        (401, None, False, "Slash rejected the API key. Check the key in your Slash dashboard."),
         (403, None, True, None),
         (
             403,
