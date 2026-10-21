@@ -1497,7 +1497,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         "current_sync_timestamp": chunk_end_ts,
                         "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
                     },
-                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                    settings={
+                        "max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS,
+                        # When every replica of a shard lags past max_replica_delay_for_distributed_queries,
+                        # the default fallback reads a stale replica and returns a result with rows missing.
+                        # The checkpoint would then move past those rows. With the fallback off, ClickHouse
+                        # fails the chunk, so the checkpoint stops before it.
+                        "fallback_to_stale_replicas_for_distributed_queries": 0,
+                    },
                 )
             except Exception as e:
                 # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
