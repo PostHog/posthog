@@ -12,13 +12,11 @@ export function TodayTopBar(): JSX.Element {
         >
             <div className="flex min-w-0 items-center gap-0.5">
                 <TodayProjectMenu />
+                <TodayTopBarQuickStartButton />
             </div>
             <TodayTopBarSearch />
-            <div className="flex min-w-0 items-center gap-2">
-                <TodayTopBarQuickStartButton />
-                <div className="ms-auto">
-                    <TodayTopBarPanelTabs />
-                </div>
+            <div className="flex min-w-0 items-center justify-end">
+                <TodayTopBarPanelTabs />
             </div>
         </header>
     )

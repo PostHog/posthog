@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconGear, IconPlusSmall, IconSearch } from '@posthog/icons'
+import { IconGear, IconPlusSmall, IconSearch } from '@posthog/icons'
 import {
     Button,
     Combobox,
@@ -114,9 +114,8 @@ export function TodayProjectMenu(): JSX.Element {
             <ComboboxTrigger
                 ref={triggerRef}
                 render={
-                    <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
+                    <Button className="min-w-0 px-1.5" data-attr="today-top-bar-project-menu">
                         <span className="max-w-48 min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
-                        <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
                     </Button>
                 }
             />

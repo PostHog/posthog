@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { TrashIcon } from 'lucide-react'
+import { BellIcon, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -152,6 +152,23 @@ export const IconOnly = {
             </Button>
             <Button variant="link" size="icon">
                 <TrashIcon />
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const WithIndicator = {
+    render: () => (
+        <div className="flex flex-wrap gap-2">
+            <Button size="icon" indicator aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" indicator>
+                <BellIcon />
+                Inbox
             </Button>
         </div>
     ),

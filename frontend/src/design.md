@@ -184,6 +184,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - In-flight action: `loading`, not a separate spinner
   - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `Checkbox` and `Switch` take it. Never hand-wrap a disabled control in a Tooltip
   - Leading icon: the first child, before the label. Trailing icon: the last child
+  - Indicator dot (unread, pending tasks): the Button `indicator` prop, never a hand-placed `span`. It sits on the top-right corner, outside the icon. Off the app background, set `--quill-button-indicator-ring` to the surface behind the button. Say what the dot means in the `aria-label`
   - Split button (main action plus a menu of variants): `ButtonGroup` holding the Button and an icon-only `DropdownMenuTrigger` with `IconChevronDown`
 - Switch vs Checkbox vs Toggle:
   - setting that applies immediately → Switch
@@ -230,6 +231,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Tooltip:
     - Short label for an icon/control; never the only source of essential info (not shown on touch, not the accessible name)
     - On icon-only buttons: `<TooltipTrigger delay={0}>`
+    - Text is left-aligned, never centered. For several lines, pass one `flex flex-col` child; `flex-col` on `TooltipContent` itself centers each line
     - Every surface needs a root `<TooltipProvider>` (Quill setup); it makes adjacent tooltips open instantly once one is visible
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
