@@ -79,6 +79,8 @@ minimumReleaseAgeExclude:
     - '@tanstack/store'
     - '@tanstack/virtual-core'
     - '@tanstack/virtual-file-routes'
+    # Drop once it is over the 7-day minimumReleaseAge.
+    - electron@42.11.16
 
 overrides:
     # node-abi predates Electron 42; ^3.92.0 is the first release that knows its ABI
