@@ -1,8 +1,8 @@
 from collections.abc import Collection
 from uuid import UUID
 
-from products.cdp.backend.models.hog_functions import HogFunction
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.cdp.backend.facade.api import warehouse_tables_with_enabled_hog_functions
+from products.data_modeling.backend.facade.api import all_saved_query_names
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     saved_queries_with_property_sources,
 )
@@ -13,14 +13,17 @@ VIEW_TRIGGER_SOURCE = "data-warehouse-view"
 
 def saved_queries_feeding_consumers(team_id: int, saved_query_ids: Collection[UUID]) -> frozenset[UUID]:
     """The given saved queries whose refreshes feed person, group or account properties, a hog function or a workflow."""
-    names = dict(
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_query_ids)
-        .exclude(deleted=True)
-        .values_list("id", "name")
-    )
+    team_names = all_saved_query_names(team_id)
+    names = {
+        saved_query_id: team_names[str(saved_query_id)]
+        for saved_query_id in saved_query_ids
+        if str(saved_query_id) in team_names
+    }
     if not names:
         return frozenset()
-    triggered_names = _hog_function_view_names(team_id) | active_workflow_warehouse_table_names(
+    triggered_names = warehouse_tables_with_enabled_hog_functions(
+        team_id=team_id, trigger_source=VIEW_TRIGGER_SOURCE, table_names=names.values()
+    ) | active_workflow_warehouse_table_names(
         team_id=team_id, trigger_source=VIEW_TRIGGER_SOURCE, table_names=names.values()
     )
     with_property_sources = saved_queries_with_property_sources(
@@ -31,17 +34,3 @@ def saved_queries_feeding_consumers(team_id: int, saved_query_ids: Collection[UU
         for saved_query_id, name in names.items()
         if name in triggered_names or str(saved_query_id) in with_property_sources
     )
-
-
-def _hog_function_view_names(team_id: int) -> set[str]:
-    filters = (
-        HogFunction.objects.filter(team_id=team_id, enabled=True, filters__source=VIEW_TRIGGER_SOURCE)
-        .exclude(deleted=True)
-        .values_list("filters", flat=True)
-    )
-    return {
-        table["table_name"]
-        for function_filters in filters
-        for table in (function_filters or {}).get("data_warehouse") or []
-        if isinstance(table, dict) and table.get("table_name")
-    }
