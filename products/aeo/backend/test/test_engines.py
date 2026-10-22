@@ -1,13 +1,20 @@
 from types import SimpleNamespace
 
+import pytest
 from unittest.mock import patch
 
+import httpx
+from google.genai import (
+    errors as genai_errors,
+    types as genai_types,
+)
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
     ClaudeWebSearchEngine,
+    GeminiGroundedEngine,
     OpenAIWebSearchEngine,
     anthropic_truncated_error,
     build_check_fields,
@@ -15,6 +22,7 @@ from products.aeo.backend.engines import (
     openai_response_error,
     parse_anthropic_citations,
     parse_exa_citations,
+    parse_gemini_grounding,
     parse_openai_responses_citations,
     target_position,
     top_domains,
@@ -241,6 +249,142 @@ def test_claude_engine_calls_web_search_directly() -> None:
     assert tool["allowed_callers"] == ["direct"]
     assert check.error is None
     assert check.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
+
+
+GEMINI_REDIRECT = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123"
+
+
+def _gemini_response(
+    chunks: list[tuple[str, str]] | None,
+    supports: list[list[int]],
+    queries: list[str] | None = None,
+) -> genai_types.GenerateContentResponse:
+    metadata = (
+        genai_types.GroundingMetadata(
+            web_search_queries=queries or ["best product analytics"],
+            grounding_chunks=[
+                genai_types.GroundingChunk(web=genai_types.GroundingChunkWeb(uri=uri, title=title))
+                for uri, title in chunks
+            ],
+            grounding_supports=[genai_types.GroundingSupport(grounding_chunk_indices=indices) for indices in supports],
+        )
+        if chunks is not None
+        else None
+    )
+    return genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part(text="planning the search", thought=True),
+                        genai_types.Part(text="PostHog is one option."),
+                    ],
+                ),
+                grounding_metadata=metadata,
+            )
+        ]
+    )
+
+
+@parameterized.expand(
+    [
+        (
+            "direct_uris",
+            _gemini_response(
+                [("https://posthog.com/docs", "PostHog docs"), ("https://example.com/a", "A")], [[1], [0]]
+            ),
+            ["https://example.com/a", "https://posthog.com/docs"],
+            ["https://posthog.com/docs", "https://example.com/a"],
+        ),
+        (
+            "redirect_uri_uses_domain_title",
+            _gemini_response([(GEMINI_REDIRECT, "posthog.com"), (GEMINI_REDIRECT + "x", "Not a domain")], [[0, 1]]),
+            ["https://posthog.com", GEMINI_REDIRECT + "x"],
+            ["https://posthog.com", GEMINI_REDIRECT + "x"],
+        ),
+        (
+            "duplicate_and_out_of_range_refs",
+            _gemini_response([("https://posthog.com/a", "A"), ("https://example.com/b", "B")], [[1, 0], [0, 1, 7]]),
+            ["https://example.com/b", "https://posthog.com/a"],
+            ["https://posthog.com/a", "https://example.com/b"],
+        ),
+        ("no_grounding_metadata", _gemini_response(None, []), [], []),
+    ]
+)
+def test_parse_gemini_grounding(
+    _name: str,
+    response: genai_types.GenerateContentResponse,
+    expected_cited: list[str],
+    expected_retrieved: list[str],
+) -> None:
+    parsed = parse_gemini_grounding(response)
+    assert parsed.answer_text == "PostHog is one option."
+    assert parsed.cited_urls == expected_cited
+    assert parsed.retrieved_urls == expected_retrieved
+    assert parsed.search_queries == (
+        [] if response.candidates[0].grounding_metadata is None else ["best product analytics"]
+    )
+
+
+@parameterized.expand(
+    [
+        ("grounded_answer", _gemini_response([(GEMINI_REDIRECT, "posthog.com")], [[0]]), None, ["https://posthog.com"]),
+        (
+            "blocked_prompt_is_failed_check",
+            genai_types.GenerateContentResponse(
+                candidates=[],
+                prompt_feedback=genai_types.GenerateContentResponsePromptFeedback(
+                    block_reason=genai_types.BlockedReason.SAFETY
+                ),
+            ),
+            "no_candidates_response: SAFETY",
+            [],
+        ),
+        (
+            "api_error_is_failed_check",
+            genai_errors.ServerError(503, {"error": {"code": 503, "message": "overloaded", "status": "UNAVAILABLE"}}),
+            "ServerError: status=503 body=overloaded",
+            [],
+        ),
+        ("timeout_is_failed_check", httpx.ReadTimeout("timed out"), "ReadTimeout: timed out", []),
+    ]
+)
+def test_gemini_engine_run(_name: str, outcome: object, expected_error: str | None, expected_cited: list[str]) -> None:
+    captured: dict = {}
+
+    def fake_generate_content(*, model, contents, config):
+        captured.update(model=model, contents=contents, config=config)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    fake_client = SimpleNamespace(models=SimpleNamespace(generate_content=fake_generate_content))
+    with (
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch("products.aeo.backend.engines.build_gemini_client", return_value=fake_client) as build,
+    ):
+        check = GeminiGroundedEngine(model="gemini-test").run(
+            "best product analytics", trace_id="t1", custom_properties={"aeo_run_id": "r1"}
+        )
+
+    assert build.call_args.kwargs["trace_id"] == "t1"
+    assert build.call_args.kwargs["properties"] == {"aeo_run_id": "r1"}
+    assert captured["contents"] == "best product analytics"
+    assert [tool.google_search is not None for tool in captured["config"].tools] == [True]
+    assert check.engine == "gemini-google-search"
+    assert check.trace_id == "t1"
+    assert check.error == expected_error
+    assert check.cited_urls == expected_cited
+
+
+def test_gemini_engine_requires_gateway() -> None:
+    with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None):
+        with pytest.raises(ValueError):
+            GeminiGroundedEngine()
 
 
 def test_parse_exa_citations() -> None:

@@ -13,16 +13,22 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from django.conf import settings
 
+import httpx
 import requests
+from google.genai import (
+    errors as genai_errors,
+    types as genai_types,
+)
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
@@ -42,6 +48,12 @@ MAX_ANSWER_TOKENS = 4096
 # answer; too small a cap yields incomplete, citation-less responses that would
 # otherwise read as "not cited".
 OPENAI_MAX_OUTPUT_TOKENS = 12000
+
+GEMINI_AI_PRODUCT = "aeo"
+# The Gemini API grounding chunk carries this redirect host as its uri and the
+# source domain as its title.
+GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+_BARE_DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$")
 
 # Property-size guards so a single check event stays small.
 MAX_URLS_PER_CHECK = 40
@@ -63,7 +75,7 @@ class CitationCheck:
     model: str
     # URLs the answer actually cites, in first-mention order.
     cited_urls: list[str] = field(default_factory=list)
-    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
+    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic and Gemini only).
     retrieved_urls: list[str] = field(default_factory=list)
     # Search queries the model issued.
     search_queries: list[str] = field(default_factory=list)
@@ -245,6 +257,62 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
+def _gemini_chunk_url(web: genai_types.GroundingChunkWeb) -> str | None:
+    uri = web.uri or ""
+    try:
+        host = (urlparse(uri).hostname or "").lower()
+    except ValueError:
+        host = ""
+    if host == GEMINI_GROUNDING_REDIRECT_HOST:
+        # is_target_url matches on host, so a redirect uri never counts as a citation of
+        # the source. Record the source domain from the chunk instead of following the redirect.
+        domain = (web.domain or web.title or "").strip().lower()
+        return f"https://{domain}" if _BARE_DOMAIN.match(domain) else uri
+    return uri or None
+
+
+def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> ParsedAnswer:
+    """Parse a generate_content response grounded with Google Search.
+
+    Retrieved = every grounding chunk; cited = the chunks a grounding support
+    attaches to a span of the answer, in first-reference order.
+    """
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate is None:
+        return ParsedAnswer()
+    parts = candidate.content.parts if candidate.content and candidate.content.parts else []
+    answer_text = "".join(part.text for part in parts if part.text and not part.thought)
+
+    metadata = candidate.grounding_metadata
+    if metadata is None:
+        return ParsedAnswer(answer_text=answer_text)
+    chunk_urls = [
+        _gemini_chunk_url(chunk.web) if chunk.web is not None else None for chunk in metadata.grounding_chunks or []
+    ]
+    cited: list[str] = []
+    for support in metadata.grounding_supports or []:
+        for index in support.grounding_chunk_indices or []:
+            if 0 <= index < len(chunk_urls) and (url := chunk_urls[index]):
+                cited.append(url)
+
+    return ParsedAnswer(
+        answer_text=answer_text,
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls([url for url in chunk_urls if url]),
+        search_queries=list(metadata.web_search_queries or []),
+    )
+
+
+def gemini_response_error(response: genai_types.GenerateContentResponse) -> str | None:
+    """A response with no candidate never answered, usually because the prompt was
+    blocked. That is a failed check, not a zero-citation answer."""
+    if response.candidates:
+        return None
+    feedback = response.prompt_feedback
+    reason = feedback.block_reason if feedback is not None and feedback.block_reason is not None else None
+    return f"no_candidates_response: {reason.value if reason is not None else 'unknown'}"
+
+
 def is_target_url(url: str, target_domains: list[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
@@ -330,6 +398,12 @@ def _request_error(e: requests.RequestException) -> str:
     if e.response is not None:
         detail = f" status={e.response.status_code} body={e.response.text[:200]}"
     return f"{type(e).__name__}:{detail or ' ' + str(e)[:200]}"
+
+
+def _gemini_request_error(e: genai_errors.APIError | httpx.HTTPError) -> str:
+    if isinstance(e, genai_errors.APIError):
+        return f"{type(e).__name__}: status={e.code} body={(e.message or '')[:200]}"
+    return f"{type(e).__name__}: {str(e)[:200]}"
 
 
 class ClaudeWebSearchEngine:
@@ -422,6 +496,47 @@ class OpenAIWebSearchEngine:
             model=self.model,
             trace_id=trace_id,
             cited_urls=parsed.cited_urls,
+            search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
+        )
+
+
+class GeminiGroundedEngine:
+    """Gemini grounded with Google Search, via the AI gateway's generateContent path."""
+
+    name = "gemini-google-search"
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or settings.AEO_GEMINI_MODEL
+        if resolve_ai_gateway_config() is None:
+            raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        # The client carries the trace and property headers, so each check builds its own.
+        client = build_gemini_client(
+            ai_product=GEMINI_AI_PRODUCT,
+            trace_id=trace_id,
+            properties=custom_properties,
+            timeout_ms=GATEWAY_TIMEOUT_SECONDS * 1000,
+        )
+        if client is None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error="ai_gateway_unset")
+        config = genai_types.GenerateContentConfig(
+            tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+        )
+        try:
+            response = client.models.generate_content(model=self.model, contents=prompt, config=config)
+        except (genai_errors.APIError, httpx.HTTPError) as e:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_gemini_request_error(e))
+        if (error := gemini_response_error(response)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
+        parsed = parse_gemini_grounding(response)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            trace_id=trace_id,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
             search_queries=parsed.search_queries,
             answer_text=parsed.answer_text,
         )

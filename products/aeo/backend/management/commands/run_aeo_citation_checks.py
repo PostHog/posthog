@@ -6,13 +6,21 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.team import Team
 
-from products.aeo.backend.engines import ClaudeWebSearchEngine, ExaAnswerEngine, OpenAIWebSearchEngine
+from products.aeo.backend.engines import (
+    ClaudeWebSearchEngine,
+    ExaAnswerEngine,
+    GeminiGroundedEngine,
+    OpenAIWebSearchEngine,
+)
 from products.aeo.backend.runner import run_citation_checks
 
 ENGINES_BY_NAME = {
     "claude": ClaudeWebSearchEngine,
     "openai": OpenAIWebSearchEngine,
     "exa": ExaAnswerEngine,
+    # Manual-only: Google's grounding terms need a review before scheduled use,
+    # so available_engines() leaves it out.
+    "gemini": GeminiGroundedEngine,
 }
 
 
@@ -29,7 +37,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--engines",
             type=str,
-            help="Comma-separated subset of: claude,openai,exa. Default: all configured.",
+            help="Comma-separated subset of: claude,openai,exa,gemini. Default: all configured except gemini.",
         )
         parser.add_argument("--dry-run", action="store_true", help="Run engines but record no checks.")
 

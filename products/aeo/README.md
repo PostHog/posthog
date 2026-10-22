@@ -39,6 +39,9 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
+Gemini with Google Search grounding (`gemini-google-search`, model `AEO_GEMINI_MODEL`) runs only with `--engines gemini`.
+It stays out of scheduled runs until a review of Google's grounding terms clears it.
+
 ### Import over the API
 
 `/api/projects/<id>/aeo_prompts/` lists the prompt set, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
@@ -65,10 +68,10 @@ A run takes at most 50 prompts. It takes one prompt per topic in turn, so every 
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `gemini-google-search` (manual runs only).               |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Gemini expose retrieved results; others don't).                       |
 | `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
 | `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
 | `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
