@@ -11,7 +11,7 @@ from products.error_tracking.backend.logic.severity_inference import SEVERITY_IN
 
 ISSUE_SUMMARY_FLAG = "error-tracking-issue-summaries"
 
-ISSUE_SUMMARY_MODEL = "gpt-4.1-mini"
+ISSUE_SUMMARY_MODEL = "posthog/zai-org/glm-5.2"
 ISSUE_SUMMARY_CATEGORY_MODEL = SEVERITY_INFERENCE_MODEL
 ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS = 2000
 ISSUE_SUMMARY_MAX_OUTPUT_TOKENS = 800
