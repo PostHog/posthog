@@ -50,7 +50,9 @@ describe('OfflineExperimentContent', () => {
             ],
         })
         render(<OfflineExperimentContent teamId={997} experimentId={detailExperiment.id} />)
-        const header = await screen.findByRole('columnheader', { name: `${shortName || fullName} v2` })
+        const header = (await screen.findByText(shortName || fullName, { selector: 'th span' })).closest(
+            'th'
+        ) as HTMLTableCellElement
         expect(within(header).getByText(shortName || fullName)).toBeInTheDocument()
         expect(within(header).getByText('v2')).toHaveClass('LemonTag')
     })
