@@ -2,7 +2,7 @@ import asyncio
 import threading
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
@@ -1364,8 +1364,16 @@ class TestCalculateActivity(BaseTest):
         assert row.error_message is not None
         assert len(row.error_message) <= 2000
 
-    @parameterized.expand([("select_only", None), ("select_and_precompute_insert", UUID(int=7))])
-    def test_cancel_kills_the_attempt_queries_with_tags(self, name: str, precompute_job_id: UUID | None):
+    @parameterized.expand(
+        [
+            ("select_only", None, False),
+            ("select_and_precompute_insert", UUID(int=7), False),
+            ("precompute_insert_after_failed_select_kill", UUID(int=7), True),
+        ]
+    )
+    def test_cancel_kills_the_attempt_queries_with_tags(
+        self, name: str, precompute_job_id: UUID | None, select_kill_fails: bool
+    ):
         # The kill runs in its own thread, so it inherits none of the calc body's tags. Untagged sync_execute
         # calls raise in local dev, which makes the kill fail silently there.
         exp = self._experiment(flag_key=f"cancel-{name}", metrics=[_mean_metric("m1")])
@@ -1379,10 +1387,13 @@ class TestCalculateActivity(BaseTest):
         def _capture(team_id: int, client_query_id: str) -> None:
             kills.append((team_id, client_query_id))
             tags.append(get_query_tags().model_copy())
+            if select_kill_fails and client_query_id.startswith("experiment_metric_recalc_"):
+                raise TimeoutError("node unavailable")
 
         with (
             patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
             patch("products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster", _capture),
+            pytest.raises(ExceptionGroup) if select_kill_fails else nullcontext(),
         ):
             _cancel_raw(str(recalc.id), "m1", 3, cancellation)
 

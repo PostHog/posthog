@@ -648,9 +648,18 @@ def _cancel_metric_query_sync(
         product=Product.EXPERIMENTS,
         feature=Feature.CACHE_WARMUP,
     ):
-        cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
+        query_ids = [_client_query_id(recalculation_id, metric_uuid, attempt)]
         if precompute_job_id is not None:
-            cancel_query_on_cluster(state.team_id, str(precompute_job_id))
+            query_ids.append(str(precompute_job_id))
+        # A failed kill must not skip the next one. After the attempt deadline, the drain does not retry.
+        errors: list[Exception] = []
+        for query_id in query_ids:
+            try:
+                cancel_query_on_cluster(state.team_id, query_id)
+            except Exception as e:
+                errors.append(e)
+        if errors:
+            raise ExceptionGroup("Experiment metric recalculation query kill failed", errors)
 
 
 @database_sync_to_async_pool
