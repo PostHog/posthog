@@ -33,7 +33,6 @@ def test_full_record():
             "state": "New",
             "work_item_type": "Bug",
             "priority": "2",
-            "url": "https://dev.azure.com/org/_apis/wit/workItems/77/revisions/1",
             "changed_date": "2026-01-01T00:00:00Z",
         },
     )
@@ -44,7 +43,6 @@ def test_full_record():
         "work_item_type": "Bug",
         "state": "New",
         "priority": "2",
-        "url": "https://dev.azure.com/org/_apis/wit/workItems/77/revisions/1",
         "created_at": "2026-01-01T00:00:00Z",
     }
 

@@ -1241,6 +1241,55 @@ class XmattersIncidentSignalInput(SignalInputBase):
     extra: XmattersIncidentSignalExtra
 
 
+# ── Security tools (scanner_finding) ──────────────────────────────────────────────
+
+
+class LaceworkScannerFindingSignalExtra(SignalExtraBase):
+    alert_type: str | None
+    severity: str | None
+    status: str | None
+    internet_exposure: str | None
+    start_time: str | None
+
+
+class LaceworkScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.LACEWORK]
+    extra: LaceworkScannerFindingSignalExtra
+
+
+class OrcaSecurityScannerFindingSignalExtra(SignalExtraBase):
+    category: str | None
+    risk_level: str | None
+    orca_score: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class OrcaSecurityScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.ORCA_SECURITY]
+    extra: OrcaSecurityScannerFindingSignalExtra
+
+
+class TenableVulnerabilityManagementScannerFindingSignalExtra(SignalExtraBase):
+    asset_uuid: str | None
+    plugin_id: str | None
+    port_number: str | None
+    protocol: str | None
+    plugin_cvss3_base_score: str | None
+    severity: str | None
+    state: str | None
+    first_found: str | None
+
+
+class TenableVulnerabilityManagementScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.TENABLE_VULNERABILITY_MANAGEMENT]
+    extra: TenableVulnerabilityManagementScannerFindingSignalExtra
+
+
 class BetterstackIncidentSignalExtra(SignalExtraBase):
     url: str | None
     started_at: str | None
@@ -1296,7 +1345,6 @@ class AzureDevopsIssueSignalExtra(SignalExtraBase):
     work_item_type: str | None
     state: str | None
     priority: str | None
-    url: str | None
     created_at: str | None
 
 
@@ -1411,7 +1459,10 @@ SignalInput = Annotated[
     | PlaneIssueSignalInput
     | AzureDevopsIssueSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | LaceworkScannerFindingSignalInput
+    | OrcaSecurityScannerFindingSignalInput
+    | TenableVulnerabilityManagementScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1487,6 +1538,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureDevopsIssueSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    LaceworkScannerFindingSignalInput,
+    OrcaSecurityScannerFindingSignalInput,
+    TenableVulnerabilityManagementScannerFindingSignalInput,
     CheckFailedSignalInput,
 )
 

@@ -20,7 +20,6 @@ logger = get_logger(__name__)
 AZURE_DEVOPS_FIELDS = (
     "id",
     "changed_date",
-    "url",
     "JSONExtractString(fields, 'System.Title') AS title",
     "JSONExtractString(fields, 'System.Description') AS description",
     "JSONExtractString(fields, 'System.State') AS state",
@@ -69,7 +68,6 @@ def azure_devops_work_item_emitter(team_id: int, record: dict[str, Any]) -> Sign
             "work_item_type": record.get("work_item_type") or None,
             "state": record.get("state") or None,
             "priority": priority or None,
-            "url": record.get("url") or None,
             "created_at": None if changed_date is None else str(changed_date),
         },
     )
