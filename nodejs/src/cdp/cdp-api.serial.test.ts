@@ -38,6 +38,7 @@ import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/postho
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import { transactionalEmailRequestsTotal } from './services/hogflows/transactional-email'
 import { emailRecipientHash } from './services/messaging/email-recipient-hash'
+import { emailStatusMissingRecipientHash } from './services/messaging/email-status.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2222,6 +2223,29 @@ describe('CDP API', () => {
             expect(recordStatus.mock.calls).toEqual([
                 [{ teamId: team.id, messageId: invocation.id, status: 'queued', at: expect.any(Date), recipientHash }],
             ])
+        })
+
+        it.each([
+            ['no salt keys', ''],
+            ['no usable first salt key', ' ,00beef0000beef0000beef0000beef00'],
+        ])('still queues the send with %s and only skips its status', async (_name, saltKeys) => {
+            const missingHashCount = async (): Promise<number> =>
+                (await emailStatusMissingRecipientHash.get()).values.find((v) => v.labels.source === 'route')?.value ??
+                0
+            const missingBefore = await missingHashCount()
+            const configuredSaltKeys = hub.ENCRYPTION_SALT_KEYS
+            hub.ENCRYPTION_SALT_KEYS = saltKeys
+            try {
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(mockQueueInvocations.mock.calls[0][0][0].state.emailRecipientHash).toBeUndefined()
+                expect(recordStatus).not.toHaveBeenCalled()
+                expect(await missingHashCount()).toEqual(missingBefore + 1)
+            } finally {
+                hub.ENCRYPTION_SALT_KEYS = configuredSaltKeys
+            }
         })
 
         describe('with an idempotency key', () => {
