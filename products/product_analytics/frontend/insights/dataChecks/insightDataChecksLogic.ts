@@ -44,6 +44,7 @@ import { insightsDataChecksCreate } from 'products/product_analytics/frontend/ge
 import type {
     InsightDataCheckApi,
     InsightDataCheckKeyEnumApi,
+    InsightDataCheckSkipReasonEnumApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
     InsightDataChecksStatusEnumApi,
@@ -110,11 +111,13 @@ export interface insightDataChecksLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
+    canRunExpensiveChecks: boolean
     checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
     checks: InsightDataCheckApi[]
     dataChecksRun: DataChecksRun | null
     dataChecksRunLoading: boolean
+    expensiveChecksQuery: DataChecksQuery | null
     filterRemovesBots: boolean
     filtersTestAccounts: boolean
     findings: InsightDataCheckApi[]
@@ -258,6 +261,9 @@ export interface insightDataChecksLogicActions {
     reportDataChecksViewed: () => {
         value: true
     }
+    runExpensiveChecks: (query: DataChecksQuery) => {
+        query: DataChecksQuery
+    }
     setFiltersTestAccounts: (
         filtersTestAccounts: boolean,
         check: InsightDataCheckKeyEnumApi
@@ -294,6 +300,12 @@ export interface insightDataChecksLogicMeta {
         queryFiltersTestAccounts: (checkedQuery: DataChecksQuery | null) => boolean
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
+        canRunExpensiveChecks: (
+            status: InsightDataChecksStatus,
+            checks: InsightDataCheckApi[],
+            checkedQuery: DataChecksQuery | null,
+            expensiveChecksQuery: DataChecksQuery | null
+        ) => boolean
         labelOpen: (status: InsightDataChecksStatus, labelHeldOpen: boolean) => boolean
     }
 }
@@ -317,6 +329,13 @@ function isEventsOrActionsNode(node: Node): boolean {
 
 function readsEvents(series: Node): boolean {
     return isEventsOrActionsNode(series) || (isGroupNode(series) && series.nodes.every(isEventsOrActionsNode))
+}
+
+// A run on request lifts these limits. It still does not count a day with too many events, so that reason is not here.
+const LIMIT_SKIP_REASONS: (InsightDataCheckSkipReasonEnumApi | null)[] = ['read_limit', 'time_limit', 'memory_limit']
+
+function stoppedAtALimit(skipReason: InsightDataCheckSkipReasonEnumApi | null): boolean {
+    return LIMIT_SKIP_REASONS.includes(skipReason)
 }
 
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
@@ -365,8 +384,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         }),
         reportCheckExpanded: (check: InsightDataCheckApi) => ({ check }),
         reportDataChecksViewed: true,
+        runExpensiveChecks: (query: DataChecksQuery) => ({ query }),
     }),
-    loaders(({ cache }) => ({
+    loaders(({ cache, values }) => ({
         dataChecksRun: [
             null as DataChecksRun | null,
             {
@@ -395,6 +415,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                                         {
                                             query,
                                             client_query_id: clientQueryId,
+                                            run_expensive: values.expensiveChecksQuery === query,
                                         } as unknown as InsightDataChecksRequestApi,
                                         undefined,
                                         { signal: abortController.signal }
@@ -424,6 +445,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             null as DataChecksQuery | null,
             {
                 loadDataChecks: (_, query) => query,
+            },
+        ],
+        // A person asks for each query, so a changed query runs only the checks that are cheap again.
+        expensiveChecksQuery: [
+            null as DataChecksQuery | null,
+            {
+                runExpensiveChecks: (_, { query }) => query,
             },
         ],
         // A person can refresh the chart during a run. That run is for the events as they were before.
@@ -526,6 +554,19 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (s) => [s.checks],
             (checks: InsightDataCheckApi[]): InsightDataCheckApi[] => checks.filter(isFinding),
         ],
+        canRunExpensiveChecks: [
+            (s) => [s.status, s.checks, s.checkedQuery, s.expensiveChecksQuery],
+            (
+                status: InsightDataChecksStatus,
+                checks: InsightDataCheckApi[],
+                checkedQuery: DataChecksQuery | null,
+                expensiveChecksQuery: DataChecksQuery | null
+            ): boolean =>
+                checkedQuery !== null &&
+                checkedQuery !== expensiveChecksQuery &&
+                (status === 'on_request' ||
+                    (status === 'partial' && checks.some((check) => stoppedAtALimit(check.skip_reason)))),
+        ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
             // A finding keeps its label, because the icon alone does not say what the person needs to look at.
@@ -579,6 +620,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         // A person refreshes the chart after a fix in the project's filter, which leaves the query as it was.
         loadDataSuccess: ({ payload }) => {
             actions.checkData(FORCED_REFRESHES.includes(payload?.refresh))
+        },
+        runExpensiveChecks: ({ query }) => {
+            // pinned: analytics event name, renaming breaks dashboards
+            posthog.capture('insight data checks run requested', { status: values.status })
+            if (!values.dataChecksRunLoading) {
+                actions.loadDataChecks(query)
+            }
         },
         setFiltersTestAccounts: ({ filtersTestAccounts, check }) => {
             actions.updateQuerySource({ filterTestAccounts: filtersTestAccounts })

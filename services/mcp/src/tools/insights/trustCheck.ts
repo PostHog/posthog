@@ -35,7 +35,11 @@ type Result = WithAgentNote<Schemas.InsightDataChecks>
 const AGENT_NOTE =
     'When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its share ' +
     "of the events, and offer the fix. Do not change the insight, the query or the project's filter settings before " +
-    'the user agrees. When every check passed, say so in a few words. Do not list the checks that passed.'
+    'the user agrees. When every check passed, say so in a few words. Do not list the checks that passed. When the ' +
+    '`status` is `partial`, say which checks did not run and give each `skip_reason` in plain words.'
+
+// An agent's call is already a request to check, so it runs the checks that would read a lot of data too.
+const RUN_EXPENSIVE = { run_expensive: true }
 
 const insightTrustCheck = (): ToolBase<typeof schema, Result> => ({
     name: 'insight-trust-check',
@@ -48,11 +52,12 @@ const insightTrustCheck = (): ToolBase<typeof schema, Result> => ({
                 ? await context.api.request<Schemas.InsightDataChecks>({
                       method: 'GET',
                       path: `/api/projects/${projectId}/insights/${encodeURIComponent(String(id))}/data_checks/`,
+                      query: RUN_EXPENSIVE,
                   })
                 : await context.api.request<Schemas.InsightDataChecks>({
                       method: 'POST',
                       path: `/api/projects/${projectId}/insights/data_checks/`,
-                      body: { query },
+                      body: { query, ...RUN_EXPENSIVE },
                   })
         return withAgentNote(result, AGENT_NOTE)
     },

@@ -1697,6 +1697,12 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
     )
 
 
+RUN_EXPENSIVE_HELP_TEXT = (
+    "Run the checks even when they would read a lot of data, with the same limits as the insight's own query. "
+    "Without it, the checks do not run on an insight they would read a lot of data for, and `status` is `on_request`."
+)
+
+
 class InsightDataChecksRequestSerializer(serializers.Serializer):
     query = QueryFieldSerializer(
         help_text=(
@@ -1711,6 +1717,19 @@ class InsightDataChecksRequestSerializer(serializers.Serializer):
             "An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to "
             "`query/{client_query_id}/`."
         ),
+    )
+    run_expensive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=RUN_EXPENSIVE_HELP_TEXT,
+    )
+
+
+class InsightDataChecksQueryParamsSerializer(serializers.Serializer):
+    run_expensive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=RUN_EXPENSIVE_HELP_TEXT,
     )
 
 
@@ -1875,7 +1894,9 @@ class InsightDataChecksSerializer(serializers.Serializer):
         help_text=(
             "The worst result across the checks. `no_events` when no event matches the insight's events, filters "
             "and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, "
-            "and when a property the checks read is hidden from the caller. `inconclusive` when no check could run."
+            "and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. "
+            "`partial` when some checks could not run and the others found nothing. `on_request` when the checks "
+            "would read a lot of data, so they did not run: send `run_expensive` to run them."
         ),
     )
     checks = InsightDataCheckSerializer(many=True, help_text="Every check, in a fixed order, whatever its result.")
@@ -2653,9 +2674,12 @@ When set, the specified dashboard's filters and date range override will be appl
             raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
         if client_query_id := request.validated_data.get("client_query_id"):
             tag_queries(client_query_id=client_query_id)
-        return self._data_checks_response(request.validated_data["query"])
+        return self._data_checks_response(
+            request.validated_data["query"], run_expensive=request.validated_data["run_expensive"]
+        )
 
     @validated_request(
+        query_serializer=InsightDataChecksQueryParamsSerializer,
         parameters=[INSIGHT_ID_PATH_PARAMETER],
         responses={
             200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
@@ -2670,9 +2694,12 @@ When set, the specified dashboard's filters and date range override will be appl
     @action(methods=["GET"], detail=True, url_path="data_checks", required_scopes=["insight:read"])
     def saved_insight_data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         insight = self.get_object()
-        return self._data_checks_response(upgrade(insight.query) if insight.query else {})
+        return self._data_checks_response(
+            upgrade(insight.query) if insight.query else {},
+            run_expensive=request.validated_query_data["run_expensive"],
+        )
 
-    def _data_checks_response(self, query: dict[str, Any]) -> Response:
+    def _data_checks_response(self, query: dict[str, Any], *, run_expensive: bool) -> Response:
         # A personal API key reads within the same hourly budget as the query API, and each check query debits it.
         if get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
             tag_queries(api_queries_budgeted=True)
@@ -2684,6 +2711,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     team=self.team,
                     user=cast(User, self.request.user),
                     email_access=self._team_email_access(),
+                    run_expensive=run_expensive,
                 )
         except CHQueryErrorQueryWasCancelled:
             # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".

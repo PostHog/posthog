@@ -9072,6 +9072,8 @@ export interface ActivityLogPaginatedResponseApi {
  * * `passed` - No data issues found
  * * `warning` - A check found a small issue
  * * `problem` - A check found a large issue
+ * * `partial` - Some checks could not run, and the others found no issue
+ * * `on_request` - The checks would read a lot of data, so they run only on request
  * * `no_events` - No events to check
  * * `unsupported` - This kind of insight cannot be checked
  * * `inconclusive` - No check could run
@@ -9083,6 +9085,8 @@ export const InsightDataChecksStatusEnumApi = {
     Passed: 'passed',
     Warning: 'warning',
     Problem: 'problem',
+    Partial: 'partial',
+    OnRequest: 'on_request',
     NoEvents: 'no_events',
     Unsupported: 'unsupported',
     Inconclusive: 'inconclusive',
@@ -9128,6 +9132,7 @@ export const InsightDataCheckLevelEnumApi = {
  * * `filtered_by_traffic_type` - The insight already filters on traffic type
  * * `hidden_property` - A property the check reads is hidden from you
  * * `invalid_filter` - The project's internal and test users filter cannot run
+ * * `on_request` - The check would read a lot of data, so it runs only on request
  */
 export type InsightDataCheckSkipReasonEnumApi =
     (typeof InsightDataCheckSkipReasonEnumApi)[keyof typeof InsightDataCheckSkipReasonEnumApi]
@@ -9141,6 +9146,7 @@ export const InsightDataCheckSkipReasonEnumApi = {
     FilteredByTrafficType: 'filtered_by_traffic_type',
     HiddenProperty: 'hidden_property',
     InvalidFilter: 'invalid_filter',
+    OnRequest: 'on_request',
 } as const
 
 /**
@@ -9202,7 +9208,8 @@ export interface InsightDataCheckApi {
      * * `too_few_sampled_events` - The sample has too few events to give a share
      * * `filtered_by_traffic_type` - The insight already filters on traffic type
      * * `hidden_property` - A property the check reads is hidden from you
-     * * `invalid_filter` - The project's internal and test users filter cannot run */
+     * * `invalid_filter` - The project's internal and test users filter cannot run
+     * * `on_request` - The check would read a lot of data, so it runs only on request */
     skip_reason: InsightDataCheckSkipReasonEnumApi | null
     /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
      *
@@ -9297,11 +9304,13 @@ export interface InsightDataChecksCoverageApi {
 }
 
 export interface InsightDataChecksApi {
-    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data, so they did not run: send `run_expensive` to run them.
      *
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
      * * `problem` - A check found a large issue
+     * * `partial` - Some checks could not run, and the others found no issue
+     * * `on_request` - The checks would read a lot of data, so they run only on request
      * * `no_events` - No events to check
      * * `unsupported` - This kind of insight cannot be checked
      * * `inconclusive` - No check could run */
@@ -9426,6 +9435,8 @@ export interface InsightDataChecksRequestApi {
      * @maxLength 128
      */
     client_query_id?: string
+    /** Run the checks even when they would read a lot of data, with the same limits as the insight's own query. Without it, the checks do not run on an insight they would read a lot of data for, and `status` is `on_request`. */
+    run_expensive?: boolean
 }
 
 /**
@@ -9862,6 +9873,10 @@ export const InsightsActivityRetrieveFormat = {
 
 export type InsightsDataChecksRetrieveParams = {
     format?: InsightsDataChecksRetrieveFormat
+    /**
+     * Run the checks even when they would read a lot of data, with the same limits as the insight's own query. Without it, the checks do not run on an insight they would read a lot of data for, and `status` is `on_request`.
+     */
+    run_expensive?: boolean
 }
 
 export type InsightsDataChecksRetrieveFormat =

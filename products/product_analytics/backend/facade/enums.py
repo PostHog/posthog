@@ -45,6 +45,7 @@ class InsightDataCheckSkipReason(LabeledStrEnum):
     FILTERED_BY_TRAFFIC_TYPE = "filtered_by_traffic_type", "The insight already filters on traffic type"
     HIDDEN_PROPERTY = "hidden_property", "A property the check reads is hidden from you"
     INVALID_FILTER = "invalid_filter", "The project's internal and test users filter cannot run"
+    ON_REQUEST = "on_request", "The check would read a lot of data, so it runs only on request"
 
 
 class InsightDataCheckAction(LabeledStrEnum):
@@ -56,6 +57,8 @@ class InsightDataChecksStatus(LabeledStrEnum):
     PASSED = "passed", "No data issues found"
     WARNING = "warning", "A check found a small issue"
     PROBLEM = "problem", "A check found a large issue"
+    PARTIAL = "partial", "Some checks could not run, and the others found no issue"
+    ON_REQUEST = "on_request", "The checks would read a lot of data, so they run only on request"
     NO_EVENTS = "no_events", "No events to check"
     UNSUPPORTED = "unsupported", "This kind of insight cannot be checked"
     INCONCLUSIVE = "inconclusive", "No check could run"
