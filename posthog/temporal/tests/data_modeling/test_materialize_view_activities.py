@@ -425,22 +425,24 @@ class TestFailMaterializationActivity:
                 "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
             ) as mock_email,
         ):
+            # The first attempt saves the marker, but the in-app notice never lands.
+            mock_create.side_effect = RuntimeError("notifications unavailable")
             await activity_environment.run(fail_materialization_activity, inputs)
 
             await database_sync_to_async(anode.refresh_from_db)()
             assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-            mock_email.delay.assert_called_once_with(
-                ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True
-            )
-            mock_create.assert_called_once()
+            suspended_email = unittest.mock.call(ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True)
+            assert mock_email.delay.call_args_list == [suspended_email]
+
+            # The retry no longer sees the transition but still owes the notice. It resends with the
+            # same job, so the email's campaign key and the in-app idempotency key both dedupe.
+            mock_create.side_effect = None
+            await activity_environment.run(fail_materialization_activity, inputs)
+            assert mock_email.delay.call_args_list == [suspended_email, suspended_email]
             data = mock_create.call_args.args[0]
             assert "suspended" in data.title
+            assert "Last error: " + error in data.body
             assert data.target_type == TargetType.TEAM
-
-            # A retry no longer sees the transition. Any notification it creates must collide with
-            # the one already sent, and it must not email again.
-            await activity_environment.run(fail_materialization_activity, inputs)
-            assert mock_email.delay.call_count == 1
             assert {call.args[0].idempotency_key for call in mock_create.call_args_list} == {data.idempotency_key}
 
             # Resuming and failing the full streak again is a new suspension, so it notifies again.
@@ -458,7 +460,7 @@ class TestFailMaterializationActivity:
         assert mock_email.delay.call_args_list[-1] == unittest.mock.call(
             ateam.pk, str(asaved_query.id), str(next_job.id), suspended=True
         )
-        assert mock_email.delay.call_count == 2
+        assert mock_email.delay.call_count == 3
 
     @pytest.mark.parametrize(
         "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",

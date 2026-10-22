@@ -171,29 +171,30 @@ def maybe_notify_materialization_failure(
 
 
 @database_sync_to_async_pool
-def notify_node_suspended(job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int) -> None:
+def notify_node_suspended(
+    job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int, reason: str
+) -> None:
     """Tell the team a view stopped running, which is the moment that needs someone to act.
 
     The failure notifications go quiet after a streak's first failure, so without this the
     view would stop updating with nothing said.
     """
     send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id), suspended=True)
-    error = strip_hostname_from_error(job.error or "The latest materialization run failed.")
     create_notification(
         NotificationData(
             team_id=team_id,
             notification_type=NotificationType.MATERIALIZATION_FAILURE,
             priority=Priority.NORMAL,
             title=f"{saved_query.name} was suspended after repeated failures"[:255],
-            body=f"Fix the query, then open the view and select Resume. Last error: {error}"[:400],
+            body=f"Fix the query, then open the view and select Resume. Last error: {reason}"[:400],
             target_type=TargetType.TEAM,
             target_id=str(team_id),
             resource_type="warehouse_objects",
             resource_id=str(saved_query.id),
             source_url=f"/project/{team_id}/sql?open_view={saved_query.id}",
             source_id=str(job.id),
-            # Shares the failure notification's key, so a retry that no longer sees the transition
-            # cannot add a "failed" notification for the same run.
+            # A retry of the suspending run sends again, so this dedupes it. Sharing the failure
+            # notification's key also means one run never produces both.
             idempotency_key=_dedupe_key([_FailedView(job=job, saved_query=saved_query)]),
             resolver=_SavedQueryViewers(saved_query),
         )

@@ -26,6 +26,7 @@ from .utils import (
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
+    was_suspended_by_job,
 )
 
 LOGGER = get_logger(__name__)
@@ -134,7 +135,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
             )
             await _revert_materialization_on_unknown_table(job, saved_query)
         else:
-            suspended = await maybe_suspend_node_for_engine(
+            if await maybe_suspend_node_for_engine(
                 node_id=inputs.node_id,
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
@@ -142,11 +143,20 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
                 engine=DataModelingJobEngine.CLICKHOUSE,
                 reason=strip_hostname_from_error(error),
                 job_id=inputs.job_id,
-            )
-            if suspended:
+            ):
+                suspended = True
                 get_node_suspended_metric(DataModelingJobEngine.CLICKHOUSE.value).add(1)
                 await logger.ainfo(
                     f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+                )
+            else:
+                # A retry after the marker was saved but before anyone was told still owes the notice.
+                suspended = await was_suspended_by_job(
+                    node_id=inputs.node_id,
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=DataModelingJobEngine.CLICKHOUSE,
+                    job_id=inputs.job_id,
                 )
 
     except Exception as e:
@@ -161,7 +171,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
         try:
             if suspended:
                 # Replaces the failure notification for this run, so nobody gets two for one event.
-                await notify_node_suspended(job, saved_query, inputs.team_id)
+                await notify_node_suspended(job, saved_query, inputs.team_id, strip_hostname_from_error(error))
                 notified = True
             else:
                 notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
