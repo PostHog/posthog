@@ -87,11 +87,11 @@ describe('createApplyEventFiltersStep', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         resetMetrics()
-        mockManager.dropsAllEvents.mockResolvedValue(false)
+        mockManager.dropsAllEvents.mockReturnValue(false)
     })
 
     it('drops events the pipeline override drops, without a filter', async () => {
-        mockManager.dropsAllEvents.mockResolvedValue(true)
+        mockManager.dropsAllEvents.mockReturnValue(true)
         mockManager.getFilter.mockReturnValue(null)
         const step = createApplyEventFiltersStep(mockManager)
         const input = {

@@ -54,16 +54,16 @@ export interface ApplyEventFiltersInput {
 export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
     manager: EventFilterManager
 ): ProcessingStep<T, T> {
-    return async function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
-        if (await manager.dropsAllEvents(input.team.id)) {
+    return function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
+        if (manager.dropsAllEvents(input.team.id)) {
             eventFiltersEventsEvaluated.inc({ outcome: 'pipeline_dropped' })
-            return drop('event_filter_pipeline_override')
+            return Promise.resolve(drop('event_filter_pipeline_override'))
         }
 
         const filter = manager.getFilter(input.team.id)
 
         if (!filter) {
-            return ok(input)
+            return Promise.resolve(ok(input))
         }
 
         const matched = evaluateFilterTree(filter.filter_tree, {
@@ -81,15 +81,15 @@ export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
             // lets the event through to avoid accidental data loss
             if (isLive) {
                 eventFiltersEventsEvaluated.inc({ outcome: 'dropped' })
-                return drop('event_filter')
+                return Promise.resolve(drop('event_filter'))
             }
 
             eventFiltersEventsEvaluated.inc({ outcome: 'shadow_dropped' })
-            return ok(input)
+            return Promise.resolve(ok(input))
         }
 
         eventFiltersEventsEvaluated.inc({ outcome: 'ingested' })
-        return ok(input)
+        return Promise.resolve(ok(input))
     }
 }
 

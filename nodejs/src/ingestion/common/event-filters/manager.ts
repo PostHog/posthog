@@ -1,12 +1,11 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { IngestionPipeline } from '~/common/utils/event-ingestion-restrictions'
-import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { Component } from '~/ingestion/common/scopes'
 
 import { treeHasConditions } from './evaluate'
-import { eventFiltersOverrideLoadErrors, eventFiltersRefreshErrors } from './metrics'
+import { eventFiltersOverrideRefreshErrors, eventFiltersRefreshErrors } from './metrics'
 import { EventFilterRowSchema, EventFilterRule } from './schema'
 
 export interface EventFilterManagerOptions {
@@ -16,13 +15,14 @@ export interface EventFilterManagerOptions {
 /**
  * Manages per-team event filter config loaded from Postgres. One filter
  * per team, cached via a `BackgroundRefresher` that reloads all active
- * filters every 60s. The constructor does not prime the cache; call
+ * filters every 60s. The pipeline overrides that drop all events for
+ * `options.pipeline` reload the same way. The constructor does not prime the cache; call
  * `prime()` (or wrap construction in `EventFilterManagerComponent`) to
  * await the initial load.
  */
 export class EventFilterManager {
     private refresher: BackgroundRefresher<Map<number, EventFilterRule>>
-    private pipelineOverrides: LazyLoader<boolean>
+    private dropAllEventsTeams: BackgroundRefresher<Set<number>>
 
     constructor(
         private readonly postgres: PostgresRouter,
@@ -38,18 +38,23 @@ export class EventFilterManager {
                 eventFiltersRefreshErrors.inc()
             }
         )
-        this.pipelineOverrides = new LazyLoader({
-            name: 'event_filter_pipeline_overrides',
-            refreshAgeMs: 60_000,
-            loaderRetry: DEFAULT_LOADER_RETRY,
-            loader: async (teamIds) => this.fetchPipelineOverrides(teamIds),
-        })
+        this.dropAllEventsTeams = new BackgroundRefresher(
+            async () => this.fetchDropAllEventsTeams(),
+            60_000,
+            (error) => {
+                logger.error('Failed to refresh event filter pipeline overrides', {
+                    pipeline: this.options.pipeline,
+                    error,
+                })
+                eventFiltersOverrideRefreshErrors.inc()
+            }
+        )
     }
 
     async prime(): Promise<void> {
-        // Do not catch a first load error: startup must fail. A consumer without its filters
-        // ingests the events that a filter drops, and those events cannot be removed later.
-        await this.refresher.get()
+        // Do not catch a first load error: startup must fail. A consumer without its filters or
+        // overrides ingests the events that they drop, and those events cannot be removed later.
+        await Promise.all([this.refresher.get(), this.dropAllEventsTeams.get()])
     }
 
     /** Returns the filter for a team, or null if disabled or has no conditions. Non-blocking. */
@@ -61,39 +66,23 @@ export class EventFilterManager {
         return filter
     }
 
-    /**
-     * True when the team's override drops every event in this pipeline. Fails open: when
-     * the override cannot load, events are ingested, because a wrong drop cannot be undone.
-     */
-    async dropsAllEvents(teamId: number): Promise<boolean> {
-        try {
-            return (await this.pipelineOverrides.get(String(teamId))) ?? false
-        } catch {
-            eventFiltersOverrideLoadErrors.inc()
-            return false
-        }
+    /** True when the team's override drops every event in this pipeline. Non-blocking. */
+    dropsAllEvents(teamId: number): boolean {
+        return this.dropAllEventsTeams.tryGet()?.has(teamId) ?? false
     }
 
-    private async fetchPipelineOverrides(teamIds: string[]): Promise<Record<string, boolean>> {
-        try {
-            // Overrides are stored under the parent team of an environment.
-            const { rows } = await this.postgres.query<{ team_id: number; drop_all_events: boolean }>(
-                PostgresUse.COMMON_READ,
-                `SELECT t.id AS team_id, o.drop_all_events
-                 FROM posthog_team t
-                 JOIN posthog_eventfilterpipelineoverride o ON o.team_id = COALESCE(t.parent_team_id, t.id)
-                 WHERE t.id = ANY($1) AND o.pipeline = $2`,
-                [teamIds.map(Number), this.options.pipeline],
-                'fetchEventFilterPipelineOverrides'
-            )
-            return Object.fromEntries(rows.map((row) => [String(row.team_id), row.drop_all_events]))
-        } catch (error) {
-            logger.error('Failed to load event filter pipeline overrides', {
-                pipeline: this.options.pipeline,
-                error,
-            })
-            throw error
-        }
+    private async fetchDropAllEventsTeams(): Promise<Set<number>> {
+        // Overrides are stored under the parent team of an environment.
+        const { rows } = await this.postgres.query<{ team_id: number }>(
+            PostgresUse.COMMON_READ,
+            `SELECT t.id AS team_id
+             FROM posthog_eventfilterpipelineoverride o
+             JOIN posthog_team t ON COALESCE(t.parent_team_id, t.id) = o.team_id
+             WHERE o.pipeline = $1 AND o.drop_all_events`,
+            [this.options.pipeline],
+            'fetchEventFilterDropAllEventsTeams'
+        )
+        return new Set(rows.map((row) => Number(row.team_id)))
     }
 
     private async fetchAllFilters(): Promise<Map<number, EventFilterRule>> {

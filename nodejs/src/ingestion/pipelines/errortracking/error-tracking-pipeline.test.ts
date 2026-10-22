@@ -292,7 +292,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(null),
-            dropsAllEvents: jest.fn().mockResolvedValue(false),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         } as unknown as jest.Mocked<EventFilterManager>
 
         // Passthrough: non-cookieless events round-trip unchanged. The apply step
