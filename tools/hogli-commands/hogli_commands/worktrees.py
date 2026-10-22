@@ -225,7 +225,7 @@ def worktrees_clean(
     for source, root in _worktree_roots(repo_root):
         if selected_sources is not None and source not in selected_sources:
             continue
-        for path in _discover_worktrees(root):
+        for path in _discover_root_worktrees(root, registry):
             resolved = _resolve(path)
             if resolved in protected:
                 continue
@@ -458,6 +458,16 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
                 scan(child, depth + 1)
 
     scan(root, 1)
+    return found
+
+
+def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
+    found = _discover_worktrees(root)
+    seen = {_resolve(path) for path in found}
+    resolved_root = _resolve(root)
+    for path in registry:
+        if path not in seen and path != resolved_root and _is_under(path, resolved_root) and path.is_dir():
+            found.append(path)
     return found
 
 
