@@ -104,12 +104,11 @@ describe('update-feature-flag preserving groups', () => {
     })
 
     it.each([
-        { name: 'no flag-level aggregation', flagLevel: {}, sentIndexes: [1, 0] },
-        // A group property takes its condition's index. Both conditions aggregate on the flag level.
-        { name: 'a flag-level aggregation', flagLevel: { aggregation_group_type_index: 0 }, sentIndexes: [0, 0] },
+        { name: 'no flag-level aggregation', flagLevel: {} },
+        { name: 'a flag-level aggregation', flagLevel: { aggregation_group_type_index: 0 } },
     ])(
         'matches conditions by condition_id and keeps the IDs out of the PATCH on a flag with $name',
-        async ({ flagLevel, sentIndexes }) => {
+        async ({ flagLevel }) => {
             const storedGroups = [0, 1].map((group_type_index) => ({
                 properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' }],
                 rollout_percentage: 100,
@@ -134,7 +133,7 @@ describe('update-feature-flag preserving groups', () => {
             const result = (await tool.handler(createMockContext(request), params)) as typeof existing
 
             const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
-            expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual(sentIndexes)
+            expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual([1, 0])
             expect(patchGroups.some((group) => 'condition_id' in group)).toBe(false)
             expect(result.filters.groups.map((group) => (group as { condition_id?: string }).condition_id)).toEqual(
                 readIds

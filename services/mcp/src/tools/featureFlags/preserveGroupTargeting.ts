@@ -47,8 +47,9 @@
  * On a flag whose stored sets all aggregate on persons, a set without a source compares its echo
  * against every stored set instead. An appended set also has no source.
  * check_property_types_match_aggregation in products/feature_flags/backend/filters_validation.py
- * reports a group property in a person set and a person-aggregated property in a group set. The
- * evaluator supports both shapes. The merge keeps them where the stored flag already has them.
+ * reports a group property in a person set, a person-aggregated property in a group set, and a group
+ * property on another group type than its set. The evaluator supports these shapes. The merge keeps
+ * them where the stored flag already has them.
  *
  * In either kind of set, the stored filters that decide a type narrow to the ones that match the
  * incoming operator and value, then to the ones with its operator. When the rest hold more than one
@@ -374,14 +375,42 @@ function unambiguousPersonCandidates(
     return matching.some((candidate) => candidate.type === 'group') ? [] : matching
 }
 
-type SourceAggregation = 'person' | 'group'
+/**
+ * A group property follows its set's group type, so a retarget moves it with the set. That holds only
+ * for a property on the group type its source aggregates on. Older flags can hold a group property on
+ * another group type, a shape the API now rejects on write. The evaluator reads the property's own
+ * group type, so moving such a property would change which group the filter reads. The property
+ * therefore keeps the index that the agent sends or the source holds, and the API rejects the write.
+ * When the source holds the key on more than one group type and the agent sends no index, the index
+ * stays unset, so the API rejects the write as well.
+ */
+function groupTypeIndexFor(
+    prop: FlagProperty,
+    candidates: FlagProperty[] | undefined,
+    sourceAggregation: number | null | undefined,
+    setGroupTypeIndex: number
+): number | undefined {
+    if (!isPresentGroupIndex(sourceAggregation)) {
+        return setGroupTypeIndex
+    }
+    if (isPresentGroupIndex(prop.group_type_index)) {
+        return prop.group_type_index === sourceAggregation ? setGroupTypeIndex : prop.group_type_index
+    }
+    const storedGroupFilters = usableCandidates(candidates, (type) => type === 'group')
+    if (storedGroupFilters.every((stored) => stored.group_type_index === sourceAggregation)) {
+        return setGroupTypeIndex
+    }
+    const stored = pickTyping(storedGroupFilters, prop)?.group_type_index
+    return stored === sourceAggregation ? setGroupTypeIndex : (stored ?? undefined)
+}
 
+/** `sourceAggregation` is null for a person-aggregated source and undefined when there is no source. */
 function mergeProperty(
     incoming: FlagProperty,
     candidates: FlagProperty[] | undefined,
     otherCandidates: FlagProperty[] | undefined,
     setGroupTypeIndex: number | undefined,
-    source: SourceAggregation | undefined
+    sourceAggregation: number | null | undefined
 ): FlagProperty {
     const out: FlagProperty = { ...incoming }
 
@@ -401,10 +430,11 @@ function mergeProperty(
             // included. Any other candidate restores only a person-aggregated type, because
             // restoring `group` from it would name fields the agent never sent. Leaving the type
             // unset then makes the API report the property the agent actually sent.
-            const fromSource = source
-                ? usableCandidates(candidates, source === 'person' ? isPresentType : isPersonAggregatedType)
+            const hasSource = sourceAggregation !== undefined
+            const fromSource = hasSource
+                ? usableCandidates(candidates, sourceAggregation === null ? isPresentType : isPersonAggregatedType)
                 : []
-            const others = source ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
+            const others = hasSource ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
             const usable = fromSource.length > 0 ? fromSource : usableCandidates(others, isPersonAggregatedType)
             const typing = pickTyping(usable, out)
             if (typing) {
@@ -413,10 +443,11 @@ function mergeProperty(
         }
     }
 
-    // A group property carries the index its own set aggregates on. The set's index therefore
-    // replaces an index the agent echoed back from the group type it retargets away from.
     if (out.type === 'group' && isPresentGroupIndex(setGroupTypeIndex)) {
-        out.group_type_index = setGroupTypeIndex
+        const groupTypeIndex = groupTypeIndexFor(out, candidates, sourceAggregation, setGroupTypeIndex)
+        if (isPresentGroupIndex(groupTypeIndex)) {
+            out.group_type_index = groupTypeIndex
+        }
     }
 
     return out
@@ -478,10 +509,13 @@ function resolveSetAggregation(
     // agent typed with an index names the group type of its own set. A retarget that the agent
     // sends only on the property therefore survives. A set whose typed group properties all
     // repeat ones that a single map in personSetProps holds names no group type, because the
-    // stored person-aggregated set filters on them without aggregating on their group type.
+    // stored person-aggregated set filters on them without aggregating on their group type. A set
+    // whose typed group properties all repeat ones its source holds names no group type either. They
+    // echo the stored filters, which can sit on a group type other than the one the source aggregates on.
     if (!pinnedToPerson && !payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored =
-            explicitGroupPropertyIndex(incoming, personSetProps) ?? sourceSet?.group.aggregation_group_type_index
+            explicitGroupPropertyIndex(incoming, [sourceSet?.propsByKey, ...personSetProps]) ??
+            sourceSet?.group.aggregation_group_type_index
         if (isPresentGroupIndex(restored)) {
             out.aggregation_group_type_index = restored
         }
@@ -498,7 +532,6 @@ function typeSetProperties(
     setGroupTypeIndex: number | undefined,
     matchedSets: ExistingSet[]
 ): FlagConditionGroup {
-    const source: SourceAggregation | undefined = sourceSet && (sourceSet.aggregation === null ? 'person' : 'group')
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
         out.properties = out.properties.map((prop) => {
@@ -518,21 +551,15 @@ function typeSetProperties(
                     sourceHoldsKey ? candidates : fallbackCandidatesByKey?.get(key),
                     crossSetPropsByKey.get(key),
                     setGroupTypeIndex,
-                    sourceHoldsKey ? source : undefined
+                    sourceHoldsKey ? sourceSet?.aggregation : undefined
                 )
             }
             // The set either moved from one of the matched sets or copies its filters in place. Each
             // reading types the property from a different person set. Only a type that every reading
             // gives is safe.
-            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, 'person')
+            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, null)
             const allAgree = matchedSets.every((matched) => {
-                const fromMatched = mergeProperty(
-                    prop,
-                    matched.propsByKey.get(key),
-                    undefined,
-                    setGroupTypeIndex,
-                    'person'
-                )
+                const fromMatched = mergeProperty(prop, matched.propsByKey.get(key), undefined, setGroupTypeIndex, null)
                 return hasSameTypeAndGroupIndex(fromMatched, fromSource)
             })
             return allAgree ? fromSource : prop
@@ -651,8 +678,9 @@ function matchSetsByPositionAndContent(
  * values always win, `null` included, and only missing `type`, `group_type_index`, and
  * `aggregation_group_type_index` keys are filled from the existing flag. The one exception
  * is a group property's `group_type_index`, which follows the index its own condition set
- * aggregates on. Any other index contradicts the set. The API reports that contradiction as
- * `group_property_type_index_mismatch`.
+ * aggregates on, so a retarget moves the property with its set. A property that its source holds
+ * on another group type keeps that index (see groupTypeIndexFor). The API reports that
+ * contradiction as `group_property_type_index_mismatch`.
  */
 export function preserveGroupTargetingFilters(
     existing: FlagFilters | null | undefined,

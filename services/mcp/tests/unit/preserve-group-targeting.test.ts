@@ -1988,6 +1988,66 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existingGroupFlag, merged)).toEqual([])
     })
 
+    const planOnGroupType1 = { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' }
+    const untypedPlan = { key: 'plan', operator: 'exact', value: 'pro' }
+
+    // The evaluator reads a group property on its own group type, so moving it to its set's group type
+    // would change which group the filter reads. The API rejects the stored shape instead.
+    it.each([
+        {
+            name: 'the set states its group type and the agent echoes the property',
+            set: { aggregation_group_type_index: 0 },
+            sent: [planOnGroupType1],
+            expected: [planOnGroupType1],
+        },
+        {
+            name: 'the set states its group type and the agent sends the property untyped',
+            set: { aggregation_group_type_index: 0 },
+            sent: [untypedPlan],
+            expected: [planOnGroupType1],
+        },
+        {
+            name: 'the set takes the flag level and the agent echoes the property',
+            set: {},
+            sent: [planOnGroupType1],
+            expected: [planOnGroupType1],
+        },
+        {
+            name: 'the set takes the flag level and the agent sends the property untyped',
+            set: {},
+            sent: [untypedPlan],
+            expected: [planOnGroupType1],
+        },
+        {
+            name: 'the stored filters on the key sit on different group types',
+            set: { aggregation_group_type_index: 0 },
+            stored: [planOnGroupType1, { ...planOnGroupType1, group_type_index: 0 }],
+            sent: [untypedPlan, untypedPlan],
+            expected: [
+                { ...untypedPlan, type: 'group' },
+                { ...untypedPlan, type: 'group' },
+            ],
+        },
+    ])(
+        'keeps a stored group property on another group type than its set when $name',
+        ({ set, stored = [planOnGroupType1], sent, expected }) => {
+            const existing = {
+                aggregation_group_type_index: 0,
+                groups: [{ ...set, properties: stored, rollout_percentage: 100 }],
+            }
+
+            const merged = preserveGroupTargetingFilters(existing, {
+                groups: [{ ...set, properties: sent, rollout_percentage: 50 }],
+            })
+
+            expect(merged?.groups?.[0]?.properties).toEqual(expected)
+            expect(merged?.groups?.[0]?.aggregation_group_type_index).toBe(set.aggregation_group_type_index)
+            expect(aggregationViolations(existing, merged)).toEqual(
+                expected.map((_, index) => `groups[0].properties[${index}]: group_property_type_index_mismatch`)
+            )
+        }
+    )
+
     // The merge walks both sides by index. A malformed entry on either side must not throw.
     it.each([
         { name: 'null groups on the existing flag', existing: { groups: null } },
