@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -208,6 +208,19 @@ export interface BroadcastPushValue {
 export const DEFAULT_BROADCAST_PUSH: BroadcastPushValue = { channels: [], title: '', body: '', link: '' }
 
 export const PUSH_INTEGRATION_KINDS = ['firebase', 'apns']
+export const NO_PUSH_CHANNELS_REASON = "Your project doesn't have push set up yet"
+
+// A person with any registered device has a person property under this prefix.
+const PUSH_SUBSCRIBED_HOGQL =
+    "arrayExists(k -> startsWith(k, '$device_push_subscription_'), JSONExtractKeys(properties))"
+
+export interface BroadcastChannelReach {
+    channel: BroadcastChannel
+    /** People who match the audience. */
+    total: number
+    /** People who match and can get the message: an email address, or a device registered for push. */
+    reachable: number
+}
 
 function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
     const inputs = findAction(broadcast, BROADCAST_MESSAGE_ACTION_TYPES.push)?.config?.inputs
@@ -336,6 +349,8 @@ export interface broadcastWizardLogicValues {
     canEditContent: boolean
     canMoveToDraft: boolean
     channel: BroadcastChannel
+    channelReach: BroadcastChannelReach | null
+    channelReachLoading: boolean
     conversion: HogFlowConversionApi
     currentStep: BroadcastWizardStep
     currentStepHasErrors: boolean
@@ -501,6 +516,29 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
         payload?: any
     }
+    loadChannelReach: (_: any) => any
+    loadChannelReachFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadChannelReachSuccess: (
+        channelReach: {
+            channel: BroadcastChannel
+            reachable: number
+            total: number
+        } | null,
+        payload?: any
+    ) => {
+        channelReach: {
+            channel: BroadcastChannel
+            reachable: number
+            total: number
+        } | null
+        payload?: any
+    }
     loadExternalEdit: () => {
         value: true
     }
@@ -548,6 +586,9 @@ export interface broadcastWizardLogicActions {
     }
     reportReviewVisit: () => {
         value: true
+    }
+    requestChannel: (channel: BroadcastChannel) => {
+        channel: BroadcastChannel
     }
     restoreBroadcast: () => {
         value: true
@@ -769,6 +810,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setChannel: (channel: BroadcastChannel) => ({ channel }),
+        requestChannel: (channel: BroadcastChannel) => ({ channel }),
         setPush: (push: BroadcastPushValue) => ({ push }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
         applyDefaultSender: true,
@@ -833,6 +875,48 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         String(values.currentProjectId),
                         audiencePreviewRequest(values.audienceProperties, values.channel)
                     )
+                },
+            },
+        ],
+        channelReach: [
+            null as BroadcastChannelReach | null,
+            {
+                loadChannelReach: async (_, breakpoint) => {
+                    await breakpoint(500)
+                    // Never for an unfiltered audience, where both counts would scan every person in the project.
+                    if (
+                        !values.currentProjectId ||
+                        !values.featureFlags[FEATURE_FLAGS.BROADCASTS_PUSH_CHANNEL] ||
+                        values.audienceProperties.length === 0
+                    ) {
+                        return null
+                    }
+                    const projectId = String(values.currentProjectId)
+                    const reachableFilter: AnyPropertyFilter =
+                        values.channel === 'push'
+                            ? ({ type: PropertyFilterType.HogQL, key: PUSH_SUBSCRIBED_HOGQL } as AnyPropertyFilter)
+                            : {
+                                  key: values.recipientEmailProperty ?? 'email',
+                                  type: PropertyFilterType.Person,
+                                  operator: PropertyOperator.IsSet,
+                              }
+                    try {
+                        const [all, reachable] = await Promise.all(
+                            [values.audienceProperties, [...values.audienceProperties, reachableFilter]].map(
+                                (properties) =>
+                                    hogFlowsUserBlastRadiusCreate(projectId, {
+                                        filters: { properties },
+                                        sends_email: false,
+                                    })
+                            )
+                        )
+                        breakpoint()
+                        return { channel: values.channel, total: all.affected, reachable: reachable.affected }
+                    } catch {
+                        breakpoint()
+                        // Only an estimate, so a failed count drops the line rather than blocking anything.
+                        return null
+                    }
                 },
             },
         ],
@@ -1717,6 +1801,29 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // Tracking and category live on the email step, so they share its autosave and pending flag.
             actions.setEmail(values.email)
         },
+        requestChannel: ({ channel }) => {
+            const current = values.channel
+            if (channel === current) {
+                return
+            }
+            if (!hasMessageContent(current, values.email, values.push)) {
+                actions.setChannel(channel)
+                return
+            }
+            LemonDialog.open({
+                title: `Switch to ${channel}?`,
+                description: `A broadcast sends on one channel, so the ${
+                    current === 'email' ? 'email' : 'push notification'
+                } you wrote is removed from this broadcast.`,
+                primaryButton: {
+                    children: 'Switch',
+                    status: 'danger',
+                    onClick: () => actions.setChannel(channel),
+                    'data-attr': 'broadcast-channel-switch-confirm',
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
         setPush: () => {
             // The push step saves through the same autosave as the email.
             actions.setEmail(values.email)
@@ -2295,6 +2402,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     listeners(({ actions, values, cache }) => ({
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
+            actions.loadChannelReach(null)
         },
         loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
             // The send button reads the realtime cohort's status from the audience size, and the cohort can
