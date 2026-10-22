@@ -4,7 +4,7 @@ from typing import Any, cast
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -370,6 +370,7 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", **query}},
         )
 
+    @override_settings(IN_UNIT_TESTING=True)
     def test_a_daily_trend_returns_each_series_with_its_averaging_and_display_format(self) -> None:
         self._signups((2, "Chrome"), (2, "Chrome"), (9, "Chrome"))
         action = Action.objects.create(team=self.team, name="Signed up action", steps_json=[{"event": "signed up"}])
