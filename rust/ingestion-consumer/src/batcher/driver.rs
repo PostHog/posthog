@@ -27,8 +27,7 @@ use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
-/// A task that does not answer within this is wedged; the debug API then
-/// falls back to the totals the task last published.
+/// A task that does not answer within this is taken as wedged.
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
@@ -329,7 +328,6 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 )
             }
             Event::Response(request, Err(failure)) => {
-                // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
                     FailureCause::Busy
                 } else {
@@ -703,7 +701,6 @@ mod tests {
         }
     }
 
-    /// Lets the batcher task handle everything queued for it.
     async fn settle() {
         for _ in 0..8 {
             tokio::task::yield_now().await;

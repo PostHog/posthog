@@ -223,8 +223,8 @@ impl BatcherStateMachine {
     }
 
     /// The new owner replays the revoked partitions, so their pending
-    /// messages drop. Runs already in flight finish; if they fail, their
-    /// messages of revoked partitions drop too.
+    /// messages drop. Runs already in flight finish; their messages of revoked
+    /// partitions that come back unfinished or failed drop too.
     pub fn on_partitions_revoked(
         self,
         now: Instant,
@@ -728,7 +728,6 @@ mod tests {
     const STALL: Duration = Duration::from_secs(60);
     const BUDGET: Duration = Duration::from_millis(250);
 
-    /// Distinct delays, so a wakeup time shows which retry reason applied.
     fn retry_policy() -> RetryPolicy {
         RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY).expect("valid retry policy")
     }
@@ -793,8 +792,6 @@ mod tests {
             .collect()
     }
 
-    /// Applies the effects in the order the driver does, so the sentinel judges
-    /// the sends against the ACK marks of the same action.
     fn apply_to_sentinel(sentinel: &KeyOrderSentinel, effects: &Effects) -> Vec<KeyOrderViolation> {
         let mut batch = sentinel.batch();
         for ack in &effects.key_acks {
@@ -948,8 +945,6 @@ mod tests {
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
-        // The freed slot is refilled in the same action, so the worker is
-        // reported idle and then busy again.
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
         assert_eq!(effects.busy_workers, vec![WorkerId::from("w")]);
     }
@@ -1420,8 +1415,7 @@ mod tests {
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
 
-        // A failure does not move the stall clock, so a replay that waited
-        // the budget again would be due after the stall deadline.
+        // Waiting the pack budget again would pass the stall deadline.
         let failed_at = arrival + budget + Duration::from_secs(1);
         let (batcher, _) = batcher.on_request_failed(
             failed_at,
@@ -1688,9 +1682,6 @@ mod tests {
         assert!(effects.completions.is_empty());
     }
 
-    /// Key `a` holds offsets 1 to 3 and key `b` offset 4. The ack for `a`
-    /// stops below its lowest unfinished offset, and a key with nothing
-    /// finished gets no ack.
     #[rstest]
     #[case::a_middle_message_of_a_shared_key(&[2], &[1, 3, 4], Some(1))]
     #[case::the_tail_of_a_key(&[2, 3], &[1, 4], Some(1))]

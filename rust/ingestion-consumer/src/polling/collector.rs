@@ -177,10 +177,8 @@ impl Collector {
     }
 }
 
-/// One delivered message's cost against the ledger: one event, and the bytes
-/// the process holds for the message. The byte count is a memory bound, so it
-/// is the payload plus the key plus every header key and value, not only the
-/// payload.
+/// The byte count bounds memory, so it counts the key and every header key
+/// and value, not only the payload.
 fn message_charge(message: &impl Message) -> Charge {
     let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
     let key_bytes = message.key().map(|k| k.len()).unwrap_or(0);

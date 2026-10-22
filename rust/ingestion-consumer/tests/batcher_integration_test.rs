@@ -59,8 +59,7 @@ async fn purging_a_just_submitted_batch_is_not_fatal() {
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), make_msg("a").into());
     batcher.submit(accumulator, &HashMap::new());
-    // No await between submit and purge: the batcher task receives both
-    // before it runs, and discards the submission when it applies the purge.
+    // No await, so the task gets the submit and the purge before it runs.
     batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {

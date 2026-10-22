@@ -483,7 +483,6 @@ mod tests {
             .unwrap()
             .delivered = 2;
         let mut in_flight = VecDeque::from([two]);
-        // Partition 1 already had one message covered before the revoke.
         credit(&mut in_flight, completion(1, 1, &[10], 1));
 
         let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 1)]);

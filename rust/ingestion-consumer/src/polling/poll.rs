@@ -8,17 +8,14 @@ use crate::order_sentinel::OffsetSpan;
 use crate::settlement::ChargedSlice;
 use crate::types::Accumulator;
 
-/// Batch-wide statistics gathered while collecting, used to emit parity
-/// metrics. Per-partition facts live on [`PartitionDeliveries`].
 #[derive(Default)]
 pub(crate) struct BatchStats {
-    /// Per-message (partition, lag_ms) pairs — for `ingestion_lag_ms_histogram`.
+    /// One (partition, lag in ms) pair per message with a parseable `now` header.
     pub(crate) message_lags_ms: Vec<(i32, i64)>,
-    /// Total byte size of message payloads — for `consumer_batch_size_kb`.
+    /// Sum of message payload sizes, without keys or headers.
     pub(crate) total_bytes: usize,
 }
 
-/// One delivered message, as the batch records it against its partition.
 pub(crate) struct Delivery {
     pub(crate) offset: i64,
     pub(crate) charge: Charge,
@@ -37,17 +34,16 @@ pub(crate) struct PartitionDeliveries {
     pub(crate) generation: u64,
     pub(crate) charges: Vec<(Offset, Charge)>,
     pub(crate) payload_bytes: usize,
-    /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
+    /// Max Kafka message timestamp (ms).
     pub(crate) latest_kafka_ts: i64,
-    /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
     pub(crate) max_lag_ms: Option<i64>,
     /// Messages the poll delivered, covered, and accepted from this
     /// partition, so a revoked partition can leave the poll exactly.
     pub(crate) delivered: u32,
     pub(crate) covered: u32,
     pub(crate) accepted: u32,
-    /// The offsets a completion covered. Keyed by offset rather than by
-    /// position in `span`, because a poll can span an offset gap.
+    /// The offsets that completions covered. Keyed by offset, not by position
+    /// in `span`, because `span` can have gaps.
     pub(crate) credited: HashSet<i64, ahash::RandomState>,
 }
 
@@ -105,15 +101,13 @@ impl PartitionDeliveries {
 }
 
 pub(crate) struct CollectedBatch {
-    /// The poll's messages, demuxed per partition and routing key.
     pub(crate) accumulator: Accumulator,
     pub(crate) partitions: HashMap<TopicPartition, PartitionDeliveries>,
     pub(crate) stats: BatchStats,
 }
 
 pub(crate) struct InFlightPoll {
-    /// Consumer-side id for logs and debug events only; the batcher's
-    /// internal batch id never crosses the boundary.
+    /// For logs and debug events only.
     pub(crate) poll_id: String,
     /// The epoch the batcher stamped on this poll's completions.
     pub(crate) assignment_epoch: u64,
@@ -133,7 +127,7 @@ impl InFlightPoll {
     }
 
     /// A charged offset that no completion covered. A complete poll can still
-    /// have one, because one offset credited twice fills `covered` as well.
+    /// have one, because `covered` also counts an offset that is credited twice.
     pub(crate) fn uncredited_charge(&self) -> Option<(&TopicPartition, Offset)> {
         self.partitions
             .iter()

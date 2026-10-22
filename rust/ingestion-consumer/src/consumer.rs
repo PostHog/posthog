@@ -90,7 +90,6 @@ fn commit_tick(granularity: CompletionGranularity, commit_interval: Duration) ->
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
-/// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
     pub batch_size: usize,
     /// Payload-byte bound on a batch; `0` disables it (count-only collection).
@@ -102,7 +101,6 @@ pub struct IngestionConsumerOptions {
     pub polling: Polling,
     pub in_flight_limit: ChargeLimit,
     pub group_id: String,
-    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub completion_granularity: CompletionGranularity,
     pub commit_interval: Duration,
@@ -111,8 +109,8 @@ pub struct IngestionConsumerOptions {
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
-/// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
-/// and commits offsets once the batcher's completions cover a poll or a group.
+/// submits them to the [`Batcher`], and commits offsets once the batcher's
+/// completions cover a poll or a group.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<RebalanceContext>>,
     batcher: Batcher,
@@ -127,7 +125,6 @@ pub struct IngestionConsumer {
     commit_tick: Duration,
     handle: Handle,
     group_id: String,
-    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
@@ -137,8 +134,8 @@ pub struct IngestionConsumer {
 }
 
 impl IngestionConsumer {
-    /// Constructs a consumer from pre-built parts. Useful in integration tests
-    /// where the Kafka consumer is created and subscribed externally.
+    /// Constructs a consumer from parts the caller builds. The caller must
+    /// subscribe `consumer` to its topic.
     pub fn from_parts(
         consumer: StreamConsumer<RebalanceContext>,
         batcher: Batcher,
@@ -197,9 +194,8 @@ impl IngestionConsumer {
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
     ) -> anyhow::Result<Self> {
-        // In endpointslice mode the worker set comes from discovery, so there is
-        // no static readiness list — main gates startup on the first discovered
-        // worker. In static mode we keep the configured list for readiness.
+        // Endpointslice mode discovers workers at runtime, so it has no static
+        // readiness list.
         let worker_urls = match config.worker_discovery_mode {
             DiscoveryMode::Static => config.worker_urls(),
             DiscoveryMode::EndpointSlice => Vec::new(),
@@ -282,13 +278,12 @@ impl IngestionConsumer {
         })
     }
 
-    /// A read-only view of the batcher's load.
     pub fn batcher_observer(&self) -> BatcherObserver {
         self.batcher.observer()
     }
 
-    /// Run the consumer loop until shutdown is signalled via the lifecycle handle.
-    /// Waits for all workers to be ready before starting to consume from Kafka.
+    /// Runs the consumer loop until the lifecycle handle signals shutdown.
+    /// First waits until the statically configured workers are ready.
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         let BatcherOutputs {
@@ -499,8 +494,6 @@ impl IngestionConsumer {
         for (topic_partition, partition) in &mut partitions {
             partition.generation = self.topic_offset_ledger.generation(topic_partition);
             generations.insert(Partition(topic_partition.partition), partition.generation);
-            // The ledger counts a rejection; it is logged here, where the
-            // slice is still known.
             match self
                 .settlement
                 .charge(topic_partition, partition.generation, &partition.charges)
@@ -652,9 +645,7 @@ fn partition_list(topic_partition: &TopicPartition) -> TopicPartitionList {
     tpl
 }
 
-/// Emit the per-poll parity metrics (received counts, batch sizes,
-/// utilization, and lag) right after collection, before the poll is
-/// submitted.
+/// Per-poll metrics, most with the same names as the Node.js consumer's.
 fn emit_poll_stats(
     stats: &BatchStats,
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
@@ -666,30 +657,25 @@ fn emit_poll_stats(
     counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
     gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
 
-    // Batch fill ratio (batch size / configured max) — matches Node.js
-    // `consumer_batch_utilization`. A useful scaling signal: sustained high
-    // utilization means batches are saturating and the consumer is demand-bound.
+    // Matches Node.js `consumer_batch_utilization`.
     if max_batch_size > 0 {
         gauge!("consumer_batch_utilization", "groupId" => group_id.to_string())
             .set(batch_size as f64 / max_batch_size as f64);
     }
 
-    // The same ratio against the byte bound. Reported separately because the
-    // two disagree on lanes whose events are large: a count utilization can
-    // sit far below 1.0 while batches are in fact full, simply because the
-    // byte bound (or the prefetch queue behind it) ends collection first.
-    // Reading only the count ratio there invites raising a cap that cannot
-    // be reached. Absent when the byte bound is disabled.
+    // The same ratio against the byte bound. On lanes with large events the
+    // byte bound ends collection first, so the count ratio stays low while
+    // batches are full. Absent when the byte bound is disabled.
     if max_batch_bytes > 0 {
         gauge!("consumer_batch_utilization_bytes", "groupId" => group_id.to_string())
             .set(stats.total_bytes as f64 / max_batch_bytes as f64);
     }
 
-    // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
+    // Matches Node.js.
     histogram!("consumer_batch_size").record(batch_size as f64);
     histogram!("consumer_batch_size_kb").record(stats.total_bytes as f64 / 1024.0);
 
-    // Per-partition ingestion lag gauge — matches Node.js `ingestion_lag_ms`.
+    // Matches Node.js.
     for (topic_partition, partition) in partitions {
         let Some(max_lag) = partition.max_lag_ms else {
             continue;
@@ -703,7 +689,7 @@ fn emit_poll_stats(
         .set(max_lag as f64);
     }
 
-    // Per-message lag histogram — matches Node.js `ingestion_lag_ms_histogram`.
+    // Matches Node.js.
     for (partition, lag_ms) in &stats.message_lags_ms {
         histogram!(
             "ingestion_lag_ms_histogram",

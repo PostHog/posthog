@@ -596,8 +596,6 @@ impl KeyQueues {
 
 #[cfg(test)]
 impl KeyQueues {
-    /// Queues `messages` the way a failed request hands them back, so they
-    /// are ready as a replay. `routing_key` must have nothing queued.
     pub fn push_replay(
         &mut self,
         routing_key: Arc<str>,

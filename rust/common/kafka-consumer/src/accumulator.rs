@@ -42,8 +42,7 @@ impl<K, M> Group<K, M> {
 
 /// Demuxes one poll into groups. Push messages in delivery order: a keyed
 /// message joins its partition's group for that key, a keyless message opens
-/// a group of its own. Groups come out in first-seen order, and each group
-/// keeps its messages in submission order.
+/// a group of its own. Groups come out in first-seen order.
 #[derive(Debug)]
 pub struct Accumulator<K, M> {
     groups: Vec<Group<K, M>>,
