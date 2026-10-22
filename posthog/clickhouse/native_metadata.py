@@ -110,7 +110,7 @@ def _run_metadata_process(payload: str, deadline: float) -> Any:
     # A Future timeout cannot stop DNS or a stuck driver. Only the child performs network IO;
     # kill and reap it before releasing capacity, including when the supervising thread fails.
     with subprocess.Popen(
-        [sys.executable, str(Path(__file__).with_name("metadata_worker.py"))],
+        [sys.executable, "-P", str(Path(__file__).with_name("metadata_worker.py"))],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
