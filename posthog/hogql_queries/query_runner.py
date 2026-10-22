@@ -194,6 +194,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    EVENTS_ROUTE_MODIFIER_KEYS,
     events_route_cache_modifiers,
     events_route_is_explicit,
     events_route_scope,
@@ -1981,6 +1982,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.workload = workload
         self.ch_user = ch_user
         self._modifiers_override_provided = modifiers is not None
+        self._modifiers_override = modifiers
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -2038,14 +2040,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _should_pin_events_route(self) -> bool:
         """The worker must rebuild the request's resolved events route and cache payload.
 
-        A legacy query with no route choice stays unpinned while no native host is set, so its payload
-        stays identical to what workers without native routing expect.
+        A legacy query with no route choice stays unpinned, so its payload stays identical to what workers
+        without native routing expect.
         """
-        if not self._reads_events_route():
-            return False
-        return bool(
-            self.modifiers.useNewEventsSchema or self._explicit_events_route or get_new_events_cluster_host_or_none()
-        )
+        return self._reads_events_route() and bool(self.modifiers.useNewEventsSchema or self._explicit_events_route)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2167,9 +2165,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    def _override_affects_events_route(self) -> bool:
+        if self._modifiers_override is None:
+            return False
+        if self._modifiers_override.model_fields_set & set(EVENTS_ROUTE_MODIFIER_KEYS):
+            return True
+        query_modifiers = query_node_modifiers(self.query)
+        return query_modifiers is not None and any(
+            getattr(query_modifiers, key) is not None for key in EVENTS_ROUTE_MODIFIER_KEYS
+        )
+
     def _async_task_payload(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
         query_json = self.query.model_dump()
-        if not self._modifiers_override_provided:
+        if not self._override_affects_events_route():
             if self._should_pin_events_route():
                 query_json = with_pinned_events_route(query_json, self.modifiers)
             return query_json, None
