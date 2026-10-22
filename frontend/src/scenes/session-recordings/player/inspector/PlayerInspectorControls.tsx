@@ -316,12 +316,13 @@ function LogsFilterSettingsButton(): JSX.Element {
         )
     }
 
-    const disabledReason =
-        !logsInitialLoadRequested || logsLoading
-            ? 'Loading logs...'
-            : logsLoadError
-              ? 'Failed to load logs for this session'
-              : undefined
+    const disabledReason = logsLoading
+        ? 'Loading logs...'
+        : !logsInitialLoadRequested
+          ? "Logs load after the recording's events load"
+          : logsLoadError
+            ? 'Failed to load logs for this session'
+            : undefined
 
     return (
         <FilterSettingsButton
