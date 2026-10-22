@@ -672,6 +672,15 @@ export interface biEditorLogicActions {
     setLocalFieldDraft: (field: BIField | null) => {
         field: BIField | null
     }
+    setMeasureExpression: (
+        index: number,
+        expression: string,
+        aggregation: BIAggregation
+    ) => {
+        aggregation: BIAggregation
+        expression: string
+        index: number
+    }
     setMeasureShelf: (
         index: number,
         shelf: 'columns' | 'rows'
@@ -923,6 +932,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
             dateBucket,
         }),
         setValueCustomExpression: (index: number, customExpression: string) => ({ index, customExpression }),
+        setMeasureExpression: (index: number, expression: string, aggregation: BIAggregation) => ({
+            index,
+            expression,
+            aggregation,
+        }),
         setFilterCustomExpression: (index: number, customExpression: string) => ({ index, customExpression }),
         resetConfig: true,
     }),
@@ -1343,6 +1357,21 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         valueIndex === index ? { ...value, customExpression } : value
                     ),
                 }),
+                setMeasureExpression: (config, { index, expression, aggregation }) => ({
+                    ...config,
+                    values: config.values.map((value, valueIndex) =>
+                        valueIndex === index
+                            ? {
+                                  ...value,
+                                  aggregation,
+                                  ...(aggregation === 'custom'
+                                      ? { customExpression: expression }
+                                      : { field: { ...value.field, expression, name: expression.trim() } }),
+                              }
+                            : value
+                    ),
+                    topN: config.topN?.measureIndex === index ? undefined : config.topN,
+                }),
                 setFilterCustomExpression: (config, { index, customExpression }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
@@ -1714,6 +1743,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setFieldDatePart: () => actions.runAfterChange(),
         duplicateField: () => actions.runAfterChange(),
         setValueCustomExpression: () => actions.runAfterChange(),
+        setMeasureExpression: () => {
+            captureBIWorksheetAction('measure_expression_updated', values.config)
+            actions.runAfterChange()
+        },
         setFilterCustomExpression: () => actions.runAfterChange(),
     })),
     subscriptions(({ actions, values }) => ({

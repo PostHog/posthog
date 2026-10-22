@@ -27,6 +27,8 @@ def is_html_artifact(name: str, content_type: str) -> bool:
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
 
 
+PERMISSION_REQUEST_ID_MAX_LENGTH = 200
+
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
@@ -204,13 +206,6 @@ def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> ob
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=False,
         send_feature_flag_events=False,
-    )
-
-
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    return vm_sandbox_allowed_origin_products(
-        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
     )
 
 

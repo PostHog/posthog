@@ -67,6 +67,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
+    [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -464,9 +465,11 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
-        [AccessControlLevel.None, Scene.ErrorAccessDenied],
-    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.None, Scene.ErrorAccessDenied],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.Viewer, Scene.AIObservabilityOfflineExperiments],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates %s with scorer and dataset access %s', async (targetScene, scorerAccess, expectedScene) => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
             window.POSTHOG_APP_CONTEXT = {
@@ -477,7 +480,7 @@ describe('sceneLogic', () => {
                     [AccessControlResourceType.LlmAnalytics]: scorerAccess,
                 },
             } as AppContext
-            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+            logic.actions.setScene(targetScene as Scene, targetScene, {
                 params: {},
                 searchParams: {},
                 hashParams: {},
@@ -561,6 +564,36 @@ describe('sceneLogic', () => {
 
             expect(router.values.location.pathname).toEqual(refusedLink)
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it('keeps an impersonating staff member on the page when the first project has no data', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: MOCK_DEFAULT_ORGANIZATION, is_impersonated: true },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+                removeProjectIdIfPresent(urls.eventDefinitions())
+            )
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }

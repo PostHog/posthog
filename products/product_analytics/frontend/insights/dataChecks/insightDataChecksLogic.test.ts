@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,6 +32,12 @@ describe('insightDataChecksLogic', () => {
     const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
     let savedFilters: unknown[]
+    let capture: jest.SpyInstance
+
+    const loadedEvents = (): Record<string, unknown>[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'insight data checks loaded')
+            .map(([, properties]) => properties as Record<string, unknown>)
 
     const answer =
         (response: [number, Record<string, unknown>], held?: Promise<void>, onSent?: () => void) =>
@@ -50,6 +57,7 @@ describe('insightDataChecksLogic', () => {
 
     beforeEach(() => {
         dataChecks.mockReset()
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         sentSources = []
         savedFilters = []
         cancelledQueryIds.length = 0
@@ -163,6 +171,22 @@ describe('insightDataChecksLogic', () => {
             kind: NodeKind.InsightVizNode,
             source,
         } as InsightVizNode)
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(sentSources.at(-1)).toEqual(source)
+    })
+
+    const PAID = { kind: NodeKind.EventsNode, event: 'paid' }
+    const ACTION = { kind: NodeKind.ActionsNode, id: 1 }
+    it.each([
+        ['events combined into one series', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID] }],
+        ['an action', ACTION],
+        ['an action combined with an event', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID, ACTION] }],
+    ])('checks a chart with %s', async (_name, series) => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const source = { kind: NodeKind.TrendsQuery, series: [series] }
+        insightDataLogic(props).actions.setQuery({ kind: NodeKind.InsightVizNode, source } as InsightVizNode)
 
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 
@@ -294,6 +318,24 @@ describe('insightDataChecksLogic', () => {
         expect(cancelledQueryIds).toEqual([clientQueryId])
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['cancelled', 'passed'])
+    })
+
+    it.each([
+        [
+            'a run with findings',
+            200,
+            { ...checksOf('warning'), checks: [{ key: 'bot_traffic', level: 'warning' }] },
+            { status: 'warning', findings: ['bot_traffic'] },
+        ],
+        ['a run the server could not finish', 500, { detail: 'No.' }, { status: 'failed', findings: [] }],
+        ['a run the person may not see', 403, { detail: 'No.' }, { status: 'unavailable', findings: [] }],
+    ])('reports how %s ended', async (_name, responseStatus, response, expected) => {
+        dataChecks.mockImplementation(answer([responseStatus, response]))
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(loadedEvents()).toEqual([{ ...expected, duration_ms: expect.any(Number) }])
     })
 
     it('turns the filter on for the insight from the checks, then checks the filtered chart', async () => {

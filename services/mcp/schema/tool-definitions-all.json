@@ -1191,7 +1191,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30, 60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst of daily runs ends. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30, 60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst of daily runs ends. agent_model and agent_reasoning_effort choose the model and effort the training agent runs on; leave them out to use the autoresearch default (Claude Opus 5.5 at medium effort). A larger model or higher effort costs more per training run, and an unknown model or an effort the model does not support returns 400 with the valid choices. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -1289,7 +1289,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-partial-update": {
-        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. Use iterations_per_run and research_interval_days to change the training schedule; null research_interval_days stops scheduled research. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
+        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. Use iterations_per_run and research_interval_days to change the training schedule; null research_interval_days stops scheduled research. Use agent_model and agent_reasoning_effort to change the model the training agent runs on; null returns a field to the autoresearch default, and effective_agent_model in the response shows what the next run uses. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Update a pipeline",
@@ -3885,7 +3885,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool does not change a widget tile's own settings (`config`, `name`, `description`): use dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -3915,7 +3915,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
+        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -3930,7 +3930,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys: build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported, is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -3945,7 +3945,7 @@
         }
     },
     "dashboard-widgets-batch-update": {
-        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
+        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard widget settings",
@@ -4108,11 +4108,11 @@
         }
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those); put rationale for the chosen definition in 'reasoning'. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own: tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Create or refine a catalog metric",
-        "title": "Create or refine a catalog metric",
+        "summary": "Create a catalog metric",
+        "title": "Create a catalog metric",
         "required_scopes": ["data_catalog:write"],
         "api_operations": ["POST /api/projects/{project_id}/data_catalog/metrics/"],
         "annotations": {
@@ -4167,7 +4167,7 @@
         }
     },
     "data-catalog-metric-update": {
-        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics; rationale for the definition belongs in 'reasoning'.",
+        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. When editing 'definition', rewrite 'reasoning' to say why the new definition is shaped this way, in 1-3 short sentences: the main design decisions and trade-offs. It is not a changelog: leave out what changed, the use case, who asked, and run results.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
@@ -4282,8 +4282,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-delete": {
         "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
@@ -4298,8 +4297,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-results": {
         "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
@@ -4314,8 +4312,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-run": {
         "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
@@ -4330,8 +4327,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-schedule": {
         "description": "Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric gets a schedule when it takes its first check, so this fails with a 404 until then.",
@@ -4346,8 +4342,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-types": {
         "description": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
@@ -4362,8 +4357,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-update": {
         "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The subject it audits is fixed, so subject_type and subject_uuid are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
@@ -4378,8 +4372,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-subjects": {
         "description": "Every table, view, metric and PostHog table in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window.",
@@ -4394,8 +4387,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
@@ -10449,6 +10441,22 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-conversion-recommendations": {
+        "description": "Read the project's persisted conversion recommendations and latest analysis state without starting AI. Previous results remain available during an update. Present source evidence, questions, and limitations for the user to review before configuring a goal. This tool does not create or modify goals.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Read conversion recommendations",
+        "title": "Read conversion recommendations",
+        "required_scopes": ["marketing_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/marketing_analytics/conversion_recommendations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
+    },
     "marketing-analytics-create-conversion-goal": {
         "description": "Add one conversion goal to the project. Everything goes inside a single `goal` object — fields sent at the top level are rejected. Required inside it: conversion_goal_name, schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id, and conversion_goal_id (assigned by the server, so send an empty string). Also send kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table) and its target: `event` for EventsNode, `id` for ActionsNode, and `id` + table_name + id_field + timestamp_field + distinct_id_field for DataWarehouseNode. Omitting math counts conversions; set it to sum with math_property to total a value. Unknown fields are rejected. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
         "category": "Marketing analytics",
@@ -10546,6 +10554,23 @@
             "readOnlyHint": true
         },
         "feature_flag": "marketing-analytics-setup-plan-mcp"
+    },
+    "marketing-analytics-start-conversion-recommendations": {
+        "description": "Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals. Read marketing-analytics-conversion-recommendations for results. Requires project admin access.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Analyze conversion candidates",
+        "title": "Analyze conversion candidates",
+        "required_scopes": ["marketing_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/marketing_analytics/conversion_recommendations/start/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
     },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
@@ -17166,6 +17191,37 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-make-email-template-transactional-execute": {
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (execute)",
+        "title": "Make email template transactional (execute)",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-make-email-template-transactional-prepare": {
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (prepare)",
+        "title": "Make email template transactional (prepare)",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-patch-action-email": {
         "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",

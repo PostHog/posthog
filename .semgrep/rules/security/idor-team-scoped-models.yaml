@@ -125,6 +125,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -193,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -408,6 +410,7 @@ rules:
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -418,6 +421,7 @@ rules:
                               |PlatformAlertConfiguration
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -458,6 +462,8 @@ rules:
                               |TracingView
                               |UploadedMedia
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -599,6 +605,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -667,6 +674,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -872,6 +880,7 @@ rules:
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -882,6 +891,7 @@ rules:
                         |PlatformAlertConfiguration
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -921,6 +931,8 @@ rules:
                         |TracingView
                         |UploadedMedia
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -1031,6 +1043,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney
