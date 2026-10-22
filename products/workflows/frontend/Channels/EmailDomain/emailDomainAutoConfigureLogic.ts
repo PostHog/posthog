@@ -7,6 +7,7 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { integrationsDomainConnectCheckRetrieve } from 'products/integrations/frontend/generated/api'
 import type {
     EmailDomainConnectCheckApi,
     EmailDomainDnsHostApi,
@@ -147,12 +148,14 @@ export const emailDomainAutoConfigureLogic = kea<emailDomainAutoConfigureLogicTy
             null as EmailDomainConnectCheckApi | null,
             {
                 loadDetection: async (): Promise<EmailDomainConnectCheckApi | null> => {
-                    if (!values.domain) {
+                    if (!values.domain || !values.currentTeamId) {
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsDomainConnectCheckRetrieve has no domain query parameter
-                        return await api.integrations.domainConnectCheck(values.domain)
+                        return await integrationsDomainConnectCheckRetrieve(String(values.currentTeamId), {
+                            domain: values.domain,
+                            include_email_setup: true,
+                        })
                     } catch {
                         return UNKNOWN_HOST
                     }
