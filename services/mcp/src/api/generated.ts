@@ -3533,6 +3533,10 @@ export namespace Schemas {
     }
 
     export interface CohortPropertyFilter {
+      /** Set by the feature flag API when the cohort is deleted or does not exist. */
+      cohort_deleted?: boolean | null;
+      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+      cohort_missing?: boolean | null;
       cohort_name?: string | null;
       key?: 'id';
       label?: string | null;
@@ -17486,6 +17490,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface BigeyeIssueSignalExtra {
+      current_status: string | null;
+      priority: string | null;
+      opened_time_seconds: string | null;
+    }
+
     export interface Billing {
       /** @maxLength 100 */
       plan: string;
@@ -28602,6 +28612,136 @@ export namespace Schemas {
     }
 
     /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricCreateDefinition = { [key: string]: unknown } | null;
+
+    /**
+     * Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.
+     */
+    export interface DataCatalogMetricCreate {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /**
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
+         * @maxLength 300
+         */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricCreateDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
+      /**
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
+         * @nullable
+         */
+      source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'. */
+      overwrite?: boolean;
+    }
+
+    /**
+     * The live metric that holds the name a create was sent with.
+     */
+    export interface DataCatalogMetricNameConflictExisting {
+      /** Name of the existing metric. */
+      name: string;
+      /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+      status: string;
+    }
+
+    export interface DataCatalogMetricNameConflictExtra {
+      /** The metric that holds the name. Send overwrite true to replace it. */
+      existing_metric: DataCatalogMetricNameConflictExisting;
+    }
+
+    /**
+     * The 409 body of a create whose name a live metric already holds.
+     */
+    export interface DataCatalogMetricNameConflict {
+      /** Error class the API attaches to every error body. */
+      type: string;
+      /** Always 'metric_name_taken'. */
+      code: string;
+      /** Human-readable reason, safe to show as is. */
+      detail: string;
+      /**
+         * Always null: the conflict is not tied to one field.
+         * @nullable
+         */
+      attr: string | null;
+      /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+      extra?: DataCatalogMetricNameConflictExtra;
+    }
+
+    /**
      * Normalized envelope returned by the metric-run endpoint.
      */
     export interface DataCatalogMetricRun {
@@ -30871,6 +31011,8 @@ export namespace Schemas {
     export interface DatabaseSchemaQuery {
       /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
+      /** Select the native managed Trino catalog instead of the default PostHog catalog. */
+      executionTarget?: ExecutionTarget | null;
       /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
       includeFields?: boolean | null;
       kind?: 'DatabaseSchemaQuery';
@@ -38668,6 +38810,33 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface ReviewerState {
+      /**
+         * Current reviewer artefact ID, or null before the first list.
+         * @nullable
+         */
+      reviewers_id: string | null;
+      /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         * @nullable
+         */
+      corrections_id: string | null;
+    }
+
+    /**
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed
+     */
+    export type ReviewerSelectionOutcomeEnum = typeof ReviewerSelectionOutcomeEnum[keyof typeof ReviewerSelectionOutcomeEnum];
+
+
+    export const ReviewerSelectionOutcomeEnum = {
+      Selected: 'selected',
+      NoSuitableOwner: 'no_suitable_owner',
+      LookupFailed: 'lookup_failed',
+    } as const;
+
     /**
      * One observation backing an authored report — becomes a bound signal row on the report.
      */
@@ -38930,6 +39099,19 @@ export namespace Schemas {
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
+      /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+      expected_reviewers?: ReviewerState;
+      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+       *
+       * * `selected` - Selected
+       * * `no_suitable_owner` - No suitable owner
+       * * `lookup_failed` - Lookup failed */
+      reviewer_outcome?: ReviewerSelectionOutcomeEnum;
+      /**
+         * Reason the reviewer lookup failed.
+         * @maxLength 500
+         */
+      reviewer_retry_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -38959,7 +39141,7 @@ export namespace Schemas {
          */
       append_evidence?: ReportEvidence[] | null;
       /**
-         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
@@ -39402,6 +39584,18 @@ export namespace Schemas {
       body: EmailTemplateDesignBody;
     };
 
+    export interface EmailTemplateSender {
+      /**
+         * Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address.
+         * @maxLength 254
+         */
+      email?: string;
+      /** Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name. */
+      name?: string;
+      /** ID of the project's email sender integration that sends this email. Transactional sends need a verified sender. */
+      integrationId: number;
+    }
+
     export interface EmailTemplate {
       /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
       subject?: string;
@@ -39413,6 +39607,10 @@ export namespace Schemas {
       html?: string;
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
       design?: EmailTemplateDesign;
+      /** The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with. */
+      from?: EmailTemplateSender;
+      /** Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to. */
+      replyTo?: string;
     }
 
     /**
@@ -44242,6 +44440,10 @@ export namespace Schemas {
       operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnum;
       /** Cohort comparison value (single or list, depending on usage). */
       value: unknown;
+      /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+      cohort_deleted?: boolean;
+      /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+      cohort_missing?: boolean;
     }
 
     /**
@@ -53307,6 +53509,35 @@ export namespace Schemas {
       readonly path: string | null;
     }
 
+    export interface FileSystemRankedSearchItem {
+      /** The matching file system entry. */
+      entry: FileSystem;
+      /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+      rank: number[];
+    }
+
+    export interface FileSystemRankedSearchTypeCount {
+      /** File system type, for example insight or dashboard. */
+      type: string;
+      /** Number of matches of this type. */
+      count: number;
+    }
+
+    export interface FileSystemRankedSearchResponse {
+      /** Matches, best first. */
+      results: FileSystemRankedSearchItem[];
+      /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+      matched_all_words: boolean;
+      /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+      matched_words: string[];
+      /** Number of matches for each type, largest first. */
+      type_counts: FileSystemRankedSearchTypeCount[];
+      /** True when no entry matched the words as typed, so every result is a close spelling. */
+      matched_with_typos: boolean;
+      /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+      counts_capped: boolean;
+    }
+
     export interface FileSystemShortcut {
       readonly id: string;
       /** Display path of the shortcut in the sidebar. */
@@ -61776,6 +62007,74 @@ export namespace Schemas {
       client_query_id?: string;
     }
 
+    export interface InsightPlatformAlertCondition {
+      /** The bounds the insight's value is checked against, absolute or as a percentage change. */
+      threshold: InsightThreshold | null;
+      /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
+      comparison: AlertCondition;
+      /**
+         * Always null. The platform owns threshold alerts only, so no detector applies.
+         * @nullable
+         */
+      detector?: null;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type InsightPlatformAlertConfigurationEditSourceKind = typeof InsightPlatformAlertConfigurationEditSourceKind[keyof typeof InsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const InsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    export interface InsightPlatformAlertSourceConfig {
+      /** The insight the alert checks. It cannot change through this API. */
+      insight_id: number;
+      /** The bound the insight's value is checked against. */
+      condition: InsightPlatformAlertCondition;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface InsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: InsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -69120,6 +69419,15 @@ export namespace Schemas {
       next_measurement_at: string | null;
     }
 
+    export interface MonteCarloAlertSignalExtra {
+      type: string | null;
+      status: string | null;
+      severity: string | null;
+      priority: string | null;
+      url: string | null;
+      created_time: string | null;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
@@ -73831,6 +74139,11 @@ export namespace Schemas {
       Platform: 'platform',
     } as const;
 
+    /**
+     * Result labels and their values for the group this instance tracks, such as {"service_name": "checkout"}. Empty when the source does not group results.
+     */
+    export type PlatformAlertLabels = {[key: string]: string};
+
     export interface PlatformAlert {
       /** Unique identifier of this alert instance. */
       readonly id: string;
@@ -73859,6 +74172,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly snooze_until: string | null;
+      /** Result labels and their values for the group this instance tracks, such as {"service_name": "checkout"}. Empty when the source does not group results. */
+      readonly labels: PlatformAlertLabels;
     }
 
     /**
@@ -73926,6 +74241,10 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `broken` - Broken */
       readonly check_status: PlatformAlertCheckStatusEnum;
+      /** New groups the last successful check could not track because the alert already held grouping.max_instances instances. 0 when every group fit. */
+      readonly overflowed_groups: number;
+      /** Whether the last successful check cut its results before counting overflowed_groups. When true, more groups than overflowed_groups may be untracked. */
+      readonly overflow_is_lower_bound: boolean;
       /** Which stack evaluates and delivers the alert. Only an alert the platform owns can be edited here. The source product's own API edits the rest.
        *
        * * `source` - Source
@@ -75454,6 +75773,7 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
+     * * `reviewer_corrections` - Reviewer Corrections
      * * `channel_assignment` - Channel Assignment
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
@@ -75493,6 +75813,7 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
+      ReviewerCorrections: 'reviewer_corrections',
       ChannelAssignment: 'channel_assignment',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
@@ -75721,6 +76042,21 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportCheck[];
+    }
+
+    export interface ReviewerControlResponse {
+      /** State token for a selection, replacement, or list confirmation. */
+      state: ReviewerState;
+      /** People an automatic selection must retain. */
+      pinned_user_uuids: string[];
+      /** People an automatic selection must not restore. */
+      excluded_user_uuids: string[];
+      /** A person explicitly confirmed the complete reviewer list. */
+      confirmed: boolean;
+      /** Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation. */
+      needs_review: boolean;
+      /** Whether this report uses saved reviewer corrections. */
+      enabled: boolean;
     }
 
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
@@ -76118,6 +76454,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Reviewer control and state token for preparing an automatic proposal. */
+      readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       /**
@@ -84124,6 +84462,55 @@ export namespace Schemas {
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditSourceKind = typeof PatchedInsightPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedInsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedInsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedInsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedInsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config?: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
     export interface PatchedInsightVariable {
       /** UUID of the SQL variable. */
       readonly id?: string;
@@ -85230,7 +85617,7 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedLogsPlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -87378,8 +87765,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 13
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 14
          */
       write_scopes?: string[];
       /**
@@ -90260,7 +90647,7 @@ export namespace Schemas {
 
     export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
 
-    export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -97980,6 +98367,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Reviewer control and state token for preparing an automatic proposal. */
+      readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       /**
@@ -98559,7 +98948,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -100809,6 +101198,22 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum = typeof ReviewerEditActionEnum[keyof typeof ReviewerEditActionEnum];
+
+
+    export const ReviewerEditActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Replace: 'replace',
+      Confirm: 'confirm',
+    } as const;
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -101472,8 +101877,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 13
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 14
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -101756,8 +102161,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 13
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 14
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -104382,6 +104787,19 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
+      /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+      expected_reviewers?: ReviewerState;
+      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+       *
+       * * `selected` - Selected
+       * * `no_suitable_owner` - No suitable owner
+       * * `lookup_failed` - Lookup failed */
+      reviewer_outcome?: ReviewerSelectionOutcomeEnum;
+      /**
+         * Reason the reviewer lookup failed.
+         * @maxLength 500
+         */
+      reviewer_retry_reason?: string;
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
       /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
@@ -104418,18 +104836,26 @@ export namespace Schemas {
       reason?: string | null;
     }
 
-    /**
-     * PUT body for replacing a `suggested_reviewers` artefact's content.
-     *
-     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
-     * the viewset enforces the type check before validation runs.
-     */
     export interface SignalReportArtefactWrite {
+      /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
+       *
+       * * `add` - Add
+       * * `remove` - Remove
+       * * `replace` - Replace
+       * * `confirm` - Confirm */
+      action?: ReviewerEditActionEnum;
+      /** State from the last read. Required for replacement and confirmation when corrections are enabled. */
+      expected_reviewers?: ReviewerState;
       /**
-         * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
          * @maxItems 10
          */
       content: SuggestedReviewerEntryWrite[];
+      /**
+         * Explicit add or remove targets. When supplied, content is only a fallback for older servers.
+         * @maxItems 10
+         */
+      targets?: SuggestedReviewerEntryWrite[];
     }
 
     /**
@@ -105090,8 +105516,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 13
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 14
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -125520,6 +125946,10 @@ export namespace Schemas {
 
     export type DashboardsWidgetCatalogRetrieveParams = {
     format?: DashboardsWidgetCatalogRetrieveFormat;
+    /**
+     * Widget types to return. Omit to return every registered widget type.
+     */
+    widget_type?: DashboardsWidgetCatalogRetrieveWidgetTypeItem[];
     };
 
     export type DashboardsWidgetCatalogRetrieveFormat = typeof DashboardsWidgetCatalogRetrieveFormat[keyof typeof DashboardsWidgetCatalogRetrieveFormat];
@@ -125528,6 +125958,22 @@ export namespace Schemas {
     export const DashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsWidgetCatalogRetrieveWidgetTypeItem = typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem[keyof typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem];
+
+
+    export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
+      ActivityEventsList: 'activity_events_list',
+      CanvasApp: 'canvas_app',
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+      ErrorTrackingList: 'error_tracking_list',
+      ExperimentResults: 'experiment_results',
+      ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
+      SessionReplayList: 'session_replay_list',
+      SurveyResults: 'survey_results',
     } as const;
 
     export type DataCatalogCertificationsListParams = {
@@ -128698,6 +129144,27 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number;
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string;
     };
 
     export type FileSystemShortcutListParams = {

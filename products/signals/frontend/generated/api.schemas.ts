@@ -785,6 +785,34 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
+export interface ReviewerStateApi {
+    /**
+     * Current reviewer artefact ID, or null before the first list.
+     * @nullable
+     */
+    reviewers_id: string | null
+    /**
+     * Current corrections artefact ID, or null before corrections are stored.
+     * @nullable
+     */
+    corrections_id: string | null
+}
+
+export interface ReviewerControlResponseApi {
+    /** State token for a selection, replacement, or list confirmation. */
+    state: ReviewerStateApi
+    /** People an automatic selection must retain. */
+    pinned_user_uuids: string[]
+    /** People an automatic selection must not restore. */
+    excluded_user_uuids: string[]
+    /** A person explicitly confirmed the complete reviewer list. */
+    confirmed: boolean
+    /** Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation. */
+    needs_review: boolean
+    /** Whether this report uses saved reviewer corrections. */
+    enabled: boolean
+}
+
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
@@ -1314,6 +1342,8 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Reviewer control and state token for preparing an automatic proposal. */
+    readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     /**
@@ -1558,6 +1588,8 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Reviewer control and state token for preparing an automatic proposal. */
+    readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     /**
@@ -2245,6 +2277,21 @@ export interface SignalReportReingestionStatusApi {
 }
 
 /**
+ * * `add` - Add
+ * * `remove` - Remove
+ * * `replace` - Replace
+ * * `confirm` - Confirm
+ */
+export type ReviewerEditActionEnumApi = (typeof ReviewerEditActionEnumApi)[keyof typeof ReviewerEditActionEnumApi]
+
+export const ReviewerEditActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Replace: 'replace',
+    Confirm: 'confirm',
+} as const
+
+/**
  * Single entry in a PUT body for a `suggested_reviewers` artefact.
  *
  * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
@@ -2272,18 +2319,26 @@ export interface SuggestedReviewerEntryWriteApi {
     reason?: string | null
 }
 
-/**
- * PUT body for replacing a `suggested_reviewers` artefact's content.
- *
- * Only `suggested_reviewers` artefacts may be modified via this endpoint;
- * the viewset enforces the type check before validation runs.
- */
 export interface SignalReportArtefactWriteApi {
+    /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
+     *
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm */
+    action?: ReviewerEditActionEnumApi
+    /** State from the last read. Required for replacement and confirmation when corrections are enabled. */
+    expected_reviewers?: ReviewerStateApi
     /**
-     * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+     * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
      * @maxItems 10
      */
     content: SuggestedReviewerEntryWriteApi[]
+    /**
+     * Explicit add or remove targets. When supplied, content is only a fallback for older servers.
+     * @maxItems 10
+     */
+    targets?: SuggestedReviewerEntryWriteApi[]
 }
 
 /**
@@ -3381,6 +3436,21 @@ export interface BetterstackIncidentSignalExtraApi {
     started_at: string | null
 }
 
+export interface MonteCarloAlertSignalExtraApi {
+    type: string | null
+    status: string | null
+    severity: string | null
+    priority: string | null
+    url: string | null
+    created_time: string | null
+}
+
+export interface BigeyeIssueSignalExtraApi {
+    current_status: string | null
+    priority: string | null
+    opened_time_seconds: string | null
+}
+
 export interface SleekplanFeedbackSignalExtraApi {
     status: string | null
     type: string | null
@@ -3513,6 +3583,8 @@ export type SignalExtraApi =
     | GrafanaIrmIncidentSignalExtraApi
     | XmattersIncidentSignalExtraApi
     | BetterstackIncidentSignalExtraApi
+    | MonteCarloAlertSignalExtraApi
+    | BigeyeIssueSignalExtraApi
     | SleekplanFeedbackSignalExtraApi
     | BettermodeFeedbackSignalExtraApi
     | DiscourseFeedbackSignalExtraApi
@@ -3817,6 +3889,7 @@ export interface SignalReportStateRequestApi {
  * * `signal_finding` - Signal Finding
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
+ * * `reviewer_corrections` - Reviewer Corrections
  * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
@@ -3856,6 +3929,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     SignalFinding: 'signal_finding',
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
+    ReviewerCorrections: 'reviewer_corrections',
     ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
@@ -3930,6 +4004,20 @@ export interface PaginatedSignalReportArtefactListApi {
 }
 
 /**
+ * * `selected` - Selected
+ * * `no_suitable_owner` - No suitable owner
+ * * `lookup_failed` - Lookup failed
+ */
+export type ReviewerSelectionOutcomeEnumApi =
+    (typeof ReviewerSelectionOutcomeEnumApi)[keyof typeof ReviewerSelectionOutcomeEnumApi]
+
+export const ReviewerSelectionOutcomeEnumApi = {
+    Selected: 'selected',
+    NoSuitableOwner: 'no_suitable_owner',
+    LookupFailed: 'lookup_failed',
+} as const
+
+/**
  * Body for appending an artefact to a report.
  *
  * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -3937,6 +4025,19 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
+    /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+    expected_reviewers?: ReviewerStateApi
+    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+     *
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed */
+    reviewer_outcome?: ReviewerSelectionOutcomeEnumApi
+    /**
+     * Reason the reviewer lookup failed.
+     * @maxLength 500
+     */
+    reviewer_retry_reason?: string
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
     /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
@@ -4678,8 +4779,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 13
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -5028,8 +5129,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 13
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -5192,8 +5293,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 13
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -5353,8 +5454,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 13
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     write_scopes?: string[]
     /**
@@ -7791,6 +7892,19 @@ export const ActionabilityEnumApi = {
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
+    /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+    expected_reviewers?: ReviewerStateApi
+    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+     *
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed */
+    reviewer_outcome?: ReviewerSelectionOutcomeEnumApi
+    /**
+     * Reason the reviewer lookup failed.
+     * @maxLength 500
+     */
+    reviewer_retry_reason?: string
     /** Id of the report to edit (must belong to this project). */
     report_id: string
     /**
@@ -7820,7 +7934,7 @@ export interface EditReportRequestApi {
      */
     append_evidence?: ReportEvidenceApi[] | null
     /**
-     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.
      * @maxItems 10
      */
     suggested_reviewers?: SuggestedReviewerApi[]

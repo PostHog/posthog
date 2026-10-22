@@ -156,6 +156,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
+    from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
@@ -189,6 +190,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
+    from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
     from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
@@ -281,6 +283,9 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    # Data quality / observability (record kind: incident)
+    register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
+    register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
     # Community, survey and docs feedback (record kind: feedback)
     register_signal_source(ExternalDataSourceType.SLEEKPLAN, "Posts", SLEEKPLAN_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERMODE, "posts", BETTERMODE_CONFIG)

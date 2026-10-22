@@ -617,72 +617,9 @@ export interface signalSourcesLogicMeta {
                 | 'appfigures'
                 | 'appfollow'
                 | 'asknicely'
-                | 'betterstack'
-                | 'bugsnag'
-                | 'canny'
-                | 'dixa'
-                | 'featurebase'
-                | 'firehydrant'
-                | 'freshdesk'
-                | 'freshservice'
-                | 'frill'
-                | 'front'
-                | 'gitea'
-                | 'github'
-                | 'gitlab'
-                | 'google_search_console'
-                | 'gorgias'
-                | 'grafana_irm'
-                | 'honeybadger'
-                | 'hubspot'
-                | 'incident_io'
-                | 'intercom'
-                | 'jira'
-                | 'judgeme_reviews'
-                | 'kustomer'
-                | 'linear'
-                | 'opsgenie'
-                | 'pagerduty'
-                | 'pganalyze'
-                | 'plain'
-                | 'productboard'
-                | 'rapid7_insightvm'
-                | 'raygun'
-                | 'retently'
-                | 'rollbar'
-                | 'semgrep'
-                | 'sentry'
-                | 'servicenow'
-                | 'shortcut'
-                | 'snyk'
-                | 'solarwinds_service_desk'
-                | 'sonarqube'
-                | 'squadcast'
-                | 'uservoice'
-                | 'xmatters'
-                | 'zendesk',
-                ExternalSignalSourceState
-            >,
-            ciSignalsConfig: CISignalsConfigApi | null,
-            ciSignalsIsFullyEnabled: boolean,
-            isCiSignalsToggling: boolean,
-            sourceConfigs: SignalSourceConfig[] | null,
-            sourceConfigsLoading: boolean
-        ) => SourceCatalogGroup[]
-        sourceCategoryOptions: (externalAgents: AgentRosterDefinition[]) => {
-            label: string
-            value: string
-        }[]
-        rosterGroups: (
-            featureFlags: FeatureFlagsSet,
-            externalAgents: AgentRosterDefinition[],
-            externalSourceStates: Record<
-                | 'aha'
-                | 'appfigures'
-                | 'appfollow'
-                | 'asknicely'
                 | 'bettermode'
                 | 'betterstack'
+                | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
                 | 'discourse'
@@ -710,6 +647,82 @@ export interface signalSourcesLogicMeta {
                 | 'langsmith'
                 | 'linear'
                 | 'mintlify'
+                | 'monte_carlo'
+                | 'okendo'
+                | 'opsgenie'
+                | 'pagerduty'
+                | 'pganalyze'
+                | 'plain'
+                | 'productboard'
+                | 'rapid7_insightvm'
+                | 'raygun'
+                | 'retently'
+                | 'rollbar'
+                | 'semgrep'
+                | 'sentry'
+                | 'servicenow'
+                | 'shortcut'
+                | 'sleekplan'
+                | 'snyk'
+                | 'solarwinds_service_desk'
+                | 'sonarqube'
+                | 'sprig'
+                | 'squadcast'
+                | 'trustpilot'
+                | 'uservoice'
+                | 'xmatters'
+                | 'zendesk',
+                ExternalSignalSourceState
+            >,
+            ciSignalsConfig: CISignalsConfigApi | null,
+            ciSignalsIsFullyEnabled: boolean,
+            isCiSignalsToggling: boolean,
+            sourceConfigs: SignalSourceConfig[] | null,
+            sourceConfigsLoading: boolean
+        ) => SourceCatalogGroup[]
+        sourceCategoryOptions: (externalAgents: AgentRosterDefinition[]) => {
+            label: string
+            value: string
+        }[]
+        rosterGroups: (
+            featureFlags: FeatureFlagsSet,
+            externalAgents: AgentRosterDefinition[],
+            externalSourceStates: Record<
+                | 'aha'
+                | 'appfigures'
+                | 'appfollow'
+                | 'asknicely'
+                | 'bettermode'
+                | 'betterstack'
+                | 'bigeye'
+                | 'bugsnag'
+                | 'canny'
+                | 'discourse'
+                | 'dixa'
+                | 'featurebase'
+                | 'firehydrant'
+                | 'freshdesk'
+                | 'freshservice'
+                | 'frill'
+                | 'front'
+                | 'gainsight_px'
+                | 'gitea'
+                | 'github'
+                | 'gitlab'
+                | 'google_search_console'
+                | 'gorgias'
+                | 'grafana_irm'
+                | 'honeybadger'
+                | 'hubspot'
+                | 'incident_io'
+                | 'intercom'
+                | 'jira'
+                | 'judgeme_reviews'
+                | 'kustomer'
+                | 'langsmith'
+                | 'linear'
+                | 'mintlify'
+                | 'monte_carlo'
                 | 'okendo'
                 | 'opsgenie'
                 | 'pagerduty'
@@ -745,9 +758,12 @@ export interface signalSourcesLogicMeta {
                 | 'appfigures'
                 | 'appfollow'
                 | 'asknicely'
+                | 'bettermode'
                 | 'betterstack'
+                | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'discourse'
                 | 'dixa'
                 | 'featurebase'
                 | 'firehydrant'
@@ -755,6 +771,7 @@ export interface signalSourcesLogicMeta {
                 | 'freshservice'
                 | 'frill'
                 | 'front'
+                | 'gainsight_px'
                 | 'gitea'
                 | 'github'
                 | 'gitlab'
@@ -768,7 +785,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'langsmith'
                 | 'linear'
+                | 'mintlify'
+                | 'monte_carlo'
+                | 'okendo'
                 | 'opsgenie'
                 | 'pagerduty'
                 | 'pganalyze'
@@ -782,10 +803,13 @@ export interface signalSourcesLogicMeta {
                 | 'sentry'
                 | 'servicenow'
                 | 'shortcut'
+                | 'sleekplan'
                 | 'snyk'
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
+                | 'sprig'
                 | 'squadcast'
+                | 'trustpilot'
                 | 'uservoice'
                 | 'xmatters'
                 | 'zendesk',
