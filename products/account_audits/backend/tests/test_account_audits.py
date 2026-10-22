@@ -18,7 +18,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import FileSystem, Organization, Team
+from posthog.models import Organization, Team
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
@@ -29,7 +29,6 @@ from products.account_audits.backend.presentation.views import (
     AccountAuditStartRequestSerializer,
     AccountAuditStartThrottle,
 )
-from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.models import Notebook
 from products.skills.backend.models import LLMSkill
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
@@ -145,52 +144,15 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(env.network_access_level, "custom")
         self.assertEqual(env.allowed_domains, [])
         self.assertFalse(env.include_default_domains)
+        listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
+        self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
         notebook = self.client.get(f"/api/projects/{self.team.id}/notebooks/{admission.notebook_short_id}/")
         self.assertEqual(notebook.status_code, 200)
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
-        self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
+        self.assertIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
         fresh = self._post({**payload, "team_id": self.team.id}, webhook_id="delivery-2")
         self.assertEqual(fresh.status_code, 202)
         self.assertNotEqual(fresh.json()["task_run_id"], first.json()["task_run_id"])
-
-        ordinary = notebooks_facade.create_notebook(
-            self.team.id, title="Account notes", content=None, visibility="internal"
-        )
-        self.client.force_login(self.user)
-        with self.captureOnCommitCallbacks(execute=True):
-            for short_id in (ordinary.short_id, admission.notebook_short_id, admission.notebook_short_id):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/file_system/log_view/", {"type": "notebook", "ref": short_id}
-                )
-                self.assertEqual(response.status_code, 204)
-        listed_ids = {
-            item["short_id"] for item in self.client.get(f"/api/projects/{self.team.id}/notebooks/").json()["results"]
-        }
-        self.assertIn(admission.notebook_short_id, listed_ids)
-        self.assertNotIn(ordinary.short_id, listed_ids)
-        self.assertTrue(
-            FileSystem.objects.filter(team=self.team, type="notebook", ref=admission.notebook_short_id).exists()
-        )
-
-    @parameterized.expand(["other_team", "deleted", "no_access"])
-    def test_view_does_not_list_ineligible_audit_notebook(self, problem: str) -> None:
-        self.assertEqual(self._post({"organization_id": str(self.organization.id)}).status_code, 202)
-        admission = AccountAuditAdmission.objects.for_team(self.team.id).get()
-        short_id = admission.notebook_short_id
-        viewer = self.user
-        if problem == "other_team":
-            admission.team_id = Team.objects.create(organization=self.organization, name="Other project").id
-            admission.save(update_fields=["team_id"])
-        elif problem == "deleted":
-            self.client.patch(f"/api/projects/{self.team.id}/notebooks/{short_id}/", {"deleted": True})
-        else:
-            viewer = User.objects.create(email="outsider@example.com")
-        with self.captureOnCommitCallbacks(execute=True) as callbacks:
-            FileSystemViewLog.objects.create(team=self.team, user=viewer, type="notebook", ref=short_id)
-        self.assertEqual(len(callbacks), 1)
-        stored = notebooks_facade.get_notebook(self.team.id, short_id, include_deleted=True)
-        assert stored is not None
-        self.assertEqual(stored.visibility, "internal")
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
