@@ -64,11 +64,14 @@ import {
     LocalLists,
     RECENTS_LIMIT,
     RemoteSlots,
+    SectionsQuery,
     ViewAll,
     buildSections,
     buildSuggestions,
     emptyRemoteSlots,
     isSelectable,
+    pickDisplayedQuery,
+    resultsSettled,
     themeSearchItem,
 } from './commandKSections'
 import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleSources } from './commandKSources'
@@ -101,8 +104,13 @@ export interface commandKSearchLogicValues {
     askAiQuestion: string | null
     chipSelection: ChipSelection
     chips: QueryChip[]
+    currentQuery: SectionsQuery
     cursor: number
     cursorContext: CursorContext
+    displayedQuery: {
+        query: SectionsQuery
+        stale: boolean
+    }
     filterOptions: FilterOptions
     folders: FileSystemEntry[] | null
     highlightIsFilterRow: boolean
@@ -122,6 +130,7 @@ export interface commandKSearchLogicValues {
     resultOpened: boolean
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
+    shownQuery: SectionsQuery | null
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
@@ -242,6 +251,9 @@ export interface commandKSearchLogicActions {
     setHighlightedKey: (key: string | null) => {
         key: string | null
     }
+    showQuery: (query: SectionsQuery) => {
+        query: SectionsQuery
+    }
     syncRemote: () => {
         value: true
     }
@@ -293,12 +305,7 @@ export interface commandKSearchLogicMeta {
         ) => LocalLists
         themeItem: (localQuery: string, isDarkModeOn: boolean) => SearchItem | null
         viewAll: (resolvedQuery: ResolvedQuery) => ViewAll | null
-        sections: (
-            mode: CommandKMode,
-            cursorContext: CursorContext,
-            suggestionsSection: CommandKSection | null,
-            localLists: LocalLists,
-            remote: RemoteSlots,
+        currentQuery: (
             remoteQueries: Partial<
                 Record<
                     'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
@@ -309,6 +316,22 @@ export interface commandKSearchLogicMeta {
             themeItem: SearchItem | null,
             askAiQuestion: string | null,
             viewAll: ViewAll | null
+        ) => SectionsQuery
+        displayedQuery: (
+            currentQuery: any,
+            shownQuery: any,
+            remote: RemoteSlots
+        ) => {
+            query: SectionsQuery
+            stale: boolean
+        }
+        sections: (
+            mode: CommandKMode,
+            cursorContext: CursorContext,
+            suggestionsSection: CommandKSection | null,
+            localLists: LocalLists,
+            remote: RemoteSlots,
+            displayedQuery: any
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -389,6 +412,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         syncRemote: true,
         requestStarted: (requestId: string, query: string) => ({ requestId, query }),
         remoteLoaded: (query: string, results: RemoteResults) => ({ query, results }),
+        showQuery: (query: SectionsQuery) => ({ query }),
         loadFolders: true,
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
         markResultOpened: true,
@@ -441,10 +465,16 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 remoteLoaded: (state, { query, results }) => {
                     const next = { ...state }
                     for (const [source, items] of Object.entries(results) as [RemoteSource, SearchItem[]][]) {
-                        next[source] = { cache: { ...state[source].cache, [query]: items }, displayedKey: query }
+                        next[source] = { cache: { ...state[source].cache, [query]: items } }
                     }
                     return next
                 },
+            },
+        ],
+        shownQuery: [
+            null as SectionsQuery | null,
+            {
+                showQuery: (_, { query }) => query,
             },
         ],
         folders: [
@@ -606,30 +636,33 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 }),
         ],
         viewAll: [(s) => [s.resolvedQuery], (resolved: ResolvedQuery): ViewAll | null => viewAllFor(resolved)],
+        currentQuery: [
+            (s) => [s.remoteQueries, s.localQuery, s.themeItem, s.askAiQuestion, s.viewAll],
+            (
+                remoteQueries: Partial<Record<RemoteSource, string>>,
+                localQuery: string,
+                themeItem: SearchItem | null,
+                askAiQuestion: string | null,
+                viewAll: ViewAll | null
+            ): SectionsQuery => ({ remoteQueries, localQuery, themeItem, askAiQuestion, viewAll }),
+        ],
+        displayedQuery: [
+            (s) => [s.currentQuery, s.shownQuery, s.remote],
+            (
+                current: SectionsQuery,
+                shown: SectionsQuery | null,
+                remote: RemoteSlots
+            ): { query: SectionsQuery; stale: boolean } => pickDisplayedQuery(current, shown, remote),
+        ],
         sections: [
-            (s) => [
-                s.mode,
-                s.cursorContext,
-                s.suggestionsSection,
-                s.localLists,
-                s.remote,
-                s.remoteQueries,
-                s.localQuery,
-                s.themeItem,
-                s.askAiQuestion,
-                s.viewAll,
-            ],
+            (s) => [s.mode, s.cursorContext, s.suggestionsSection, s.localLists, s.remote, s.displayedQuery],
             (
                 mode: CommandKMode,
                 context: CursorContext,
                 suggestions: CommandKSection | null,
                 local: LocalLists,
                 remote: RemoteSlots,
-                remoteQueries: Partial<Record<RemoteSource, string>>,
-                localQuery: string,
-                themeItem: SearchItem | null,
-                askAiQuestion: string | null,
-                viewAll: ViewAll | null
+                displayed: { query: SectionsQuery; stale: boolean }
             ): CommandKSection[] =>
                 buildSections({
                     mode,
@@ -637,11 +670,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     suggestions,
                     local,
                     remote,
-                    remoteQueries,
-                    localQuery,
-                    themeItem,
-                    askAiQuestion,
-                    viewAll,
+                    ...displayed.query,
+                    stale: displayed.stale,
                 }),
         ],
         selectableRows: [
@@ -669,6 +699,12 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        const showSettledQuery = (): void => {
+            if (values.shownQuery !== values.currentQuery && resultsSettled(values.currentQuery, values.remote)) {
+                actions.showQuery(values.currentQuery)
+            }
+        }
+
         const trackCommit = (chip: QueryChip, via: CommitVia): void => {
             posthog.capture('command k filter committed', {
                 key: chip.key,
@@ -930,7 +966,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         { pauseOnPageHidden: false }
                     )
                 }
+                showSettledQuery()
             },
+            remoteLoaded: showSettledQuery,
             loadFolders: async () => {
                 if (cache.foldersRequested) {
                     return
