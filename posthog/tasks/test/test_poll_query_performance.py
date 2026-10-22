@@ -94,7 +94,7 @@ class TestPollQueryPerformance(SimpleTestCase):
                 "posthog.tasks.poll_query_performance.perf_counter",
                 side_effect=lambda: 10.1 if legacy_finished.is_set() else 0,
             ),
-            patch("posthog.tasks.poll_query_performance._LEGACY_POLL_TIMEOUT_SECONDS", 0.05, create=True),
+            patch("posthog.tasks.poll_query_performance.POLL_DEADLINE_SECONDS", 0.05),
         ):
             try:
                 poll_query_performance()

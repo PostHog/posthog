@@ -88,7 +88,9 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
         errors = [error for future in futures if (error := future.exception()) is not None]
         if errors:
             raise errors[0]
-        return all(future.result() for future in futures)
+        if not all(future.result() for future in futures):
+            raise RuntimeError("Native query kill was not confirmed")
+        return True
 
     discovery_error = None
     try:

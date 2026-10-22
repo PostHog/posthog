@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
 import structlog
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+_RUNNER_STATE_TAG = "_async_query_runner"
 
 CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
 
@@ -215,6 +217,21 @@ def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
         return QueryScanSummary.model_validate(summary)
     except Exception:
         return None
+
+
+def pack_runner_state(query_tags: dict[str, Any], runner_state: Optional[dict]) -> dict[str, Any]:
+    if runner_state is None:
+        return query_tags
+    # Existing workers accept arbitrary query tags but reject new task kwargs and query-schema fields.
+    return {**query_tags, "query": {_RUNNER_STATE_TAG: runner_state}}
+
+
+def unpack_runner_state(query_tags: dict[str, Any], query_json: dict) -> tuple[dict[str, Any], Optional[dict]]:
+    queued_query = query_tags.get("query")
+    runner_state = queued_query.get(_RUNNER_STATE_TAG) if isinstance(queued_query, dict) else None
+    if runner_state is None:
+        return query_tags, None
+    return {**query_tags, "query": query_json}, runner_state
 
 
 def execute_process_query(
@@ -440,10 +457,7 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    query_tags = get_query_tags().model_dump()
-    if runner_state is not None:
-        # Existing workers accept arbitrary query tags but reject new task kwargs and query-schema fields.
-        query_tags["query"] = {"_async_query_runner": runner_state}
+    query_tags = pack_runner_state(get_query_tags().model_dump(), runner_state)
     manager.store_query_status(query_status)
 
     if cache_key:

@@ -662,11 +662,11 @@ fn make_kafka_consumer_with_context(
 }
 
 /// The consumer's worker transport, addressed at each FakeWorker's gRPC port
-/// (`GrpcPort::OffsetFromHttp(1)` — HTTP port + 1). One un-acked sub-batch per
-/// worker, and a short ack timeout so a stalled scenario fences within a
-/// test's patience rather than production's 60s.
+/// (`GrpcPort::OffsetFromHttp(1)` — HTTP port + 1), with a short ack timeout
+/// so a stalled scenario fences within a test's patience rather than
+/// production's 60s.
 fn test_transport() -> GrpcTransport {
-    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), 1, Duration::from_secs(10))
+    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), Duration::from_secs(10))
 }
 
 /// Reap drained workers exactly as `main.rs` does in production: complete the
