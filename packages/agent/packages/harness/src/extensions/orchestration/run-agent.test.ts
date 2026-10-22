@@ -74,12 +74,12 @@ function readTranscript(runId: string): string | undefined {
   }
 }
 
-function makeModel(): Model<Api> {
+function makeModel(provider = "anthropic"): Model<Api> {
   return {
     id: "sonnet",
     name: "Sonnet",
     api: "anthropic-messages",
-    provider: "anthropic",
+    provider,
     baseUrl: "https://api.anthropic.com",
     reasoning: false,
     input: ["text"],
@@ -89,8 +89,12 @@ function makeModel(): Model<Api> {
   } as Model<Api>;
 }
 
-function makeCtx(cwd: string, projectTrusted = false): ExtensionContext {
-  const model = makeModel();
+function makeCtx(
+  cwd: string,
+  projectTrusted = false,
+  provider?: string,
+): ExtensionContext {
+  const model = makeModel(provider);
   return {
     cwd,
     model,
@@ -125,6 +129,7 @@ describe("runAgent lifecycle persistence", () => {
     );
     process.env.HOME = tmpHome;
     createAgentSessionMock.mockReset();
+    createWebAccessExtensionMock.mockClear();
     createAgentSessionMock.mockResolvedValue({
       session: createFakeSession(),
     });
@@ -211,20 +216,26 @@ describe("runAgent lifecycle persistence", () => {
     expect(sessionOptions.settingsManager.isProjectTrusted()).toBe(false);
   });
 
-  it("gives the child's web tools the delegated model's attribution headers", async () => {
-    const ctx = makeCtx(tmpHome);
-    vi.mocked(ctx.modelRegistry.getApiKeyAndHeaders).mockResolvedValue({
-      ok: true,
-      apiKey: "test-key",
-      headers: { "X-PostHog-Task-Run-Id": "run-1" },
-    });
+  it.each([
+    ["posthog", { "X-PostHog-Task-Run-Id": "run-1" }],
+    ["anthropic", undefined],
+  ])(
+    "gives the child's web tools a %s model's headers only when it is a posthog model",
+    async (provider, expectedHeaders) => {
+      const ctx = makeCtx(tmpHome, false, provider);
+      vi.mocked(ctx.modelRegistry.getApiKeyAndHeaders).mockResolvedValue({
+        ok: true,
+        apiKey: "test-key",
+        headers: { "X-PostHog-Task-Run-Id": "run-1" },
+      });
 
-    await runAgent({ ctx, agent, task: "find it", includeWebAccess: true });
+      await runAgent({ ctx, agent, task: "find it", includeWebAccess: true });
 
-    expect(createWebAccessExtensionMock).toHaveBeenCalledWith({
-      headers: { "X-PostHog-Task-Run-Id": "run-1" },
-    });
-  });
+      expect(createWebAccessExtensionMock).toHaveBeenLastCalledWith({
+        headers: expectedHeaders,
+      });
+    },
+  );
 
   it("loads shell and reliability settings for child sessions", async () => {
     fs.mkdirSync(getAgentDir(), { recursive: true });

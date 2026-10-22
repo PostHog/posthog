@@ -1,5 +1,9 @@
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWebAccessExtension } from "./extension";
 import {
   createWebSearchTool,
   formatSearchResult,
@@ -166,6 +170,35 @@ describe("createWebSearchTool", () => {
     });
     expect(result.details).toMatchObject({
       citations: [{ type: "url_citation", url: "https://a.com", title: "A" }],
+    });
+  });
+
+  it("sends the extension's attribution headers from the registered tool", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ output: [] }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const registerTool = vi.fn();
+
+    createWebAccessExtension({
+      region: "us",
+      apiKey: "pha_test",
+      headers: { "X-PostHog-Task-Run-Id": "run-1" },
+    })({ registerTool } as unknown as ExtensionAPI);
+    const tool = registerTool.mock.calls
+      .map(([registered]) => registered)
+      .find((registered) => registered.name === "web_search");
+    await tool.execute(
+      "call-1",
+      { query: "x" },
+      undefined,
+      undefined,
+      fakeCtx(undefined),
+    );
+
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      "X-PostHog-Task-Run-Id": "run-1",
     });
   });
 

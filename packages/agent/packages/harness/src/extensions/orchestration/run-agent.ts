@@ -16,6 +16,7 @@ import {
   createPiToolCallRecord,
   type PiSubagentToolCall,
 } from "@posthog/agent-contracts";
+import { POSTHOG_PROVIDER_NAME } from "../posthog-provider/provider";
 import { createWebAccessExtension } from "../web-access/extension";
 import type { AgentConfig } from "./agents";
 import {
@@ -322,7 +323,13 @@ export async function runAgent(
       ? [
           {
             name: "web-access",
-            factory: createWebAccessExtension({ headers: modelAuth.headers }),
+            // Web tools always call the PostHog gateway, so only a posthog model's headers may go with them.
+            factory: createWebAccessExtension({
+              headers:
+                modelAuth.model.provider === POSTHOG_PROVIDER_NAME
+                  ? modelAuth.headers
+                  : undefined,
+            }),
           },
         ]
       : [];
