@@ -12,6 +12,7 @@ import {
 import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_EVENTS_JSON,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -32,8 +33,10 @@ import {
     Team,
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { counterHogflowCohortLookupFailure } from '../services/hogflows/actions/conditional_branch'
-import { BatchCohortMembership } from '../services/hogflows/batch-cohort-membership'
+import { BatchCohortMembership, CohortMembershipChangeOverlay } from '../services/hogflows/batch-cohort-membership'
+import { cohortOnlyGoalIds } from '../services/hogflows/conversion-watcher'
 import {
     bytecodeReferencesCohorts,
     hasEventOrActionTarget,
@@ -49,6 +52,7 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
 import { counterParseError } from './metrics'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
@@ -110,6 +114,12 @@ const counterHogflowMatcherConversionEventSkipped = new Counter({
 const counterHogflowMatcherWatchersSkipped = new Counter({
     name: 'cdp_hogflow_matcher_watchers_skipped',
     help: 'Watcher rows skipped because their pinned goal was missing or unreadable. Each one is a run that can never record a conversion.',
+})
+
+const counterHogflowMatcherMembershipChanges = new Counter({
+    name: 'cdp_hogflow_matcher_cohort_membership_changes_total',
+    help: 'Cohort membership changes the matcher read, by outcome. Only "checked" changes can count a conversion.',
+    labelNames: ['outcome'],
 })
 
 const counterHogflowMatcherWatchersEvaluated = new Counter({
@@ -190,6 +200,15 @@ type MatchedJob = {
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
+// A watcher whose goal this batch satisfied, and what to record when the claim succeeds.
+type ConvertedWatcher = {
+    row: any
+    distinctId?: string
+    conversionType: 'property' | 'event'
+    eventName?: string
+    eventUuid?: string
+}
+
 // Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
 export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
 
@@ -215,6 +234,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // realtime_only_events_json carries the $feature_flag_called events that ingestion stops writing to
     // clickhouse_events_json for a FLAG_EVALUATIONS_ONLY organization.
     private realtimeOnlyEventsKafkaConsumer?: KafkaConsumerInterface
+    // cohort_membership_changed carries realtime cohort joins and leaves. A conversion goal on a cohort
+    // counts from the change itself, so the person does not have to send another event first.
+    private cohortMembershipKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
@@ -256,6 +278,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             },
             startAtLatest
         )
+        this.cohortMembershipKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-cohort-membership-consumer',
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+            },
+            startAtLatest
+        )
         if (config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC) {
             this.realtimeOnlyEventsKafkaConsumer = createKafkaConsumer(
                 {
@@ -288,21 +317,25 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         try {
             await this.wakeMatchingWorkflows(invocationGlobals, source)
         } finally {
-            // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
-            // Best-effort: a flush failure must not crash the batch (which would replay the event
-            // offsets). flush() is a no-op when nothing was queued, so it's safe to call unconditionally.
-            await instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
-                try {
-                    await Promise.all([
-                        this.hogFunctionMonitoringService.flush(),
-                        this.invocationResultsService.capturedEventsService.flush(),
-                    ])
-                } catch (err) {
-                    logger.error('⚠️', 'Failed to flush hogflow matcher app metrics/events', { err })
-                    captureException(err)
-                }
-            })
+            await this.flushConversionOutputs()
         }
+    }
+
+    // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
+    // Best-effort: a flush failure must not crash the batch (which would replay the event
+    // offsets). flush() is a no-op when nothing was queued, so it's safe to call unconditionally.
+    private async flushConversionOutputs(): Promise<void> {
+        await instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+            try {
+                await Promise.all([
+                    this.hogFunctionMonitoringService.flush(),
+                    this.invocationResultsService.capturedEventsService.flush(),
+                ])
+            } catch (err) {
+                logger.error('⚠️', 'Failed to flush hogflow matcher app metrics/events', { err })
+                captureException(err)
+            }
+        })
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
@@ -706,13 +739,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 )
         )
 
-        const converted: {
-            row: any
-            distinctId?: string
-            conversionType: 'property' | 'event'
-            eventName?: string
-            eventUuid?: string
-        }[] = []
+        const converted: ConvertedWatcher[] = []
         for (const row of found.rows) {
             // A watcher with no usable goal can never convert. Skipping it keeps a malformed row from
             // throwing out of the whole batch, which also carries the unrelated wake path.
@@ -749,6 +776,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 }
             }
         }
+        return this.claimConversions(converted)
+    }
+
+    private async claimConversions(converted: ConvertedWatcher[]): Promise<number> {
         if (converted.length === 0) {
             return 0
         }
@@ -810,6 +841,73 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     /**
+     * Counts conversions for cohort goals from the membership changes themselves. Only a watcher whose
+     * goal is cohort-only is judged here, because a change carries no person properties to evaluate
+     * anything else against.
+     */
+    @instrumented('cdpHogflowSubscriptionMatcher.processCohortMembershipChanges')
+    public async processCohortMembershipChanges(changes: CohortMembershipChangeOverlay[]): Promise<void> {
+        if (changes.length === 0) {
+            return
+        }
+        try {
+            const conversionsCounted = await this.claimCohortGoalWatchers(changes)
+            counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        } finally {
+            await this.flushConversionOutputs()
+        }
+    }
+
+    private async claimCohortGoalWatchers(changes: CohortMembershipChangeOverlay[]): Promise<number> {
+        const people = [...new Map(changes.map((c) => [`${c.teamId}:${c.personId}`, c])).values()]
+        const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
+        let found
+        try {
+            found = await this.cyclotronPool.query(
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 FROM conversion_watchers
+                 WHERE expires_at > NOW()
+                   AND (team_id, person_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))`,
+                [people.map((c) => c.teamId), people.map((c) => c.personId)]
+            )
+        } finally {
+            stopTimer()
+        }
+
+        const changedCohorts = new Map<string, Set<number>>()
+        for (const { teamId, personId, cohortId } of changes) {
+            const key = `${teamId}:${personId.toLowerCase()}`
+            changedCohorts.set(key, (changedCohorts.get(key) ?? new Set()).add(cohortId))
+        }
+        const rows = found.rows.filter((row) => {
+            const goalCohortIds: unknown = row.goal?.cohort_ids
+            const changed = changedCohorts.get(`${row.team_id}:${String(row.person_id).toLowerCase()}`)
+            return Array.isArray(goalCohortIds) && goalCohortIds.some((id) => changed?.has(id))
+        })
+        if (rows.length === 0) {
+            return 0
+        }
+        counterHogflowMatcherWatchersEvaluated.inc(rows.length)
+
+        const cohortMembership = new BatchCohortMembership(this.cohortMembershipRepository, changes)
+        await cohortMembership.load(rows.map((row) => ({ teamId: row.team_id, personId: row.person_id })))
+
+        const converted: ConvertedWatcher[] = []
+        for (const row of rows) {
+            const cohortIds = cohortMembership.cohortIdsFor(row.team_id, row.person_id)
+            if (cohortIds === null) {
+                counterHogflowCohortLookupFailure.labels('matcher_skipped').inc()
+                continue
+            }
+            const filterGlobals = withCohortIds(membershipChangeFilterGlobals(row.person_id), cohortIds)
+            if (await runFilterBytecode(row.goal.properties, filterGlobals, { hogFlowId: row.function_id })) {
+                converted.push({ row, distinctId: row.distinct_id ?? undefined, conversionType: 'property' })
+            }
+        }
+        return this.claimConversions(converted)
+    }
+
+    /**
      * Whether a team's messages are worth the full parse. True when it has a flow the matcher can act
      * on, or when it still has live conversion watchers.
      *
@@ -835,6 +933,53 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
         this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
         gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.parseCohortMembershipMessages')
+    public async _parseCohortMembershipBatch(messages: Message[]): Promise<CohortMembershipChangeOverlay[]> {
+        // The last change in the batch wins for each person and cohort, because the batch is in offset order.
+        const latest = new Map<string, CohortMembershipChangeOverlay>()
+        for (const message of messages) {
+            let change
+            try {
+                change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+            } catch (e) {
+                logger.error('Error parsing cohort membership change', e)
+                counterParseError.labels({ error: e.message }).inc()
+                continue
+            }
+            // A seed or reconcile change restates membership the person already had. The enrollment
+            // check covers a person who was a member when the run started.
+            if (change.origin) {
+                counterHogflowMatcherMembershipChanges.labels({ outcome: 'backfill' }).inc()
+                continue
+            }
+            latest.set(`${change.team_id}:${change.person_id}:${change.cohort_id}`, {
+                teamId: change.team_id,
+                personId: change.person_id,
+                cohortId: change.cohort_id,
+                inCohort: change.status === 'entered',
+            })
+        }
+
+        const checked: CohortMembershipChangeOverlay[] = []
+        for (const change of latest.values()) {
+            if (await this.cohortChangeIsActionable(change)) {
+                checked.push(change)
+            }
+        }
+        counterHogflowMatcherMembershipChanges.labels({ outcome: 'checked' }).inc(checked.length)
+        counterHogflowMatcherMembershipChanges.labels({ outcome: 'no_cohort_goal' }).inc(latest.size - checked.length)
+        return checked
+    }
+
+    // Live watchers can belong to a flow that is now paused, which the flow cache does not hold.
+    private async cohortChangeIsActionable(change: CohortMembershipChangeOverlay): Promise<boolean> {
+        if (this.teamsWithLiveWatchers.has(change.teamId)) {
+            return true
+        }
+        const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.teamId)
+        return teamHogFlows.some((flow) => cohortOnlyGoalIds(flow.conversion?.filters)?.includes(change.cohortId))
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
@@ -1270,6 +1415,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.realtimeOnlyEventsKafkaConsumer?.connect(
                 this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleRealtimeOnlyEventsBatch')
             ),
+            this.cohortMembershipKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleCohortMembershipBatch', async () => ({
+                    backgroundTask: this.processCohortMembershipChanges(
+                        await this._parseCohortMembershipBatch(messages)
+                    ),
+                }))
+            }),
         ])
     }
 
@@ -1293,6 +1445,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.internalEventsKafkaConsumer.disconnect(),
             this.personDistinctIdKafkaConsumer.disconnect(),
             this.realtimeOnlyEventsKafkaConsumer?.disconnect(),
+            this.cohortMembershipKafkaConsumer.disconnect(),
         ])
         await this.cyclotronPool.end()
         await super.stop()
@@ -1307,6 +1460,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.internalEventsKafkaConsumer.isHealthy(),
             this.personDistinctIdKafkaConsumer.isHealthy(),
             ...(this.realtimeOnlyEventsKafkaConsumer ? [this.realtimeOnlyEventsKafkaConsumer.isHealthy()] : []),
+            this.cohortMembershipKafkaConsumer.isHealthy(),
         ]
         return results.find((r) => r.status !== 'ok') ?? results[0]
     }
@@ -1424,6 +1578,23 @@ function goalWithoutCohortChecks(goal: PinnedConversionGoal): PinnedConversionGo
         ...(bytecodeReferencesCohorts(goal.properties) ? {} : { properties: goal.properties }),
         events: (goal.events ?? []).filter((bytecode) => !bytecodeReferencesCohorts(bytecode)),
     }
+}
+
+// A membership change has no event and no person properties. The cohort-only goals judged against it
+// read only cohort_ids.
+function membershipChangeFilterGlobals(personId: string): FilterGlobals {
+    return convertToHogFunctionFilterGlobal({
+        event: {
+            uuid: new UUIDT().toString(),
+            event: COHORT_MEMBERSHIP_CHANGED_EVENT,
+            distinct_id: '',
+            properties: {},
+            timestamp: new Date().toISOString(),
+            url: '',
+            elements_chain: '',
+        },
+        person: { id: personId, properties: {}, name: '', url: '' },
+    })
 }
 
 // The inCohort and notInCohort STL functions read the cohort_ids global.

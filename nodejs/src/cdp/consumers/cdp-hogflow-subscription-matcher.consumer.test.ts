@@ -1626,6 +1626,74 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
         })
 
+        describe('from cohort membership changes', () => {
+            const membershipChange = (overrides: Record<string, any> = {}): any => ({
+                value: Buffer.from(
+                    JSON.stringify({
+                        team_id: 1,
+                        cohort_id: COHORT_ID,
+                        person_id: COHORT_PERSON_UUID,
+                        status: 'entered',
+                        last_updated: '2026-10-22 10:00:00.000000',
+                        ...overrides,
+                    })
+                ),
+            })
+            const cohortGoalWatcher = (goal: Record<string, any> = {}): any =>
+                watcher({
+                    person_id: COHORT_PERSON_UUID,
+                    goal: { properties: inCohortBytecode(), cohort_ids: [COHORT_ID], ...goal },
+                })
+
+            const runChanges = async (messages: any[]): Promise<void> => {
+                ;(matcher as any).teamsWithLiveWatchers = new Set([1])
+                await matcher.processCohortMembershipChanges(await matcher._parseCohortMembershipBatch(messages))
+            }
+
+            it.each<[string, any[], any, number[] | Error, number]>([
+                // The membership table has not caught up with the change, which is newer than the row.
+                ['a join the table has not stored yet', [membershipChange()], cohortGoalWatcher(), [], 1],
+                [
+                    'a join and a later leave in one batch',
+                    [membershipChange(), membershipChange({ status: 'left' })],
+                    cohortGoalWatcher(),
+                    [COHORT_ID],
+                    0,
+                ],
+                [
+                    'a join of a cohort the goal does not reference',
+                    [membershipChange({ cohort_id: COHORT_ID + 1 })],
+                    cohortGoalWatcher(),
+                    [],
+                    0,
+                ],
+                // A goal that also reads person properties is not pinned with cohort_ids.
+                [
+                    'a goal that also reads person properties',
+                    [membershipChange()],
+                    cohortGoalWatcher({ cohort_ids: undefined }),
+                    [],
+                    0,
+                ],
+                ['a seed change', [membershipChange({ origin: 'seed' })], cohortGoalWatcher(), [], 0],
+                [
+                    'a failed membership lookup',
+                    [membershipChange()],
+                    cohortGoalWatcher(),
+                    new Error('behavioral cohorts DB unavailable'),
+                    0,
+                ],
+            ])('counts %s as %d conversions', async (_name, messages, row, memberCohortIds, conversions) => {
+                matcher.memberCohortIds = memberCohortIds
+                matcher.watcherRows = [row]
+
+                await runChanges(messages)
+
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
+                expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(conversions)
+            })
+        })
+
         it('counts only the watchers the delete actually claimed', async () => {
             // Two instances can evaluate the same watcher in the same moment; the one whose DELETE
             // removed the row owns the count. Counting an unclaimed row would double-count the run.

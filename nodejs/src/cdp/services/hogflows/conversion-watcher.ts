@@ -21,10 +21,25 @@ function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
     if (!properties?.length && !events.length) {
         return null
     }
+    const cohortIds = properties?.length ? cohortOnlyGoalIds(hogFlow.conversion?.filters) : undefined
     return {
         ...(properties?.length ? { properties } : {}),
         ...(events.length ? { events } : {}),
+        ...(cohortIds ? { cohort_ids: cohortIds } : {}),
     }
+}
+
+export function cohortOnlyGoalIds(filters: unknown[] | undefined): number[] | undefined {
+    const cohortIds: number[] = []
+    for (const filter of filters ?? []) {
+        const { type, value } = (filter ?? {}) as { type?: unknown; value?: unknown }
+        const cohortId = Number(value)
+        if (type !== 'cohort' || !Number.isInteger(cohortId)) {
+            return undefined
+        }
+        cohortIds.push(cohortId)
+    }
+    return cohortIds.length ? cohortIds : undefined
 }
 
 // The watcher outlives the run, which is the whole point: once the run finishes its cyclotron job is

@@ -45,11 +45,13 @@ export const counterHogflowRekeyWake = new Counter({
 // 'aborted' means every attempt failed and the run stopped. Sustained 'aborted' readings mean the
 // behavioral cohorts DB is unreachable from the workers, and every cohort branch is stopping runs.
 // 'exit_check_skipped' is a cohort trigger's exit check that could not run, so the run carried on.
+// 'conversion_check_skipped' is an enrollment or exit-on-conversion check that could not run. The
+// run carried on, and an enrolling run wrote its conversion watcher.
 // 'matcher_skipped' is a matcher check of a parked wait or a conversion goal that could not run, so
 // that event did not wake the run or count a conversion.
 export const counterHogflowCohortLookupFailure = new Counter({
     name: 'cdp_hogflow_cohort_lookup_failure_total',
-    help: 'Cohort membership lookups that failed in a conditional_branch, a wait, a cohort trigger exit check or the subscription matcher, by outcome.',
+    help: 'Cohort membership lookups that failed in a conditional_branch, a wait, a cohort trigger exit check, a conversion check or the subscription matcher, by outcome.',
     labelNames: ['outcome'],
 })
 

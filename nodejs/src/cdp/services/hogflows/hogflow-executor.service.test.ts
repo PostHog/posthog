@@ -1756,15 +1756,46 @@ describe('Hogflow Executor', () => {
             // enrollment event before the row exists — so it is counted here and writes no row. A goal
             // not yet satisfied writes the row and is counted by the matcher later. Either path counting
             // twice, or neither counting, is the bug this guards.
+            const browserGoal = {
+                filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+            }
+            const cohortGoal = {
+                filters: [{ key: 'id', type: 'cohort', value: 42, operator: 'in' }],
+                bytecode: ['_H', 1, 33, 42, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2],
+            }
             test.each([
-                { name: 'goal not yet satisfied', browser: 'Firefox', watchers: 1, conversions: 0 },
-                { name: 'goal already satisfied at enrollment', browser: 'Chrome', watchers: 0, conversions: 1 },
+                { name: 'goal not yet satisfied', goal: browserGoal, browser: 'Firefox', watchers: 1, conversions: 0 },
+                {
+                    name: 'goal already satisfied at enrollment',
+                    goal: browserGoal,
+                    browser: 'Chrome',
+                    watchers: 0,
+                    conversions: 1,
+                },
+                { name: 'cohort goal, not a member', goal: cohortGoal, memberOf: [7], watchers: 1, conversions: 0 },
+                {
+                    name: 'cohort goal, member at enrollment',
+                    goal: cohortGoal,
+                    memberOf: [42],
+                    watchers: 0,
+                    conversions: 1,
+                },
+                {
+                    name: 'cohort goal, membership lookup fails',
+                    goal: cohortGoal,
+                    memberOf: new Error('behavioral cohorts DB unavailable'),
+                    watchers: 1,
+                    conversions: 0,
+                },
             ])('$name: writes $watchers watcher and counts $conversions conversion', async (params) => {
                 hogFlow.exit_condition = 'exit_only_at_end'
-                hogFlow.conversion = {
-                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
-                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                } as any
+                hogFlow.conversion = params.goal as any
+                if (params.memberOf instanceof Error) {
+                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockRejectedValue(params.memberOf)
+                } else if (params.memberOf) {
+                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockResolvedValue(params.memberOf)
+                }
 
                 const invocation = createExampleHogFlowInvocation(
                     hogFlow,
@@ -1778,6 +1809,25 @@ describe('Hogflow Executor', () => {
                 if (params.watchers) {
                     expect(result.conversionWatchers[0].run_id).toEqual(invocation.id)
                 }
+            })
+
+            test.each([
+                { name: 'a member of the goal cohort', memberOf: [42], exits: true },
+                { name: 'a person whose membership lookup fails', memberOf: new Error('unavailable'), exits: false },
+            ])('exit_on_conversion with a cohort goal exits for $name: $exits', async ({ memberOf, exits }) => {
+                hogFlow.exit_condition = 'exit_on_conversion'
+                hogFlow.conversion = cohortGoal as any
+                if (memberOf instanceof Error) {
+                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockRejectedValue(memberOf)
+                } else {
+                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockResolvedValue(memberOf)
+                }
+
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = { id: 'function_id_1', startedAtTimestamp: DateTime.now().toMillis() }
+                const result = await executor.execute(invocation)
+
+                expect(result.metrics.map((m) => m.metric_name).includes('early_exit')).toBe(exits)
             })
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {

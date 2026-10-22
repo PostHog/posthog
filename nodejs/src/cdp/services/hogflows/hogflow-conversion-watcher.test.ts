@@ -60,6 +60,25 @@ describe('buildConversionWatcher', () => {
         expect(buildConversionWatcher(invocationFor(eventGoal))?.goal).toEqual({ events: [eventBytecode] })
     })
 
+    // A membership change carries no person properties, so the matcher only judges goals pinned with
+    // cohort_ids. A goal that also reads a person property must not get them.
+    it.each([
+        ['a cohort-only goal', [{ key: 'id', type: 'cohort', value: 42, operator: 'in' }], [42]],
+        [
+            'a cohort and a person property',
+            [
+                { key: 'id', type: 'cohort', value: 42, operator: 'in' },
+                { key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' },
+            ],
+            undefined,
+        ],
+        ['a person property only', propertyGoal.filters, undefined],
+    ])('pins cohort_ids for %s', (_name, filters, cohortIds) => {
+        const watcher = buildConversionWatcher(invocationFor({ filters, bytecode: propertyBytecode }))
+
+        expect(watcher?.goal.cohort_ids).toEqual(cohortIds)
+    })
+
     it('drops an event goal that targets neither an event nor an action', () => {
         // Such an entry compiles to always-true bytecode, which would convert on the first event of
         // any kind. The wait_until and conversion evaluators guard it, so the watcher must too.

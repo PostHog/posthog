@@ -384,6 +384,9 @@ export type PinnedConversionGoal = {
     properties?: any[]
     // Event-based goals, any one of which converts.
     events?: any[][]
+    // Set only when every property filter is a cohort filter. Such a goal needs no person properties,
+    // so the matcher can judge it from a cohort membership change, which carries none.
+    cohort_ids?: number[]
 }
 
 // One per enrolled run on a workflow with a conversion goal, outliving the run so a conversion that

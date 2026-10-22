@@ -48,6 +48,7 @@ import { hasSensitiveEmailStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
+    bytecodeReferencesCohorts,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -297,9 +298,15 @@ export class HogFlowExecutorService {
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
         // overstate the rate.
         const watcher = buildConversionWatcher(invocation)
-        const enrollmentConversion = watcher ? await this.conversionAtEnrollment(invocation) : null
+        // Both conversion checks read the goal with the same filter globals, so they share one lookup.
+        let conversionGlobals: Promise<HogFunctionFilterGlobals | null> | undefined
+        const loadConversionGlobals = (): Promise<HogFunctionFilterGlobals | null> =>
+            (conversionGlobals ??= this.conversionFilterGlobals(invocation))
+        const enrollmentConversion = watcher
+            ? await this.conversionAtEnrollment(invocation, loadConversionGlobals)
+            : null
 
-        const earlyExitResult = await this.shouldExitEarly(invocation)
+        const earlyExitResult = await this.shouldExitEarly(invocation, loadConversionGlobals)
         if (earlyExitResult) {
             this.recordEnrollment(
                 enrollmentConversion,
@@ -371,16 +378,22 @@ export class HogFlowExecutorService {
      * watcher, so it is still counted exactly once.
      */
     private async conversionAtEnrollment(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        loadConversionGlobals: () => Promise<HogFunctionFilterGlobals | null>
     ): Promise<{ metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null> {
         const { hogFlow } = invocation
         if (!invocation.person || !hogFlow.conversion?.filters?.length || !hogFlow.conversion.bytecode?.length) {
             return null
         }
+        // With no membership the run writes its watcher, so the matcher can still count the conversion.
+        const filterGlobals = await loadConversionGlobals()
+        if (!filterGlobals) {
+            return null
+        }
         const filterResult = await filterFunctionInstrumented({
             fn: hogFlow,
             filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
-            filterGlobals: invocation.filterGlobals,
+            filterGlobals,
             caller: 'hogflow_conversion',
         })
         if (!filterResult.match) {
@@ -412,6 +425,36 @@ export class HogFlowExecutorService {
                       },
                   }
                 : null,
+        }
+    }
+
+    /**
+     * The filter globals that the conversion goal reads. A goal that references a cohort also needs the
+     * person's membership. Null when that lookup fails, because no answer is not "not a member".
+     */
+    private async conversionFilterGlobals(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<HogFunctionFilterGlobals | null> {
+        if (!bytecodeReferencesCohorts(invocation.hogFlow.conversion?.bytecode)) {
+            return invocation.filterGlobals
+        }
+        const personUuid = invocation.person?.id ?? invocation.state.personId
+        if (!personUuid) {
+            return { ...invocation.filterGlobals, cohort_ids: [] }
+        }
+        try {
+            const cohortIds = await this.cohortMembershipRepository.getMemberCohortIds(
+                invocation.hogFlow.team_id,
+                personUuid
+            )
+            return { ...invocation.filterGlobals, cohort_ids: cohortIds }
+        } catch (error) {
+            counterHogflowCohortLookupFailure.labels({ outcome: 'conversion_check_skipped' }).inc()
+            logger.warn('HogFlowExecutorService: cohort membership lookup failed during a conversion check', {
+                hogFlowId: invocation.hogFlow.id,
+                error: String(error),
+            })
+            return null
         }
     }
 
@@ -553,7 +596,8 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        loadConversionGlobals: () => Promise<HogFunctionFilterGlobals | null>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -578,16 +622,20 @@ export class HogFlowExecutorService {
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
-                const filterResult = await filterFunctionInstrumented({
-                    caller: 'hogflow_exit_condition',
-                    fn: hogFlow,
-                    filters: {
-                        bytecode: hogFlow.conversion.bytecode || [],
-                        properties: hogFlow.conversion.filters || [],
-                    },
-                    filterGlobals: invocation.filterGlobals,
-                })
-                conversionMatch = filterResult.match
+                // With no membership the run carries on, and its next execution checks again.
+                const filterGlobals = await loadConversionGlobals()
+                if (filterGlobals) {
+                    const filterResult = await filterFunctionInstrumented({
+                        caller: 'hogflow_exit_condition',
+                        fn: hogFlow,
+                        filters: {
+                            bytecode: hogFlow.conversion.bytecode || [],
+                            properties: hogFlow.conversion.filters || [],
+                        },
+                        filterGlobals,
+                    })
+                    conversionMatch = filterResult.match
+                }
             } else {
                 logger.error(
                     'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
