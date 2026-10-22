@@ -210,7 +210,9 @@ class TestPushDispatcher(TestCase):
         self.user.save(update_fields=["partial_notification_settings"])
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
-        send_user_push(self.user.id, "PostHog", "Finished", {"taskId": str(self.task.id)})
+        send_user_push(
+            self.user.id, "PostHog", "Finished", {"taskId": str(self.task.id), "projectId": self.task.team_id}
+        )
         mock_delay.assert_not_called()
         mock_send.assert_not_called()
 
@@ -335,7 +337,7 @@ class TestPushDispatcher(TestCase):
             self.user.id,
             "posthog",
             "Finished",
-            {"notificationKind": "completed", "taskId": str(self.task.id)},
+            {"notificationKind": "completed", "taskId": str(self.task.id), "projectId": self.task.team_id},
         )
 
         mock_send.assert_called_once()

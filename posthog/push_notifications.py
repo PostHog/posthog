@@ -95,13 +95,15 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
 
     if not mobile_push_preference_enabled(user, "tasks") or not payload.get("taskId"):
         return False
-    tasks = Task.objects.filter(id=payload["taskId"], team_id__in=user.teams.values("id"), deleted=False).filter(
-        task_visibility_q(user.id)
+    project_id = payload.get("projectId")
+    if not isinstance(project_id, int) or not user.teams.filter(id=project_id).exists():
+        return False
+    task = (
+        Task.objects.filter(id=payload["taskId"], team_id=project_id, deleted=False)
+        .filter(task_visibility_q(user.id))
+        .first()
     )
-    if payload.get("projectId") is not None:
-        tasks = tasks.filter(team_id=payload["projectId"])
-    task = tasks.first()
-    return bool(task and task_mobile_push_eligible(task, user.id) and user.teams.filter(id=task.team_id).exists())
+    return bool(task and task_mobile_push_eligible(task, user.id))
 
 
 def send_push_to_user(

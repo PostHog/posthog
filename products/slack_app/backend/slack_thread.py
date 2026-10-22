@@ -273,6 +273,8 @@ class SlackThreadHandler:
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
         self._last_answer: _PostedAnswer | None = None
+        # Safe to keep for the handler's life: each activity call builds a fresh handler.
+        self._muted_cache: dict[tuple[str | None, bool], bool] = {}
         self.stream_ended = False
 
     @classmethod
@@ -304,12 +306,7 @@ class SlackThreadHandler:
     def notification_target(self, slack_user_id: str | None) -> str | None:
         if not self.task_run_id:
             return slack_user_id
-        if task_slack_notifications_muted(
-            integration_id=self.context.integration_id,
-            channel=self.context.channel,
-            thread_ts=self.context.thread_ts,
-            slack_user_id=slack_user_id,
-        ):
+        if self._notifications_muted(slack_user_id, private_only=False):
             return None
         return slack_user_id
 
@@ -319,13 +316,19 @@ class SlackThreadHandler:
         return text
 
     def proactive_notifications_muted(self) -> bool:
-        return task_slack_notifications_muted(
-            integration_id=self.context.integration_id,
-            channel=self.context.channel,
-            thread_ts=self.context.thread_ts,
-            slack_user_id=self.context.mentioning_slack_user_id,
-            private_only=True,
-        )
+        return self._notifications_muted(self.context.mentioning_slack_user_id, private_only=True)
+
+    def _notifications_muted(self, slack_user_id: str | None, *, private_only: bool) -> bool:
+        key = (slack_user_id, private_only)
+        if key not in self._muted_cache:
+            self._muted_cache[key] = task_slack_notifications_muted(
+                integration_id=self.context.integration_id,
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                slack_user_id=slack_user_id,
+                private_only=private_only,
+            )
+        return self._muted_cache[key]
 
     def _get_integration(self) -> Integration:
         if self._integration is None:

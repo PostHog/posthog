@@ -62,8 +62,21 @@ def record_mobile_pickup(*, task_id: str | UUID, team_id: int, user_id: int) -> 
         task.save(update_fields=["state", "updated_at"])
 
 
+def _mobile_pr_outcome_event_id(user_id: int, kind: str, pr_url: str) -> str:
+    return f"{user_id}:{kind.removeprefix('report_')}:{hashlib.sha256(pr_url.encode()).hexdigest()}"
+
+
+def _release_mobile_pr_outcome(*, task_id: str | UUID, team_id: int, event_id: str) -> None:
+    with transaction.atomic():
+        task = Task.objects.select_for_update(no_key=True).only("id", "state").get(id=task_id, team_id=team_id)
+        state = dict(task.state or {})
+        outcomes = state.get("mobile_push_pr_outcomes", [])
+        task.state = {**state, "mobile_push_pr_outcomes": [value for value in outcomes if value != event_id]}
+        task.save(update_fields=["state", "updated_at"])
+
+
 def claim_mobile_pr_outcome(*, task_id: str | UUID, team_id: int, user_id: int, pr_url: str, kind: str) -> bool:
-    event_id = f"{user_id}:{kind.removeprefix('report_')}:{hashlib.sha256(pr_url.encode()).hexdigest()}"
+    event_id = _mobile_pr_outcome_event_id(user_id, kind, pr_url)
     with transaction.atomic():
         task = Task.objects.select_for_update(no_key=True).only("id", "state").get(id=task_id, team_id=team_id)
         state = dict(task.state or {})
@@ -84,12 +97,8 @@ def enqueue_mobile_pr_outcome(
     try:
         enqueue()
     except Exception:
-        event_id = f"{user_id}:{kind.removeprefix('report_')}:{hashlib.sha256(pr_url.encode()).hexdigest()}"
-        with transaction.atomic():
-            task = Task.objects.select_for_update(no_key=True).only("id", "state").get(id=task_id, team_id=team_id)
-            state = dict(task.state or {})
-            outcomes = state.get("mobile_push_pr_outcomes", [])
-            task.state = {**state, "mobile_push_pr_outcomes": [value for value in outcomes if value != event_id]}
-            task.save(update_fields=["state", "updated_at"])
+        _release_mobile_pr_outcome(
+            task_id=task_id, team_id=team_id, event_id=_mobile_pr_outcome_event_id(user_id, kind, pr_url)
+        )
         raise
     return True
