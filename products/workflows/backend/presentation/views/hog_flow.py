@@ -152,6 +152,11 @@ from products.workflows.backend.facade.activity import (
     log_workflow_schedule_activity,
     resume_workflow_email_sending,
 )
+from products.workflows.backend.facade.api import (
+    load_team_utm_defaults,
+    release_edited_email_utm_keys,
+    seed_new_email_steps_with_utm_defaults,
+)
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
@@ -3545,6 +3550,28 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {"actions": submitted_actions, "conversion": data.get("conversion")},
             {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
         )
+
+        get_team = self.context.get("get_team")
+        if isinstance(submitted_actions, list) and get_team is not None:
+            # A test invocation passes the workflow through the context rather than as the instance.
+            stored_actions = stored.actions if stored and isinstance(stored.actions, list) else []
+            # A step saved only in the staged draft of an active workflow already exists too, so it is never seeded.
+            draft_actions = (stored.draft or {}).get("actions") if stored else None
+            existing_ids = [
+                str(a["id"])
+                for a in [*stored_actions, *(draft_actions if isinstance(draft_actions, list) else [])]
+                if isinstance(a, dict) and a.get("id")
+            ]
+            utm_defaults = load_team_utm_defaults(get_team().id)
+            seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
+            if stored:
+                release_edited_email_utm_keys(
+                    actions,
+                    stored_actions,
+                    stored.draft,
+                    utm_defaults,
+                    saving_draft=stored.status == HogFlowState.ACTIVE,
+                )
 
         # A Replay Vision step can read its session from a variable, so changing variables alone changes what
         # it scans. Submitted actions get this check through HogFlowActionSerializer.

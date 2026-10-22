@@ -48,7 +48,6 @@ class ReadBillingTool(MaxSubtool):
             ),
             "billing_plan": billing_context.billing_plan,
             "has_active_subscription": billing_context.has_active_subscription,
-            "is_deactivated": billing_context.is_deactivated,
             "organization_teams_count": len(self._get_teams_map().keys()),
             "current_team_name": self._team.name,
             "current_team_id": self._team.id,
