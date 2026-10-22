@@ -9,6 +9,7 @@
 //! shadow: it moves by the law and reports what it would have done, while the
 //! batcher sizes its passes by free slots as before.
 
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 const RTT_TIME_CONSTANT: Duration = Duration::from_secs(10);
@@ -20,10 +21,42 @@ pub enum Adaptation {
     On,
 }
 
+impl Adaptation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Adaptation::Off => "off",
+            Adaptation::On => "on",
+        }
+    }
+}
+
+impl FromStr for Adaptation {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "off" => Ok(Adaptation::Off),
+            "on" => Ok(Adaptation::On),
+            other => Err(format!(
+                "unknown governor adaptation '{other}' (expected 'on' or 'off')"
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Grow,
     Shrink,
+}
+
+impl Direction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Direction::Grow => "grow",
+            Direction::Shrink => "shrink",
+        }
+    }
 }
 
 /// One step of the law that moved the pool. `applied` is false when
