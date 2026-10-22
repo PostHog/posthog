@@ -1765,14 +1765,12 @@ impl FeatureFlagMatcher {
         // group-based flags.
         if flag.filters.feature_enrollment == Some(true) {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
-            let enrollment_overridden = person_property_overrides
-                .is_some_and(|overrides| overrides.contains_key(&enrollment_key));
-            if let Some(error) = self
-                .db_preparation_error
-                .as_ref()
-                .filter(|_| !enrollment_overridden)
-            {
-                return Err(FlagError::DbPreparationFailed(Arc::clone(error)));
+            if let Some(error) = &self.db_preparation_error {
+                if !person_property_overrides
+                    .is_some_and(|overrides| overrides.contains_key(&enrollment_key))
+                {
+                    return Err(FlagError::DbPreparationFailed(Arc::clone(error)));
+                }
             }
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
@@ -1963,14 +1961,18 @@ impl FeatureFlagMatcher {
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
-                let answer_if_matched = if in_rollout {
-                    Some(ConditionAnswer::Match(self.condition_variant(
+                if in_rollout {
+                    let variant = self.condition_variant(
                         flag,
                         condition,
                         aggregation,
                         hash_key_overrides,
                         request_hash_key_override,
-                    )?))
+                    )?;
+                    answers_if_condition_matched.push(AnswerIfConditionMatched {
+                        unknown: UnknownCondition::DbPreparationFailed(error),
+                        answer: ConditionAnswer::Match(variant),
+                    });
                 } else {
                     let (new_highest_match, new_highest_index) = self
                         .get_highest_priority_match_evaluation(
@@ -1982,13 +1984,12 @@ impl FeatureFlagMatcher {
                     highest_match = new_highest_match;
                     highest_index = new_highest_index;
                     // With early exit, matching properties outside the rollout stop evaluation.
-                    early_exit_enabled.then_some(ConditionAnswer::NoMatch)
-                };
-                if let Some(answer) = answer_if_matched {
-                    answers_if_condition_matched.push(AnswerIfConditionMatched {
-                        unknown: UnknownCondition::DbPreparationFailed(error),
-                        answer,
-                    });
+                    if early_exit_enabled {
+                        answers_if_condition_matched.push(AnswerIfConditionMatched {
+                            unknown: UnknownCondition::DbPreparationFailed(error),
+                            answer: ConditionAnswer::NoMatch,
+                        });
+                    }
                 }
                 continue;
             }
@@ -2109,12 +2110,14 @@ impl FeatureFlagMatcher {
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
-                if let Some(unknown) = self.unknown_condition_that_changes_answer(
-                    flag,
-                    &answers_if_condition_matched,
-                    &ConditionAnswer::Match(variant.clone()),
-                ) {
-                    return Err(unknown.error());
+                if !answers_if_condition_matched.is_empty() {
+                    if let Some(unknown) = self.unknown_condition_that_changes_answer(
+                        flag,
+                        &answers_if_condition_matched,
+                        &ConditionAnswer::Match(variant.clone()),
+                    ) {
+                        return Err(unknown.error());
+                    }
                 }
                 if let Some(error) = group_lookup_error.filter(|_| group_lookup_skip_can_exit_early)
                 {
