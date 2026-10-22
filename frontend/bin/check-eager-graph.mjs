@@ -179,6 +179,10 @@ const ROOTS = [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
             'src/queries/Query/Query.tsx',
+            // The input box renders the thread's question and approval forms only while the agent
+            // waits for an answer, and notebook code only when a notebook update arrives.
+            'products/posthog_ai/frontend/api/primitives.ts',
+            'src/scenes/notebooks/Notebook/notebookLogic.ts',
         ],
     },
     {
