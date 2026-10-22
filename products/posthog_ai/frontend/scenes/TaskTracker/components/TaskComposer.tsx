@@ -27,11 +27,14 @@ import {
     type PermissionMode,
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
+import { RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerBillingIndicator } from '../../../components/composer/ComposerBillingIndicator'
+import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import {
     ComposerModelEffortPickers,
@@ -240,16 +243,11 @@ export function TaskComposer({
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        {repositoryEnabled && (
-                            <div className="flex min-w-0 flex-wrap items-center gap-1 empty:hidden">
-                                {skin === 'quill' && <TaskComposerEnvironmentSelect />}
-                                {skin === 'lemon' && (
-                                    <RepositorySelector
-                                        value={newTaskData.repositoryConfig}
-                                        onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                                    />
-                                )}
-                            </div>
+                        {skin === 'lemon' && repositoryEnabled && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
                         )}
                         {showModePicker && (
                             <ComposerModeShortcut
@@ -322,18 +320,25 @@ export function TaskComposer({
                                                 onOpenChange={setContextPickerOpen}
                                                 anchor={addMenuTriggerRef}
                                             />
+                                            {repositoryEnabled && <TaskComposerEnvironmentSelect />}
                                             {modelPicker}
                                             {showModePicker && modePicker}
                                         </>
                                     }
                                     meta={
-                                        !inline &&
-                                        !composerOverride?.hideOnboardingReplay && (
-                                            <QuillOnboardingReplayButton
-                                                panelId={panelId}
-                                                className="hidden @4xl/task-composer:inline-flex"
-                                            />
-                                        )
+                                        <>
+                                            {!inline && !composerOverride?.hideOnboardingReplay && (
+                                                <QuillOnboardingReplayButton
+                                                    panelId={panelId}
+                                                    className="hidden @4xl/task-composer:inline-flex"
+                                                />
+                                            )}
+                                            {codexBillingEnabled && composerAdapter === RuntimeAdapterEnumApi.Codex ? (
+                                                <ComposerCodexBillingIndicator />
+                                            ) : (
+                                                <ComposerBillingIndicator ownPlan={false} />
+                                            )}
+                                        </>
                                     }
                                 />
                             ) : (

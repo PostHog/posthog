@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBox, IconCheck, IconChevronDown, IconCloud, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
+import { IconBox, IconCheck, IconCloud, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
 import {
     Button,
     cn,
@@ -204,7 +204,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                     render={
                         <Button
                             type="button"
-                            variant="outline"
+                            variant="default"
                             size="sm"
                             disabled={isSubmittingTask}
                             aria-label="Environment"
@@ -212,8 +212,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                             data-attr="task-composer-environment"
                         >
                             <IconCloud className="shrink-0 text-muted-foreground" />
-                            <span className="max-w-40 truncate">{triggerLabel}</span>
-                            <IconChevronDown className="shrink-0 text-muted-foreground" />
+                            <span className="max-w-40 truncate @max-[480px]/composer:hidden">{triggerLabel}</span>
                         </Button>
                     }
                 />
