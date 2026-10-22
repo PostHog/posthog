@@ -532,6 +532,13 @@ message ReleaseFenceRequest {
   // projects it onto the tombstone row. Required when outcome =
   // COMMITTED.
   int64 created_at = 7;
+  // The version the saga's Postgres tombstone committed at: at least
+  // sealed_version + 1, higher when a direct Postgres writer bumped the
+  // row between the fence and the tombstone. The death document is
+  // produced at or above it, so the changelog never carries a live
+  // version below the tombstone. Optional for ops unmapped before this
+  // field existed; absent means sealed_version + 1.
+  optional int64 tombstone_version = 8;
 }
 
 enum ReleaseOutcome {
@@ -561,6 +568,8 @@ message ReleaseFenceItem {
   optional int64 sealed_version = 3;
   // See ReleaseFenceRequest.created_at.
   int64 created_at = 4;
+  // See ReleaseFenceRequest.tombstone_version.
+  optional int64 tombstone_version = 5;
 }
 
 message ReleaseFencesResponse {}
