@@ -1,7 +1,7 @@
 import json
 import datetime
 from dataclasses import dataclass
-from typing import Optional, Union, cast
+from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -241,13 +241,14 @@ def list_groups(
     exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
 
-    Dedup runs in two phases so memory doesn't scale with the team's total property volume: the
-    first picks the page's keys while aggregating only small per-key state (``created_at`` and the
-    search match flag), the second reads the latest properties for just those keys. Going through
-    the deduped ``groups`` table instead holds every group's properties across all group types in
-    memory before any filter applies, which runs out of memory on large projects.
+    Dedup runs in two phases, so memory does not grow with the team's total property volume. The
+    first phase picks the page's keys and aggregates only ``created_at`` and the search match flag
+    per key. The second phase reads the latest properties for those keys only. The deduped
+    ``groups`` table holds every group's properties across all group types in memory before any
+    filter applies, and that runs out of memory on large projects.
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
+    from posthog.hogql.database.schema.groups import select_from_groups_table  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
@@ -257,17 +258,11 @@ def list_groups(
 
     # Row-level filters on the group identity hold for every version of a group, so they can apply
     # before the dedup.
-    where_exprs: list[ast.Expr] = [
-        parse_expr(
-            "index = {group_type_index}", placeholders={"group_type_index": ast.Constant(value=group_type_index)}
-        )
-    ]
+    key_filter: ast.Expr = ast.Constant(value=True)
     if group_key_contains:
-        where_exprs.append(
-            parse_expr(
-                "toString(key) ILIKE {pattern}",
-                placeholders={"pattern": ast.Constant(value=f"%{_escape_clickhouse_like(group_key_contains)}%")},
-            )
+        key_filter = parse_expr(
+            "toString(key) ILIKE {pattern}",
+            placeholders={"pattern": ast.Constant(value=f"%{_escape_clickhouse_like(group_key_contains)}%")},
         )
 
     # Filters on versioned columns must see only the latest version, so they apply after the dedup.
@@ -295,48 +290,28 @@ def list_groups(
             )
         )
 
-    page_keys = cast(
-        ast.SelectQuery,
-        parse_select(
-            """
-            SELECT key
-            FROM raw_groups
-            WHERE {where}
-            GROUP BY key
-            ORDER BY argMax(created_at, updated_at) DESC, key DESC
-            """,
-            placeholders={"where": ast.And(exprs=where_exprs)},
-        ),
+    page_keys = parse_select(
+        """
+        SELECT index, key
+        FROM raw_groups
+        WHERE index = {group_type_index} AND {key_filter}
+        GROUP BY index, key
+        HAVING {having}
+        ORDER BY argMax(created_at, updated_at) DESC, key DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "group_type_index": ast.Constant(value=group_type_index),
+            "key_filter": key_filter,
+            "having": ast.And(exprs=having_exprs) if having_exprs else ast.Constant(value=True),
+            "limit": ast.Constant(value=limit + 1),
+        },
     )
-    if having_exprs:
-        page_keys.having = ast.And(exprs=having_exprs)
-    page_keys.limit = ast.Constant(value=limit + 1)
-
-    query = cast(
-        ast.SelectQuery,
-        parse_select(
-            """
-            SELECT
-                key,
-                argMax(created_at, updated_at) AS group_created_at,
-                argMax(properties, updated_at) AS group_properties
-            FROM raw_groups
-            WHERE index = {group_type_index}
-            GROUP BY key
-            ORDER BY group_created_at DESC, key DESC
-            """,
-            placeholders={"group_type_index": ast.Constant(value=group_type_index)},
-        ),
-    )
-    # GLOBAL IN, not IN: groups is Distributed(rand()); a plain IN would pick keys per shard over a
-    # subset of versions.
-    query.where = ast.And(
-        exprs=[
-            cast(ast.Expr, query.where),
-            ast.CompareOperation(op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["key"]), right=page_keys),
-        ]
-    )
-    query.limit = ast.Constant(value=limit + 1)
+    query = select_from_groups_table({"created_at": ["created_at"], "properties": ["properties"]}, keys=page_keys)
+    query.order_by = [
+        ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC"),
+        ast.OrderExpr(expr=ast.Field(chain=["key"]), order="DESC"),
+    ]
 
     response = execute_hogql_query(query, team=team, query_type="groups_list")
 
@@ -357,6 +332,6 @@ def list_groups(
             ),
             created_at=created_at,
         )
-        for group_key, created_at, group_properties in rows
+        for created_at, group_properties, _index, group_key in rows
     ]
     return ListGroupsResult(groups=groups, has_more=has_more)

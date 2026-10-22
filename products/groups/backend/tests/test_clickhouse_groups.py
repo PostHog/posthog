@@ -2593,7 +2593,6 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2021-05-03", tick=False)
     def test_filters_by_group_type_index(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Org"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         # The same key under another type is a different group; its versions must not merge in.
         create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"name": "Company"})
 
@@ -2628,8 +2627,6 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups[0].group_properties == {}
 
     def test_returns_latest_properties_after_update(self):
-        # The groups table dedups by argMax(_timestamp); a newer write for the same (index, key)
-        # must win and produce a single row — guards the choice of `groups` over `raw_groups`.
         with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Old"})
         with time_machine.travel("2021-05-02", tick=False):
@@ -2645,26 +2642,9 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
 
         assert len(result.groups) == 1
         assert result.groups[0].group_properties == {"name": "New"}
-
-    def test_search_matches_only_latest_properties(self):
-        # A stale version that matches the search must not count.
-        with time_machine.travel("2021-05-01", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Old"})
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"name": "Old"})
-        with time_machine.travel("2021-05-02", tick=False):
-            raw_create_group_ch(
-                team_id=self.team.pk,
-                group_type_index=0,
-                group_key="org:2",
-                properties={"name": "New"},
-                created_at=now(),
-            )
-
-        assert [g.group_key for g in list_groups(team_id=self.team.pk, group_type_index=0, search="Old").groups] == [
-            "org:1"
-        ]
-        new = list_groups(team_id=self.team.pk, group_type_index=0, search="New")
-        assert [(g.group_key, g.group_properties) for g in new.groups] == [("org:2", {"name": "New"})]
+        assert list_groups(team_id=self.team.pk, group_type_index=0, search="Old").groups == []
+        searched = list_groups(team_id=self.team.pk, group_type_index=0, search="New")
+        assert [(g.group_key, g.group_properties) for g in searched.groups] == [("org:1", {"name": "New"})]
 
     @time_machine.travel("2021-05-03", tick=False)
     def test_preserves_complex_property_values(self):
