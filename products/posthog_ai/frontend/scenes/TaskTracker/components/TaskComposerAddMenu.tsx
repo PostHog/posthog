@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { RefObject } from 'react'
 
-import { IconGithub, IconPlus, IconUpload } from '@posthog/icons'
+import { IconAtSign, IconGithub, IconPlus, IconUpload } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -24,12 +24,16 @@ export interface TaskComposerAddMenuProps {
     attachmentsKey: string
     dropTargetRef?: RefObject<HTMLElement>
     onAddRepository?: () => void
+    onAddContext?: () => void
+    triggerRef?: RefObject<HTMLButtonElement>
 }
 
 export function TaskComposerAddMenu({
     attachmentsKey,
     dropTargetRef,
     onAddRepository,
+    onAddContext,
+    triggerRef,
 }: TaskComposerAddMenuProps): JSX.Element {
     const { fileInput, openPicker, isOver, addDisabledReason } = useComposerFilePicker(attachmentsKey, dropTargetRef)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
@@ -45,9 +49,10 @@ export function TaskComposerAddMenu({
                             <DropdownMenuTrigger
                                 render={
                                     <Button
+                                        ref={triggerRef}
                                         variant="default"
                                         size="icon-sm"
-                                        aria-label="Add files or a repository"
+                                        aria-label="Add files, context or a repository"
                                         className={isOver ? 'ring-1 ring-ring' : undefined}
                                         data-attr="task-composer-add-menu"
                                     >
@@ -58,7 +63,7 @@ export function TaskComposerAddMenu({
                         }
                     />
                     <TooltipContent>
-                        {addDisabledReason ?? (isOver ? 'Drop to attach' : 'Attach files or add a repository')}
+                        {addDisabledReason ?? (isOver ? 'Drop to attach' : 'Add files, context or a repository')}
                     </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="start" side="top" sideOffset={6} className="min-w-fit">
@@ -70,6 +75,12 @@ export function TaskComposerAddMenu({
                         <IconUpload />
                         Attach files
                     </DropdownMenuItem>
+                    {onAddContext && (
+                        <DropdownMenuItem onClick={onAddContext} data-attr="posthog-ai-context-picker">
+                            <IconAtSign />
+                            Add context
+                        </DropdownMenuItem>
+                    )}
                     {onAddRepository &&
                         !integrationsLoading &&
                         (needsGitHub ? (

@@ -44,20 +44,18 @@ export function QuillComposerLayout({
                         {chips}
                     </InputGroupAddon>
                 )}
-                <div className="flex w-full items-end gap-1">
-                    <div className="relative min-w-0 flex-1">{field}</div>
-                    <span className="flex shrink-0 items-center pr-1 pb-1">{send}</span>
-                </div>
-            </InputGroup>
-            {(controls || meta) && (
+                <div className="relative w-full min-w-0">{field}</div>
                 <div
                     data-quill
-                    className="@container/composer flex flex-wrap items-center gap-1 px-1 text-[var(--muted-foreground)]"
+                    className="@container/composer flex w-full flex-wrap items-center gap-1 px-1 pb-1 text-[var(--muted-foreground)]"
                 >
                     {controls}
-                    <div className="ml-auto">{meta}</div>
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {meta}
+                        {send}
+                    </div>
                 </div>
-            )}
+            </InputGroup>
         </div>
     )
 }

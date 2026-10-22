@@ -77,7 +77,7 @@ export interface ComposerModelEffortPickersProps {
     lockedRuntimeAdapter?: string | null
     /** The selection shown is the resolved default (user/project preference), not an explicit pick for
      * this run — the lemon model trigger renders a "Default ·" prefix so that's visible at a glance. The quill
-     * trigger shows only the model, like PostHog Desktop. */
+     * trigger reads "Default", and the open menu shows the model and effort it resolves to. */
     isDefaultSelection?: boolean
     /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
      * configured default and the reset row falls back to the ladder's balanced notch. */
@@ -282,8 +282,12 @@ export function ComposerModelEffortPickers({
             <DropdownMenuTrigger
                 render={
                     <Button variant={chrome.triggerVariant} size="sm">
-                        {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
-                        {effortOptions.length > 0 && (
+                        {isDefaultSelection
+                            ? chrome.defaultPrefix
+                                ? `Default · ${modelLabel}`
+                                : 'Default'
+                            : modelLabel}
+                        {effortOptions.length > 0 && !(isDefaultSelection && !chrome.defaultPrefix) && (
                             <span className="text-muted @max-[400px]/composer:hidden">
                                 {getEffortLabel(selectedEffort)}
                             </span>
@@ -410,15 +414,23 @@ export function ComposerModelEffortPickers({
                         )}
                     </>
                 ) : (
-                    <ComposerReasoningSlider
-                        stops={stops}
-                        currentStop={currentStop}
-                        onSelect={selectStop}
-                        onAdvanced={() => {
-                            setShowBack(true)
-                            setAdvanced(true)
-                        }}
-                    />
+                    <>
+                        {isDefaultSelection && !chrome.defaultPrefix && (
+                            <div className="px-2 pt-1.5 pb-1 text-xs text-muted" data-attr="composer-default-selection">
+                                Default: {modelLabel}
+                                {effortOptions.length > 0 && `, ${getEffortLabel(selectedEffort)}`}
+                            </div>
+                        )}
+                        <ComposerReasoningSlider
+                            stops={stops}
+                            currentStop={currentStop}
+                            onSelect={selectStop}
+                            onAdvanced={() => {
+                                setShowBack(true)
+                                setAdvanced(true)
+                            }}
+                        />
+                    </>
                 )}
 
                 {(showReset || onOpenDefaultSettings) && <DropdownMenuSeparator />}

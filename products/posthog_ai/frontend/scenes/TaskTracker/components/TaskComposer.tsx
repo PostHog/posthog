@@ -80,6 +80,9 @@ export function TaskComposer({
         applySuggestion,
         applyPrefill,
         clearConsentBlock,
+        requestRepository,
+        removeRepository,
+        toggleDefaultRepository,
     } = useActions(taskTrackerSceneLogic)
     const {
         newTaskData,
@@ -92,6 +95,7 @@ export function TaskComposer({
         defaultModel,
         displayEffort,
         isDefaultSelection,
+        isDefaultRepository,
         // Permission modes belong to the harness, so they follow the model actually shown — the
         // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
         composerAdapter,
@@ -122,6 +126,9 @@ export function TaskComposer({
     const repositoryEnabled = !composerOverride?.hideRepositorySelector
     const [repositoryRequested, setRepositoryRequested] = useState(false)
     const showRepositoryChip = repositoryEnabled && (repositoryRequested || !!newTaskData.repositoryConfig.repository)
+    const showModePicker = skin === 'lemon' || !!newTaskData.repositoryConfig.repository
+    const [contextPickerOpen, setContextPickerOpen] = useState(false)
+    const addMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
         if (focusRequest > 0) {
@@ -244,9 +251,13 @@ export function TaskComposer({
                                 )}
                             </div>
                         )}
-                        <ComposerModeShortcut
-                            onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}
-                        />
+                        {showModePicker && (
+                            <ComposerModeShortcut
+                                onCycle={() =>
+                                    pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))
+                                }
+                            />
+                        )}
                         <Composer.Root
                             value={draft.value}
                             onChange={draft.onChange}
@@ -278,14 +289,10 @@ export function TaskComposer({
                                                     }}
                                                     onRemove={() => {
                                                         setRepositoryRequested(false)
-                                                        setNewTaskData({
-                                                            repositoryConfig: {
-                                                                ...newTaskData.repositoryConfig,
-                                                                repository: undefined,
-                                                                branch: undefined,
-                                                            },
-                                                        })
+                                                        removeRepository()
                                                     }}
+                                                    isDefault={isDefaultRepository}
+                                                    onToggleDefault={toggleDefaultRepository}
                                                 />
                                             )}
                                             <AttachedContextChips />
@@ -299,15 +306,24 @@ export function TaskComposer({
                                             <TaskComposerAddMenu
                                                 attachmentsKey={attachmentsKey}
                                                 dropTargetRef={groupRef}
+                                                triggerRef={addMenuTriggerRef}
+                                                onAddContext={() => setContextPickerOpen(true)}
                                                 onAddRepository={
                                                     repositoryEnabled && !showRepositoryChip
-                                                        ? () => setRepositoryRequested(true)
+                                                        ? () => {
+                                                              setRepositoryRequested(true)
+                                                              requestRepository()
+                                                          }
                                                         : undefined
                                                 }
                                             />
-                                            <QuillAttachedContextPicker />
+                                            <QuillAttachedContextPicker
+                                                open={contextPickerOpen}
+                                                onOpenChange={setContextPickerOpen}
+                                                anchor={addMenuTriggerRef}
+                                            />
                                             {modelPicker}
-                                            {modePicker}
+                                            {showModePicker && modePicker}
                                         </>
                                     }
                                     meta={

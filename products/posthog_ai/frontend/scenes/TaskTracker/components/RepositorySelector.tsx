@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGitBranch, IconGithub, IconX } from '@posthog/icons'
+import { IconGitBranch, IconGithub, IconStar, IconStarFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import {
     Button,
@@ -29,6 +29,8 @@ export interface RepositorySelectorProps {
     autoOpen?: boolean
     variant?: 'lemon' | 'quill'
     onRemove?: () => void
+    isDefault?: boolean
+    onToggleDefault?: () => void
 }
 
 export const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
@@ -44,6 +46,8 @@ export function RepositorySelector({
     autoOpen = false,
     variant = 'lemon',
     onRemove,
+    isDefault = false,
+    onToggleDefault,
 }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -216,6 +220,19 @@ export function RepositorySelector({
                     autoOpen={autoOpen}
                 />
             ) : null}
+            {onToggleDefault && value.repository && (
+                <Button
+                    variant="default"
+                    size="icon-sm"
+                    aria-label={isDefault ? 'Stop starting with this repository' : 'Always start with this repository'}
+                    aria-pressed={isDefault}
+                    title={isDefault ? 'Stop starting with this repository' : 'Always start with this repository'}
+                    onClick={onToggleDefault}
+                    data-attr="task-composer-default-repository"
+                >
+                    {isDefault ? <IconStarFilled /> : <IconStar />}
+                </Button>
+            )}
             {onRemove && (
                 <Button
                     variant="default"

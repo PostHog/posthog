@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useId, useState } from 'react'
+import { type RefObject, useId, useState } from 'react'
 
 import { IconAtSign, IconChevronLeft } from '@posthog/icons'
 import {
@@ -23,8 +23,23 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { attachedContextLogic } from '../../logics/attachedContextLogic'
 import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
 
-export function QuillAttachedContextPicker(): JSX.Element {
-    const [open, setOpen] = useState(false)
+export interface QuillAttachedContextPickerProps {
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
+    anchor?: RefObject<HTMLElement>
+}
+
+export function QuillAttachedContextPicker({
+    open: controlledOpen,
+    onOpenChange,
+    anchor,
+}: QuillAttachedContextPickerProps = {}): JSX.Element {
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const open = controlledOpen ?? uncontrolledOpen
+    const setOpen = (next: boolean): void => {
+        setUncontrolledOpen(next)
+        onOpenChange?.(next)
+    }
     const filterKey = `posthog-ai-context-picker-${useId()}`
     const { hasContext } = useValues(attachedContextLogic)
     const { handleTaxonomicFilterChange } = useActions(contextPickerLogic)
@@ -32,16 +47,18 @@ export function QuillAttachedContextPicker(): JSX.Element {
     if (todayRailEnabled && phoneLayout) {
         return (
             <>
-                <Button
-                    variant="default"
-                    size={hasContext ? 'icon-lg' : 'lg'}
-                    aria-label="Add context"
-                    onClick={() => setOpen(true)}
-                    data-attr="posthog-ai-context-picker"
-                >
-                    <IconAtSign />
-                    {!hasContext && 'Add context'}
-                </Button>
+                {!anchor && (
+                    <Button
+                        variant="default"
+                        size={hasContext ? 'icon-lg' : 'lg'}
+                        aria-label="Add context"
+                        onClick={() => setOpen(true)}
+                        data-attr="posthog-ai-context-picker"
+                    >
+                        <IconAtSign />
+                        {!hasContext && 'Add context'}
+                    </Button>
+                )}
                 <Dialog open={open} onOpenChange={setOpen}>
                     <DialogContent
                         showCloseButton={false}
@@ -82,27 +99,29 @@ export function QuillAttachedContextPicker(): JSX.Element {
     }
     return (
         <Popover open={open} onOpenChange={setOpen}>
-            <Tooltip>
-                <TooltipTrigger
-                    render={
-                        <PopoverTrigger
-                            render={
-                                <Button
-                                    variant="default"
-                                    size="sm"
-                                    aria-label="Add context"
-                                    data-attr="posthog-ai-context-picker"
-                                >
-                                    <IconAtSign />
-                                    <span className="@max-[480px]/composer:hidden">Add context</span>
-                                </Button>
-                            }
-                        />
-                    }
-                />
-                <TooltipContent>Add context to help PostHog AI answer your question</TooltipContent>
-            </Tooltip>
-            <PopoverContent side="top" align="start" className="w-auto p-0">
+            {!anchor && (
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <PopoverTrigger
+                                render={
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        aria-label="Add context"
+                                        data-attr="posthog-ai-context-picker"
+                                    >
+                                        <IconAtSign />
+                                        <span className="@max-[480px]/composer:hidden">Add context</span>
+                                    </Button>
+                                }
+                            />
+                        }
+                    />
+                    <TooltipContent>Add context to help PostHog AI answer your question</TooltipContent>
+                </Tooltip>
+            )}
+            <PopoverContent side="top" align="start" anchor={anchor} className="w-auto p-0">
                 {/* The filter is Lemon, so it keeps Lemon's colors inside the quill popover. */}
                 <div data-not-quill>
                     <TaxonomicFilter
