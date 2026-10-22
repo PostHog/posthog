@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu } from '@posthog/lemon-ui'
 
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
@@ -8,6 +8,17 @@ import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAuto
 import { MATERIALIZATION_STATUS_FILTER_OPTIONS } from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
 
 import { queryDatabaseLogic } from './queryDatabaseLogic'
+
+const MATERIALIZATION_STATUS_SEARCH_DATA = [
+    [
+        { label: 'status', value: 'status', hint: 'Materialization status', icon: <IconFilter /> },
+        MATERIALIZATION_STATUS_FILTER_OPTIONS.map((status) => ({
+            label: status,
+            value: status.toLowerCase(),
+        })),
+        'Filter materialized views by their latest run',
+    ],
+] satisfies React.ComponentProps<typeof SearchAutocomplete>['searchData']
 
 interface TreeSearchFieldProps {
     placeholder?: string
@@ -34,8 +45,8 @@ export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.
             <div className="flex-1 min-w-0">
                 <SearchAutocomplete
                     inputPlaceholder={placeholder}
-                    includeNegation
                     defaultValue={searchTerm}
+                    searchData={connectionId ? undefined : MATERIALIZATION_STATUS_SEARCH_DATA}
                     onKeyDown={(e) => handleKeyDown(e)}
                     onClear={() => clearSearch()}
                     onChange={(value) => setSearchTerm(value)}
@@ -82,11 +93,11 @@ export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.
                     ]}
                 >
                     <LemonButton
-                        icon={<IconEllipsis />}
+                        icon={<IconFilter />}
                         size="small"
                         active={materializationStatusFilters.length > 0}
-                        tooltip="Filter tables and views"
-                        aria-label="Filter tables and views"
+                        tooltip="Filter materialized views"
+                        aria-label="Filter materialized views"
                         data-attr="sql-editor-table-filters-menu"
                     />
                 </LemonMenu>

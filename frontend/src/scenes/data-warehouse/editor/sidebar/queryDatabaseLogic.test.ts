@@ -580,7 +580,7 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
-    it('combines materialization statuses with search and clears them when locating a table', async () => {
+    it('combines status search tokens with names and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
         logic.mount()
@@ -602,15 +602,19 @@ describe('queryDatabaseLogic', () => {
         )
 
         logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.searchTerm).toEqual('status:failed')
+        expect(logic.values.searchText).toEqual('')
         expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['Views'])
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
             'orders_daily',
             'revenue_daily',
         ])
 
-        logic.actions.setSearchTerm('orders')
+        logic.actions.setSearchTerm('orders status:failed')
+        expect(logic.values.searchText).toEqual('orders')
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_daily'])
         logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.searchTerm).toEqual('orders status:failed status:completed')
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
             'orders_daily',
             'orders_weekly',
@@ -619,11 +623,12 @@ describe('queryDatabaseLogic', () => {
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_weekly'])
         logic.actions.toggleMaterializationStatusFilter('Completed')
         expect(logic.values.materializationStatusFilters).toEqual([])
+        expect(logic.values.searchTerm).toEqual('orders')
         logic.actions.toggleMaterializationStatusFilter('Failed')
-        logic.actions.setSearchTerm('orders_weekly')
+        logic.actions.setSearchTerm('orders_weekly status:failed')
         expect(logic.values.displayedTreeData).toEqual([])
         logic.actions.clearSearch()
-        logic.actions.clearMaterializationStatusFilters()
+        expect(logic.values.materializationStatusFilters).toEqual([])
         expect(logic.values.displayedTreeData.find((item) => item.name === 'Views')!.children).toHaveLength(3)
 
         logic.actions.toggleMaterializationStatusFilter('Failed')
