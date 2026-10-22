@@ -1,4 +1,4 @@
-import { mixColors, resolveCssColor } from './color-utils'
+import { mixColors, prefersLightText, resolveCssColor } from './color-utils'
 
 describe('mixColors', () => {
     it.each([
@@ -69,5 +69,19 @@ describe('resolveCssColor', () => {
     it('returns the raw string when the variable is undefined and has no fallback', () => {
         const root = rootWithVars({})
         expect(resolveCssColor('var(--missing)', root)).toBe('var(--missing)')
+    })
+})
+
+// A luminance cutoff or WCAG 2 picks black on the mid tones here, where white reads better.
+describe('prefersLightText', () => {
+    it.each([
+        { color: '#f14f58', expected: true },
+        { color: '#a56eff', expected: true },
+        { color: '#1d4aff', expected: true },
+        { color: '#e4a604', expected: false },
+        { color: '#41cbc4', expected: false },
+        { color: 'not-a-color', expected: false },
+    ])('$color -> $expected', ({ color, expected }) => {
+        expect(prefersLightText(color)).toBe(expected)
     })
 })
