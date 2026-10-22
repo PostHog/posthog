@@ -338,34 +338,6 @@ _SUBSCRIPTION_FIELDS = (
     "delivery_config",
 )
 
-# Request field name -> the SubscriptionWrite field it fills.
-_WRITE_FIELDS = {
-    "dashboard_id": "dashboard_id",
-    "insight_id": "insight_id",
-    "dashboard_export_insight_ids": "dashboard_export_insight_ids",
-    "prompt": "prompt",
-    "ai_prompt_config": "ai_prompt_config",
-    "contexts": "contexts",
-    "target_type": "target_type",
-    "target_value": "target_value",
-    "frequency": "frequency",
-    "interval": "interval",
-    "byweekday": "byweekday",
-    "bysetpos": "bysetpos",
-    "count": "count",
-    "start_date": "start_date",
-    "until_date": "until_date",
-    "deleted": "deleted",
-    "enabled": "enabled",
-    "title": "title",
-    "integration_id": "integration_id",
-    "invite_message": "invite_message",
-    "send_test_now": "send_test_now",
-    "summary_enabled": "summary_enabled",
-    "summary_prompt_guide": "summary_prompt_guide",
-    "delivery_config": "delivery_config",
-}
-
 
 class SubscriptionWriteSerializer(serializers.Serializer):
     """Standard Subscription serializer."""
@@ -592,7 +564,8 @@ class SubscriptionWriteSerializer(serializers.Serializer):
                 else contracts.SubscriptionContextTarget(kind="insight", id=context["insight_id"])
                 for context in values["contexts"]
             )
-        return contracts.SubscriptionWrite(**{_WRITE_FIELDS[name]: value for name, value in values.items()})
+        # The fields' sources name the SubscriptionWrite fields, so validated data maps onto it one to one.
+        return contracts.SubscriptionWrite(**values)
 
 
 class SubscriptionSerializer(SubscriptionWriteSerializer):
