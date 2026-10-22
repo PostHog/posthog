@@ -13,6 +13,9 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
 - Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
+- Raise requests: the card's "Request a higher allowance" button opens a support ticket whose hidden context starts with `Email sending tier increase request`, followed by the project ID, tier, usage, and 30-day rates.
+  Search tickets for that line to find these requests.
+  The button shows only to accounts that can file a support ticket: a paid or custom plan, an active support trial, or an organization in its first 3 months.
 
 ## Configuration
 

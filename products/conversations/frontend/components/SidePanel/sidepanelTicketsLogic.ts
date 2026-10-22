@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 
 import {
     appendExceptionToMessage,
+    appendTicketContext,
     captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
@@ -126,6 +127,7 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
+    newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
     pendingTicketId: string | null
@@ -207,6 +209,9 @@ export interface sidepanelTicketsLogicActions {
     }
     setMessagesLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setNewTicketContext: (context: string | null) => {
+        context: string | null
     }
     setNewTicketDraft: (content: JSONContent | null) => {
         content: JSONContent | null
@@ -315,6 +320,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         setNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        setNewTicketContext: (context: string | null) => ({ context }),
         startTicketFromSupportForm: true,
         openPendingTicket: true,
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
@@ -376,6 +382,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             {
                 setNewTicketDraft: (_, { content }) => content,
                 // Clear once we leave the composer so a later blank "New ticket" doesn't show a stale prefill
+                setView: (state, { view }) => (view === 'new' ? state : null),
+            },
+        ],
+        // Cleared with the draft, so a later blank "New ticket" doesn't carry it
+        newTicketContext: [
+            null as string | null,
+            {
+                setNewTicketContext: (_, { context }) => context,
                 setView: (state, { view }) => (view === 'new' ? state : null),
             },
         ],
@@ -739,10 +753,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending) {
+        sendMessage: async ({ content: typed, onSuccess }) => {
+            if (!typed.trim() || values.messageSending) {
                 return
             }
+            const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
@@ -912,6 +927,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (draft) {
                 actions.setNewTicketDraft(messageToRichContent(draft))
             }
+            actions.setNewTicketContext(request?.ticket_context || null)
             actions.setView('new')
             // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
             // open and ignores future URL-driven opens), and reset so a stale message can't resurface
