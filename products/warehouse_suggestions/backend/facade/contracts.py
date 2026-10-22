@@ -143,6 +143,7 @@ class Suggestion:
 @frozen
 class CertificationAsset:
     certification_id: str
+    stopped_materialization: bool = False
 
 
 @frozen
@@ -164,6 +165,7 @@ class AcceptOptions:
     incremental_key: str | None = None
     unique_key: tuple[str, ...] | None = None
     lookback_seconds: int | None = None
+    keep_materialized: bool | None = None
 
 
 CreatedAsset = CertificationAsset | MaterializationAsset

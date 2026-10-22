@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 
 from . import contracts
 
@@ -96,6 +97,7 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "saved_queries_feeding_consumers",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",

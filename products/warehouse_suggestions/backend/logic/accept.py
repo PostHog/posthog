@@ -2,10 +2,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, fields
 from datetime import timedelta
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Trigger
 
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -17,13 +18,18 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRefusedError,
     SavedQueryNotFoundError,
     definition_database,
+    dependent_saved_query_ids,
+    disable_saved_query_materialization,
     enable_saved_query_materialization,
     get_saved_query_columns,
     get_saved_query_sql,
     get_saved_query_summary,
     propose_incremental_config,
+    saved_query_definitions,
+    saved_query_still_materializes,
 )
-from products.warehouse_sources.backend.facade.api import get_queryable_table
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
+from products.warehouse_sources.backend.facade.api import get_queryable_table, saved_queries_feeding_consumers
 
 from ..facade.contracts import (
     AcceptFailedError,
@@ -31,6 +37,7 @@ from ..facade.contracts import (
     AcceptOptions,
     CertificationAsset,
     CreatedAsset,
+    DeprecatePayload,
     MaterializationAsset,
     MaterializePayload,
     SubjectAlreadyCertifiedError,
@@ -67,7 +74,9 @@ class AcceptRequest:
 
 
 class Acceptor(ABC):
-    option_fields: ClassVar[frozenset[str]] = frozenset()
+    @property
+    def option_fields(self) -> frozenset[str]:
+        return frozenset()
 
     @abstractmethod
     def accept(
@@ -75,18 +84,32 @@ class Acceptor(ABC):
     ) -> CreatedAsset: ...
 
 
+KEEP_MATERIALIZED_FIELD = "keep_materialized"
+WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
+OTHER_VIEWS_READ_IT = "Other views now read from this view."
+SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
+
+
 @frozen
 class CertificationAcceptor(Acceptor):
     status: CertificationStatus
     apply: "Callable[[TableCertification, User], TableCertification]"
     reuses_existing: bool
+    stops_materialization: bool = False
+
+    @property
+    def option_fields(self) -> frozenset[str]:
+        return frozenset({KEEP_MATERIALIZED_FIELD}) if self.stops_materialization else frozenset()
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
     ) -> CreatedAsset:
+        stops = self.stops_materialization and _may_stop_materializing(suggestion, request.options)
+        if stops:
+            stop_materializing(suggestion, request)
         certification = self._certification(suggestion, request)
         self.apply(certification, request.user)
-        return CertificationAsset(certification_id=str(certification.id))
+        return CertificationAsset(certification_id=str(certification.id), stopped_materialization=stops)
 
     def _certification(self, suggestion: WarehouseSuggestion, request: AcceptRequest) -> "TableCertification":
         subject_kind = WarehouseSuggestionSubjectKind(suggestion.subject_kind)
@@ -109,6 +132,54 @@ class CertificationAcceptor(Acceptor):
         return existing
 
 
+def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
+    if suggestion.subject_kind != WarehouseSuggestionSubjectKind.SAVED_QUERY or options.keep_materialized:
+        return False
+    definition = _definition(suggestion)
+    return (
+        definition is not None
+        and saved_query_still_materializes(suggestion.team_id, definition.id)
+        and stop_blocker(suggestion.team_id, definition) is None
+    )
+
+
+def _definition(suggestion: WarehouseSuggestion) -> SavedQueryDefinition | None:
+    return next(iter(saved_query_definitions(suggestion.team_id, ids=[suggestion.subject_id])), None)
+
+
+def stop_blocker(team_id: int, definition: SavedQueryDefinition) -> str | None:
+    if dependent_saved_query_ids(team_id, [definition.id]).get(definition.id):
+        return OTHER_VIEWS_READ_IT
+    if definition.id in saved_queries_feeding_consumers(team_id, [definition.id]):
+        return SYNCS_READ_IT
+    return None
+
+
+def suggestion_trigger(suggestion: WarehouseSuggestion) -> Trigger:
+    return Trigger(
+        job_type=WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE, job_id=str(suggestion.id), payload={"kind": suggestion.kind}
+    )
+
+
+def stop_materializing(suggestion: WarehouseSuggestion, request: AcceptRequest) -> None:
+    try:
+        disable_saved_query_materialization(
+            suggestion.team_id,
+            suggestion.subject_id,
+            user=request.user,
+            was_impersonated=request.was_impersonated,
+            trigger=suggestion_trigger(suggestion),
+        )
+    except SavedQueryNotFoundError:
+        raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+    except MaterializationForbiddenError:
+        raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+    except MaterializationRefusedError as error:
+        raise AcceptOptionRefusedError(KEEP_MATERIALIZED_FIELD, str(error))
+    except MaterializationFailedError as error:
+        raise AcceptFailedError(str(error))
+
+
 VIEW_CHANGED_SINCE_SUGGESTED = (
     "This view changed after the suggestion was made, so it can no longer refresh incrementally on the suggested keys."
 )
@@ -127,7 +198,9 @@ UNIQUE_KEY_FIELD = "unique_key"
 
 
 class MaterializeAcceptor(Acceptor):
-    option_fields = frozenset(field.name for field in fields(AcceptOptions))
+    @property
+    def option_fields(self) -> frozenset[str]:
+        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD}
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -152,6 +225,7 @@ class MaterializeAcceptor(Acceptor):
                 visible_blocker_names=_no_blocker_names,
                 was_impersonated=request.was_impersonated,
                 incremental_config=incremental_config,
+                trigger=suggestion_trigger(suggestion),
             )
         except SavedQueryNotFoundError:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
@@ -236,7 +310,7 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
         status=CertificationStatus.CERTIFIED, apply=certify, reuses_existing=False
     ),
     WarehouseSuggestionKind.DEPRECATE: CertificationAcceptor(
-        status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True
+        status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True, stops_materialization=True
     ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
 }
@@ -246,10 +320,23 @@ RELEASE_TRANSITIONS: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozense
 
 
 @frozen
+class RefreshSavings:
+    stopped_materialization: bool
+    refresh_seconds_per_month: float
+    refresh_bytes_per_month: float
+
+
+NO_REFRESH_SAVINGS = RefreshSavings(
+    stopped_materialization=False, refresh_seconds_per_month=0, refresh_bytes_per_month=0
+)
+
+
+@frozen
 class AcceptOutcome:
     suggestion: WarehouseSuggestion
     newly_accepted: bool
     changed_fields: tuple[str, ...] = ()
+    savings: RefreshSavings = NO_REFRESH_SAVINGS
 
 
 def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
@@ -305,7 +392,22 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
     claimed.created_asset = asdict(created_asset)
     claimed.save(update_fields=["created_asset"])
     return AcceptOutcome(
-        suggestion=claimed, newly_accepted=True, changed_fields=changed_fields(request.options, payload)
+        suggestion=claimed,
+        newly_accepted=True,
+        changed_fields=changed_fields(request.options, payload),
+        savings=refresh_savings(created_asset, payload),
+    )
+
+
+def refresh_savings(created_asset: CreatedAsset, payload: SuggestionPayload) -> RefreshSavings:
+    if not isinstance(created_asset, CertificationAsset) or not created_asset.stopped_materialization:
+        return NO_REFRESH_SAVINGS
+    if not isinstance(payload, DeprecatePayload):
+        return NO_REFRESH_SAVINGS
+    return RefreshSavings(
+        stopped_materialization=True,
+        refresh_seconds_per_month=payload.refresh_seconds_per_month,
+        refresh_bytes_per_month=payload.refresh_bytes_per_month,
     )
 
 

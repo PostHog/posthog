@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import timedelta
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -12,9 +14,13 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
@@ -84,6 +90,33 @@ def create_view_in_dag(team: Team, user: User) -> DataWarehouseSavedQuery:
         type=NodeType.VIEW,
     )
     return view
+
+
+def materialize_in_place(view: DataWarehouseSavedQuery) -> DataWarehouseTable:
+    table = DataWarehouseTable.objects.create(team=view.team, name=view.name, format="Delta")
+    DataWarehouseSavedQuery.objects.filter(id=view.id).update(is_materialized=True, table=table)
+    Node.objects.filter(saved_query=view).update(type=NodeType.MAT_VIEW)
+    set_declared_target(Node.objects.get(saved_query=view), timedelta(hours=6))
+    return table
+
+
+def add_dependent_view(view: DataWarehouseSavedQuery) -> None:
+    node = Node.objects.get(saved_query=view)
+    dependent = DataWarehouseSavedQuery.objects.create(
+        team=view.team, name="orders_daily", query={"kind": "HogQLQuery", "query": "SELECT * FROM orders"}
+    )
+    dependent_node = Node.objects.create(
+        team=view.team, dag=node.dag, name="orders_daily", saved_query=dependent, type=NodeType.VIEW
+    )
+    Edge.objects.create(team=view.team, dag=node.dag, source=node, target=dependent_node)
+
+
+def add_destination(view: DataWarehouseSavedQuery) -> None:
+    HogFunction.objects.create(
+        team=view.team,
+        enabled=True,
+        filters={"source": "data-warehouse-view", "data_warehouse": [{"table_name": view.name}]},
+    )
 
 
 def suggest(team_id: int, view_id: UUID, kind: WarehouseSuggestionKind) -> WarehouseSuggestion:
@@ -176,13 +209,111 @@ class TestAcceptSuggestion(APIBaseTest):
         accepted = self._accept(suggestion.id)
 
         suggestion.refresh_from_db()
-        reused_asset = {"certification_id": str(certification.id)}
+        reused_asset = {"certification_id": str(certification.id), "stopped_materialization": False}
         assert accepted["http_status"] == expected_http_status, accepted
         assert (suggestion.status, suggestion.created_asset, self._certification_status()) == (
             expected_suggestion_status,
             reused_asset if expected_suggestion_status == WarehouseSuggestionStatus.ACCEPTED else None,
             expected_certification_status,
         )
+
+    @parameterized.expand(
+        [
+            ("stops_a_materialized_view", True, {}, None, True),
+            ("keeps_it_when_asked", True, {"keep_materialized": True}, None, False),
+            ("leaves_a_plain_view_alone", False, {}, None, False),
+            ("keeps_it_when_a_view_was_built_on_it", True, {}, add_dependent_view, False),
+            ("keeps_it_when_it_feeds_a_destination", True, {}, add_destination, False),
+        ]
+    )
+    def test_accepting_a_deprecate_suggestion_stops_refreshes_only_when_safe(
+        self,
+        _name: str,
+        materialized: bool,
+        body: dict,
+        add_reader: Callable[[DataWarehouseSavedQuery], None] | None,
+        expect_stopped: bool,
+    ) -> None:
+        table = materialize_in_place(self.view) if materialized else None
+        view_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=self.view.name,
+            source_table_key="distinct_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+        )
+        draft = make_draft(fingerprint="deprecate:orders", subject_id=self.view.id)
+        payload = DeprecatePayload(subject_name="orders", refresh_seconds_per_month=900, refresh_bytes_per_month=10**9)
+        suggestion = ingest_surfaced(
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.DEPRECATE, payload=payload)
+        )
+        if add_reader is not None:
+            add_reader(self.view)
+
+        with patch(REPORT) as report:
+            accepted = self._accept(suggestion.id, body)
+
+        self.view.refresh_from_db()
+        assert accepted["http_status"] == status.HTTP_200_OK, accepted
+        assert self._certification_status() == CertificationStatus.DEPRECATED
+        assert accepted["created_asset"]["stopped_materialization"] is expect_stopped
+        assert (Node.objects.get(team=self.team, saved_query=self.view).type == NodeType.VIEW) is (
+            expect_stopped or not materialized
+        )
+        if table is not None:
+            table.refresh_from_db()
+            assert bool(table.deleted) is expect_stopped
+        view_join.refresh_from_db()
+        assert not view_join.deleted
+        disabled_trigger = (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.view.id), activity="materialization_disabled"
+            )
+            .values_list("detail__trigger", flat=True)
+            .first()
+        )
+        assert disabled_trigger == (
+            {"job_type": "warehouse_suggestion", "job_id": str(suggestion.id), "payload": {"kind": "deprecate"}}
+            if expect_stopped
+            else None
+        )
+        properties = report.call_args.args[1]
+        assert (
+            properties["stopped_materialization"],
+            properties["refresh_seconds_per_month"],
+            properties["refresh_bytes_per_month"],
+        ) == ((True, 900, 10**9) if expect_stopped else (False, 0, 0))
+
+    @parameterized.expand(
+        [
+            ("node_type_update", "products.data_modeling.backend.logic.saved_query_materialization.update_node_type"),
+            (
+                "frequency_target_clear",
+                "products.data_modeling.backend.logic.schedule_reconcile.apply_saved_query_frequency_target",
+            ),
+        ]
+    )
+    def test_a_deprecate_whose_stop_fails_leaves_the_view_materialized_and_a_retry_stops_it(
+        self, _name: str, failing_step: str
+    ) -> None:
+        table = materialize_in_place(self.view)
+        suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
+
+        with patch(failing_step, side_effect=RuntimeError("database is down")):
+            failed = self._accept(suggestion.id)
+        suggestion.refresh_from_db()
+        self.view.refresh_from_db()
+        table.refresh_from_db()
+        untouched = (self.view.is_materialized, self.view.table_id, bool(table.deleted))
+        retried = self._accept(suggestion.id)
+
+        node = Node.objects.get(team=self.team, saved_query=self.view)
+        assert failed["http_status"] == status.HTTP_500_INTERNAL_SERVER_ERROR, failed
+        assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+        assert untouched == (True, table.id, False)
+        assert retried["created_asset"]["stopped_materialization"] is True, retried
+        assert (node.type, get_declared_target(node)) == (NodeType.VIEW, None)
 
     def test_accepting_a_materialize_suggestion_materializes_the_view_on_the_chosen_interval(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)
@@ -314,6 +445,13 @@ class TestAcceptSuggestion(APIBaseTest):
                 {"refresh_interval_seconds": 60 * 60},
                 status.HTTP_400_BAD_REQUEST,
                 "refresh_interval_seconds",
+            ),
+            (
+                "keep_materialized_on_a_materialize_suggestion",
+                MATERIALIZE_PAYLOAD,
+                {"keep_materialized": True},
+                status.HTTP_400_BAD_REQUEST,
+                "keep_materialized",
             ),
             (
                 "lookback_only_on_stale_suggested_keys",

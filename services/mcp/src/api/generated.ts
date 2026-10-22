@@ -375,6 +375,8 @@ export namespace Schemas {
          * @maximum 2592000
          */
       lookback_seconds?: number;
+      /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
+      keep_materialized?: boolean;
     }
 
     export interface AccessControlResourceDefault {
