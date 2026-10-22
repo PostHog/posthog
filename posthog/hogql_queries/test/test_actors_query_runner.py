@@ -244,6 +244,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
         assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
 
+    def test_persons_query_search_snapshot_with_title_cased_email(self):
+        PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
+        runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
+        assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
+
     def test_persons_query_aggregation_select_having(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.name", "count()"]))

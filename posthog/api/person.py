@@ -50,7 +50,7 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.hogql_queries.actor_strategies import person_email_property_keys
+from posthog.hogql_queries.actor_strategies import PERSON_EMAIL_PROPERTY_KEYS, person_email_property_keys
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -640,9 +640,6 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 # hide the other matches.
 _COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Tags matches on hydrated properties in Python, so checking both keys costs no ClickHouse read.
-_EMAIL_PROPERTY_KEYS = ("email", "Email")
-
 
 def _is_canonical_uuid(value: str) -> bool:
     # Only the dashed form counts, so the fast path answers the same terms the fuzzy search
@@ -685,7 +682,7 @@ def _search_match_fields(search: str, person: SerializedPerson, known_fields: Co
         (PersonSearchMatchField.DISTINCT_ID, any(needle in did.lower() for did in person["distinct_ids"])),
         (
             PersonSearchMatchField.EMAIL,
-            any(needle in str(properties.get(key) or "").lower() for key in _EMAIL_PROPERTY_KEYS),
+            any(needle in str(properties.get(key) or "").lower() for key in PERSON_EMAIL_PROPERTY_KEYS),
         ),
         (PersonSearchMatchField.NAME, needle in str(properties.get("name") or "").lower()),
         (PersonSearchMatchField.ID, needle in str(person["id"]).lower()),

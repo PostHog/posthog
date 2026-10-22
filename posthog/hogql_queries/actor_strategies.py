@@ -24,14 +24,22 @@ from products.event_definitions.backend.models.property_definition import effect
 
 logger = structlog.get_logger(__name__)
 
+PERSON_EMAIL_PROPERTY_KEY = "email"
+PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY = "Email"
+PERSON_EMAIL_PROPERTY_KEYS = (PERSON_EMAIL_PROPERTY_KEY, PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY)
+
 
 def person_email_property_keys(team: Team) -> tuple[str, ...]:
     has_title_cased_email = (
         PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name="Email")
+        .filter(
+            effective_project_id=team.project_id,
+            type=PropertyDefinition.Type.PERSON,
+            name=PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY,
+        )
         .exists()
     )
-    return ("email", "Email") if has_title_cased_email else ("email",)
+    return PERSON_EMAIL_PROPERTY_KEYS if has_title_cased_email else (PERSON_EMAIL_PROPERTY_KEY,)
 
 
 class ActorStrategy:
