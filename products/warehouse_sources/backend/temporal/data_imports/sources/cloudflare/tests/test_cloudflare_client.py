@@ -6,6 +6,7 @@ import pytest
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+    DNS_ANALYTICS_ALL_ZONES_FAILED,
     PAGE_SIZE,
     TokenCheck,
     _redact_access_app,
@@ -256,12 +257,7 @@ class TestSinglePageEndpoints:
         # These endpoints document no page params, so Cloudflare ignores `page` and would
         # return the same rows forever if the page-number paginator were used.
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        child = (
-            _raw_response({"success": True, "result": {"data": full_page}})
-            if endpoint == "dns_analytics_report"
-            else _response(full_page)
-        )
-        result = _driver().run(endpoint, [_response([{"id": "z1"}], total_pages=1), child])
+        result = _driver().run(endpoint, [_response([{"id": "z1"}], total_pages=1), _response(full_page)])
 
         assert result.raised is None
         assert len(result.requests) == 2
@@ -269,36 +265,70 @@ class TestSinglePageEndpoints:
         assert result.requests[1].param("per_page") is None
 
 
+def _dns_groups(*groups: tuple[str, str, int, int]) -> ScriptedResponse:
+    return _raw_response(
+        {
+            "data": {
+                "viewer": {
+                    "zones": [
+                        {
+                            "dnsAnalyticsAdaptiveGroups": [
+                                {
+                                    "count": count,
+                                    "dimensions": {
+                                        "queryType": query_type,
+                                        "responseCode": response_code,
+                                        "responseCached": cached,
+                                    },
+                                }
+                                for query_type, response_code, cached, count in groups
+                            ]
+                        }
+                    ]
+                }
+            },
+            "errors": None,
+        }
+    )
+
+
+def _graphql_error(message: str) -> ScriptedResponse:
+    return _raw_response({"data": None, "errors": [{"message": message}]})
+
+
 class TestDnsAnalyticsReport:
-    def test_positional_report_arrays_become_named_columns(self) -> None:
+    def test_cached_groups_sum_into_report_columns_and_unreadable_zones_are_skipped(self) -> None:
         result = _driver().run(
             "dns_analytics_report",
             [
-                _response([{"id": "z1"}], total_pages=1),
-                _raw_response(
-                    {
-                        "success": True,
-                        "result": {
-                            "rows": 1,
-                            "data": [{"dimensions": ["A", "NOERROR"], "metrics": [10, 4]}],
-                        },
-                    }
-                ),
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error("not authorized for zone z1"),
+                _dns_groups(("A", "NOERROR", 1, 6), ("A", "NOERROR", 0, 4), ("MX", "NXDOMAIN", 0, 2)),
             ],
         )
 
         assert result.raised is None
         assert result.rows == [
-            {
-                "queryType": "A",
-                "responseCode": "NOERROR",
-                "queryCount": 10,
-                "uncachedCount": 4,
-                "_zone_id": "z1",
-            }
+            {"queryType": "A", "responseCode": "NOERROR", "queryCount": 10, "uncachedCount": 4, "_zone_id": "z2"},
+            {"queryType": "MX", "responseCode": "NXDOMAIN", "queryCount": 2, "uncachedCount": 2, "_zone_id": "z2"},
         ]
-        assert result.requests[1].param("metrics") == "queryCount,uncachedCount"
-        assert result.requests[1].param("dimensions") == "queryType,responseCode"
+        graphql_request = result.requests[2]
+        assert (graphql_request.method, graphql_request.path) == ("POST", "/client/v4/graphql")
+        assert graphql_request.json()["variables"]["zoneTag"] == "z2"
+
+    def test_fails_when_every_zone_is_refused(self) -> None:
+        result = _driver().run(
+            "dns_analytics_report",
+            [
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error("unknown field dnsAnalyticsAdaptiveGroups"),
+                _graphql_error("unknown field dnsAnalyticsAdaptiveGroups"),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert DNS_ANALYTICS_ALL_ZONES_FAILED in str(result.raised)
+        assert "unknown field dnsAnalyticsAdaptiveGroups" in str(result.raised)
 
 
 class TestLogpushDestinationRedaction:

@@ -8,6 +8,8 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import pyarrow.fs as pafs
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import memory_governor as _mg
@@ -24,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     predict_upsert_memory,
     rewrite_profile,
     size_upsert,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+    RowGroupSizeReader,
+    RowGroupSizes,
+    _FooterCache,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 
@@ -78,14 +85,18 @@ def _profile(
     columns: int = 64,
     decoded_mb: float | None = None,
     source_mb_per_partition: float = 0.0,
+    row_group_mb: float | None = None,
 ) -> RewriteProfile:
-    """A profile from per-partition candidate file sizes in MB."""
+    """A profile from per-partition candidate file sizes in MB, each file of row groups up to ``row_group_mb``."""
     return RewriteProfile(
         partitions=tuple(
             PartitionShape.of(
                 [round(size * MB) for size in sizes],
                 source_bytes=round(source_mb_per_partition * MB),
                 decoded_bytes=None if decoded_mb is None else round(decoded_mb * MB),
+                row_group_bytes=None
+                if row_group_mb is None
+                else [round(min(size, row_group_mb) * MB) for size in sizes],
             )
             for sizes in partitions
         ),
@@ -332,6 +343,31 @@ class TestSizeUpsert:
                 8,
                 True,
             ),
+            # The same default-size files written as 16 MB row groups: each reader holds 16 MB, not 100.
+            (
+                "wide_rows_in_16mb_row_groups",
+                _profile(*([[100.0] * 2] * 4), columns=30, row_group_mb=16.0),
+                None,
+                1.4,
+                _SLOT_14GI,
+                1,
+                8,
+                True,
+            ),
+            ("single_row_group_files_take_one_worker", _profile(*([[130.0] * 2] * 4)), None, 2.0, _SLOT, 1, 8, True),
+            (
+                "small_row_groups_take_two_workers",
+                _profile(*([[130.0] * 2] * 4), row_group_mb=16.0),
+                None,
+                2.0,
+                _SLOT,
+                2,
+                8,
+                True,
+            ),
+            # Three 130 MB single-row-group files overflow a 900 MB slice; in 16 MB row groups they fit 1 x 8.
+            ("single_row_group_files_overflow", _profile([130.0] * 3), None, 2.0, 900.0, 1, 1, False),
+            ("small_row_groups_fit", _profile([130.0] * 3, row_group_mb=16.0), None, 2.0, 900.0, 1, 8, True),
         ]
     )
     def test_sizing(self, _name, profile, n_partitions, retention, slot, exp_mpp, exp_files, exp_fits):
@@ -514,6 +550,19 @@ class TestGovernorSizing:
             pass
         assert (adm.max_row_group_mb, adm.rewrite_files, adm.rewrite_total_mb, adm.columns) == (57.0, 24, 1368.0, 64)
 
+    @parameterized.expand(
+        [
+            ("narrow_plan_can_widen", "enforce", 15_000.0, _profile(*([[130.0] * 2] * 4)), True),
+            ("advisory_sizes_a_plan_too", "advisory", 15_000.0, _profile(*([[130.0] * 2] * 4)), True),
+            ("widest_plan_cannot_widen", "enforce", 30_000.0, _SMALL, False),
+            ("off_sizes_no_plan", "off", 15_000.0, _profile(*([[130.0] * 2] * 4)), False),
+            ("no_pod_limit_sizes_no_plan", "enforce", None, _profile(*([[130.0] * 2] * 4)), False),
+        ]
+    )
+    def test_row_groups_can_widen_only_a_narrow_plan(self, _name, mode, limit_mb, profile, expected):
+        gov = _governor(mode, limit_mb=limit_mb)
+        assert gov.row_groups_can_widen(profile, source_bytes=10 * MB) is expected
+
     async def test_reservation_released_on_exception(self):
         sampler = _fake_sampler(1_000.0, 1_000.0)
         gov = _governor("enforce", rss_sampler=sampler)
@@ -680,7 +729,7 @@ class TestRewriteProfile:
     )
     def test_profile(self, _name, source, partition_col, expected_files, expected_count):
         profile = rewrite_profile(_add_actions(), source, partition_col, ["id"])
-        assert tuple(p.largest_file_bytes for p in profile.partitions) == expected_files
+        assert tuple(p.largest_row_group_bytes for p in profile.partitions) == expected_files
         assert profile.files == expected_count
         assert profile.table_files == len(_FILES)
         # Each partition carries its share of the source, for the bytes its worker writes.
@@ -698,7 +747,7 @@ class TestRewriteProfile:
         source = _source([("a", 5000), ("a", 5001), ("a", 5002)])
         source = source.append_column("other", pa.array([1, 2, 3], pa.int64()))
         profile = rewrite_profile(add_actions, source, _PART, primary_keys)
-        assert [(p.largest_file_bytes, p.stored_bytes) for p in profile.partitions] == [((100, 50, 30), 180)]
+        assert [(p.largest_row_group_bytes, p.stored_bytes) for p in profile.partitions] == [((100, 50, 30), 180)]
 
     @parameterized.expand(
         [
@@ -720,7 +769,7 @@ class TestRewriteProfile:
     def test_one_source_row_can_match_duplicate_keys_in_multiple_files(self):
         files = [("a", 100, 100, 200), ("a", 50, 150, 250)]
         profile = rewrite_profile(_add_actions(files), _source([("a", 175)]), _PART, ["id"])
-        assert (profile.partitions[0].largest_file_bytes, profile.files) == ((100, 50), 2)
+        assert (profile.partitions[0].largest_row_group_bytes, profile.files) == ((100, 50), 2)
 
     def test_string_keys_are_not_pruned(self):
         # Delta truncates long string stats, so a string max proves nothing.
@@ -736,7 +785,7 @@ class TestRewriteProfile:
         files = [("a", size, 0, 99) for size in range(1, 21)]
         source = _source([("a", i) for i in range(20)])
         shape = rewrite_profile(_add_actions(files), source, _PART, ["id"]).partitions[0]
-        assert shape.largest_file_bytes == (20, 19, 18, 17, 16, 15, 14, 13)
+        assert shape.largest_row_group_bytes == (20, 19, 18, 17, 16, 15, 14, 13)
         assert (shape.files, shape.stored_bytes) == (20, sum(range(1, 21)))
 
     @parameterized.expand(
@@ -747,7 +796,7 @@ class TestRewriteProfile:
     )
     def test_nothing_to_rewrite(self, _name, files, source, expected_files, table_files):
         profile = rewrite_profile(_add_actions(files), source, _PART, ["id"])
-        assert tuple(p.largest_file_bytes for p in profile.partitions) == expected_files
+        assert tuple(p.largest_row_group_bytes for p in profile.partitions) == expected_files
         assert (profile.files, profile.total_mb, profile.max_row_group_mb, profile.table_files) == (
             0,
             0.0,
@@ -780,6 +829,87 @@ class TestRewriteProfile:
         )
         assert (profile.files, profile.table_files, profile.target_file_size) == (2, 3, expected_target)
         assert profile.max_row_group_mb == max(sizes[f"{_PART}=a"], sizes[f"{_PART}=b"]) / MB
+
+    @parameterized.expand(
+        [
+            # a/f0 holds row groups of 10 bytes at most; the other files keep their size.
+            ("footer_bounds_the_reader", {f"{_PART}=a/f0.parquet": 10}, (50, 30, 10), 1),
+            # A footer cannot report more than the file holds; the file size still bounds it.
+            ("never_above_the_file_size", {f"{_PART}=a/f0.parquet": 500}, (100, 50, 30), 1),
+            ("unread_files_keep_their_size", {"elsewhere.parquet": 1}, (100, 50, 30), 0),
+        ]
+    )
+    def test_row_groups_bound_the_readers(self, _name, bytes_by_path, expected, sized):
+        row_groups = RowGroupSizes(bytes_by_path=bytes_by_path, footers_read=2)
+        source = _source([("a", 5), ("a", 150), ("a", 250)])
+        profile = rewrite_profile(_add_actions(), source, _PART, ["id"], row_groups=row_groups)
+        shape = profile.partitions[0]
+        assert shape.largest_row_group_bytes == expected
+        assert (shape.files, shape.stored_bytes) == (3, 180)
+        assert (profile.row_group_sized_files, profile.footers_read) == (sized, 2)
+
+    @pytest.mark.parametrize(
+        "reader,wants,sized",
+        [
+            ("local", None, True),
+            # The setting off passes no reader: today's whole-file sizing.
+            (None, None, False),
+            # A plan that is already the widest gains nothing from footers, so none are read.
+            ("local", False, False),
+            ("broken", None, False),
+        ],
+        ids=["reads_the_footers", "no_reader", "widest_plan_reads_nothing", "unreadable_footers"],
+    )
+    def test_estimate_sizes_readers_by_their_row_groups(self, reader, wants, sized, tmp_path: Path):
+        existing = pa.table(
+            {
+                _PART: ["a"] * 2000 + ["b"] * 2000,
+                "id": pa.array(range(4000), pa.int64()),
+                "v": [f"value-{i:06d}" * 8 for i in range(4000)],
+            }
+        )
+        deltalake.write_deltalake(
+            str(tmp_path),
+            existing,
+            partition_by=_PART,
+            writer_properties=deltalake.WriterProperties(max_row_group_size=250, compression="UNCOMPRESSED"),
+        )
+        table = deltalake.DeltaTable(str(tmp_path))
+        sizes = table._table.get_add_file_sizes()
+        footers = [pq.read_metadata(tmp_path / path) for path in sizes]
+        largest_row_group = max(
+            sum(m.row_group(i).column(c).total_compressed_size for c in range(m.num_columns))
+            for m in footers
+            for i in range(m.num_row_groups)
+        )
+
+        def _broken(_sizes) -> pafs.FileSystem:
+            raise OSError("unreachable")
+
+        readers = {
+            "local": RowGroupSizeReader(str(tmp_path), cache=_FooterCache(10)),
+            "broken": RowGroupSizeReader(str(tmp_path), open_filesystem=_broken, cache=_FooterCache(10)),
+            None: None,
+        }
+        with patch.object(_mg, "_ROW_GROUP_PROBE_MIN_BYTES", 0):
+            profile = estimate_rewrite_profile(
+                table,
+                _source([("a", 5), ("b", 2500)]),
+                _PART,
+                ["id"],
+                readers[reader],
+                None if wants is None else lambda _profile: wants,
+            )
+
+        assert profile is not None
+        assert (profile.files, profile.total_mb) == (2, sum(sizes.values()) / MB)
+        if sized:
+            assert largest_row_group < max(sizes.values()) / 4
+            assert profile.max_row_group_mb == largest_row_group / MB
+            assert (profile.row_group_sized_files, profile.footers_read) == (2, 2)
+        else:
+            assert profile.max_row_group_mb == max(sizes.values()) / MB
+            assert (profile.row_group_sized_files, profile.footers_read) == (0, 0)
 
     def test_estimate_unreadable_table_is_unknown(self):
         broken = MagicMock()

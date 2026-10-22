@@ -28,6 +28,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.content !== undefined) {
             body['content'] = params.content
         }
@@ -192,6 +195,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.content !== undefined) {
             body['content'] = params.content

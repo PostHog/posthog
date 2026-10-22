@@ -9,12 +9,13 @@ import json
 import datetime
 from typing import Any
 
-PROMPT_VERSION = 2
+from products.signals.backend.activity_summary.render import SUMMARY_MAX_WORDS, cap_line
 
-SUMMARY_MAX_WORDS = 60
+PROMPT_VERSION = 4
+
 MAX_FOCUS_AREAS = 6
 MAX_PRODUCTS = 10
-# Per-field caps, so one runaway field cannot make the stored summary large.
+# Per-field caps, so one runaway field cannot make the stored summary large. A cut ends at a word boundary.
 MAX_TOPIC_CHARS = 80
 MAX_PRODUCT_CHARS = 40
 MAX_RECENT_SHIFT_CHARS = 300
@@ -23,13 +24,18 @@ DEFAULT_STRENGTH = "low"
 # Strings a model writes in place of a JSON null.
 _NULL_STRINGS = frozenset({"", "none", "null", "n/a", "na", "nil"})
 
-SYSTEM_PROMPT = """You maintain a short summary of what one person has been working on in one PostHog project.
-You get their previous summary, if any, and a sample of their recent activity in up to two sections: tasks they gave to PostHog AI or the Slack agent, and things they created or changed in PostHog, with the reason their coding agent gave when an agent made the change.
-Update the summary to reflect what they are focused on now. Keep what is still true, drop what has gone quiet, and add what is new. Weigh themes that repeat across sections above one-off items. Treat bulk changes of the same kind as one theme, not a list.
+_SYSTEM_PROMPT = """You maintain a short summary of what one person has been working on in one PostHog project.
+You get their previous summary, if any, and a sample of their recent activity in up to three sections: tasks they gave to PostHog AI or the Slack agent, things they created or changed in PostHog, with the reason their coding agent gave when an agent made the change, and things they opened in PostHog.
+Update the summary to reflect what they are focused on now. Keep what is still true, drop what has gone quiet, and add what is new. Weigh themes that repeat across sections above one-off items. Treat what they open on many days as part of their work, even when they changed nothing. Treat bulk changes of the same kind as one theme, not a list.
 Name concrete products, features, metrics, pipelines and workflows. Never write generic phrases like "data analysis".
 Write about the work, not the person: no names, emails, IDs, secrets, or quotes from the input. Open with the work itself.
-Return JSON: `summary` (at most 60 words), `focus_areas` (up to 6, each with `topic`, `strength` high, medium or low, and `last_seen` as YYYY-MM-DD), `products`, and `recent_shift` (one sentence, or null).
+Return JSON: `summary` (at most {max_words} words), `focus_areas` (up to 6, each with `topic`, `strength` high, medium or low, and `last_seen` as YYYY-MM-DD), `products`, and `recent_shift` (one sentence, or null).
 Set `recent_shift` only when there is a previous summary and the activity shows a real change from it. Otherwise it is null."""
+
+
+def system_prompt(max_words: int = SUMMARY_MAX_WORDS) -> str:
+    return _SYSTEM_PROMPT.format(max_words=max_words)
+
 
 # Strict structured output. The normalization below still checks every rule, because a provider
 # behind the gateway may not enforce the schema.
@@ -92,7 +98,7 @@ def _clean(value: Any, max_chars: int | None = None) -> str | None:
     text = " ".join(value.split())
     if text.lower() in _NULL_STRINGS:
         return None
-    return text[:max_chars].strip() if max_chars is not None else text
+    return cap_line(text, max_chars) if max_chars is not None else text
 
 
 def cap_words(text: str, max_words: int = SUMMARY_MAX_WORDS) -> str:
@@ -141,7 +147,9 @@ def _products(value: Any) -> list[str]:
     return products[:MAX_PRODUCTS]
 
 
-def normalize_summary(content: str | None, *, had_previous_summary: bool) -> dict[str, Any]:
+def normalize_summary(
+    content: str | None, *, had_previous_summary: bool, max_words: int = SUMMARY_MAX_WORDS
+) -> dict[str, Any]:
     """The model's JSON answer under the output rules, or `MalformedSummaryError`.
 
     Only a missing or empty `summary` makes an answer malformed. Every other field degrades to an
@@ -159,7 +167,7 @@ def normalize_summary(content: str | None, *, had_previous_summary: bool) -> dic
         raise MalformedSummaryError("response has no summary")
     recent_shift = _clean(parsed.get("recent_shift"), MAX_RECENT_SHIFT_CHARS) if had_previous_summary else None
     return {
-        "summary": cap_words(summary),
+        "summary": cap_words(summary, max_words),
         "focus_areas": _focus_areas(parsed.get("focus_areas")),
         "products": _products(parsed.get("products")),
         "recent_shift": recent_shift,
