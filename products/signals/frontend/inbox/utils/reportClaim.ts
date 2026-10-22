@@ -9,6 +9,7 @@ const CLAIMABLE_STATUSES: ReadonlySet<SignalReportStatus> = new Set([
     SignalReportStatus.POTENTIAL,
     SignalReportStatus.CANDIDATE,
     SignalReportStatus.IN_PROGRESS,
+    SignalReportStatus.FAILED,
 ])
 
 export function reportClaimant(report: Pick<SignalReport, 'assignee'>): _UserApi | null {

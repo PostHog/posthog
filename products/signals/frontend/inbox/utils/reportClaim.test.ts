@@ -24,7 +24,10 @@ describe('report claim', () => {
         expect(reportClaimRequest(report, true)).toEqual({ takeover })
     })
 
-    it('does not offer a claim on a resolved report', () => {
-        expect(isReportClaimable({ assignee: null, status: SignalReportStatus.RESOLVED })).toBe(false)
+    it.each([
+        { status: SignalReportStatus.FAILED, claimable: true },
+        { status: SignalReportStatus.RESOLVED, claimable: false },
+    ])('offers a claim on a $status report: $claimable', ({ status, claimable }) => {
+        expect(isReportClaimable({ assignee: null, status })).toBe(claimable)
     })
 })
