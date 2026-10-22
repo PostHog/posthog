@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 5,
+            "description": "The most versions to return, newest first. Capped at the number of versions kept.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "version": {
+            "description": "Return only this version, with its full profile. Returns 404 when the version does not exist.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

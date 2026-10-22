@@ -8,6 +8,7 @@ rules and `min_units`, and backs a pair off when it skips, so the pair leaves th
 """
 
 import math
+import uuid
 import datetime
 from collections.abc import Callable
 from typing import Any
@@ -167,6 +168,26 @@ def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
             return []
         teams = teams.filter(organization_id__in=config.organization_ids)
     return list(teams.exclude(id__in=config.skip_team_ids).values_list("id", flat=True))
+
+
+def is_team_enrolled(config: ActivitySummaryConfig, team: Team) -> bool:
+    """The single-team form of `enrolled_team_ids`. A disabled config enrolls no team."""
+    if not config.enabled or team.id in config.skip_team_ids:
+        return False
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+    return config.enroll_all_approved or team.organization_id in _listed_organization_ids(config)
+
+
+def _listed_organization_ids(config: ActivitySummaryConfig) -> set[uuid.UUID]:
+    # The same parse as the `organization_id__in` filter, so an id in another UUID format still matches.
+    listed: set[uuid.UUID] = set()
+    for organization_id in config.organization_ids:
+        try:
+            listed.add(uuid.UUID(organization_id))
+        except ValueError:
+            continue
+    return listed
 
 
 def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime) -> None:
