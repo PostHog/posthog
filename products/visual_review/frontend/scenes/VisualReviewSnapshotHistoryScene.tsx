@@ -251,8 +251,13 @@ function QuarantineBanner({
                     <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         {batchLeaderPrNumber ? (
                             <span>
-                                Failed in a merge queue batch led by{' '}
-                                <Link to={pullUrl(batchLeaderPrNumber)} target="_blank" className="font-mono">
+                                Failed in the merge queue with{' '}
+                                <Link
+                                    to={pullUrl(batchLeaderPrNumber)}
+                                    target="_blank"
+                                    className="font-mono"
+                                    data-attr="visual-review-quarantine-merge-queue-pr"
+                                >
                                     #{batchLeaderPrNumber}
                                 </Link>
                             </span>
@@ -273,9 +278,13 @@ function QuarantineBanner({
                         {sourceRun.pr_number && (
                             <>
                                 <span aria-hidden>·</span>
-                                <Link to={pullUrl(sourceRun.pr_number)} target="_blank">
+                                <Link
+                                    to={pullUrl(sourceRun.pr_number)}
+                                    target="_blank"
+                                    data-attr="visual-review-quarantine-source-pr"
+                                >
                                     {batchLeaderPrNumber ? (
-                                        'All PRs in the batch'
+                                        'All PRs tested'
                                     ) : (
                                         <span className="font-mono">#{sourceRun.pr_number}</span>
                                     )}

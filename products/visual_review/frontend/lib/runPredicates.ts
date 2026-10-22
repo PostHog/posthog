@@ -8,8 +8,8 @@ export function isReportingOnlyRun(run: RunApi | null): boolean {
     return !!run && (run.purpose === 'observe' || run.pr_number == null)
 }
 
-// A merge-queue run's `pr_number` is Trunk's shadow PR, whose body lists every PR in the batch.
-// The branch names only the batch leader. Keep the pattern in sync with `_MERGE_QUEUE_BRANCH_RE` in the backend.
+// A merge-queue run's `pr_number` is Trunk's shadow PR, whose body lists every PR it tests.
+// The branch names only the first of them. Keep the pattern in sync with `_MERGE_QUEUE_BRANCH_RE` in the backend.
 export function mergeQueueBatchLeaderPrNumber(branch: string): number | null {
     const match = /^trunk-merge\/pr-(\d+)\//.exec(branch)
     return match ? Number(match[1]) : null
