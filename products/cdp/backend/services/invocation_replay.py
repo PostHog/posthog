@@ -506,6 +506,7 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
     if not candidates:
         return ReplayPlan(criteria=criteria, functions=())
 
+    # nosemgrep: idor-lookup-without-team -- staff-only incident tooling that spans teams by design; each id is paired with the team ClickHouse reported for it
     queryset = HogFunction.objects.select_related("team", "team__organization").filter(
         id__in=[function_id for _, function_id in candidates],
         team_id__in={team_id for team_id, _ in candidates},
