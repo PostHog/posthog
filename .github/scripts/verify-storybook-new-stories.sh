@@ -5,7 +5,7 @@ set -euo pipefail
 # Catches flaky snapshots before they land on master.
 #
 # Usage:
-#   verify-storybook-new-stories.sh <base_sha> [repeat_count]
+#   [STORYBOOK_VERIFY_BROWSER=chromium|webkit] verify-storybook-new-stories.sh <base_sha> [repeat_count]
 #
 # Pass the merge base, not the base branch tip. A branch tip that moved on since the
 # fork point makes its own story changes look like this branch's.
@@ -14,15 +14,21 @@ set -euo pipefail
 #   .github/scripts/verify-storybook-new-stories.sh "$(git merge-base origin/master HEAD)" 3
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    echo "Usage: $0 <base_sha> [repeat_count]" >&2
+    echo "Usage: [STORYBOOK_VERIFY_BROWSER=chromium|webkit] $0 <base_sha> [repeat_count]" >&2
     exit 1
 fi
 
 BASE_SHA="$1"
 REPEAT_COUNT="${2:-3}"
+BROWSER="${STORYBOOK_VERIFY_BROWSER:-chromium}"
 
 if ! [[ "$REPEAT_COUNT" =~ ^[0-9]+$ ]] || [ "$REPEAT_COUNT" -lt 1 ]; then
     echo "Error: repeat_count must be a positive integer" >&2
+    exit 1
+fi
+
+if [ "$BROWSER" != "chromium" ] && [ "$BROWSER" != "webkit" ]; then
+    echo "Error: STORYBOOK_VERIFY_BROWSER must be chromium or webkit" >&2
     exit 1
 fi
 
@@ -73,7 +79,7 @@ elif [ "$file_count" -gt 10 ] && [ "$REPEAT_COUNT" -gt 2 ]; then
     REPEAT_COUNT=2
 fi
 
-echo "Verifying $file_count file(s) × $REPEAT_COUNT runs:"
+echo "Verifying $file_count file(s) × $REPEAT_COUNT runs in $BROWSER:"
 printf "  %s\n" "${stories_to_verify[@]}"
 
 # Build one escaped path regex per changed story file.
@@ -113,7 +119,7 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     # CI, so finding no matching tests here is not a failure.
     pnpm --filter=@posthog/storybook exec test-storybook \
         $snapshot_flag --no-index-json --maxWorkers=1 \
-        --browsers chromium \
+        --browsers "$BROWSER" \
         -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}
     set -e
@@ -130,9 +136,9 @@ done
 
 if [ "$failed_runs" -gt 0 ]; then
     echo ""
-    echo "Flake verification failed — $failed_runs/$REPEAT_COUNT runs failed"
-    echo "Flaky snapshots must be fixed before merging."
+    echo "Verification failed in $BROWSER — $failed_runs/$REPEAT_COUNT runs failed"
+    echo "Changed stories must render and stay stable in $BROWSER before merging."
     exit 1
 fi
 
-echo "Flake verification passed — all $REPEAT_COUNT runs stable"
+echo "Verification passed in $BROWSER — all $REPEAT_COUNT runs stable"
