@@ -158,6 +158,32 @@ describe('buildSections', () => {
         ])
     })
 
+    it('says which words were dropped when a filter is active', () => {
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                'type:dashboard xyzzy report': [
+                    {
+                        ...dashboard('a', '1'),
+                        rankKey: [-1, 0, 0, 1, -1, 1, 5, 0, -1],
+                        searchMatch: {
+                            matchedAllWords: false,
+                            matchedWords: ['report'],
+                            typeCount: 1,
+                            countsCapped: false,
+                            withTypos: false,
+                        },
+                    },
+                ],
+            },
+            displayedKey: 'type:dashboard xyzzy report',
+        }
+        const sections = buildSections(
+            input('search', { remote, remoteQueries: { results: 'type:dashboard xyzzy report' }, localQuery: '' })
+        )
+        expect(sections.map((section) => section.key)).toContain('notice')
+    })
+
     it('shows ranked products while saved objects load', () => {
         const sections = buildSections(
             input('search', {

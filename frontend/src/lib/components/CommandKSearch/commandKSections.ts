@@ -250,9 +250,10 @@ function rankedResultsSections(
     const current = slot.cache[query]
     const previous = slot.displayedKey !== null ? slot.cache[slot.displayedKey] : undefined
     const displayed = current ?? (previous?.every((item) => item.rankKey?.length) ? previous : undefined)
+    const words = freeWords(query)
     const ranked = buildRankedResults({
-        query: localQuery,
-        highlightWords: freeWords(query),
+        query: words.join(' '),
+        highlightWords: words,
         results: displayed ?? [],
         products: localQuery ? local.products : [],
         state: !displayed || current ? 'ready' : 'stale',
