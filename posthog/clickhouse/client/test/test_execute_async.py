@@ -456,7 +456,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 1+1")
         query["modifiers"] = {"sessionTableVersion": "v2"}
         runner_state = {"query": query.copy(), "modifiers": {"sessionTableVersion": "v1"}}
-        query["modifiers"] = {"sessionTableVersion": "v1"}
         query_id = client.enqueue_process_query_task(
             self.team, self.user.id, query, runner_state=runner_state, _test_only_bypass_celery=True
         ).id

@@ -25,7 +25,6 @@ from typing import (
     get_origin,
 )
 
-from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -141,6 +140,7 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
+from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,
@@ -1981,7 +1981,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
-        self._modifiers_override_provided = modifiers is not None
         self._modifiers_override = modifiers
 
         if not self.is_query_node(query):
@@ -1999,7 +1998,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(query, self.query_type)
 
         _modifiers = modifiers or extract_modifiers(query)
-        self._explicit_events_route = events_route_is_explicit(team.modifiers, _modifiers)
+        self._explicit_events_route = events_route_is_explicit(None, _modifiers)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
@@ -2036,6 +2035,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
         for child in self._child_runners():
             child.set_user(self.user)
+
+    @property
+    def _modifiers_override_provided(self) -> bool:
+        return self._modifiers_override is not None
 
     def _should_pin_events_route(self) -> bool:
         """The worker must rebuild the request's resolved events route and cache payload.
@@ -2657,6 +2660,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        updates_freshness_index=not self.modifiers.useNewEventsCluster,
                         ttl=retention_ttl(
                             insight_id=insight_id,
                             dashboard_id=dashboard_id,
