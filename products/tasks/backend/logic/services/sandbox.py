@@ -336,7 +336,6 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
     r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
-BAKED_CHECKOUT_MAX_AGE_SECONDS = 2 * 24 * 60 * 60
 CLONE_PHASES_ECHO = 'echo "clone_phases_ms mode=$MODE fetch=$((T1-T0)) checkout=$((T2-T1))"'
 CLONE_PHASES_PATTERN = re.compile(r"clone_phases_ms mode=(?P<mode>\w+) fetch=(?P<fetch>\d+) checkout=(?P<checkout>\d+)")
 
@@ -688,11 +687,8 @@ class SandboxBase(ABC):
                 ),
             )
             clone_command = (
-                f"if [ -d {shlex.quote(target_path)}/.git ] && "
-                f"BAKED_AT=$(git -C {shlex.quote(target_path)} log -1 --format=%ct 2>/dev/null) && "
-                f"[ $(( $(date +%s) - BAKED_AT )) -lt {BAKED_CHECKOUT_MAX_AGE_SECONDS} ]; then "
+                f"if [ -d {shlex.quote(target_path)}/.git ]; then "
                 f"( MODE=baked && {baked_fetch_command} ) || ( MODE=fallback && {fresh_clone_command} ); "
-                f"elif [ -d {shlex.quote(target_path)}/.git ]; then MODE=stale && {fresh_clone_command}; "
                 f"else {clone_command}; fi"
             )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")

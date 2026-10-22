@@ -17,11 +17,8 @@ fi
 """
 
 
-def _git(cwd: Path, *args: str, env: dict[str, str], committer_date: str | None = None) -> str:
-    run_env = {**env, "GIT_COMMITTER_DATE": committer_date} if committer_date else env
-    return subprocess.run(
-        ["git", *args], cwd=cwd, env=run_env, check=True, capture_output=True, text=True
-    ).stdout.strip()
+def _git(cwd: Path, *args: str, env: dict[str, str]) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout.strip()
 
 
 @pytest.fixture
@@ -59,7 +56,7 @@ def remote(tmp_path: Path, git_env: dict[str, str]) -> Path:
     return source
 
 
-def _bake(tmp_path: Path, git_env: dict[str, str], committer_date: str | None = None) -> Path:
+def _bake(tmp_path: Path, git_env: dict[str, str]) -> Path:
     baked = tmp_path / "repos" / "posthog" / "posthog"
     baked.parent.mkdir(parents=True)
     _git(
@@ -72,8 +69,6 @@ def _bake(tmp_path: Path, git_env: dict[str, str], committer_date: str | None = 
         str(baked),
         env=git_env,
     )
-    if committer_date:
-        _git(baked, "commit", "-q", "--amend", "--no-edit", env=git_env, committer_date=committer_date)
     return baked
 
 
@@ -103,16 +98,15 @@ def _clone(tmp_path: Path, git_env: dict[str, str], *, baked_repo_clone: bool) -
 
 
 @pytest.mark.parametrize(
-    "baked_repo_clone,break_head,committer_date,expected_mode",
+    "baked_repo_clone,break_head,expected_mode",
     [
-        (True, False, None, "baked"),
-        (False, False, None, "fresh"),
-        (True, True, None, "fallback"),
-        (True, False, "2020-01-01T00:00:00Z", "stale"),
+        (True, False, "baked"),
+        (False, False, "fresh"),
+        (True, True, "fallback"),
     ],
 )
-def test_clone_repository_mode(tmp_path, git_env, remote, baked_repo_clone, break_head, committer_date, expected_mode):
-    baked = _bake(tmp_path, git_env, committer_date)
+def test_clone_repository_mode(tmp_path, git_env, remote, baked_repo_clone, break_head, expected_mode):
+    baked = _bake(tmp_path, git_env)
     if break_head:
         hook = baked / ".git" / "hooks" / "post-checkout"
         hook.write_text("#!/bin/sh\ngit commit -q --allow-empty -m drift\n")
