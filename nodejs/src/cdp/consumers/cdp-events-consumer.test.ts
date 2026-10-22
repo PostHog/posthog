@@ -123,7 +123,7 @@ describe('CdpEventsConsumer', () => {
         })
     })
 
-    describe('parse failures', () => {
+    describe('lookup failures', () => {
         beforeEach(async () => {
             await insertHogFunction({
                 team_id: team.id,
