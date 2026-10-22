@@ -416,7 +416,7 @@ VITE_SAME_ORIGIN_HEADER = "X-PostHog-Vite-Origin"
 def _vite_same_origin(request: HttpRequest) -> str | None:
     """The origin in VITE_SAME_ORIGIN_HEADER, if it names the request's own host. Any other value is ignored, so a
     client that sets the header can only make its own page load modules from the host it already talks to."""
-    from urllib.parse import urlsplit
+    from urllib.parse import urlsplit, urlunsplit
 
     from django.http.request import split_domain_port
 
@@ -435,7 +435,7 @@ def _vite_same_origin(request: HttpRequest) -> str | None:
     domain, _ = split_domain_port(parsed.netloc)
     if not domain or parsed.netloc.lower() != request.get_host().lower():
         return None
-    return f"{parsed.scheme}://{parsed.netloc}"
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
 def get_js_url(request: HttpRequest) -> str:
