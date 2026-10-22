@@ -361,6 +361,9 @@ const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSche
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.attachments !== undefined) {
+            body['attachments'] = params.attachments
+        }
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }
