@@ -42,6 +42,8 @@ def busy_reads(**overrides: Any) -> SubjectReads:
         alone_reads=10,
         alone_duration_ms_median=10_000.0,
         alone_read_bytes_median=float(10**9),
+        alone_duration_ms_p90=10_000.0,
+        alone_read_bytes_p90=float(10**9),
         last_read_at=datetime(2026, 10, 6, tzinfo=UTC),
         requests_by_surface={Surface.SQL_EDITOR: 120, Surface.DASHBOARD: 80},
     )

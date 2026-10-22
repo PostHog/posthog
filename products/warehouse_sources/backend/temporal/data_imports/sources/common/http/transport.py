@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterator, Mapping
+import functools
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, cast
+from typing import Any, ParamSpec, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -80,13 +81,16 @@ def current_request_deadline() -> float | None:
 
 
 @contextmanager
-def request_deadline(deadline: float) -> Iterator[None]:
+def request_deadline(deadline: float | None = None) -> Iterator[None]:
     """Make requests in the block end by `deadline`, a `time.monotonic()` value.
 
     For a caller that retries a request itself, so that all of its tries share one deadline. Each
     try gets only the time that is left, and the adapter starts no retry that the deadline cuts off.
-    An earlier deadline that is already in effect wins.
+    An earlier deadline that is already in effect wins. With no `deadline`, the block ends
+    `retry_budget_seconds()` from now.
     """
+    if deadline is None:
+        deadline = _monotonic() + retry_budget_seconds()
     current = _request_deadline.get()
     token = _request_deadline.set(deadline if current is None else min(current, deadline))
     try:
@@ -424,6 +428,34 @@ class _NoRedirectSession(requests.Session):
         return super().send(request, **kwargs)
 
 
+_P = ParamSpec("_P")
+_session_observers: list[Callable[[dict[str, Any]], None]] = []
+
+
+@contextmanager
+def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iterator[None]:
+    """Pass the keyword arguments of each `make_tracked_session` call in the block to `observer`.
+
+    For the source test harness. Only the innermost observer sees a call, so a nested block records its own sessions.
+    """
+    _session_observers.append(observer)
+    try:
+        yield
+    finally:
+        _session_observers.remove(observer)
+
+
+def _observed(factory: Callable[_P, requests.Session]) -> Callable[_P, requests.Session]:
+    @functools.wraps(factory)
+    def make(*args: _P.args, **kwargs: _P.kwargs) -> requests.Session:
+        if _session_observers:
+            _session_observers[-1](dict(kwargs))
+        return factory(*args, **kwargs)
+
+    return make
+
+
+@_observed
 def make_tracked_session(
     *,
     retry: Retry | None = None,

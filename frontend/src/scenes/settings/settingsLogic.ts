@@ -9,6 +9,7 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { Params } from 'scenes/sceneTypes'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -825,7 +826,7 @@ export const settingsLogic = kea<settingsLogicType>([
             ]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props }) => ({
         // A section with a scene of its own has no section selection, so its route moves the pane to its tab.
         ...Object.fromEntries(
             SETTINGS_SECTION_SCENES.flatMap(({ level, url, legacyUrl }) =>
@@ -834,6 +835,16 @@ export const settingsLogic = kea<settingsLogicType>([
                     .map((root) => [`${root}(/*)`, () => actions.setNavLevel(level)])
             )
         ),
+        // The settings scene instance outlives a scene change, and its selectSetting pushes `/settings/...`.
+        ...(props.logicKey === 'settingsScene' ? {} : embeddedSettingsRoutes(actions, values)),
+    })),
+])
+
+function embeddedSettingsRoutes(
+    actions: settingsLogicType['actions'],
+    values: settingsLogicType['values']
+): Record<string, (params: Params, searchParams: Params, hashParams: Params) => void> {
+    return {
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
@@ -859,5 +870,5 @@ export const settingsLogic = kea<settingsLogicType>([
                 actions.selectSetting(selectedSettingId)
             }
         },
-    })),
-])
+    }
+}

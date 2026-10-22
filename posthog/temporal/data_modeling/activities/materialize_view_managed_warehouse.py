@@ -24,6 +24,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
@@ -45,7 +46,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
-from ..metrics import get_node_suspended_metric
+from ..metrics import UNKNOWN_RUN_MODE, get_node_suspended_metric
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -84,6 +85,10 @@ class ManagedWarehouseShadowInputs:
         }
 
 
+INCREMENTAL_RUN_MODE = DataModelingJobRunMode.INCREMENTAL.value
+FULL_REFRESH_RUN_MODE = DataModelingJobRunMode.FULL_REFRESH.value
+
+
 @dataclasses.dataclass(frozen=False)
 class ManagedWarehouseShadowResult:
     row_count: int
@@ -93,6 +98,16 @@ class ManagedWarehouseShadowResult:
     error: str | None = None
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    run_mode: str = UNKNOWN_RUN_MODE
+    bytes_read: int | None = None
+
+
+def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
+    if not use_trino:
+        return FULL_REFRESH_RUN_MODE
+    if plan is None:
+        return UNKNOWN_RUN_MODE
+    return INCREMENTAL_RUN_MODE if plan.incremental else FULL_REFRESH_RUN_MODE
 
 
 @frozen
@@ -221,6 +236,7 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
         job.error = result.error
+    job.bytes_read = result.bytes_read
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
     return job.engine
@@ -251,6 +267,7 @@ async def _materialize_view_managed_warehouse(
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     plan: WritePlan | None = None
+    processed_bytes: list[int] = []
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -273,6 +290,7 @@ async def _materialize_view_managed_warehouse(
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
+                on_processed_bytes=processed_bytes.append,
             )
             if plan.config is not None:
                 # A quiet window writes nothing, so it records the run without moving the watermark.
@@ -324,6 +342,8 @@ async def _materialize_view_managed_warehouse(
             table_name=result.table_name,
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
+            run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
+            bytes_read=_total_bytes_read(processed_bytes),
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -348,6 +368,8 @@ async def _materialize_view_managed_warehouse(
             schema_name=schema_name,
             table_name=table_name,
             error=str(e),
+            run_mode=_failed_run_mode(plan, inputs.use_trino),
+            bytes_read=_total_bytes_read(processed_bytes),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -372,6 +394,11 @@ async def _materialize_view_managed_warehouse(
                 f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
+
+
+def _total_bytes_read(processed_bytes: list[int]) -> int | None:
+    # No statement reported its bytes, so the run was not measured. That is not the same as reading zero bytes.
+    return sum(processed_bytes) if processed_bytes else None
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:

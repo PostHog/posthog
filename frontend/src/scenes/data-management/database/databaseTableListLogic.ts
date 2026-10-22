@@ -18,6 +18,13 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
 
+export const MANAGED_TRINO_SCHEMA_SCOPE = 'managed_trino'
+
+export const getDatabaseSchemaQueryScope = (
+    scope: string | undefined
+): Pick<DatabaseSchemaQuery, 'connectionId' | 'executionTarget'> =>
+    scope === MANAGED_TRINO_SCHEMA_SCOPE ? { executionTarget: 'managed_trino' } : { connectionId: scope }
+
 const toMapByName = <T extends { name: string }>(items: T[]): Record<string, T> =>
     items.reduce(
         (acc, cur) => {
@@ -254,7 +261,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     const request = performQuery(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
-                            connectionId: requestConnectionId,
+                            ...getDatabaseSchemaQueryScope(requestConnectionId),
                             includeFields: shallow ? false : undefined,
                         }) as DatabaseSchemaQuery
                     )
@@ -569,7 +576,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 const response = await performQuery(
                     setLatestVersionsOnQuery({
                         kind: NodeKind.DatabaseSchemaQuery,
-                        connectionId: requestConnectionId,
+                        ...getDatabaseSchemaQueryScope(requestConnectionId),
                         tables: toLoad,
                     }) as DatabaseSchemaQuery
                 )

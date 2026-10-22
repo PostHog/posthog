@@ -44,9 +44,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.api.sharing_publish_gate import is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -186,6 +187,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
     InsightDataCheckLevel,
     InsightDataCheckMethod,
+    InsightDataChecksDepth,
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
 )
@@ -1697,6 +1699,13 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
     )
 
 
+DEPTH_HELP_TEXT = (
+    "`quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would "
+    "read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the "
+    "same limits as the insight's own query."
+)
+
+
 class InsightDataChecksRequestSerializer(serializers.Serializer):
     query = QueryFieldSerializer(
         help_text=(
@@ -1711,6 +1720,21 @@ class InsightDataChecksRequestSerializer(serializers.Serializer):
             "An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to "
             "`query/{client_query_id}/`."
         ),
+    )
+    depth = serializers.ChoiceField(
+        choices=InsightDataChecksDepth.choices,
+        required=False,
+        default=InsightDataChecksDepth.QUICK,
+        help_text=DEPTH_HELP_TEXT,
+    )
+
+
+class InsightDataChecksQueryParamsSerializer(serializers.Serializer):
+    depth = serializers.ChoiceField(
+        choices=InsightDataChecksDepth.choices,
+        required=False,
+        default=InsightDataChecksDepth.QUICK,
+        help_text=DEPTH_HELP_TEXT,
     )
 
 
@@ -1875,7 +1899,9 @@ class InsightDataChecksSerializer(serializers.Serializer):
         help_text=(
             "The worst result across the checks. `no_events` when no event matches the insight's events, filters "
             "and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, "
-            "and when a property the checks read is hidden from the caller. `inconclusive` when no check could run."
+            "and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. "
+            "`partial` when some checks could not run and the others found nothing. `on_request` when the checks "
+            "would read a lot of data for a quick check, so they did not run: send `depth` `full` to run them."
         ),
     )
     checks = InsightDataCheckSerializer(many=True, help_text="Every check, in a fixed order, whatever its result.")
@@ -1886,6 +1912,20 @@ class InsightDataChecksSerializer(serializers.Serializer):
             "read, such as for an `unsupported` insight."
         ),
     )
+
+
+def chart_display_filter(value: str) -> Q:
+    displays = [display for display in value.split(",") if display]
+    unknown = set(displays) - {display.value for display in schema.ChartDisplayType}
+    if not displays or unknown:
+        raise ValidationError({"display": f"Unknown chart types: {', '.join(sorted(unknown)) or value!r}."})
+    trends_display = Q(query__source__trendsFilter__display__in=displays)
+    if schema.ChartDisplayType.ACTIONS_LINE_GRAPH in displays:
+        trends_display |= Q(query__source__trendsFilter__display__isnull=True)
+    return (
+        Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE, query__source__kind=schema.NodeKind.TRENDS_QUERY)
+        & trends_display
+    ) | Q(query__kind=schema.NodeKind.DATA_VISUALIZATION_NODE, query__display__in=displays)
 
 
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
@@ -1962,6 +2002,15 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="exclude_bi",
                 type=OpenApiTypes.BOOL,
                 description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="display",
+                type=OpenApiTypes.STR,
+                description=(
+                    "Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL "
+                    "insights shown as one of them. A trends insight with no chart type set counts as "
+                    "`ActionsLineGraph`."
+                ),
             ),
             OpenApiParameter(
                 name="order",
@@ -2377,6 +2426,8 @@ class InsightViewSet(
                     )
                 else:
                     queryset = queryset.filter(legacy_filter)
+            elif key == "display":
+                queryset = queryset.filter(chart_display_filter(request.GET["display"]))
             elif key == "search":
                 term = request.GET["search"]
                 if len(term) > MAX_SEARCH_LENGTH:
@@ -2628,9 +2679,10 @@ When set, the specified dashboard's filters and date range override will be appl
             raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
         if client_query_id := request.validated_data.get("client_query_id"):
             tag_queries(client_query_id=client_query_id)
-        return self._data_checks_response(request.validated_data["query"])
+        return self._data_checks_response(request.validated_data["query"], depth=request.validated_data["depth"])
 
     @validated_request(
+        query_serializer=InsightDataChecksQueryParamsSerializer,
         parameters=[INSIGHT_ID_PATH_PARAMETER],
         responses={
             200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
@@ -2645,9 +2697,12 @@ When set, the specified dashboard's filters and date range override will be appl
     @action(methods=["GET"], detail=True, url_path="data_checks", required_scopes=["insight:read"])
     def saved_insight_data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         insight = self.get_object()
-        return self._data_checks_response(upgrade(insight.query) if insight.query else {})
+        return self._data_checks_response(
+            upgrade(insight.query) if insight.query else {},
+            depth=request.validated_query_data["depth"],
+        )
 
-    def _data_checks_response(self, query: dict[str, Any]) -> Response:
+    def _data_checks_response(self, query: dict[str, Any], *, depth: InsightDataChecksDepth) -> Response:
         # A personal API key reads within the same hourly budget as the query API, and each check query debits it.
         if get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
             tag_queries(api_queries_budgeted=True)
@@ -2659,6 +2714,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     team=self.team,
                     user=cast(User, self.request.user),
                     email_access=self._team_email_access(),
+                    depth=InsightDataChecksDepth(depth),
                 )
         except CHQueryErrorQueryWasCancelled:
             # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".
