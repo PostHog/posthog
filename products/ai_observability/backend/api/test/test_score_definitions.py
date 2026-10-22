@@ -92,12 +92,15 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
         current_version = self._current_version(definition)
         self.assertEqual(definition.created_by, self.user)
+        self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual(definition.kind, payload["kind"])
         self.assertEqual(current_version.version, 1)
         self.assertEqual(current_version.config, payload["config"])
 
     def test_patch_updates_metadata_without_creating_a_new_version(self):
         definition = self._create_definition()
+        original_author = definition.created_by
+        ScoreDefinition.objects.filter(pk=definition.pk).update(updated_by=None)
 
         response = self.client.patch(
             f"{self._endpoint()}{definition.id}/",
@@ -109,6 +112,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         current_version = self._current_version(definition)
         self.assertEqual(definition.name, "Updated quality")
+        self.assertEqual(definition.created_by, original_author)
+        self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual(definition.description, "Updated description")
         self.assertTrue(definition.archived)
         self.assertEqual(current_version.version, 1)
@@ -259,6 +264,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         current_version = self._current_version(definition)
         self.assertEqual(current_version.version, 2)
+        self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual((definition.name, definition.description), ("Updated scorer", "Updated description"))
         self.assertEqual(definition.versions.count(), 2)
         self.assertEqual(definition.versions.get(version=1).config, original_config)
@@ -603,6 +609,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([result["id"] for result in response.data["results"]], [str(archived.id)])
         self.assertNotIn(str(active.id), [result["id"] for result in response.data["results"]])
+        ScoreDefinition.objects.filter(pk=active.pk).update(created_by=None)
+        response = self.client.get(self._endpoint(), {"created_by": str(self.user.id), "archived": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in response.data["results"]], [str(archived.id)])
+        response = self.client.get(self._endpoint(), {"created_by": str(self.user.id), "archived": "false"})
+        self.assertEqual(response.data["results"], [])
 
     @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
     def test_patch_reports_user_action(self, mock_report_user_action: Mock) -> None:

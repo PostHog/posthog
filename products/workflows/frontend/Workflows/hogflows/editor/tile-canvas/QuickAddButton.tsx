@@ -12,7 +12,16 @@ import { StepPalette } from './StepPalette'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { Point } from './tileCanvasModel'
 
-export function QuickAddButton({ edge, at }: { edge: HogFlowEdge; at: Point }): JSX.Element {
+export function QuickAddButton({
+    edge,
+    at,
+    revealed = false,
+}: {
+    edge: HogFlowEdge
+    at: Point
+    /** The pointer is on the arrow, so its button shows. */
+    revealed?: boolean
+}): JSX.Element {
     const buttonRef = useRef<HTMLButtonElement>(null)
     const { quickAddEdgeKey, isPlacing, paletteSections } = useValues(tileCanvasLogic)
     const { openQuickAdd, closeQuickAdd, addStepAt, placeAt, onDrop } = useActions(tileCanvasLogic)
@@ -32,6 +41,7 @@ export function QuickAddButton({ edge, at }: { edge: HogFlowEdge; at: Point }): 
             <Popover
                 visible={isOpen}
                 placement="right-start"
+                fallbackPlacements={['left-start', 'left', 'left-end', 'bottom-start', 'top-start']}
                 overlay={
                     <StepPalette
                         sections={paletteSections}
@@ -53,7 +63,9 @@ export function QuickAddButton({ edge, at }: { edge: HogFlowEdge; at: Point }): 
                         'flex size-5 cursor-pointer items-center justify-center rounded-full border bg-surface-primary text-secondary transition-all hover:scale-125 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] motion-reduce:transition-none',
                         isPlacing || isOpen
                             ? 'scale-125 border-[var(--color-accent)] text-[var(--color-accent)] shadow'
-                            : 'opacity-60'
+                            : revealed
+                              ? 'opacity-100'
+                              : 'opacity-0 hover:opacity-100 focus-visible:opacity-100'
                     )}
                 >
                     <IconPlus className="text-xs" />

@@ -30,6 +30,8 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
     snooze_until: null,
     check_status: 'ok',
+    overflowed_groups: 0,
+    overflow_is_lower_bound: false,
     owner: 'source',
     created_at: '2026-09-20T09:00:00Z',
     updated_at: '2026-10-01T09:00:00Z',
@@ -41,6 +43,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
             firing_started_at: '2026-10-05T11:42:00Z',
             last_notified_at: '2026-10-05T11:42:05Z',
             snooze_until: null,
+            labels: {},
         },
     ],
 }

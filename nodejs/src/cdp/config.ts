@@ -244,6 +244,8 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOW_VISION_REQUEST_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's "Add to static cohort" calls to Django. Its own key, for the same reason.
     WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Opt out of messages" calls to Django. Its own key, for the same reason.
+    WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -464,6 +466,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-workflow-add-to-static-cohort-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-message-opt-out-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
