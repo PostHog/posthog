@@ -105,6 +105,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -170,6 +171,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -231,6 +233,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
