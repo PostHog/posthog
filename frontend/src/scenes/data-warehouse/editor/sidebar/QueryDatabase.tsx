@@ -2,7 +2,7 @@ import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconBrackets,
@@ -17,7 +17,7 @@ import {
     IconExternal,
     IconPlusSmall,
 } from '@posthog/icons'
-import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
@@ -54,6 +54,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
+import { RenameViewModal } from 'products/data_warehouse/frontend/shared/components/RenameViewModal'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
@@ -62,6 +63,7 @@ import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
@@ -166,12 +168,15 @@ export const QueryDatabase = ({
         closePropertyDefinitionEditor,
         updatePropertyDefinition,
     } = useActions(queryDatabaseLogic)
-    const { dataWarehouseSavedQueriesLoaded } = useValues(dataWarehouseViewsLogic)
+    const { dataWarehouseSavedQueriesLoaded, dataWarehouseSavedQueries, dataWarehouseSavedQueryDownstreamReferences } =
+        useValues(dataWarehouseViewsLogic)
+    const [renamingView, setRenamingView] = useState<{ id: string; name: string } | null>(null)
     const {
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
+        loadDataWarehouseSavedQueryDownstreamReferences,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
@@ -188,6 +193,11 @@ export const QueryDatabase = ({
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
+    useEffect(() => {
+        if (renamingView) {
+            loadDataWarehouseSavedQueryDownstreamReferences(renamingView.id)
+        }
+    }, [renamingView?.id, loadDataWarehouseSavedQueryDownstreamReferences])
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.
@@ -1057,6 +1067,27 @@ export const QueryDatabase = ({
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
                             {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (!editViewAccessDisabledReason && item.record?.view) {
+                                            setRenamingView({ id: item.record.view.id, name: item.record.view.name })
+                                        }
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            editViewAccessDisabledReason ? { [editViewAccessDisabledReason]: true } : {}
+                                        }
+                                        data-attr="data-warehouse-view-rename"
+                                    >
+                                        Rename view
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
                                 <SeeLineageMenuItem target={{ lookup: 'saved_query', id: item.record.view.id }} />
                             ) : null}
                             {addJoinSourceTableName ? (
@@ -1433,6 +1464,27 @@ export const QueryDatabase = ({
                     propertyDefinition={editingPropertyDefinition}
                     onClose={closePropertyDefinitionEditor}
                     onSave={updatePropertyDefinition}
+                />
+            ) : null}
+            {renamingView ? (
+                <RenameViewModal
+                    key={renamingView.id}
+                    viewName={renamingView.name}
+                    references={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.references ?? []}
+                    referencesLoading={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.loading ?? true}
+                    referencesError={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.error ?? false}
+                    isNameTaken={(name) =>
+                        dataWarehouseSavedQueries.some((view) => view.id !== renamingView.id && view.name === name)
+                    }
+                    validateName={validateSavedQueryName}
+                    onClose={() => setRenamingView(null)}
+                    onSubmit={async (name) => {
+                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                            id: renamingView.id,
+                            name,
+                        })
+                        lemonToast.success('View renamed')
+                    }}
                 />
             ) : null}
         </>
