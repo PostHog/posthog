@@ -51,6 +51,7 @@ const PARTITION_ID: u16 = 0;
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+const SECOND_TOPIC_PARTITION_10: i32 = 1_000_010;
 /// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
 const COMPRESSED_WINDOW_DAYS: i64 = 365;
 
@@ -789,8 +790,14 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
     let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
 
-    // Leave from source partition 20 at a low offset, with a newer event time so argMax applies it.
-    let leave = person_event(p, "nope@x.com", "2026-05-26 13:00:00.000000", 20, 3);
+    // Leave from the second topic at a low offset, with a newer event time so argMax applies it.
+    let leave = person_event(
+        p,
+        "nope@x.com",
+        "2026-05-26 13:00:00.000000",
+        SECOND_TOPIC_PARTITION_10,
+        3,
+    );
     let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
     assert_eq!(
         out.transitions.len(),
@@ -801,7 +808,7 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
 
     let applied = person_record_at(&store, p).unwrap().applied_offsets;
     assert_high_water(&applied, 10, 100);
-    assert_high_water(&applied, 20, 3);
+    assert_high_water(&applied, SECOND_TOPIC_PARTITION_10, 3);
 }
 
 #[test]
