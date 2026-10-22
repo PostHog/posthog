@@ -237,7 +237,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
@@ -307,8 +307,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
         }
-        const chartXData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const chartYData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        const { xData: chartXData, yData: chartYData } = chartData
         const xDimension = biConfig
             ? getBIResultDimensions(biConfig).find(({ column }) => column === chartXData?.column.name)
             : undefined
@@ -339,9 +338,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         }
     }, [
         effectiveVisualizationType,
-        seriesBreakdownData,
-        xData,
-        yData,
+        chartData,
         biConfig,
         dateAxis,
         isDateXAxis,
