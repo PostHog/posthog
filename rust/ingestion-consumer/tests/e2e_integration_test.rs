@@ -243,12 +243,15 @@ struct FakeWorker {
     /// When set, the next sub-batch is recorded in full but acked as one message fewer.
     pub underreport_once: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
+    on_arrival: ArrivalHook,
     gate: Arc<tokio::sync::Mutex<()>>,
     _task: tokio::task::JoinHandle<()>,
 }
 
 /// Shared by all workers, so its mutex puts every accepted message in one total order.
 type DeliveryLog = Arc<Mutex<Vec<(String, usize)>>>;
+
+type ArrivalHook = Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>;
 
 impl FakeWorker {
     async fn start() -> Self {
@@ -271,6 +274,7 @@ impl FakeWorker {
         let replayed = Arc::new(Mutex::new(Vec::new()));
         let hold_replays = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
+        let on_arrival: ArrivalHook = Arc::new(Mutex::new(None));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
         let app = Router::new().route(
@@ -317,6 +321,7 @@ impl FakeWorker {
             replayed: Arc::clone(&replayed),
             hold_replays: Arc::clone(&hold_replays),
             arrived: Arc::clone(&arrived),
+            on_arrival: Arc::clone(&on_arrival),
             gate: Arc::clone(&gate),
             delivery_log,
         };
@@ -347,6 +352,7 @@ impl FakeWorker {
             replayed,
             hold_replays,
             arrived,
+            on_arrival,
             gate,
             _task: task,
         }
@@ -369,6 +375,11 @@ impl FakeWorker {
     /// returned guard is dropped. Acquire before producing so the batch is caught.
     async fn block(&self) -> tokio::sync::OwnedMutexGuard<()> {
         Arc::clone(&self.gate).lock_owned().await
+    }
+
+    /// Run `hook` as each sub-batch arrives, before the gate holds it.
+    fn on_arrival(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *self.on_arrival.lock().unwrap() = Some(Box::new(hook));
     }
 
     fn seqs_for(&self, distinct_id: &str) -> Vec<usize> {
@@ -395,6 +406,7 @@ struct FakeWorkerGrpc {
     replayed: Arc<Mutex<Vec<(String, usize)>>>,
     hold_replays: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
+    on_arrival: ArrivalHook,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
 }
@@ -422,6 +434,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let replayed = Arc::clone(&self.replayed);
         let hold_replays = Arc::clone(&self.hold_replays);
         let arrived = Arc::clone(&self.arrived);
+        let on_arrival = Arc::clone(&self.on_arrival);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
 
@@ -451,6 +464,9 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     continue;
                 };
                 arrived.fetch_add(1, Ordering::SeqCst);
+                if let Some(hook) = on_arrival.lock().unwrap().as_ref() {
+                    hook();
+                }
                 let _hold = gate.lock().await;
                 if !healthy.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
                     nack(&tx, sub_batch.seq, "worker unhealthy");
@@ -2907,6 +2923,65 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
         "reading to resume and drain",
         || harness.workers[0].count() == 120,
     )
+    .await;
+
+    harness.stop().await;
+}
+
+/// On this single-threaded runtime the batcher runs only when the consumer
+/// loop yields. A ready backlog keeps `recv` ready on every turn, so the first
+/// request must reach the worker before the loop has charged the whole backlog.
+#[tokio::test]
+async fn a_ready_backlog_does_not_keep_the_batcher_from_running() {
+    const BACKLOG: usize = 2_000;
+    let topic = format!("e2e-continuous-backlog-{}", Uuid::new_v4());
+    let harness = Harness::start_continuous(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        BudgetLimits::new(
+            NonZeroU64::new(100_000),
+            NonZeroU64::new(UNBOUNDED_BYTES),
+            0.8,
+        )
+        .expect("a valid budget"),
+        ChargeLimit::new(NonZeroU64::new(100_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let held_at_arrival: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    {
+        let ledger = Arc::clone(&harness.ledger);
+        let p0 = p0.clone();
+        let held_at_arrival = Arc::clone(&held_at_arrival);
+        harness.workers[0].on_arrival(move || {
+            held_at_arrival
+                .lock()
+                .unwrap()
+                .push(ledger.held(&p0).offsets);
+        });
+    }
+    let guard = harness.workers[0].block().await;
+    let backlog: Vec<(&str, usize)> = (0..BACKLOG).map(|seq| ("user-a", seq)).collect();
+
+    produce_in_one_transaction(&topic, 0, "tok", &backlog).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first request to reach the worker",
+        || harness.workers[0].arrived_count() >= 1,
+    )
+    .await;
+    let held = held_at_arrival.lock().unwrap()[0];
+    assert!(
+        held < BACKLOG / 2,
+        "the loop charged {held} of {BACKLOG} offsets before the first request reached the worker"
+    );
+
+    drop(guard);
+    wait_until(Duration::from_secs(10), "the backlog to drain", || {
+        harness.workers[0].count() == BACKLOG
+    })
     .await;
 
     harness.stop().await;
