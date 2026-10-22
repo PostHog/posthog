@@ -188,9 +188,11 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
+    from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
+    from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
@@ -210,6 +212,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
     from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
+    from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
+        TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
+    )
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -290,6 +295,14 @@ def _register_all_emitters() -> None:
     # Data quality / observability (record kind: incident)
     register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
     register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
+    # Tier-2 security tools (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.LACEWORK, "alerts", LACEWORK_CONFIG)
+    register_signal_source(ExternalDataSourceType.ORCASECURITY, "alerts", ORCA_SECURITY_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
+        "vulnerabilities",
+        TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
+    )
 
 
 _register_all_emitters()
