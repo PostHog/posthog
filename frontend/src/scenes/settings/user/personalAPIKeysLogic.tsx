@@ -44,7 +44,7 @@ export type EditingKeyFormValues = Pick<
 }
 
 /** `keep` leaves an edited key's expiry as it is. The day counts start when the form is saved. */
-export type KeyExpirationOption = 'keep' | 'never' | '7' | '30' | '90' | '365'
+export type KeyExpirationOption = 'keep' | 'never' | '1' | '7' | '30' | '90' | '365'
 
 export function isExpired(expiresAt: string | null | undefined, now: dayjs.Dayjs = dayjs()): boolean {
     return !!expiresAt && !dayjs(expiresAt).isAfter(now)

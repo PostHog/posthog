@@ -173,6 +173,7 @@ describe('personalAPIKeysLogic', () => {
     it.each([
         ['keep', undefined],
         ['never', null],
+        ['1', dayjs('2026-01-02T10:00:00Z').toISOString()],
         ['30', dayjs('2026-01-31T10:00:00Z').toISOString()],
         ['365', dayjs('2027-01-01T10:00:00Z').toISOString()],
     ] as const)('expiration %s sends expires_at %s', (expiration, expected) => {

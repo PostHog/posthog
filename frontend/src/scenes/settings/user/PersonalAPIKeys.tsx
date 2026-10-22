@@ -247,6 +247,7 @@ const EXPIRY_TIME_FORMAT = 'h:mm A'
 
 const EXPIRATION_PRESETS: LemonSelectOptions<KeyExpirationOption> = [
     { value: 'never', label: 'Never' },
+    { value: '1', label: '1 day' },
     { value: '7', label: '7 days' },
     { value: '30', label: '30 days' },
     { value: '90', label: '90 days' },
