@@ -83,8 +83,13 @@ class TestIssueSummaryParsing(SimpleTestCase):
         assert (compute_input_hash(**{**base, **before}) == compute_input_hash(**{**base, **after})) == same
 
 
-# Failures after the gates pass, which spend or try to spend a model call.
+# Failures after the gates pass.
 FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
+    (
+        "inputs_raise",
+        lambda test: test.build_inputs.configure_mock(side_effect=TimeoutError("clickhouse")),
+        IssueSummaryOutcome.INPUTS_ERROR,
+    ),
     ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
     (
         "llm_raises",

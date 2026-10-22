@@ -115,6 +115,7 @@ class IssueSummaryOutcome(StrEnum):
     IN_PROGRESS = "in_progress"
     ISSUE_MISSING = "issue_missing"
     NO_EXCEPTION = "no_exception"
+    INPUTS_ERROR = "inputs_error"
     RATE_LIMITED = "rate_limited"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured"
     MODEL_ERROR = "model_error"
@@ -232,7 +233,12 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
     team = Team.objects.get(id=team_id)
-    inputs = build_issue_summary_inputs(team, issue_id)
+    try:
+        inputs = build_issue_summary_inputs(team, issue_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
+        logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.INPUTS_ERROR, summary=stored)
     if isinstance(inputs, IssueSummaryOutcome):
         if inputs == IssueSummaryOutcome.NO_EXCEPTION:
             _hold_generation(team_id, issue_id, inputs)
@@ -248,9 +254,9 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         case BucketDecision(allowed=False):
             _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
-        case BucketUnavailable(error=error):
+        case BucketUnavailable(error=bucket_error):
             # Fail open: the per-issue lock and the regenerate interval still bound the spend.
-            logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=error)
+            logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=bucket_error)
 
     # Only the Go gateway honours privacy mode, so the Python gateway fallback is never used.
     if resolve_ai_gateway_config() is None:
