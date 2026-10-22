@@ -179,6 +179,14 @@ class TestMaterializeViewManagedWarehouseActivity:
         asaved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
         await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
         executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
+
+        def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
+            kwargs["on_processed_bytes"](300)
+            kwargs["on_processed_bytes"](45)
+            if compile_fails:
+                raise ValueError("Trino compilation failed")
+            return DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12)
+
         with (
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
@@ -186,8 +194,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             ) as reconcile_aliases,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_model",
-                return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
-                side_effect=ValueError("Trino compilation failed") if compile_fails else None,
+                side_effect=execute_trino_model,
             ) as execute,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
@@ -205,9 +212,11 @@ class TestMaterializeViewManagedWarehouseActivity:
             saved_query_id=asaved_query.id,
             source_query=executable_query,
             incremental=None,
+            on_processed_bytes=unittest.mock.ANY,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.bytes_read == 345
         if compile_fails:
             reconcile_aliases.assert_not_awaited()
             assert result.error == "Trino compilation failed"
