@@ -585,9 +585,17 @@ export class TaskCreationSaga extends Saga<
               .filter((part): part is string => !!part)
               .join("\n\n");
 
+            const taskRun = await this.deps.posthogClient.createTaskRun(
+              task.id,
+            );
+            if (!taskRun?.id) {
+              throw new Error("Failed to create task run");
+            }
+
             await this.deps.piRunner.create({
               taskContext: {
                 taskId: task.id,
+                taskRunId: taskRun.id,
                 cwd: agentCwd ?? "",
                 customInstructions: input.customInstructions,
                 additionalDirectories: input.additionalDirectories,

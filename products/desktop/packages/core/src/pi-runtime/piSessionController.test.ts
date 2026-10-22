@@ -1071,6 +1071,24 @@ describe("PiSessionController", () => {
     },
   );
 
+  it("retries a local session with a local run instead of resuming it in the cloud", async () => {
+    const session = createSession();
+    const taskService = {
+      openTask: vi.fn(async () => ({ success: true })),
+      resumeCloudPiRun: vi.fn(),
+    } as unknown as TaskService;
+    const controller = createController(session, taskService);
+
+    await controller.connect("task-1", "run-local");
+    await controller.restart("task-1");
+
+    expect(taskService.resumeCloudPiRun).not.toHaveBeenCalled();
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "connected",
+      error: undefined,
+    });
+  });
+
   it("keeps a background cloud session until the run ends", async () => {
     const session: PiSession = {
       ...createSession(),
