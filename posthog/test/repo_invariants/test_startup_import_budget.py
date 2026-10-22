@@ -46,7 +46,7 @@ FORBIDDEN_AT_SETUP = [
     "posthog.api.services.query",  # API query service — viewset-request-time only
     "products.signals.backend.tasks",  # celery task module — workers load it by autodiscovery; at setup it drags the signals and tasks contracts in
     "products.signals.backend.scout_harness.suggestions",  # reaches the tasks facade contracts (pydantic DTOs) — deferred in the signals receivers; the facade itself stays importable
-    "ee.vercel.integration",  # reaches ee.api.authentication (@api_view -> DRF schema class) — receivers live in ee.vercel.receivers and import it at call time
+    "ee.vercel.integration",  # receiver modules import the integration when the receiver fires, not during Django setup
     "posthog.api.documentation",  # drf_spectacular schema hooks — request-time only
     "django.test",  # test client — was dragged in by drf_spectacular.plumbing via rest_framework.test
     "zxcvbn",  # password strength, needed only by posthog.auth (deferred in posthog.helpers.impersonation and posthog.event_usage)
