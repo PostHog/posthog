@@ -721,6 +721,106 @@ export type PlatformAlertConfigurationCreateApi = LogsPlatformAlertConfiguration
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
  */
+export type InsightPlatformAlertConfigurationEditApiSourceKind =
+    (typeof InsightPlatformAlertConfigurationEditApiSourceKind)[keyof typeof InsightPlatformAlertConfigurationEditApiSourceKind]
+
+export const InsightPlatformAlertConfigurationEditApiSourceKind = {
+    Insight: 'insight',
+} as const
+
+export interface InsightsThresholdBoundsApi {
+    /** Alert fires when the value drops below this number. */
+    lower?: number | null
+    /** Alert fires when the value exceeds this number. */
+    upper?: number | null
+}
+
+export type InsightThresholdTypeApi = (typeof InsightThresholdTypeApi)[keyof typeof InsightThresholdTypeApi]
+
+export const InsightThresholdTypeApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface InsightThresholdApi {
+    bounds?: InsightsThresholdBoundsApi | null
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
+    type: InsightThresholdTypeApi
+}
+
+export type AlertConditionTypeApi = (typeof AlertConditionTypeApi)[keyof typeof AlertConditionTypeApi]
+
+export const AlertConditionTypeApi = {
+    AbsoluteValue: 'absolute_value',
+    RelativeIncrease: 'relative_increase',
+    RelativeDecrease: 'relative_decrease',
+} as const
+
+export interface AlertConditionApi {
+    type: AlertConditionTypeApi
+}
+
+export interface InsightPlatformAlertConditionApi {
+    /** The bounds the insight's value is checked against, absolute or as a percentage change. */
+    threshold: InsightThresholdApi | null
+    /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
+    comparison: AlertConditionApi
+    /**
+     * Always null. The platform owns threshold alerts only, so no detector applies.
+     * @nullable
+     */
+    detector?: null
+}
+
+export interface InsightPlatformAlertSourceConfigApi {
+    /** The insight the alert checks. It cannot change through this API. */
+    insight_id: number
+    /** The bound the insight's value is checked against. */
+    condition: InsightPlatformAlertConditionApi
+}
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface InsightPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: InsightPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+    source_config: InsightPlatformAlertSourceConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
 export type LogsPlatformAlertConfigurationEditApiSourceKind =
     (typeof LogsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationEditApiSourceKind]
 
@@ -767,7 +867,58 @@ export interface LogsPlatformAlertConfigurationEditApi {
     cooldown_minutes: number
 }
 
-export type PlatformAlertConfigurationEditApi = LogsPlatformAlertConfigurationEditApi
+export type PlatformAlertConfigurationEditApi =
+    | InsightPlatformAlertConfigurationEditApi
+    | LogsPlatformAlertConfigurationEditApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedInsightPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedInsightPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedInsightPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedInsightPlatformAlertConfigurationEditApiSourceKind = {
+    Insight: 'insight',
+} as const
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedInsightPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedInsightPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+    source_config?: InsightPlatformAlertSourceConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+}
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -818,7 +969,9 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     cooldown_minutes?: number
 }
 
-export type PatchedPlatformAlertConfigurationEditApi = PatchedLogsPlatformAlertConfigurationEditApi
+export type PatchedPlatformAlertConfigurationEditApi =
+    | PatchedInsightPlatformAlertConfigurationEditApi
+    | PatchedLogsPlatformAlertConfigurationEditApi
 
 export interface PlatformAlertGroupSnoozeApi {
     /**

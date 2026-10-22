@@ -31,6 +31,9 @@ export interface DrawContext {
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
 
+/** Dot radius for a point with no line through it, e.g. a series with one value. */
+const ISOLATED_POINT_RADIUS = 3
+
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
     if (data.length === 0) {
@@ -584,11 +587,9 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.points?.radius ?? 0
-
-    if (radius <= 0) {
-        return
-    }
+    const radius = series.points?.radius
+    const isDrawable = (i: number): boolean =>
+        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
 
     ctx.fillStyle = series.color
 
@@ -598,8 +599,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
         if (x == null || !isFinite(y)) {
             continue
         }
+        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
+        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        if (r <= 0) {
+            continue
+        }
         ctx.beginPath()
-        ctx.arc(x, y, radius, 0, Math.PI * 2)
+        ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
     }
 }
