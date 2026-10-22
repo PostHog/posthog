@@ -397,6 +397,9 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "ExpiredToken": "The AWS session token has expired. Reconnect with fresh credentials.",
     "AccessDeniedException": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
     "AccessDenied": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
+    # A rejection without an error body reaches `_error_from` as its bare status.
+    "HTTP 401": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
+    "HTTP 403": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
 }
 
 TRANSIENT_VALIDATION_ERROR = "Amazon CloudWatch is busy or temporarily unavailable. Wait a moment and try again."
