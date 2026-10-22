@@ -17,7 +17,6 @@ import { todayMenuLinkItem } from './todayMenuLinkItem'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
-import { TodaySeverityDot } from './TodaySeverityDot'
 
 /**
  * The rail's "More" menu. The help menu shortcut opens it too.
@@ -59,16 +58,26 @@ export function TodayMoreMenu(): JSX.Element {
                     data-attr="more-menu-status-button"
                 >
                     Status page
-                    <TodaySeverityDot severity={moreItemSeverity.status} />
                     <IconExternal data-icon="inline-end" className="ms-auto" />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     render={todayMenuLinkItem(urls.health())}
-                    description={healthText}
+                    description={
+                        healthText && (
+                            <span
+                                className={
+                                    SEVERITY_TEXT_CLASS[
+                                        moreItemSeverity.health === 'ok' ? 'none' : moreItemSeverity.health
+                                    ]
+                                }
+                            >
+                                {healthText}
+                            </span>
+                        )
+                    }
                     data-attr="more-menu-health-button"
                 >
                     Health
-                    <TodaySeverityDot severity={moreItemSeverity.health} />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
