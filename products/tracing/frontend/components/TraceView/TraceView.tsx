@@ -205,6 +205,7 @@ export function TraceView({
                             />
                         ) : (
                             <TraceDialogSpanTree
+                                surface={surface}
                                 openedFrom={openedFrom}
                                 openedAtUs={openedAtUs}
                                 hasMore={hasMoreSpans}

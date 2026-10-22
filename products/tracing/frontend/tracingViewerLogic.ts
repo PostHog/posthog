@@ -117,8 +117,12 @@ export interface tracingViewerLogicActions {
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
-    enableSpanKeys: (containerSelector: string) => {
+    enableSpanKeys: (
+        containerSelector: string,
+        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
+    ) => {
         containerSelector: string
+        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
     selectViewSpan: (spanId: string | null) => {
         spanId: string | null
@@ -537,7 +541,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         },
         openTrace: ({ traceId, ts, spanId }) => {
             actions.showTrace(spanId, values.inspectorTab)
-            actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+            actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             // pinned: analytics event and property names. The view persists across traces, so the view change event
             // alone cannot count how many traces people read as a call tree.
             posthog.capture('tracing trace opened', { view: values.traceViewMode })
@@ -568,12 +572,12 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         },
         closeLogsViewerModal: () => {
             if (values.isTraceOpen) {
-                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             }
         },
         closeSessionPlayer: () => {
             if (values.isTraceOpen) {
-                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             }
         },
         selectInspectorTab: ({ tab }) => {
