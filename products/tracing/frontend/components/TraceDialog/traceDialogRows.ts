@@ -54,6 +54,14 @@ export function countDescendantsById(roots: SpanNode[]): Map<string, number> {
     return counts
 }
 
+/**
+ * Whether a parent's child cap hides the sibling at `index`. `siblings` are in start order. A sibling on the path to
+ * the pinned span always shows.
+ */
+function childCapHides<T>(siblings: T[], index: number, isPinned: (sibling: T) => boolean): boolean {
+    return siblings.length > TRACE_DIALOG_CHILD_LIMIT && index >= TRACE_DIALOG_CHILD_LIMIT && !isPinned(siblings[index])
+}
+
 function singleChildRun(first: SpanNode, collapsedSpanIds: Set<string>): SpanNode[] {
     const run: SpanNode[] = []
     let node: SpanNode | undefined = first
@@ -88,11 +96,11 @@ export function buildTraceDialogRows(
     // span in a run. Marking them keeps a deep pinned chain to one scan instead of one per member.
     const noFold = new Set<SpanNode>()
     const stack: (Pending | TraceDialogRow)[] = []
+    const isOnPinnedPath = (node: SpanNode): boolean => pinnedPath.has(node)
     const pushChildren = (children: SpanNode[], owner: SpanNode, depth: number, parentRow: TraceDialogRow): void => {
         const sorted = byStart(children)
-        const capped = sorted.length > TRACE_DIALOG_CHILD_LIMIT && !fullChildListSpanIds.has(owner.span.span_id)
-        const isShown = (child: SpanNode, i: number): boolean =>
-            !capped || i < TRACE_DIALOG_CHILD_LIMIT || pinnedPath.has(child)
+        const showsAll = fullChildListSpanIds.has(owner.span.span_id)
+        const isShown = (_child: SpanNode, i: number): boolean => showsAll || !childCapHides(sorted, i, isOnPinnedPath)
         const shown = sorted.filter(isShown)
         const hidden = sorted.filter((child, i) => !isShown(child, i))
         const hiddenCount = hidden.length
@@ -228,40 +236,48 @@ export interface TraceDialogReveal {
     chainIds: string[]
 }
 
+/** `node` and the spans above it, root first. */
+function pathFromRoot(node: SpanNode): SpanNode[] {
+    const path: SpanNode[] = []
+    for (let ancestor: SpanNode | null = node; ancestor; ancestor = ancestor.parent) {
+        path.push(ancestor)
+    }
+    return path.reverse()
+}
+
 /** The ids to open so that `target` gets a row of its own, or heads a folded chain, which shows its name. */
 export function revealSpanInRows(
     roots: SpanNode[],
     target: SpanNode,
     options: TraceDialogRowOptions
 ): TraceDialogReveal {
-    const path = new Set<SpanNode>()
-    for (let node: SpanNode | null = target; node; node = node.parent) {
-        path.add(node)
-    }
-    const collapsedSpanIds = [...path]
+    const path = pathFromRoot(target)
+    const pinnedPath = new Set(options.pinned ? pathFromRoot(options.pinned) : [])
+    const isOnPinnedPath = (node: SpanNode): boolean => pinnedPath.has(node)
+    const collapsedSpanIds = path
         .filter((node) => node !== target && options.collapsedSpanIds.has(node.span.span_id))
         .map((node) => node.span.span_id)
-    const collapsed = new Set(options.collapsedSpanIds)
-    collapsedSpanIds.forEach((spanId) => collapsed.delete(spanId))
-    const fullChildLists = new Set(options.fullChildListSpanIds)
+    // With the collapsed ancestors open, only the child caps along the path can still hide the target. A folded
+    // chain holds spans with one child each, so no cap sits inside one. One walk down the path finds every cap.
     const fullChildListSpanIds: string[] = []
-    // A child list exists only under a parent that has a row, so a path capped at several levels opens one
-    // level per pass. The row builder decides what each cap and chain hides, so this asks it rather than
-    // repeating its rules.
-    for (;;) {
-        const rows = buildTraceDialogRows(roots, {
-            ...options,
-            collapsedSpanIds: collapsed,
-            fullChildListSpanIds: fullChildLists,
-        })
-        const cap = rows.find((row) => row.kind === 'more' && row.hidden.some((child) => path.has(child)))
-        if (cap?.kind === 'more') {
-            fullChildListSpanIds.push(cap.parent.span.span_id)
-            fullChildLists.add(cap.parent.span.span_id)
+    for (const node of path) {
+        if (!node.parent || options.fullChildListSpanIds.has(node.parent.span.span_id)) {
             continue
         }
-        const chain = rows.find((row) => row.kind === 'chain' && row.nodes.includes(target))
-        const chainIds = chain?.kind === 'chain' && chain.nodes[0] !== target ? [chain.nodes[0].span.span_id] : []
-        return { collapsedSpanIds, fullChildListSpanIds, chainIds }
+        const siblings = byStart(node.parent.children)
+        if (childCapHides(siblings, siblings.indexOf(node), isOnPinnedPath)) {
+            fullChildListSpanIds.push(node.parent.span.span_id)
+        }
     }
+    // The row builder decides which runs fold, so this asks it rather than repeating its rules.
+    const collapsed = new Set(options.collapsedSpanIds)
+    collapsedSpanIds.forEach((spanId) => collapsed.delete(spanId))
+    const rows = buildTraceDialogRows(roots, {
+        ...options,
+        collapsedSpanIds: collapsed,
+        fullChildListSpanIds: new Set([...options.fullChildListSpanIds, ...fullChildListSpanIds]),
+    })
+    const chain = rows.find((row) => row.kind === 'chain' && row.nodes.includes(target))
+    const chainIds = chain?.kind === 'chain' && chain.nodes[0] !== target ? [chain.nodes[0].span.span_id] : []
+    return { collapsedSpanIds, fullChildListSpanIds, chainIds }
 }

@@ -180,16 +180,23 @@ describe('traceDialogRows', () => {
     // or when it toggles something that was already open and hides more of the tree instead.
     it.each([
         { hiddenBy: 'the child cap', spanId: 'c11', collapsed: [], reveal: { fullChildListSpanIds: ['root'] } },
+        {
+            hiddenBy: 'nested child caps',
+            spanId: 'd11',
+            collapsed: [],
+            reveal: { fullChildListSpanIds: ['root', 'c11'] },
+        },
         { hiddenBy: 'a collapsed span', spanId: 'g0', collapsed: ['c0'], reveal: { collapsedSpanIds: ['c0'] } },
         { hiddenBy: 'a folded chain', spanId: 'b', collapsed: [], reveal: { chainIds: ['a'] } },
         { hiddenBy: 'nothing, as the head of a folded chain', spanId: 'a', collapsed: [], reveal: {} },
     ])('reveals a span hidden by $hiddenBy', ({ spanId, collapsed, reveal }) => {
-        // The root fans out to x and c0 to c11, so c9 to c11 sit past the cap. c0 has a child g0, and
-        // x > a > b > c > d folds a to c into a chain.
+        // The root fans out to x and c0 to c11, so c9 to c11 sit past the cap. c11 fans out to d0 to d11 in
+        // turn. c0 has a child g0, and x > a > b > c > d folds a to c into a chain.
         const tree = buildSpanTree([
             span('root', '', 0),
             span('x', 'root', 5),
             ...Array.from({ length: 12 }, (_, i) => span(`c${i}`, 'root', 10 + i)),
+            ...Array.from({ length: 12 }, (_, i) => span(`d${i}`, 'c11', 30 + i)),
             span('g0', 'c0', 11),
             span('a', 'x', 6),
             span('b', 'a', 7),
