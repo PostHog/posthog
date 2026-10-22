@@ -6,6 +6,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFlagCh
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionsChange,
+    ExposureEvents,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -27,6 +28,10 @@ RUNNING_CONTEXT = HealthContext(
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
+    hours_since_launch=72,
+    metric_events=(),
+    exposure_events=ExposureEvents(custom_event=None, required_flag_key="flag", flag_key_filters=()),
+    events_received={},
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
@@ -55,6 +60,8 @@ def flag_history(
     not_checked: FlagHistoryNotCheckedReason | None = None,
     release_conditions: tuple[ReleaseCondition, ...] | None = None,
     exposed_during_overrides: Mapping[ChangeWindow, bool | None] | None = None,
+    exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None] | None = None,
+    counts_groups: bool = False,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
@@ -72,4 +79,6 @@ def flag_history(
         if release_conditions is not None
         else next((change.after for change in reversed(changes) if isinstance(change, ConditionsChange)), ()),
         exposed_during_overrides=exposed_during_overrides or {},
+        counts_groups=counts_groups,
+        exposed_units_before_last=exposed_units_before_last or {},
     )

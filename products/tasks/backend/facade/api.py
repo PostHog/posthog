@@ -102,7 +102,11 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.feature_flags import get_model_access_error, pi_cloud_runtime_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    pi_cloud_runtime_enabled,
+    run_stream_presence_gated,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -352,6 +356,7 @@ __all__ = [
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
+    "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
     "record_run_failure_cause",
@@ -557,6 +562,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_app_agent_design_enabled",
         "slack_artifact_delivery",
         "slack_chart_delivery",
+        "slack_chart_links",
         "slack_thread_url",
     }
 )
@@ -2609,13 +2615,14 @@ def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -
 # --- Sandbox custom images (presentation CRUD + builder/build flows) ---
 
 
-def sandbox_custom_images_enabled(team_id: int, user_id: int) -> bool:
+def sandbox_custom_images_enabled(team_id: int, user_id: int, origin_product: str | None = None) -> bool:
     """Whether custom base images are available for this team (Modal VM runtime flag gate)."""
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     user = User.objects.only("id", "distinct_id").get(id=user_id)
     return is_custom_images_enabled(
         distinct_id=user.distinct_id or f"user-{user_id}",
         organization_id=str(team.organization_id),
+        origin_product=origin_product,
     )
 
 
@@ -5193,6 +5200,37 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return read_task_run_log_content(log_urls)
 
 
+_MARK_WATCHED_REDIS_TIMEOUT_SECONDS = 0.5
+
+
+def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        get_task_run_stream_key,
+        get_task_run_stream_watched_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    info = get_task_run_stream_info(run_id, task_id, team_id)
+    if info is None or info.is_terminal or not run_stream_presence_gated(info.state):
+        return
+    try:
+        get_tasks_stream_redis_sync(
+            run_uses_dedicated_stream(info.state),
+            socket_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+        ).set(
+            get_task_run_stream_watched_key(get_task_run_stream_key(str(info.id))),
+            "1",
+            ex=TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        )
+    except Exception:
+        logger.warning("task_run_stream_mark_watched_failed run_id=%s", info.id, exc_info=True)
+
+
 def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5501,36 +5539,12 @@ def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> boo
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
-def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
+def resolve_stream_base_url() -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
-    Returns the configured agent-proxy URL only when it is set for this environment AND the
-    read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
-    server owns this decision; clients just connect to whatever URL comes back.
+    The server owns this decision; clients just connect to whatever URL comes back.
     """
-    from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
-
-    proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
-    if not proxy_url:
-        return None
-    # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
-    # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
-    if settings.DEBUG or force_proxy:
-        return proxy_url
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                STREAM_VIA_PROXY_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": str(organization_id)},
-                group_properties={"organization": {"id": str(organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return None
-    return proxy_url if enabled else None
+    return settings.TASKS_AGENT_PROXY_PUBLIC_URL or None
 
 
 # --- Task run commands (user_message signal + sandbox proxy) ---
@@ -10926,6 +10940,17 @@ def list_channel_instruction_versions(
 def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int) -> bool:
     # Legacy loop runs could only publish to the channel their loop targeted, and that config is gone.
     return Task.objects.filter(id=task_id, team_id=team_id).exclude(origin_product=Task.OriginProduct.LOOP).exists()
+
+
+def mcp_tool_allowlist_for_task(task_id: str | UUID) -> list[str] | None:
+    """The PostHog MCP tools a run picked at dispatch, or None when the run is not narrowed.
+
+    Scoped by task rather than by team, because the caller's authority here is a run token
+    minted for exactly this task. A malformed snapshot reads as an empty list, so callers fail
+    closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product", "state").first()
+    return task.mcp_tool_allowlist if task is not None else None
 
 
 def capture_context_wiki_changed(

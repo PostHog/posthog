@@ -6,11 +6,14 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -187,7 +190,7 @@ def _raise_for_graphql_errors(payload: dict[str, Any]) -> None:
     raise Exception(f"dbt Discovery API error: {messages}")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(DbtRetryableError),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -355,7 +358,7 @@ def _coerce_datetime(value: Any) -> datetime | None:
     return None
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             DbtRetryableError,

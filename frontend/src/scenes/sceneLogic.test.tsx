@@ -253,6 +253,13 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
     })
 
+    it('sends the /source-maps-key short link to a new key with the source map upload preset', async () => {
+        router.actions.push('/source-maps-key')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('user-api-keys'))
+        expect(router.values.searchParams).toEqual({ preset: 'source_map_upload' })
+    })
+
     it.each([
         ['/organization', urls.settings('organization'), Scene.Settings],
         ['/organization/projects', urls.settings('organization'), Scene.Settings],
@@ -554,6 +561,36 @@ describe('sceneLogic', () => {
 
             expect(router.values.location.pathname).toEqual(refusedLink)
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it('keeps an impersonating staff member on the page when the first project has no data', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: MOCK_DEFAULT_ORGANIZATION, is_impersonated: true },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+                removeProjectIdIfPresent(urls.eventDefinitions())
+            )
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }

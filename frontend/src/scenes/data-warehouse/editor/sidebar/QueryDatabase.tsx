@@ -38,6 +38,10 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    getDatabaseSchemaQueryScope,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { PropertyDefinitionEditModal } from 'scenes/data-management/properties/PropertyDefinitionEditModal'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -309,6 +313,12 @@ export const QueryDatabase = ({
         }
     }
 
+    const isManagedTrino = connectionId === MANAGED_TRINO_SCHEMA_SCOPE
+    const schemaQueryScope = {
+        ...getDatabaseSchemaQueryScope(connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined),
+        ...(isManagedTrino ? { sendRawQuery: true } : {}),
+    }
+
     const isPreviewableViewItem = (item: TreeDataItem): boolean => {
         return ['view', 'managed-view', 'endpoint'].includes(item.record?.type)
     }
@@ -320,7 +330,6 @@ export const QueryDatabase = ({
 
         const table = item.record?.tableName || item.name
         const previewQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
-        const nextConnectionId = connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
 
         if (isEmbeddedMode) {
             setActiveTab(OutputTab.Results)
@@ -328,7 +337,7 @@ export const QueryDatabase = ({
                 ...sourceQuery,
                 source: {
                     ...sourceQuery.source,
-                    connectionId: nextConnectionId,
+                    ...schemaQueryScope,
                     query: previewQuery,
                 },
             })
@@ -341,7 +350,7 @@ export const QueryDatabase = ({
             urls.sqlEditor({
                 query: previewQuery,
                 outputTab: OutputTab.Results,
-                connectionId: nextConnectionId,
+                ...schemaQueryScope,
             })
         )
     }
@@ -752,16 +761,17 @@ export const QueryDatabase = ({
                 if (item.record?.type === 'table') {
                     // Per-object access control only exists for actual warehouse tables, not posthog/system tables
                     const warehouseTableId =
-                        warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
+                        warehouseAccessControlEnabled && !isManagedTrino && item.record.table?.type === 'data_warehouse'
                             ? item.record.table?.id
                             : null
-                    const tableLineageTarget: LineageTarget | null = isEmbeddedMode
-                        ? null
-                        : item.record.table?.type === 'data_warehouse'
-                          ? { lookup: 'warehouse_table', id: item.record.table.id }
-                          : item.record.table?.type === 'posthog'
-                            ? { lookup: 'posthog_table', id: item.record.table.name }
-                            : null
+                    const tableLineageTarget: LineageTarget | null =
+                        isEmbeddedMode || isManagedTrino
+                            ? null
+                            : item.record.table?.type === 'data_warehouse'
+                              ? { lookup: 'warehouse_table', id: item.record.table.id }
+                              : item.record.table?.type === 'posthog'
+                                ? { lookup: 'posthog_table', id: item.record.table.name }
+                                : null
 
                     return (
                         <DropdownMenuGroup>
@@ -769,12 +779,10 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    const nextConnectionId =
-                                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
                                     router.actions.push(
                                         urls.sqlEditor({
                                             query: buildSelectAllQuery(item.name, null),
-                                            connectionId: nextConnectionId,
+                                            ...schemaQueryScope,
                                         })
                                     )
                                 }}
@@ -782,44 +790,52 @@ export const QueryDatabase = ({
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
                             {tableLineageTarget ? <SeeLineageMenuItem target={tableLineageTarget} /> : null}
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (addJoinAccessDisabledReason) {
-                                        return
-                                    }
-                                    selectSourceTable(item.name)
-                                }}
-                            >
-                                <ButtonPrimitive
-                                    menuItem
-                                    disabledReasons={
-                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
-                                    }
-                                >
-                                    Add join
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (addJoinAccessDisabledReason) {
-                                        return
-                                    }
-                                    openNewExpressionModal(item.name)
-                                }}
-                            >
-                                <ButtonPrimitive
-                                    menuItem
-                                    disabledReasons={
-                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
-                                    }
-                                >
-                                    Add expression
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
+                            {!isManagedTrino && (
+                                <>
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (addJoinAccessDisabledReason) {
+                                                return
+                                            }
+                                            selectSourceTable(item.name)
+                                        }}
+                                    >
+                                        <ButtonPrimitive
+                                            menuItem
+                                            disabledReasons={
+                                                addJoinAccessDisabledReason
+                                                    ? { [addJoinAccessDisabledReason]: true }
+                                                    : {}
+                                            }
+                                        >
+                                            Add join
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (addJoinAccessDisabledReason) {
+                                                return
+                                            }
+                                            openNewExpressionModal(item.name)
+                                        }}
+                                    >
+                                        <ButtonPrimitive
+                                            menuItem
+                                            disabledReasons={
+                                                addJoinAccessDisabledReason
+                                                    ? { [addJoinAccessDisabledReason]: true }
+                                                    : {}
+                                            }
+                                        >
+                                            Add expression
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </>
+                            )}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

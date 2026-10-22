@@ -909,6 +909,7 @@ CREATE TABLE posthog.platform_alert_events (
   labels Map(String, String),
   condition_snapshot String,
   source_config_snapshot String,
+  source_detail String,
   query_duration_ms Nullable(UInt32),
   error_message String,
   consecutive_failures UInt32,
@@ -1394,6 +1395,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
+  INDEX minmax_sharded_events_inserted_at inserted_at TYPE minmax GRANULARITY 1,
   INDEX minmax_mat_metadata_backend mat_metadata_backend TYPE minmax GRANULARITY 1,
   INDEX minmax_mat_metadata_loggedIn mat_metadata_loggedIn TYPE minmax GRANULARITY 1,
   INDEX minmax_mat_$ai_trace_id `mat_$ai_trace_id` TYPE minmax GRANULARITY 1

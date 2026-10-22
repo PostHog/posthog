@@ -207,19 +207,11 @@ def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> ob
     )
 
 
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    return vm_sandbox_allowed_origin_products(
-        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
-    )
-
-
 MAX_CUSTOM_IMAGES_PER_TEAM = 20
 MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;

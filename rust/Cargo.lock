@@ -2807,6 +2807,7 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "futures",
+ "hotpath",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
@@ -3035,6 +3036,7 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "rdkafka",
+ "tracing",
 ]
 
 [[package]]
@@ -3971,6 +3973,7 @@ dependencies = [
  "metrics",
  "object_store",
  "parquet",
+ "percent-encoding",
  "serde_json",
  "sqlparser",
  "tempfile",
@@ -3983,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -5727,6 +5730,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "hotpath"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2ee4f8d17ebe2400fa845f079acf9ede235be6472512876779af45f7890f934"
+dependencies = [
+ "arc-swap",
+ "cfg-if",
+ "crossbeam-channel",
+ "futures-core",
+ "hdrhistogram",
+ "hotpath-drain",
+ "hotpath-macros",
+ "libc",
+ "pin-project-lite",
+ "prost 0.14.3",
+ "quanta 0.12.6",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "time",
+ "tiny_http",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hotpath-drain"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd9e65572a429f44a48c360559a3f59028579b53e1df07c5f31dc147d2b94a50"
+
+[[package]]
+name = "hotpath-macros"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b90aafbaf5f6af01ee9db2888644b15995f5306e5c280aec8261feb3e5e214a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "hstr"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6369,6 +6416,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "prost 0.13.5",
  "rand 0.8.5",
  "rdkafka",
@@ -8884,6 +8932,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3637c05577168127568a64e9dc5a6887da720efef07b3d9472d45f63ab191166"
 
 [[package]]
+name = "personhog-changelog-relay"
+version = "0.1.0"
+dependencies = [
+ "assignment-coordination",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-util",
+ "personhog-coordination",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
@@ -9131,7 +9207,6 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
- "common-kafka",
  "common-metrics",
  "futures",
  "hdrhistogram",
