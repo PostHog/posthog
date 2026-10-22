@@ -57,11 +57,11 @@ export function chatRunOptionsReducer(state: ChatRunOptions, action: ChatRunOpti
     }
 }
 
-export function chatRunOptionsFromConfig(config: SessionRunConfig): ChatRunOptions {
+export function chatRunOptionsFromConfig(config: SessionRunConfig, pinModel: boolean): ChatRunOptions {
     const { runtimeAdapter, model, reasoningEffort, permissionMode } = config
     return {
         model:
-            runtimeAdapter && model
+            pinModel && runtimeAdapter && model
                 ? {
                       runtimeAdapter,
                       model,

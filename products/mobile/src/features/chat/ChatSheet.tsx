@@ -237,14 +237,17 @@ export function ChatSheet({
         }
         dispatchRunOptions({
             type: 'seed',
-            options: chatRunOptionsFromConfig({
-                runtimeAdapter: seedAdapter,
-                model: seedModel,
-                reasoningEffort: seedEffort,
-                permissionMode: seedMode,
-            }),
+            options: chatRunOptionsFromConfig(
+                {
+                    runtimeAdapter: seedAdapter,
+                    model: seedModel,
+                    reasoningEffort: seedEffort,
+                    permissionMode: seedMode,
+                },
+                target.taskId !== undefined
+            ),
         })
-    }, [hasRunConfig, seedAdapter, seedModel, seedEffort, seedMode])
+    }, [hasRunConfig, seedAdapter, seedModel, seedEffort, seedMode, target.taskId])
 
     // The agent can change mode on its own, such as out of Plan when a plan is approved. Its new mode replaces an
     // earlier pick, as the web drops its mode override on `current_mode_update`.

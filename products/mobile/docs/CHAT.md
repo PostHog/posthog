@@ -143,8 +143,10 @@ bold model and Default labels, and a checkmark. A known default reasoning effort
 filled pill as an explicit choice. Picking another model or resetting to default moves these
 selection indicators to the active options.
 
-- **Seeding.** When a chat opens, or the run's config becomes known, the sheet seeds the options from `session.runConfig`:
+- **Seeding.** When an existing chat opens, the sheet seeds the options from `session.runConfig`:
   the run's model and effort as a pinned model, and its permission mode.
+  A new chat keeps "Default" after sending, even when the run resolves a model and effort.
+  Its model changes only when the person picks a model or effort.
   A run with no known harness or model seeds "Default"; an unknown mode seeds Auto.
   Seeding stops once the person picks anything in this sheet, and New chat starts seeding again.
   While seeding, the Mode chip follows the mode the stream reports (`current_mode_update`), also for a run the app started.
