@@ -64,15 +64,15 @@ def persist_sandbox_connection(
     with StepTimer("persist_connection_state"):
         TaskRun.update_state_atomic(run_id, updates=sandbox_state)
 
-    if housekeeping is not None and housekeeping.cpu_usage_usec is not None:
-        cpu_usage_attribution_usec = housekeeping.cpu_usage_usec
-        cpu_usage_attribution_measured_at = housekeeping.cpu_usage_measured_at
-        billed_cpu_usage_attribution_usec = housekeeping.billed_cpu_usage_usec
-    else:
+    if housekeeping is None or housekeeping.cpu_usage_usec is None:
         with StepTimer("cpu_usage"):
             cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
         with StepTimer("billed_cpu_usage"):
             billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
+    else:
+        cpu_usage_attribution_usec = housekeeping.cpu_usage_usec
+        cpu_usage_attribution_measured_at = housekeeping.cpu_usage_measured_at
+        billed_cpu_usage_attribution_usec = housekeeping.billed_cpu_usage_usec
     with StepTimer("open_usage_session"):
         open_sandbox_session(
             run_id=run_id,
