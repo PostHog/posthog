@@ -14,6 +14,7 @@ beforeEach(() => {
         SLACK_BOT_TOKEN: 'slack-token',
         SLACK_CHANNEL: 'C1',
         INVESTIGATION_WEBHOOK_URL: WEBHOOK,
+        ALERT_OWNER_SLACK_ID: 'U1',
     })
 })
 afterEach(() => {
@@ -246,6 +247,30 @@ describe('main', () => {
             []
         )
         assert.ok(start.body.properties.top_prs.some((p) => p.pr === 100))
+    })
+
+    it('does not tag anyone for an alert without a culprit label', async (t) => {
+        const world = fakeWorld()
+        await run(t, world)
+        assert.doesNotMatch(world.to('chat.postMessage')[0].body.text, /<@U1>/)
+    })
+
+    it('tags the owner when exactly one PR is labeled a culprit', async (t) => {
+        const world = fakeWorld({
+            resultRows: failures(100, [160, 120, 80, 40]),
+            timelines: { 100: twoCycles() },
+        })
+        await run(t, world)
+        assert.match(world.to('chat.postMessage')[0].body.text, /<@U1>/)
+    })
+
+    it('does not tag anyone when several PRs are labeled culprits', async (t) => {
+        const world = fakeWorld({
+            resultRows: [...failures(100, [160, 120, 80, 40]), ...failures(200, [165, 125, 85, 45])],
+            timelines: { 100: twoCycles(), 200: twoCycles() },
+        })
+        await run(t, world)
+        assert.doesNotMatch(world.to('chat.postMessage')[0].body.text, /<@U1>/)
     })
 
     it('does not retry a pending investigation that belongs to an unrelated alert', async (t) => {

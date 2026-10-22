@@ -36,8 +36,8 @@ jobs:
               env:
                   TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  # A person to tag on an alert. Unset alerts without a tag. A variable, not a secret, because
-                  # it is an identifier and not a credential.
+                  # A person to tag when the detector is highly confident, meaning exactly one PR carries a
+                  # culprit label. Unset never tags. A variable, not a secret, because it is an identifier.
                   ALERT_OWNER_SLACK_ID: ${{ vars.MERGE_QUEUE_ALERT_OWNER_SLACK_ID }}
                   # Incoming-webhook trigger of the investigation workflow. The URL is the only thing
                   # guarding the endpoint, so it must be a secret: an Actions variable prints in

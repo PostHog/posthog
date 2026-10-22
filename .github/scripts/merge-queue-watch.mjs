@@ -273,7 +273,10 @@ function restartSummary(series) {
 }
 
 function slackMessage(findings, verdict, restarts, investigation, keys) {
-    const owner = process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
+    // Tag a person only when the detector is highly confident: exactly one PR carries a culprit label.
+    // Several culprit labels at once mean the detector cannot tell them apart.
+    const confident = findings.filter((f) => ESCALATION_LABELS.includes(f.label)).length === 1
+    const owner = confident && process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
     const hidden = findings.length - MAX_FINDINGS_SHOWN
     const bullets = shownFindings(findings)
         .map((f) => `• <https://github.com/PostHog/posthog/pull/${f.pr}|#${f.pr}> ${LABELS[f.label]}: ${stats(f)}`)
