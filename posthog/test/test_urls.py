@@ -252,13 +252,12 @@ class TestPublicPageMetadata(SimpleTestCase):
 
     @parameterized.expand([("login", "/login?next=/insights"), ("signup", "/signup/")])
     @override_settings(SITE_URL="https://hobby.example.com", CLOUD_DEPLOYMENT=None)
-    def test_head_on_self_hosted_has_no_posthog_marketing_metadata(self, _name, request_path):
+    def test_head_on_self_hosted_has_no_preview_image_or_posthog_marketing_metadata(self, _name, request_path):
         request = RequestFactory().get(request_path)
         html = render_to_string("head.html", public_page_metadata_context(request))
 
-        self.assertIn(
-            '<meta property="og:image" content="https://hobby.example.com/static/self-hosted-preview.png">', html
-        )
+        self.assertNotIn("og:image", html)
+        self.assertIn('<meta name="twitter:card" content="summary">', html)
         self.assertNotIn("posthog.com", html)
         self.assertNotIn("twitter:site", html)
         self.assertNotIn("application/ld+json", html)

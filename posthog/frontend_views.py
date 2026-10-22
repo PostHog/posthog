@@ -28,7 +28,6 @@ class _PageMetadata:
 
 # Same share image as posthog.com, so links to the app and the website preview alike.
 _PREVIEW_IMAGE_URL = "https://posthog.com/images/og/default.png"
-_SELF_HOSTED_PREVIEW_IMAGE_PATH = "/static/self-hosted-preview.png"
 
 # Each title matches the document title the SPA sets for the scene, so the tab title doesn't change when the app boots.
 _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
@@ -95,7 +94,6 @@ def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
             "page_title": metadata.title,
             "page_description": metadata.self_hosted_description,
             "canonical_url": canonical_url,
-            "preview_image_url": f"{settings.SITE_URL}{_SELF_HOSTED_PREVIEW_IMAGE_PATH}",
         }
     return {
         "page_title": metadata.title,
