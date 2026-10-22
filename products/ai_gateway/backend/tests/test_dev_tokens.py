@@ -192,7 +192,12 @@ class TestDevTokens(APIBaseTest):
     @parameterized.expand(
         [
             ("refused", {"return_value": _response(500)}, False),
-            ("unreadable_body", {"return_value": _response(201, {"token": "phe_x"})}, False),
+            ("body_without_expiry", {"return_value": _response(201, {"token": "phe_x"})}, True),
+            (
+                "non_json_body",
+                {"return_value": MagicMock(status_code=201, json=MagicMock(side_effect=ValueError))},
+                True,
+            ),
             ("read_timeout", {"side_effect": requests.ReadTimeout()}, True),
             ("connection_reset", {"side_effect": requests.ConnectionError(ProtocolError("reset"))}, True),
             ("connect_timeout", {"side_effect": requests.ConnectTimeout()}, False),
