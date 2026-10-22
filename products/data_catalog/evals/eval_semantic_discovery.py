@@ -27,6 +27,7 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
     SYNCED_INVOICES_PAID_TOTAL,
+    SYNCED_TIME_OFF_APPROVED_COUNT,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
@@ -45,6 +46,7 @@ from products.data_catalog.evals.seeders import (
     seed_instruction_like_column_annotation,
     seed_instruction_like_relationship_context,
     seed_synced_invoices_table,
+    seed_synced_time_off_table,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -167,6 +169,18 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                 "answer_value_stated": {"value": SYNCED_INVOICES_PAID_TOTAL},
             },
             setup=seed_synced_invoices_table,
+        ),
+        SandboxedEvalCase(
+            name="niche_canonical_annotation_shapes_query",
+            prompt="How many time-off requests have been approved in HoorayHR?",
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.columns",
+                    "required_columns": ["description"],
+                },
+                "answer_value_stated": {"value": SYNCED_TIME_OFF_APPROVED_COUNT},
+            },
+            setup=seed_synced_time_off_table,
         ),
         SandboxedEvalCase(
             name="save_column_annotation",

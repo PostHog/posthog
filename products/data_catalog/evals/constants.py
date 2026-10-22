@@ -485,6 +485,24 @@ SYNCED_INVOICES_ROWS = (
 )
 SYNCED_INVOICES_PAID_TOTAL = "812.50"
 
+# The model can know Adobe Commerce invoice states without reading the catalog. HoorayHR is a niche HR tool, and its
+# time-off codes put DENIED before APPROVED, so a guess of "2 = approved" gives 7 instead of 13.
+SYNCED_TIME_OFF_SCHEMA_NAME = "time_off"
+SYNCED_TIME_OFF_TABLE_NAME = "hoorayhr_time_off"
+# The canonical file keys columns by their camelCase API names, and a sync stores multi-word names in snake_case, so
+# only the table and its single-word columns get canonical text.
+SYNCED_TIME_OFF_DESCRIPTIONS = {
+    "": "A time-off item: leave requests, holidays, overtime, and budget transactions.",
+    "id": "ID of the time-off item.",
+    "status": "Status of the time-off item. 1 = REQUESTED, 2 = DENIED, 3 = APPROVED, 4 = WITHDRAWN.",
+}
+_TIME_OFF_STATUSES = (3, 2, 3, 1, 2, 3, 3, 2, 4, 3, 1, 3, 2, 3, 2, 3, 1, 3, 2, 3, 4, 3, 2, 1, 3, 3)
+# (id, user_id, status, time_off_type): 4 requested, 7 denied, 13 approved, 2 withdrawn.
+SYNCED_TIME_OFF_ROWS = tuple(
+    (index + 1, 300 + index % 6, status, "LEAVE") for index, status in enumerate(_TIME_OFF_STATUSES)
+)
+SYNCED_TIME_OFF_APPROVED_COUNT = "13"
+
 ANNOTATION_WRITE_SCHEMA_NAME = "deals"
 ANNOTATION_WRITE_TABLE_NAME = "hubspot_deals"
 ANNOTATION_WRITE_COLUMN = "dealstage"

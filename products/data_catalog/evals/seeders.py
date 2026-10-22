@@ -130,6 +130,10 @@ from products.data_catalog.evals.constants import (
     SYNCED_INVOICES_ROWS,
     SYNCED_INVOICES_SCHEMA_NAME,
     SYNCED_INVOICES_TABLE_NAME,
+    SYNCED_TIME_OFF_DESCRIPTIONS,
+    SYNCED_TIME_OFF_ROWS,
+    SYNCED_TIME_OFF_SCHEMA_NAME,
+    SYNCED_TIME_OFF_TABLE_NAME,
     TOP_CUSTOMERS_METRIC_DEFINITION,
     TOP_CUSTOMERS_METRIC_DESCRIPTION,
     TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
@@ -190,6 +194,7 @@ __all__ = [
     "seed_operational_metric",
     "seed_proposed_metric",
     "seed_synced_invoices_table",
+    "seed_synced_time_off_table",
     "seed_top_customers_metric",
 ]
 
@@ -869,6 +874,26 @@ def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str,
         descriptions=SYNCED_INVOICES_DESCRIPTIONS,
     )
     return {"synced_table": {"name": SYNCED_INVOICES_TABLE_NAME}}
+
+
+def seed_synced_time_off_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.HOORAYHR,
+        schema_name=SYNCED_TIME_OFF_SCHEMA_NAME,
+        table_name=SYNCED_TIME_OFF_TABLE_NAME,
+        columns={
+            "id": _INTEGER_COLUMN,
+            "user_id": _INTEGER_COLUMN,
+            "status": _INTEGER_COLUMN,
+            "time_off_type": _STRING_COLUMN,
+        },
+        rows=SYNCED_TIME_OFF_ROWS,
+        descriptions=SYNCED_TIME_OFF_DESCRIPTIONS,
+    )
+    return {"synced_table": {"name": SYNCED_TIME_OFF_TABLE_NAME}}
 
 
 def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[str, Any]:
