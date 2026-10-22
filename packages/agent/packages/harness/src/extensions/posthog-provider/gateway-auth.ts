@@ -5,7 +5,7 @@ import { POSTHOG_PROVIDER_NAME, type PosthogProviderOptions } from "./provider";
 export interface GatewayAuth {
   baseUrl: string;
   apiKey: string;
-  /** The provider's attribution headers (run id, properties blob), so direct calls are tagged like model calls. */
+  /** The provider's attribution headers, so direct gateway calls are tagged like model calls. */
   headers: Record<string, string>;
 }
 

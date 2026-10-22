@@ -323,7 +323,7 @@ export async function runAgent(
       ? [
           {
             name: "web-access",
-            // Web tools always call the PostHog gateway, so only a posthog model's headers may go with them.
+            // Web tools always call the PostHog gateway; another provider's headers can carry its credentials.
             factory: createWebAccessExtension({
               headers:
                 modelAuth.model.provider === POSTHOG_PROVIDER_NAME
