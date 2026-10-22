@@ -70,8 +70,8 @@ HITPAY_ENDPOINTS: dict[str, HitpayEndpointConfig] = {
         table_name="payouts",
         path="/v1/payouts",
         pagination="cursor",
-        incremental_fields=_datetime_incremental_fields(),
-        incremental_param="created_at_from",
+        # Payouts change status after creation and the API only filters on creation date, so
+        # an incremental sync would never refresh older payouts. Full refresh only.
     ),
     "Invoices": HitpayEndpointConfig(
         name="Invoices",

@@ -7,8 +7,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
 
-_INCREMENTAL_ENDPOINTS = {"Charges", "Payouts", "BalanceTransactions"}
-_FULL_REFRESH_ENDPOINTS = {"PaymentRequests", "SubscriptionPlans", "Customers", "RecurringBilling", "Invoices"}
+_INCREMENTAL_ENDPOINTS = {"Charges", "BalanceTransactions"}
+_FULL_REFRESH_ENDPOINTS = {
+    "PaymentRequests",
+    "SubscriptionPlans",
+    "Customers",
+    "RecurringBilling",
+    "Invoices",
+    "Payouts",
+}
 
 
 class TestHitpaySource:

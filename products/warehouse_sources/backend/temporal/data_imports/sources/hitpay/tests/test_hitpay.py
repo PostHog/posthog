@@ -116,7 +116,6 @@ class TestHitpaySourceCursorEndpoint:
     @parameterized.expand(
         [
             ("charges", "Charges", "created_at", "/v1/charges", "date_from"),
-            ("payouts", "Payouts", "created_at", "/v1/payouts", "created_at_from"),
             (
                 "balance_transactions",
                 "BalanceTransactions",
