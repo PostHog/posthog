@@ -14,6 +14,7 @@ export interface ScoutWriteScopeRow {
         | 'Data'
         | 'Replay vision'
         | 'Workflows'
+        | 'Support'
         | 'Canvases'
         | 'Experiments'
     label: string
@@ -107,6 +108,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Workflow suggestions',
         description:
             'Suggest changes to workflows whose owner turned suggestions on. A person approves or rejects each one; the scout cannot publish',
+    },
+    {
+        scope: 'ticket:write',
+        group: 'Support',
+        label: 'Support tickets',
+        description:
+            'Update tickets, manage saved views, and add private notes. Scouts cannot send public replies or change existing notes or customer identity fields. Ticket changes can start workflows that message customers',
     },
     {
         scope: 'canvas:write',
