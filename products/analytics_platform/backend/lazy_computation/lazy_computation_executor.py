@@ -537,6 +537,29 @@ def observe_precompute_inserts(observer: Callable[[uuid.UUID], None]) -> Iterato
         _insert_observer.reset(token)
 
 
+_wait_observer: ContextVar[Callable[[], None] | None] = ContextVar("lazy_computation_wait_observer", default=None)
+
+
+@contextmanager
+def observe_precompute_waits(observer: Callable[[], None]) -> Iterator[None]:
+    """Call `observer` right before each wait of an `ensure_precomputed` build in this context.
+
+    A wait can last until the wait budget ends, so a caller that cannot stop its own thread can raise from the
+    observer to leave it. The observer gets no job id: the jobs a build waits on belong to other callers.
+    """
+    token = _wait_observer.set(observer)
+    try:
+        yield
+    finally:
+        _wait_observer.reset(token)
+
+
+def _notify_wait_observer() -> None:
+    observer = _wait_observer.get()
+    if observer is not None:
+        observer()
+
+
 RESERVED_PLACEHOLDERS = {"time_window_min", "time_window_max"}
 
 
@@ -1488,6 +1511,7 @@ class LazyComputationExecutor:
                         if conflict_passes > 1:
                             remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
                             if remaining > 0:
+                                _notify_wait_observer()
                                 time.sleep(min(interval, remaining))
                             interval = min(interval * 2, self.max_poll_interval_seconds)
                     else:
@@ -1527,6 +1551,7 @@ class LazyComputationExecutor:
                     remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
                     wait_time = min(interval, remaining)
                     if wait_time > 0:
+                        _notify_wait_observer()
                         self._wait_for_notification(pubsub, wait_time)
                     interval = min(interval * 2, self.max_poll_interval_seconds)
                     continue

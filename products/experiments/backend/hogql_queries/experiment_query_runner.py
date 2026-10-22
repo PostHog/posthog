@@ -320,6 +320,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
         # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
         if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+            if self.raise_if_cancelled is not None:
+                self.raise_if_cancelled()
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
@@ -349,6 +351,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 )
 
             if self._metric_events_precompute_applicable():
+                # A killed exposure INSERT returns not ready, so the attempt can reach this stage after its cancel.
+                if self.raise_if_cancelled is not None:
+                    self.raise_if_cancelled()
                 try:
                     with tags_context(
                         experiment_query_surface="precompute_build", experiment_precompute_table="metric_events"

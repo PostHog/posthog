@@ -38,6 +38,7 @@ from posthog.temporal.common.errors import NonReportableApplicationError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     PrecomputeInsertAborted,
     observe_precompute_inserts,
+    observe_precompute_waits,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -586,8 +587,8 @@ class RecalculationAttemptCancelled(BaseException):
 class AttemptCancellation:
     """Connects one attempt's calc thread to its cancel path.
 
-    sync_to_async cannot stop the calc thread. The thread checks this object before each precompute INSERT and
-    before the final SELECT. The cancel path reads the job id of the latest INSERT from it, because the INSERT
+    sync_to_async cannot stop the calc thread. The thread checks this object before each precompute stage,
+    INSERT and wait, and before the final SELECT. The cancel path reads the job id of the latest INSERT from it, because the INSERT
     runs under that job id and not under the attempt's client_query_id. The INSERTs of one thread run in
     sequence, so only the latest one can still be running.
     """
@@ -820,7 +821,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 # Also covers the precompute inserts, which run inside this context.
                 ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
             ):
-                with observe_precompute_inserts(cancellation.track_precompute_insert):
+                with (
+                    observe_precompute_inserts(cancellation.track_precompute_insert),
+                    observe_precompute_waits(cancellation.raise_if_cancelled),
+                ):
                     result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
