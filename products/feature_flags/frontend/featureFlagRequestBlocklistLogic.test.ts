@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { TeamType } from '~/types'
 
 import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
 
@@ -16,7 +17,7 @@ describe('featureFlagRequestBlocklistLogic', () => {
         useMocks({
             patch: {
                 '/api/environments/:id': async ({ request }) => {
-                    const payload = await request.json()
+                    const payload = (await request.json()) as Partial<TeamType>
                     const config = payload.feature_flag_policy_config
                     return [
                         200,
