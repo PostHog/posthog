@@ -1,0 +1,52 @@
+from typing import Any
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from products.dashboards.backend.api.dashboard import _stored_groups
+
+
+class TestStoredGroups(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_customization", None, {}),
+            (
+                "group_titles_saved_before_groups_existed",
+                {"group_titles": {"plans": "Pricing plans"}},
+                {"plans": {"title": "Pricing plans"}},
+            ),
+            (
+                "group_titles_win_because_only_an_older_server_writes_them",
+                {
+                    "group_titles": {"plans": "New title"},
+                    "groups": {"plans": {"title": "Old title", "rail": "green"}, "regions": {}},
+                },
+                {"plans": {"title": "New title", "rail": "green"}, "regions": {}},
+            ),
+            (
+                "invalid_settings_keep_the_group_title",
+                {"group_titles": {"plans": "Plans"}, "groups": {"plans": {"rail": "pink"}}},
+                {"plans": {"title": "Plans"}},
+            ),
+            (
+                "padded_and_blank_keys",
+                {"groups": {" plans ": {"title": "Pricing plans"}, "   ": {"title": "Blank"}}},
+                {"plans": {"title": "Pricing plans"}},
+            ),
+            (
+                "invalid_entries_are_dropped",
+                {
+                    "groups": {
+                        "plans": {"rail": "pink"},
+                        "regions": "Regions",
+                        "nulls\u0000": {},
+                        "kept": {"collapsed": True, "title": ""},
+                    }
+                },
+                {"kept": {"collapsed": True}},
+            ),
+        ]
+    )
+    def test_reads_stored_groups(self, _name: str, customization: Any, expected: dict) -> None:
+        assert _stored_groups(customization) == expected
