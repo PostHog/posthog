@@ -3,7 +3,7 @@
 import time
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.dataclasses import frozen
 
@@ -21,7 +21,10 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.client import credentials_service_enabled
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.ingress.slack.provider import build_slack_signature_scheme
 from posthog.ingress.verify.schemes import VerificationOutcome, hmac_sha256_signature
@@ -413,17 +416,35 @@ class SlackIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def slack_client_id(cls) -> str:
+    def slack_client_id(cls, instance_setting: str | None = None) -> str:
         """The app's public client id, for preflight.
 
-        Preflight runs on every page load. It reads the instance setting and never the credentials
-        service, so an outage of the service cannot break page loads for a value that is not secret.
+        Use the instance setting if the credentials service fails, so page loads still work.
+        Callers that resolve credentials in a worker can pass the instance setting read by the
+        request thread, keeping database access out of that worker.
         """
         # Span only fires on cache miss (cache_for is process-local in-memory).
         # If preflight.slack_config_main is fast in production traces, this span
-        # will be absent; if it appears, it tells us the DB hit was slow.
+        # will be absent; if it appears, it tells us the credential lookup was slow.
         with tracer.start_as_current_span("slack_integration.slack_client_id_db"):
-            return get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or ""
+            if instance_setting is not None and not credentials_service_enabled():
+                return instance_setting
+
+            try:
+                if instance_setting is not None:
+                    return get_many_or_settings(
+                        ["SLACK_APP_CLIENT_ID"],
+                        CredentialsCaller.INTEGRATIONS,
+                        settings_lookup=lambda _key: instance_setting or None,
+                    )["SLACK_APP_CLIENT_ID"]
+                return get_many_or_instance_settings(["SLACK_APP_CLIENT_ID"], CredentialsCaller.INTEGRATIONS)[
+                    "SLACK_APP_CLIENT_ID"
+                ]
+            except CredentialsServiceFailure:
+                logger.warning("slack_integration.credentials_service_unavailable", key="SLACK_APP_CLIENT_ID")
+                if instance_setting is not None:
+                    return instance_setting
+                return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
 
 
 @frozen
