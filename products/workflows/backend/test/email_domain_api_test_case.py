@@ -10,7 +10,9 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import hash_key_value
 
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
@@ -29,6 +31,10 @@ class EmailDomainApiTestCase(APIBaseTest):
         cache.clear()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        # A browser session never records a verification through a GET, so polls run as an admin's token.
+        PersonalAPIKey.objects.create(
+            label="Admin", user=self.user, secure_value=hash_key_value("admin_key"), scopes=["integration:write"]
+        )
         self.world = self.enterContext(EmailDomainWorld().installed())
         self.world.dns.add_zone(ROOT_DOMAIN, nameservers=self.zone_nameservers)
         self.reload_workers = self.enterContext(
@@ -51,10 +57,11 @@ class EmailDomainApiTestCase(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()["id"]
 
-    def get_status(self, integration_id: int, *, refresh: bool = True) -> Any:
+    def get_status(self, integration_id: int, *, refresh: bool = True, as_browser: bool = False) -> Any:
         return self.client.get(
             f"/api/projects/{self.team.id}/integrations/{integration_id}/email/status",
             {"refresh": str(refresh).lower()},
+            **({} if as_browser else {"HTTP_AUTHORIZATION": "Bearer admin_key"}),
         )
 
     def status_body(self, integration_id: int, *, refresh: bool = True) -> dict[str, Any]:

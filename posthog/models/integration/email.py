@@ -11,6 +11,7 @@ from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
+import structlog
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from rest_framework.exceptions import ValidationError
@@ -25,6 +26,8 @@ from . import model
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
+
+logger = structlog.get_logger(__name__)
 
 EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
 
@@ -185,7 +188,7 @@ class EmailIntegration:
         )
 
         cache_key = f"email_domain_status:{self.integration.id}"
-        if not refresh and isinstance(cached := cache.get(cache_key), str):
+        if not refresh and isinstance(cached := self._cached_status(cache_key), str):
             entry = json.loads(cached)
             return EmailDomainStatusReport(
                 check=EmailDomainCheck.from_json(entry["check"]),
@@ -205,14 +208,21 @@ class EmailIntegration:
             check=check, verified=bool(self.integration.config.get("verified")), checked_at=timezone.now()
         )
         if check.every_dns_lookup_answered and not unrecorded_verification:
-            cache.set(
-                cache_key,
-                json.dumps(
-                    {"check": check.to_json(), "verified": report.verified, "checked_at": report.checked_at.isoformat()}
-                ),
-                EMAIL_DOMAIN_STATUS_CACHE_SECONDS,
-            )
+            entry = {"check": check.to_json(), "verified": report.verified, "checked_at": report.checked_at.isoformat()}
+            try:
+                cache.set(cache_key, json.dumps(entry), EMAIL_DOMAIN_STATUS_CACHE_SECONDS)
+            except Exception:
+                logger.warning("email_domain_status_cache_write_failed", exc_info=True)
         return report
+
+    # The cache only spares SES and DNS reads, so a cache outage falls back to a live check instead of failing.
+    @staticmethod
+    def _cached_status(cache_key: str) -> object:
+        try:
+            return cache.get(cache_key)
+        except Exception:
+            logger.warning("email_domain_status_cache_read_failed", exc_info=True)
+            return None
 
     def _check_domain(self) -> "EmailDomainCheck":
         domain = self.integration.config["domain"]

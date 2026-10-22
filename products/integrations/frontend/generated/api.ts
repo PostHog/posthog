@@ -420,7 +420,7 @@ export const getIntegrationsEmailStatusRetrieveUrl = (
 }
 
 /**
- * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain, when the caller is a project admin with integration:write.
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain, when the caller uses a token of a project admin with integration:write. A browser session records the verification with email/verify.
  * @summary Get email sending domain status
  */
 export const integrationsEmailStatusRetrieve = async (
