@@ -111,11 +111,13 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_athena                       | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_compute_optimizer            | HTTP                        | requests                                                        | ✅                          |
 | aws_config                       | HTTP                        | requests                                                        | ✅                          |
+| aws_cost_and_usage_report        | HTTP                        | requests + botocore (S3 SigV4) + pyarrow                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
@@ -1053,10 +1055,8 @@ doesn't conflict with concurrent PRs.
 - audiogo
 - autodesk_construction_cloud
 - automox
-- aws_athena
 - aws_cloudformation
 - aws_connect
-- aws_cost_and_usage_report
 - aws_health
 - aws_rds_performance_insights
 - aws_support
