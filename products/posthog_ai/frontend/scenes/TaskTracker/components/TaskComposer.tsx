@@ -267,8 +267,26 @@ export function TaskComposer({
                                                     value={newTaskData.repositoryConfig}
                                                     variant="quill"
                                                     autoOpen={repositoryRequested}
-                                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                                                    onPickerClose={() => setRepositoryRequested(false)}
+                                                    onChange={(config) => {
+                                                        if (
+                                                            !config.repository &&
+                                                            config.integrationId ===
+                                                                newTaskData.repositoryConfig.integrationId
+                                                        ) {
+                                                            setRepositoryRequested(false)
+                                                        }
+                                                        setNewTaskData({ repositoryConfig: config })
+                                                    }}
+                                                    onRemove={() => {
+                                                        setRepositoryRequested(false)
+                                                        setNewTaskData({
+                                                            repositoryConfig: {
+                                                                ...newTaskData.repositoryConfig,
+                                                                repository: undefined,
+                                                                branch: undefined,
+                                                            },
+                                                        })
+                                                    }}
                                                 />
                                             )}
                                             <AttachedContextChips />
