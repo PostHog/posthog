@@ -1,6 +1,7 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -17,6 +18,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
@@ -489,6 +491,229 @@ describe('dashboardLogic', () => {
             }
 
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        describe('moving a tile between tile groups', () => {
+            interface PendingSave {
+                tileIds: number[]
+                resolve: () => void
+                reject: () => void
+            }
+            let pendingSaves: PendingSave[]
+            let tileIds: number[]
+
+            const groupOf = (tileId: number): string | null =>
+                logic.values.tiles.find((tile) => tile.id === tileId)?.group_key ?? null
+            const enterEditMode = (): void =>
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+
+            beforeEach(async () => {
+                const groupKeys = ['plans', 'ops', null]
+                dashboards[5] = {
+                    ...dashboards[5],
+                    customization: { groups: { plans: { title: 'Pricing plans' }, ops: { collapsed: true } } },
+                    tiles: dashboards[5].tiles.map((tile, index) => ({
+                        ...tile,
+                        group_key: groupKeys[index],
+                        layouts: { sm: { x: 0, y: index * 2, w: 12, h: 2 } } as DashboardTile['layouts'],
+                    })),
+                }
+                tileIds = dashboards[5].tiles.map((tile) => tile.id)
+                pendingSaves = []
+                // Like the server, a save answers with the saved dashboard, which lacks moves still on their way.
+                jest.spyOn(api, 'update').mockImplementation((_url, data) => {
+                    const payload = data as { tiles: Partial<DashboardTile>[] }
+                    return new Promise((resolve, reject) =>
+                        pendingSaves.push({
+                            tileIds: payload.tiles.filter((entry) => 'group_key' in entry).map((entry) => entry.id!),
+                            resolve: () =>
+                                resolve({
+                                    ...dashboards[5],
+                                    tiles: dashboards[5].tiles.map((tile) => ({
+                                        ...tile,
+                                        ...payload.tiles.find((entry) => entry.id === tile.id),
+                                    })),
+                                }),
+                            reject: () => reject(new Error('network down')),
+                        })
+                    )
+                })
+                await mountDashboard()
+            })
+
+            // A spy keeps its implementation across tests, and later tests need the real request.
+            afterEach(() => {
+                ;(api.update as jest.Mock).mockRestore()
+            })
+
+            const settleSaves = async (): Promise<void> => {
+                pendingSaves.forEach((save) => save.resolve())
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            it.each([
+                {
+                    name: 'into a titled group',
+                    tileIndex: 2,
+                    sectionKey: 'group-plans',
+                    groupKey: 'plans',
+                    toast: 'Moved to the "Pricing plans" group',
+                },
+                // An untitled group is named by its tile count, which the move changes.
+                {
+                    name: 'into a closed untitled group',
+                    tileIndex: 0,
+                    sectionKey: 'group-ops',
+                    groupKey: 'ops',
+                    toast: `Moved to the "${pluralize(2, 'tile')}" group`,
+                },
+                {
+                    name: 'out of its group',
+                    tileIndex: 0,
+                    sectionKey: null,
+                    groupKey: null,
+                    toast: 'Tile taken out of its group',
+                },
+            ])('in view mode saves a tile moved $name at once', async ({ tileIndex, sectionKey, groupKey, toast }) => {
+                const tileId = tileIds[tileIndex]
+                const successToast = jest.spyOn(lemonToast, 'success')
+                const capture = jest.spyOn(posthog, 'capture')
+
+                logic.actions.moveTileToSection(tileId, sectionKey, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                await settleSaves()
+
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[tileId]])
+                expect(groupOf(tileId)).toBe(groupKey)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                expect(logic.values.collapsedTileGroupKeys).toEqual(['ops'])
+                expect(successToast).toHaveBeenCalledWith(toast)
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard tile moved between groups',
+                    expect.objectContaining({ method: 'menu', to_group: groupKey !== null })
+                )
+            })
+
+            it.each([
+                {
+                    name: 'two quick moves both save',
+                    firstSaves: true,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
+                    expected: { first: 'ops', second: 'ops', unsaved: false, captures: 2 },
+                },
+                {
+                    name: 'a failed first move puts back only its own tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
+                    expected: { first: 'plans', second: 'ops', unsaved: false, captures: 1 },
+                },
+                {
+                    name: 'a failed move keeps an edit-mode move of another tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'other', target: 'group-ops', inEditMode: true },
+                    expected: { first: 'plans', second: 'ops', unsaved: true, captures: 1 },
+                },
+                {
+                    name: 'a failed move keeps a later edit-mode move of the same tile',
+                    firstSaves: false,
+                    secondMove: { tile: 'same', target: null, inEditMode: true },
+                    expected: { first: null, second: null, unsaved: true, captures: 1 },
+                },
+            ])('in view mode, $name', async ({ firstSaves, secondMove, expected }) => {
+                const first = tileIds[0]
+                const second = secondMove.tile === 'same' ? first : tileIds[2]
+                const capture = jest.spyOn(posthog, 'capture')
+
+                logic.actions.moveTileToSection(first, 'group-ops', null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                if (secondMove.inEditMode) {
+                    enterEditMode()
+                }
+                logic.actions.moveTileToSection(second, secondMove.target, null, 'menu')
+                if (firstSaves) {
+                    pendingSaves[0].resolve()
+                } else {
+                    pendingSaves[0].reject()
+                }
+                if (!secondMove.inEditMode) {
+                    await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                }
+                await settleSaves()
+
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual(
+                    secondMove.inEditMode ? [[first]] : [[first], [second]]
+                )
+                expect({
+                    first: groupOf(first),
+                    second: groupOf(second),
+                    unsaved: logic.values.hasUnsavedLayoutChanges,
+                    captures: capture.mock.calls.filter(([event]) => event === 'dashboard tile moved between groups')
+                        .length,
+                }).toEqual(expected)
+            })
+
+            it('keeps a view-mode move made while a layout save is on its way', async () => {
+                const [plansTile, , looseTile] = tileIds
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+                logic.actions.saveLayoutChanges()
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+
+                logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
+                pendingSaves[0].resolve()
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                await settleSaves()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                expect({ moved: groupOf(plansTile), saved: groupOf(looseTile) }).toEqual({
+                    moved: 'ops',
+                    saved: 'plans',
+                })
+            })
+
+            it.each([
+                { finish: 'save', saveFails: false, expectedGroup: 'plans', unsaved: false },
+                { finish: 'save', saveFails: true, expectedGroup: 'plans', unsaved: true },
+                { finish: 'cancel', saveFails: false, expectedGroup: null, unsaved: false },
+            ])(
+                'in edit mode keeps a dragged tile unsaved until $finish (save fails: $saveFails)',
+                async ({ finish, saveFails, expectedGroup, unsaved }) => {
+                    const looseTile = tileIds[2]
+                    const capture = jest.spyOn(posthog, 'capture')
+                    enterEditMode()
+
+                    logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                    expect(pendingSaves).toHaveLength(0)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                    expect(logic.values.tileGroupSectionLayouts[0].sm).toContainEqual(
+                        expect.objectContaining({ i: String(looseTile), y: 0 })
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard tile moved between groups',
+                        expect.objectContaining({ method: 'drag', from_group: false, to_group: true })
+                    )
+
+                    if (finish === 'save') {
+                        logic.actions.saveLayoutChanges()
+                        await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                        if (saveFails) {
+                            pendingSaves[0].reject()
+                        }
+                    } else {
+                        logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    }
+                    await settleSaves()
+
+                    expect(pendingSaves.map((save) => save.tileIds)).toEqual(finish === 'save' ? [[looseTile]] : [])
+                    expect(groupOf(looseTile)).toBe(expectedGroup)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+                }
+            )
         })
 
         it('keeps the changes of two bands that report in the same tick', async () => {
@@ -1483,7 +1708,7 @@ describe('dashboardLogic', () => {
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
             expect(payload).not.toHaveProperty('tiles')
             expect(logic.values.dashboard!.tiles[0].layouts?.sm?.x).toBe(modifiedLayouts.sm[0].x)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(firstTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(firstTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
@@ -1779,6 +2004,46 @@ describe('dashboardLogic', () => {
             expect(successToast).toHaveBeenCalledWith('Dashboard saved')
         })
 
+        it.each([
+            {
+                name: 'a failed layout save',
+                act: async (): Promise<void> => {
+                    const firstTile = logic.values.dashboard!.tiles[0]
+                    logic.actions.stageLayouts({
+                        sm: logic.values.layouts.sm?.map((layout) =>
+                            layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                        ),
+                    })
+                    jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+                    logic.actions.saveLayoutChanges()
+                },
+                unsaved: true,
+            },
+            {
+                name: 'a duplicated tile',
+                act: async (): Promise<void> => {
+                    const sourceTile = logic.values.dashboard!.tiles[0]
+                    jest.spyOn(api, 'update').mockResolvedValueOnce({
+                        ...logic.values.dashboard!,
+                        tiles: [
+                            ...logic.values.dashboard!.tiles,
+                            { ...sourceTile, id: 999, layouts: { sm: { x: 0, y: 99, w: 6, h: 5 } } },
+                        ],
+                    })
+                    logic.actions.duplicateTile(sourceTile)
+                },
+                unsaved: false,
+            },
+        ])('counts $name as saved only when the server has it', async ({ act, unsaved }) => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, act)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([dashboardsModel.actionTypes.updateDashboardSuccess])
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+        })
+
         it('does not show a success toast when exiting edit mode with no changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1798,7 +2063,7 @@ describe('dashboardLogic', () => {
             expect(initialDashboard).not.toBeNull()
 
             const firstTile = initialDashboard!.tiles[0]
-            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const originalLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
 
             expect(originalLayouts).not.toBeUndefined()
 
@@ -2548,7 +2813,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
                 moveFirstTile()
                 const draftTile = logic.values.dashboard!.tiles[0]
-                const savedLayouts = logic.values.dashboardLayouts[draftTile.id]
+                const savedLayouts = logic.values.savedTilePlacements[draftTile.id]?.layouts
                 const addedTile = { ...WIDGET_TILE, id: 999 }
                 const updatedDashboard = {
                     ...logic.values.dashboard!,
@@ -2558,8 +2823,8 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
-                expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2584,7 +2849,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -2616,9 +2881,29 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[unchangedTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[unchangedTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
+
+            it.each([{ layoutsPersisted: false }, { layoutsPersisted: true }])(
+                'keeps an unsaved group move when an update echoes the saved group (layouts persisted: $layoutsPersisted)',
+                async ({ layoutsPersisted }) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    const draftTile = logic.values.dashboard!.tiles[0]
+                    logic.actions.setTileProperty(draftTile.id, { group_key: 'plans' })
+                    const echo = {
+                        ...logic.values.dashboard!,
+                        tiles: logic.values.dashboard!.tiles.map((tile) =>
+                            tile.id === draftTile.id ? { ...tile, group_key: null } : tile
+                        ),
+                    }
+
+                    dashboardsModel.actions.updateDashboardSuccess(echo, { layoutsPersisted })
+
+                    expect(logic.values.dashboard!.tiles[0].group_key).toBe('plans')
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                }
+            )
 
             it('uses the returned saved layout as the snapshot when the same tile has a draft', async () => {
                 await expectLogic(logic).toFinishAllListeners()
@@ -2641,7 +2926,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2657,7 +2942,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['applyDashboardUpdate'])
                     .toFinishAllListeners()
 
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(draftTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(draftTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -5353,7 +5638,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
-            const savedLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const savedLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
             logic.actions.updateLayouts({
                 ...logic.values.layouts,
                 sm: logic.values.layouts.sm?.map((layout) =>
@@ -5371,8 +5656,8 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayouts)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(savedLayouts)
-            expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(savedLayouts)
+            expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
