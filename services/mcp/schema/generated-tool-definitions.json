@@ -3900,7 +3900,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
+        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -3915,7 +3915,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys: build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported, is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys: build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported, is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -3930,7 +3930,7 @@
         }
     },
     "dashboard-widgets-batch-update": {
-        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of the tile's widget_type from dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
+        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard widget settings",
@@ -4093,11 +4093,11 @@
         }
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own: tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Create or refine a catalog metric",
-        "title": "Create or refine a catalog metric",
+        "summary": "Create a catalog metric",
+        "title": "Create a catalog metric",
         "required_scopes": ["data_catalog:write"],
         "api_operations": ["POST /api/projects/{project_id}/data_catalog/metrics/"],
         "annotations": {
@@ -4267,8 +4267,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-delete": {
         "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
@@ -4283,8 +4282,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-results": {
         "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
@@ -4299,8 +4297,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-run": {
         "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
@@ -4315,8 +4312,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-schedule": {
         "description": "Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric gets a schedule when it takes its first check, so this fails with a 404 until then.",
@@ -4331,8 +4327,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-types": {
         "description": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
@@ -4347,8 +4342,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-update": {
         "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The subject it audits is fixed, so subject_type and subject_uuid are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
@@ -4363,8 +4357,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-subjects": {
         "description": "Every table, view, metric and PostHog table in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window.",
@@ -4379,8 +4372,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",

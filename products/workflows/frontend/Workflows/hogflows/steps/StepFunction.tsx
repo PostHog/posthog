@@ -4,6 +4,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { AddToStaticCohortConfiguration } from './components/AddToStaticCohortConfiguration'
 import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompare'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
@@ -20,6 +21,13 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
         <>
             <StepSchemaErrors />
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
+            {templateId === 'template-posthog-opt-out-of-messages' && (
+                <OptOutOfMessagesConfiguration
+                    inputs={inputs}
+                    setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                    error={validationResult?.errors?.category_id}
+                />
+            )}
             {templateId === 'template-posthog-add-to-static-cohort' ? (
                 <AddToStaticCohortConfiguration
                     inputs={inputs}

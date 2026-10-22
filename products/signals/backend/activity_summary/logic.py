@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks
+from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
@@ -170,11 +170,13 @@ def update_activity_summary(
     start = _input_start(stored.input_watermark if stored else None, now, limits.window_days)
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
+    views = user_views(team_id, user_id, start, now)
     rendered = build_input(
         tasks,
         activity,
         as_of=now,
         seed=sampling_seed(now.date().isoformat(), team_id, user_id),
+        views=views,
         limits=limits,
         parents=activity_parents(team_id, activity),
     )
@@ -190,11 +192,12 @@ def update_activity_summary(
     inputs_used: dict[str, Any] = {
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
+        "view_lines": rendered.n_view_lines,
         "input_chars": rendered.input_chars,
         "drops": rendered.drops,
         "limits": dataclasses.asdict(limits),
     }
-    watermark = max([task.at for task in tasks] + [item.at for item in activity])
+    watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
     previous = stored.summary if stored is not None else None
     model = DEFAULT_MODEL
     outcome = summarize(
@@ -204,7 +207,7 @@ def update_activity_summary(
         model=model,
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
-        summary_max_words=limits.summary_max_words,
+        profile_max_chars=limits.profile_max_chars,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(

@@ -59,7 +59,8 @@ from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
         "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
         "products": ["product_analytics"],
         "recent_shift": None,

@@ -1319,6 +1319,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -10942,6 +10946,10 @@ export const DashboardsCreateUnlistedDashboardCreateFormat = {
 
 export type DashboardsWidgetCatalogRetrieveParams = {
     format?: DashboardsWidgetCatalogRetrieveFormat
+    /**
+     * Widget types to return. Omit to return every registered widget type.
+     */
+    widget_type?: DashboardsWidgetCatalogRetrieveWidgetTypeItem[]
 }
 
 export type DashboardsWidgetCatalogRetrieveFormat =
@@ -10950,6 +10958,22 @@ export type DashboardsWidgetCatalogRetrieveFormat =
 export const DashboardsWidgetCatalogRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsWidgetCatalogRetrieveWidgetTypeItem =
+    (typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem)[keyof typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem]
+
+export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
+    ActivityEventsList: 'activity_events_list',
+    CanvasApp: 'canvas_app',
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+    ErrorTrackingList: 'error_tracking_list',
+    ExperimentResults: 'experiment_results',
+    ExperimentsList: 'experiments_list',
+    LogsList: 'logs_list',
+    NotebookWidget: 'notebook_widget',
+    SessionReplayList: 'session_replay_list',
+    SurveyResults: 'survey_results',
 } as const
 
 export type DataColorThemesListParams = {

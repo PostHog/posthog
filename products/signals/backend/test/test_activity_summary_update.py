@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import ActivityLog
+from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -23,7 +23,8 @@ NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue"
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
         "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
         "products": ["product_analytics"],
         "recent_shift": None,
@@ -88,18 +89,55 @@ class TestUpdateActivitySummary(BaseTest):
         assert "Signup funnel" not in next_sent.split("Recent activity")[1]
         assert "Builds the signup funnel." in next_sent
 
+    def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for ref, name, creator in [("abc", "Weekly signups", other), ("def", "Churn by plan", self.user)]:
+            FileSystem.objects.create(
+                team=self.team, type="insight", ref=ref, path=f"Unfiled/{name}", created_by=creator
+            )
+        views = [
+            ("insight", "abc", 2),
+            ("insight", "def", 1.5),
+            ("scene", "Experiments", 1),
+            ("scene", "Settings", 0.5),
+        ]
+        for view_type, ref, days_ago in views:
+            viewed_at = NOW - datetime.timedelta(days=days_ago)
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=view_type,
+                ref=ref,
+                viewed_at=viewed_at,
+                view_days=[viewed_at.date()],
+            )
+        llm = FakeLLM([ANSWER])
+
+        result = self._update(llm)
+
+        assert result.status == UpdateStatus.OK
+        assert result.rendered_input is not None
+        assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
+        assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
+        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        stored = self._stored()
+        assert stored is not None
+        assert stored.inputs_used["view_lines"] == 3
+        assert stored.inputs_used["drops"] == {"generic_scene": 1}
+        assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
+
     def test_limits_reach_the_model_call_and_the_stored_inputs(self) -> None:
         self._changes(3, days_ago=2)
         self._change("Old funnel", days_ago=10)
         llm = FakeLLM([ANSWER])
 
-        self._update(llm, limits=RenderLimits(window_days=7, summary_max_words=2, max_completion_tokens=1234))
+        self._update(llm, limits=RenderLimits(window_days=7, profile_max_chars=12, max_completion_tokens=1234))
 
         stored = self._stored()
         assert stored is not None and stored.summary is not None
         assert llm.requests[0]["max_completion_tokens"] == 1234
-        assert "at most 2 words" in llm.requests[0]["messages"][0]["content"]
-        assert stored.summary["summary"] == "Builds the"
+        assert "at most 12 characters" in llm.requests[0]["messages"][0]["content"]
+        assert stored.summary["profile"] == "## Funnels…"
         assert stored.inputs_used["activity_lines"] == 3
         assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
 
