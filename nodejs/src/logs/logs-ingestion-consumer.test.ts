@@ -75,6 +75,23 @@ jest.mock('~/common/utils/posthog', () => {
 
 let offsetIncrementer = 0
 
+const LOG_RECORD_BASE_FIELDS = [
+    { name: 'uuid', type: ['null', 'string'] },
+    { name: 'trace_id', type: ['null', 'bytes'] },
+    { name: 'span_id', type: ['null', 'bytes'] },
+    { name: 'trace_flags', type: ['null', 'int'] },
+    { name: 'timestamp', type: ['null', 'long'] },
+    { name: 'observed_timestamp', type: ['null', 'long'] },
+    { name: 'body', type: ['null', 'string'] },
+    { name: 'severity_text', type: ['null', 'string'] },
+    { name: 'severity_number', type: ['null', 'int'] },
+    { name: 'service_name', type: ['null', 'string'] },
+    { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
+    { name: 'instrumentation_scope', type: ['null', 'string'] },
+    { name: 'event_name', type: ['null', 'string'] },
+    { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+]
+
 const createKafkaMessage = async (
     logData: any,
     headers: Record<string, string> = {},
@@ -104,20 +121,7 @@ const createKafkaMessage = async (
         type: 'record',
         name: 'LogRecord',
         fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            ...LOG_RECORD_BASE_FIELDS,
             { name: 'pattern', type: ['null', 'string'], default: null },
             { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
@@ -153,22 +157,7 @@ const createMultiRecordKafkaMessage = async (
     const logRecordType = avro.Type.forSchema({
         type: 'record',
         name: 'LogRecord',
-        fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
-        ],
+        fields: LOG_RECORD_BASE_FIELDS,
     })
 
     const records: LogRecord[] = logDataList.map((logData, i) => ({
