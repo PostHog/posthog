@@ -130,7 +130,7 @@ export function IssueSummary(): JSX.Element | null {
     const { issueId } = useValues(errorTrackingIssueSceneLogic)
     const logic = issueSummaryLogic({ issueId })
     const { view, summary, regenerating, feedback } = useValues(logic)
-    const { regenerateSummary, retry, sendFeedback } = useActions(logic)
+    const { regenerateSummary, loadSummary, sendFeedback } = useActions(logic)
     return (
         <IssueSummarySection
             view={view}
@@ -138,7 +138,7 @@ export function IssueSummary(): JSX.Element | null {
             regenerating={regenerating}
             feedback={feedback}
             onRegenerate={regenerateSummary}
-            onRetry={retry}
+            onRetry={loadSummary}
             onFeedback={sendFeedback}
         />
     )

@@ -593,20 +593,21 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(responses={200: ErrorTrackingIssueSummaryResponseSerializer})
     @action(methods=["GET"], detail=True)
     def summary(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        issue_id = UUID(str(pk))
-        if not facade_api.issue_exists_by_id(self.team_id, issue_id):
-            raise NotFound("Issue not found")
-        return Response(issue_summary_response(self.team_id, issue_id, regenerate=False))
+        return self._summary_response(pk, regenerate=False)
 
     @extend_schema(request=None, responses={200: ErrorTrackingIssueSummaryResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="summary/regenerate")
     def summary_regenerate(
         self, request: request.Request, *args: object, pk: object = None, **kwargs: object
     ) -> Response:
+        return self._summary_response(pk, regenerate=True)
+
+    def _summary_response(self, pk: object, *, regenerate: bool) -> Response:
         issue_id = UUID(str(pk))
+        # Without this, another team's issue id would queue a generation task under this team.
         if not facade_api.issue_exists_by_id(self.team_id, issue_id):
             raise NotFound("Issue not found")
-        return Response(issue_summary_response(self.team_id, issue_id, regenerate=True))
+        return Response(issue_summary_response(self.team_id, issue_id, regenerate=regenerate))
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

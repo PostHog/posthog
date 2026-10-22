@@ -74,9 +74,6 @@ export interface issueSummaryLogicActions {
         summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
         payload?: any
     }
-    retry: () => {
-        value: true
-    }
     sendFeedback: (feedback: IssueSummaryFeedback) => {
         feedback: IssueSummaryFeedback
     }
@@ -118,7 +115,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
     key((props) => props.issueId),
     path((key) => ['products', 'error_tracking', 'scenes', 'ErrorTrackingIssueScene', 'issueSummaryLogic', key]),
     actions({
-        retry: true,
         markLoadFailed: true,
         startPolling: true,
         stopPolling: true,
@@ -161,8 +157,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             false,
             {
                 pollTimedOut: () => true,
-                startPolling: () => false,
-                retry: () => false,
+                loadSummary: () => false,
             },
         ],
         polling: [
@@ -240,79 +235,83 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache, props }) => ({
-        retry: () => {
-            actions.loadSummary()
-        },
-        startPolling: () => {
+    listeners(({ actions, values, cache, props }) => {
+        // Each poll waits for the previous answer, so a slow endpoint never has requests piling up.
+        const scheduleNextPoll = (): void => {
             cache.disposables.add(() => {
-                const id = setInterval(() => actions.loadSummary(), ISSUE_SUMMARY_POLL_INTERVAL_MS)
-                return () => clearInterval(id)
-            }, 'summaryPoll')
-            cache.disposables.add(() => {
-                const id = setTimeout(() => actions.pollTimedOut(), ISSUE_SUMMARY_POLL_TIMEOUT_MS)
+                const id = setTimeout(() => actions.loadSummary(), ISSUE_SUMMARY_POLL_INTERVAL_MS)
                 return () => clearTimeout(id)
-            }, 'summaryPollDeadline')
-        },
-        stopPolling: () => {
-            cache.disposables.dispose('summaryPoll')
-            cache.disposables.dispose('summaryPollDeadline')
-        },
-        pollTimedOut: () => {
-            // A regenerate whose inputs did not change keeps the same `generated_at`, so it always ends here.
-            // Read `regenerating` first, because `stopPolling` resets it.
-            if (values.regenerating && values.summary) {
-                lemonToast.info('No new summary yet. Check back later.')
-            }
-            actions.stopPolling()
-        },
-        markLoadFailed: () => {
-            actions.stopPolling()
-        },
-        loadSummarySuccess: () => {
-            if (values.loadFailed) {
-                return
-            }
-            if (values.awaitingSummary) {
-                // Starting again would also push the deadline back, so a poll that keeps answering
-                // `generating` would never time out.
-                if (!values.polling) {
-                    actions.startPolling()
+            }, 'summaryPoll')
+        }
+        return {
+            startPolling: () => {
+                cache.disposables.add(() => {
+                    const id = setTimeout(() => actions.pollTimedOut(), ISSUE_SUMMARY_POLL_TIMEOUT_MS)
+                    return () => clearTimeout(id)
+                }, 'summaryPollDeadline')
+            },
+            stopPolling: () => {
+                cache.disposables.dispose('summaryPoll')
+                cache.disposables.dispose('summaryPollDeadline')
+            },
+            pollTimedOut: () => {
+                // A regenerate whose inputs did not change keeps the same `generated_at`, so it always ends here.
+                // Read `regenerating` first, because `stopPolling` resets it.
+                if (values.regenerating && values.summary) {
+                    lemonToast.info('No new summary yet. Check back later.')
                 }
-                return
-            }
-            actions.stopPolling()
-            const summary = values.summary
-            if (summary && cache.viewedGeneratedAt !== summary.generated_at) {
-                cache.viewedGeneratedAt = summary.generated_at
-                posthog.capture('error_tracking_issue_summary_viewed', {
+                actions.stopPolling()
+            },
+            markLoadFailed: () => {
+                actions.stopPolling()
+            },
+            loadSummarySuccess: () => {
+                if (values.loadFailed) {
+                    return
+                }
+                if (values.awaitingSummary) {
+                    // Starting again would also push the deadline back, so a poll that keeps answering
+                    // `generating` would never time out.
+                    if (!values.polling) {
+                        actions.startPolling()
+                    }
+                    scheduleNextPoll()
+                    return
+                }
+                actions.stopPolling()
+                const summary = values.summary
+                if (summary && cache.viewedGeneratedAt !== summary.generated_at) {
+                    cache.viewedGeneratedAt = summary.generated_at
+                    posthog.capture('error_tracking_issue_summary_viewed', {
+                        issue_id: props.issueId,
+                        category: summary.category,
+                        model: summary.model,
+                        generated_at: summary.generated_at,
+                    })
+                }
+            },
+            regenerateSummary: () => {
+                posthog.capture('error_tracking_issue_summary_regenerated', { issue_id: props.issueId })
+            },
+            regenerateSummarySuccess: ({ summaryResponse }) => {
+                if (summaryResponse?.status === IssueSummaryStatusEnumApi.Generating) {
+                    actions.startPolling()
+                    scheduleNextPoll()
+                } else if (summaryResponse?.summary) {
+                    lemonToast.info('This summary is already up to date.')
+                }
+            },
+            sendFeedback: ({ feedback }) => {
+                posthog.capture('error_tracking_issue_summary_feedback', {
                     issue_id: props.issueId,
-                    category: summary.category,
-                    model: summary.model,
-                    generated_at: summary.generated_at,
+                    feedback,
+                    category: values.summary?.category ?? null,
+                    model: values.summary?.model ?? null,
+                    generated_at: values.summary?.generated_at ?? null,
                 })
-            }
-        },
-        regenerateSummary: () => {
-            posthog.capture('error_tracking_issue_summary_regenerated', { issue_id: props.issueId })
-        },
-        regenerateSummarySuccess: ({ summaryResponse }) => {
-            if (summaryResponse?.status === IssueSummaryStatusEnumApi.Generating) {
-                actions.startPolling()
-            } else if (summaryResponse?.summary) {
-                lemonToast.info('This summary is already up to date.')
-            }
-        },
-        sendFeedback: ({ feedback }) => {
-            posthog.capture('error_tracking_issue_summary_feedback', {
-                issue_id: props.issueId,
-                feedback,
-                category: values.summary?.category ?? null,
-                model: values.summary?.model ?? null,
-                generated_at: values.summary?.generated_at ?? null,
-            })
-        },
-    })),
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadSummary()
     }),

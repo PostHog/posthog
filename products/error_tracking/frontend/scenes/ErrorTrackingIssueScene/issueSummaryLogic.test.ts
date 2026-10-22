@@ -87,7 +87,7 @@ describe('issueSummaryLogic', () => {
         await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
         expect(retrieve).toHaveBeenCalledTimes(2)
 
-        logic.actions.retry()
+        logic.actions.loadSummary()
         await advance(0)
         expect(logic.values.view).toBe('ready')
     })
