@@ -374,6 +374,8 @@ class SignalReport(UUIDModel):
     pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
     researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
+    research_blocked_reason = models.CharField(max_length=32, null=True, blank=True)
+    implementation_blocked_reason = models.CharField(max_length=32, null=True, blank=True)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
@@ -492,6 +494,16 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            models.Index(
+                fields=["team"],
+                condition=models.Q(research_blocked_reason__isnull=False),
+                name="signals_github_blocked_team",
+            ),
+            models.Index(
+                fields=["team"],
+                condition=models.Q(implementation_blocked_reason__isnull=False),
+                name="signals_impl_github_blocked",
+            ),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],

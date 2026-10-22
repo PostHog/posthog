@@ -20,6 +20,7 @@ from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
     _is_safe_github_repo_path,
+    github_access_changed,
     github_app_oauth_credentials,
 )
 from posthog.models.integration.github_audit import GitHubAudit
@@ -123,6 +124,7 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=installation_id_str,
     ).update(repository_cache_updated_at=None)
+    github_access_changed.send_robust(sender=GitHubIntegration, installation_id=installation_id_str)
 
 
 def github_account_type(owner_type: str | None) -> str | None:

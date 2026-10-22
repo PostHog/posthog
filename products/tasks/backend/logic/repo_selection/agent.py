@@ -4,9 +4,11 @@ import re
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
+from django.utils import timezone
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
@@ -104,7 +106,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
             kind=UserIntegration.IntegrationKind.GITHUB,
             user_id__in=user_ids,
         )
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        .exclude(repository_cache=[], repository_cache_updated_at__gt=timezone.now() - timedelta(hours=1))
         .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         .annotate(
             _is_org_account=Case(
@@ -144,9 +146,8 @@ def resolve_team_github_integration(
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
-        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+        .exclude(repository_cache=[], repository_cache_updated_at__gt=timezone.now() - timedelta(hours=1))
+        # Readiness checks retry transient failures before this resolver selects a connection.
         .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
         .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         # Prioritize orgs vs users (alphabetically), then oldest first

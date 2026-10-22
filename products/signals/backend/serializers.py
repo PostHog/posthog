@@ -21,6 +21,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
@@ -1367,6 +1368,19 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    implementation_blocked_reason = serializers.ChoiceField(
+        choices=GitHubReadinessStatus.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.",
+    )
+    research_blocked_reason = serializers.ChoiceField(
+        choices=GitHubReadinessStatus.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub readiness prerequisite holding research in the candidate state; null once research starts.",
+    )
+
     reviewer_assignment = serializers.SerializerMethodField(
         help_text="Reviewer control and state token for preparing an automatic proposal."
     )
@@ -1569,6 +1583,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "summary_lead",
             "reviewer_assignment",
             "status",
+            "research_blocked_reason",
+            "implementation_blocked_reason",
             "monitoring_started_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count

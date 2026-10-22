@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from django.core.cache import cache
 from django.db.models import Count, F, Func, JSONField, Value
 from django.db.models.functions import Cast
+from django.dispatch import Signal
 from django.utils import timezone
 
 import jwt
@@ -121,6 +122,8 @@ end
 return 0
 """
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
+
+github_access_changed = Signal()
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
@@ -2915,6 +2918,7 @@ class GitHubIntegrationBase:
             update_fields.insert(0, "repository_cache")
         self.integration.repository_cache_updated_at = refreshed_at
         self.integration.save(update_fields=update_fields)
+        github_access_changed.send_robust(sender=type(self), installation_id=str(self.github_installation_id))
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:

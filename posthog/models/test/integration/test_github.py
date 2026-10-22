@@ -43,6 +43,7 @@ from posthog.models.github_integration_base import (
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
     PullRequestRef,
+    github_access_changed,
     github_app_jwt_credentials,
 )
 from posthog.models.integration import (
@@ -2142,6 +2143,23 @@ class TestGitHubIntegrationModel(BaseTest):
         # Repos cached before these fields existed keep their original shape — optional keys are omitted, not nulled.
         assert repos[1] == {"id": 2, "name": "legacy", "full_name": "PostHog/legacy"}
         mock_list_all.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
+    def test_repository_refresh_survives_recovery_listener_failure(self, mock_list_all: MagicMock) -> None:
+        repositories = [{"id": 1, "name": "application", "full_name": "example/application"}]
+        integration = self.create_integration({"installation_id": "INSTALL"}, {})
+        mock_list_all.return_value = repositories
+
+        def receiver(sender: type, **kwargs: object) -> None:
+            raise RuntimeError("Recovery temporarily unavailable")
+
+        github_access_changed.connect(receiver, weak=False)
+        try:
+            result = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache()
+        finally:
+            github_access_changed.disconnect(receiver)
+        integration.refresh_from_db()
+        assert result == integration.repository_cache == repositories
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
     def test_sync_repository_cache_respects_refresh_cooldown(self, mock_list_all):

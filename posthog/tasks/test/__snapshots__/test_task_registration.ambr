@@ -95,6 +95,7 @@
     'posthog.tasks.integrations.refresh_github_branch_cache',
     'posthog.tasks.integrations.refresh_integration',
     'posthog.tasks.integrations.refresh_integrations',
+    'posthog.tasks.integrations.revalidate_github_installation',
     'posthog.tasks.js_snippet_versioning.sync_js_snippet_manifest',
     'posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report',
     'posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports',

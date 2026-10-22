@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubAppJwtCredentials, GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -97,8 +97,11 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
         self.assertEqual(GitHubIntegration.uninstall_app_installation_status("12345"), "failed")
 
-    @override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_PRIVATE_KEY="")
-    def test_uninstall_app_installation_false_when_not_configured(self):
+    @patch(
+        "posthog.models.github_integration_base.github_app_jwt_credentials",
+        return_value=GitHubAppJwtCredentials(client_id="", private_key=""),
+    )
+    def test_uninstall_app_installation_false_when_not_configured(self, _credentials):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
         self.assertEqual(GitHubIntegration.uninstall_app_installation_status("12345"), "skipped")
 
@@ -173,6 +176,16 @@ class TestGitHubInstallationWebhook(TestCase):
         response = self._post({"action": "deleted", "installation": {"id": 99999}})
 
         self.assertEqual(response.status_code, 202)
+
+    @patch("posthog.api.github_callback.installation_events.revalidate_github_installation.delay")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    def test_unsuspend_revalidates_access_after_commit(self, mock_get_secret, revalidate):
+        mock_get_secret.return_value = self.webhook_secret
+        self._team_integration("12345")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post({"action": "unsuspend", "installation": {"id": 12345}})
+        self.assertEqual(response.status_code, 202)
+        revalidate.assert_called_once_with("12345")
 
     @parameterized.expand([("suspend",), ("unsuspend",)])
     @patch("posthog.credentials_service.instance_settings.get_instance_setting")
