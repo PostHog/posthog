@@ -1,9 +1,10 @@
-import { IconChevronRight, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
+import { IconChevronRight, IconCopy, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 export interface HomeDashboardStarterModalProps {
     isOpen: boolean
     onClose: () => void
+    onCopyPostHogHome: () => void
     onTalkToAI: () => void
     onStartFromTemplate: () => void
     onChooseExisting: () => void
@@ -17,6 +18,7 @@ export interface HomeDashboardStarterModalProps {
 export function HomeDashboardStarterModal({
     isOpen,
     onClose,
+    onCopyPostHogHome,
     onTalkToAI,
     onStartFromTemplate,
     onChooseExisting,
@@ -28,6 +30,15 @@ export function HomeDashboardStarterModal({
 }: HomeDashboardStarterModalProps): JSX.Element {
     const creationDisabledReason = creatingWithAI ? 'Creating your dashboard…' : undefined
     const choices = [
+        {
+            title: 'Copy default dashboard',
+            description: 'Start with the charts you see on Home, then edit, add, or remove them.',
+            icon: <IconCopy />,
+            onClick: onCopyPostHogHome,
+            dataAttr: 'home-dashboard-copy-posthog-home',
+            loading: false,
+            disabledReason: creationDisabledReason,
+        },
         {
             title: 'Talk to PostHog AI',
             description: 'Describe what you want to track and let PostHog AI build it.',
@@ -101,9 +112,9 @@ export function HomeDashboardStarterModal({
                         data-attr="home-dashboard-restore-posthog-home"
                     >
                         <span className="flex min-w-0 flex-col gap-0.5 py-1">
-                            <span className="font-semibold">Use PostHog Home</span>
+                            <span className="font-semibold">Use default dashboard</span>
                             <span className="whitespace-normal text-xs font-normal text-secondary">
-                                Return to the ready-made product analytics overview.
+                                Go back to the default product analytics dashboard.
                             </span>
                         </span>
                     </LemonButton>

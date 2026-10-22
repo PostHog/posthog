@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +15,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
+from structlog.testing import capture_logs
 from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
 from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, CancelledError
 from temporalio.testing import ActivityEnvironment
@@ -45,6 +47,7 @@ from products.wizard.backend.logic.workers.service import (
     WizardWorkerResult,
     WizardWorkerTimeoutError,
 )
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_REPOSITORY_ACCESS_ERROR_TYPE,
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
@@ -67,6 +70,7 @@ def _create_cloud_run(
     *,
     program_id: str = "posthog-integration",
     registry_payload: object = None,
+    branch: str | None = None,
 ) -> WizardRunDTO:
     with (
         patch("posthoganalytics.get_feature_flag_payload", return_value=registry_payload),
@@ -85,7 +89,7 @@ def _create_cloud_run(
                 created_by_id=user_id,
                 environment=WizardRunEnvironment.CLOUD,
                 idempotency_key="test-cloud-activity",
-                workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
+                workspace=GitRepositoryWorkspace(repository="posthog/posthog", branch=branch),
                 program_id=program_id,
             )
         )
@@ -188,9 +192,10 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     provision.assert_not_called()
 
 
+@pytest.mark.parametrize("branch", [None, "release/next"])
 @pytest.mark.django_db(transaction=True)
-def test_clone_repository_rechecks_access_before_preparing_workspace(team, user) -> None:
-    run = _create_cloud_run(team.id, user.id)
+def test_clone_repository_rechecks_access_before_preparing_workspace(team, user, branch: str | None) -> None:
+    run = _create_cloud_run(team.id, user.id, branch=branch)
     worker = _worker(run)
 
     with (
@@ -209,7 +214,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
     ):
         result = async_to_sync(_run_clone_repository)(worker)
 
-    assert result == _workspace(run)
+    assert result == replace(_workspace(run), base_branch=branch)
     assert wizard_facade.get_run(team.id, run.id).stage == "preparing_workspace"
     resolve_integration.assert_called_once_with(team.id)
     repository_accessible.assert_called_once_with(team.id, 456, "posthog/posthog")
@@ -218,6 +223,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
             sandbox_id=worker.sandbox_id,
             github_integration_id=456,
             repository="posthog/posthog",
+            branch=branch,
         )
     )
 
@@ -294,7 +300,11 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
             True,
         ),
         (
-            WizardWorkerExecutionError("execution", 1, wizard_error_code="PHW_DETECT_NO_POSTHOG_SDK"),
+            WizardWorkerExecutionError(
+                "execution",
+                1,
+                wizard_error=WizardErrorLine(code="PHW_DETECT_NO_POSTHOG_SDK", message="Missing SDK"),
+            ),
             "PHW_DETECT_NO_POSTHOG_SDK",
             True,
         ),
@@ -335,6 +345,7 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
             side_effect=worker_error,
         ) as execute,
         pytest.raises(ApplicationError) as error,
+        capture_logs() as logs,
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
@@ -357,6 +368,16 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     assert error.value.__cause__ is None
     assert error.value.__context__ is None
     assert not error.value.details
+    failure_logs = [log for log in logs if log["event"] == "wizard_execution_failed"]
+    if isinstance(worker_error, WizardWorkerExecutionError):
+        assert len(failure_logs) == 1
+        expected_error = worker_error.wizard_error
+        assert failure_logs[0]["log_level"] == "warning"
+        assert failure_logs[0]["wizard_error_code"] == (expected_error.code if expected_error else None)
+        assert failure_logs[0]["wizard_error_message"] == (expected_error.message if expected_error else None)
+    else:
+        assert not failure_logs
+    assert "fake-wizard-api-key-for-test" not in str(logs)
     if isinstance(worker_error, ApplicationError):
         assert error.value.next_retry_delay == worker_error.next_retry_delay
         assert error.value.category == worker_error.category

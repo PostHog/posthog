@@ -14,8 +14,8 @@ import { PropertyDefinitionType } from '~/types'
 import { TimelineSeekbar } from '../TimelineSeekbar'
 import { PropertiesTimelineProps, propertiesTimelineLogic } from './propertiesTimelineLogic'
 
-export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
-    const logic = propertiesTimelineLogic({ actor, filter })
+export function PropertiesTimeline({ actor, query }: PropertiesTimelineProps): JSX.Element {
+    const logic = propertiesTimelineLogic({ actor, query })
     const { points, crucialPropertyKeys, dateRange, resultLoading, selectedPointIndex } = useValues(logic)
     const { setSelectedPointIndex } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
@@ -77,7 +77,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
             />
             <LemonDivider className="h-0" />
             <PropertiesTable
-                type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
+                type={PropertyDefinitionType.Person}
                 properties={propertiesShown}
                 nestingLevel={1}
                 highlightedKeys={crucialPropertyKeys}
