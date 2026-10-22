@@ -477,7 +477,7 @@
           FROM person AS where_optimization 
           WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, [%(hogql_val_2)s]), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', ''), %(hogql_val_4)s), 0)))))) 
     GROUP BY person.id 
-    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_5)s), person.version), plus(now64(6, %(hogql_val_6)s), toIntervalDay(1))))) AS persons 
+    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_5)s), person.version), plus(now64(6, %(hogql_val_6)s), toIntervalDay(1))))) AS persons 
   WHERE ifNull(equals(persons.properties___random_uuid, %(hogql_val_7)s), 0) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -528,7 +528,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), persons.id) 
   WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_3)s)) 
   LIMIT 100 
@@ -580,7 +580,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
   WHERE equals(e.team_id, 99999) 
   LIMIT 10 
@@ -607,7 +607,7 @@
     FROM person 
     WHERE equals(person.team_id, 99999) 
     GROUP BY person.id 
-    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
     SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 
@@ -637,7 +637,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 
@@ -667,7 +667,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
   WHERE equals(e.team_id, 99999) 
   LIMIT 10 
@@ -697,7 +697,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id) 
   WHERE equals(s.team_id, 99999) 
   GROUP BY s__pdi__person.properties___sneaky_mail 
@@ -784,7 +784,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.pdi___person_id, pdi__person.id) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -810,7 +810,7 @@
     FROM person 
     WHERE equals(person.team_id, 99999) 
     GROUP BY person.id 
-    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
     SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.pdi___person_id, pdi__person.id) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -830,7 +830,7 @@
     FROM person 
     WHERE equals(person.team_id, 99999) 
     GROUP BY person.id 
-    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
     SETTINGS optimize_aggregation_in_order=1) AS persons JOIN (
     SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS event_person_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
     FROM events LEFT OUTER JOIN (
@@ -868,7 +868,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS p ON equals(p.id, pdi.person_id) 
   WHERE equals(e.team_id, 99999) 
   LIMIT 100 
@@ -918,7 +918,7 @@
           FROM person 
           WHERE equals(person.team_id, 99999) 
           GROUP BY person.id 
-          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+          HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
     SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 

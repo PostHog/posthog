@@ -30,7 +30,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -78,7 +78,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -124,7 +124,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -170,7 +170,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY __person_lookup.properties___email ASC
   LIMIT 101
@@ -216,7 +216,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -328,7 +328,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(ifNull(equals(__person_lookup.properties___email, 'bob@posthog.com'), 0), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -374,7 +374,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(ifNull(ilike(__person_lookup.properties___email, '%alice%'), 0), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -421,7 +421,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(ifNull(equals(__person_lookup.properties___name, 'Person alice'), 0), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -498,7 +498,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id)) DESC
   LIMIT 101
@@ -548,7 +548,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -594,7 +594,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -642,7 +642,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -690,7 +690,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id)) ASC
   LIMIT 101
@@ -736,7 +736,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -782,7 +782,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -838,7 +838,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -917,7 +917,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -994,7 +994,7 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+                                                    HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
