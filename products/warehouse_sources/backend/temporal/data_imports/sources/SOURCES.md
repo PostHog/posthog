@@ -247,6 +247,7 @@ the row lists both.
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1/SHA-512 request signing)        | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
+| cloudflare_d1                    | HTTP                        | requests                                                        | ✅                          |
 | cloudflare_r2                    | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |

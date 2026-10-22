@@ -280,6 +280,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudflare_d1.source import CloudflareD1Source
 from .cloudflare_r2.source import CloudflareR2Source
 from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
