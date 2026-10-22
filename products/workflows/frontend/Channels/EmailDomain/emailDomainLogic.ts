@@ -1,11 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, OrganizationType } from '~/types'
 
 import type {
     EmailDomainStatusApi,
@@ -144,7 +143,7 @@ export interface emailDomainLogicValues {
     status: EmailDomainStatusApi | null // emailDomainStatusLogic
     statusLoading: boolean // emailDomainStatusLogic
     statusUnavailable: boolean // emailDomainStatusLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentOrganization: OrganizationType | null // organizationLogic
     breadcrumbs: Breadcrumb[]
     offersDataSuggestions: boolean
     phase: EmailDomainPhase
@@ -158,13 +157,13 @@ export interface emailDomainLogicActions {
     recheck: () => {
         value: true
     } // emailDomainStatusLogic
-    setFeatureFlags: (
-        flags: string[],
-        variants: Record<string, boolean | string>
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
     ) => {
-        flags: string[]
-        variants: Record<string, boolean | string>
-    } // featureFlagLogic
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
     preloadDataSuggestions: () => {
         value: true
     }
@@ -178,7 +177,7 @@ export interface emailDomainLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         phase: (
-            integrationId: any,
+            integrationId: number | null,
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
             status: EmailDomainStatusApi | null,
@@ -196,9 +195,9 @@ export interface emailDomainLogicMeta {
             allRecordsFound: boolean,
             pollingStopped: boolean
         ) => VerificationStep[]
-        breadcrumbs: (domain: string | null, integrationId: any) => Breadcrumb[]
-        offersDataSuggestions: (featureFlags: FeatureFlagsSet) => boolean
+        offersDataSuggestions: (currentOrganization: OrganizationType | null) => boolean
         preloadsDataSuggestions: (offersDataSuggestions: boolean, integrationId: number | null) => boolean
+        breadcrumbs: (domain: string | null, integrationId: number | null) => Breadcrumb[]
     }
 }
 
@@ -233,16 +232,16 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ['recordsAdded'],
             emailDomainAutoConfigureLogic(props),
             ['returnedFromAutoConfigure'],
-            featureFlagLogic,
-            ['featureFlags'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             emailDomainSenderLogic(props),
             ['loadSender'],
             emailDomainStatusLogic(props),
             ['recheck'],
-            featureFlagLogic,
-            ['setFeatureFlags'],
+            organizationLogic,
+            ['loadCurrentOrganizationSuccess'],
         ],
     })),
     actions({
@@ -295,9 +294,11 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ): VerificationStep[] =>
                 verificationStepsOf({ status, phase, domain, records, foundCount, allRecordsFound, pollingStopped }),
         ],
+        // The suggestions are written by an LLM, so they follow the organization's AI data processing approval.
         offersDataSuggestions: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): boolean =>
+                currentOrganization?.is_ai_data_processing_approved === true,
         ],
         // Suggestions take up to a minute to write, so they start once the domain is picked and are ready by the last step.
         preloadsDataSuggestions: [
@@ -319,7 +320,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        setFeatureFlags: () => actions.preloadDataSuggestions(),
+        loadCurrentOrganizationSuccess: () => actions.preloadDataSuggestions(),
         preloadDataSuggestions: () => {
             if (!values.preloadsDataSuggestions || cache.dataSuggestionsPreloaded) {
                 return
