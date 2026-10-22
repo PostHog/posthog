@@ -237,6 +237,20 @@ def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str
     ).exists()
 
 
+def active_workflow_warehouse_table_names(
+    *, team_id: int, trigger_source: str, table_names: Collection[str]
+) -> set[str]:
+    """The given warehouse table names that an active workflow triggers on."""
+    return set(
+        HogFlow.objects.filter(
+            team_id=team_id,
+            status=HogFlow.State.ACTIVE,
+            trigger__type=trigger_source,
+            trigger__table_name__in=list(table_names),
+        ).values_list("trigger__table_name", flat=True)
+    )
+
+
 def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> WorkflowActivitySummary:
     """Total and non-archived workflow counts, plus the most recently updated workflows."""
     qs = HogFlow.objects.filter(team_id=team_id)

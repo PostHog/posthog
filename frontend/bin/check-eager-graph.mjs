@@ -219,7 +219,10 @@ const ROOTS = [
             'src/scenes/settings/SettingsMap.tsx',
             // A browser cannot read files. The polyfill plugin in common/esbuilder/utils.mjs stubs out
             // fs and fs/promises, and a hit means a library's file reader pulled in the jspm fs polyfill.
-            '@jspm/core/nodelibs/browser/fs',
+            {
+                pattern: '@jspm/core/nodelibs/browser/fs',
+                verifyPrefix: '@jspm/core/nodelibs/browser/',
+            },
         ],
     },
 ]

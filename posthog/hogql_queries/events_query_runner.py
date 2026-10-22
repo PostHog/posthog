@@ -18,6 +18,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryResponse,
+    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -444,7 +445,17 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return super().get_cache_key_variant() + self._list_table.cache_key_variant
 
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
-        flag_keys = _exact_flag_keys(prop) if table is FLAG_EVALUATIONS_LIST_TABLE else None
+        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+            return property_to_expr(prop, self.team)
+        if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue):
+            # Builds the group the way property_to_expr does, so an exact flag filter inside a group also reads flag_key.
+            exprs = [self._property_where_expr(value, table) for value in prop.values]
+            if not exprs:
+                return ast.Constant(value=1)
+            if len(exprs) == 1:
+                return exprs[0]
+            return ast.And(exprs=exprs) if prop.type == FilterLogicalOperator.AND_ else ast.Or(exprs=exprs)
+        flag_keys = _exact_flag_keys(prop)
         if flag_keys is None:
             return property_to_expr(prop, self.team)
         # HogQL reads properties.$feature_flag from the properties JSON, which reads the properties of every call of
