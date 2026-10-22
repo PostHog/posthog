@@ -6181,8 +6181,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 

@@ -2585,6 +2585,22 @@ class SignalReportCheck(UUIDModel):
         return self.status not in self.OPEN_STATUSES
 
 
+class SignalReportMonitoringAttempt(UUIDModel):
+    # Attempt evidence belongs to the report's environment, not its canonical project.
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_attempts")
+    monitoring_started_at = models.DateTimeField()
+    check_versions = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:

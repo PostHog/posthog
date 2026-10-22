@@ -140,13 +140,7 @@ def _merge(
         return 0, None
 
     keys = [escape_trino_identifier(key) for key in incremental.unique_key]
-    _run(
-        cursor,
-        control,
-        f"SELECT 1 FROM {stage} GROUP BY {', '.join(keys)} HAVING count(*) > 1 LIMIT 1",
-        fetch=False,
-    )
-    if cursor.fetchall():
+    if _fetch(cursor, control, f"SELECT 1 FROM {stage} GROUP BY {', '.join(keys)} HAVING count(*) > 1 LIMIT 1"):
         raise DuplicateUniqueKeyError(
             f"The incremental rows hold more than one row per unique key ({', '.join(incremental.unique_key)})"
         )
@@ -178,20 +172,18 @@ def _drop_stage(cursor: Cursor, stage: str) -> None:
 def _table_exists(
     cursor: Cursor, control: TrinoQueryControl | None, catalog: str, schema_name: str, table_name: str
 ) -> bool:
-    _run(
+    rows = _fetch(
         cursor,
         control,
         f"SELECT 1 FROM {escape_trino_identifier(catalog)}.information_schema.tables "
         "WHERE table_schema = ? AND table_name = ? AND table_type = 'BASE TABLE'",
         [schema_name, table_name],
-        fetch=False,
     )
-    return bool(cursor.fetchall())
+    return bool(rows)
 
 
 def _max_key(cursor: Cursor, control: TrinoQueryControl | None, table: str, incremental_key: str) -> Any:
-    _run(cursor, control, f"SELECT max({escape_trino_identifier(incremental_key)}) FROM {table}", fetch=False)
-    rows = cursor.fetchall()
+    rows = _fetch(cursor, control, f"SELECT max({escape_trino_identifier(incremental_key)}) FROM {table}")
     return rows[0][0] if rows else None
 
 
@@ -200,23 +192,37 @@ def _run(
     control: TrinoQueryControl | None,
     statement: str,
     parameters: list[object] | None = None,
-    *,
-    fetch: bool = True,
 ) -> int:
-    """Run one statement and return the row count Trino reports for a write.
-
-    ``fetch=False`` leaves the result for the caller to read.
-    """
-    if control:
-        control.checkpoint()
-    if parameters:
-        cursor.execute(statement, parameters)
-    else:
-        cursor.execute(statement)
-    if not fetch:
-        return -1
-    cursor.fetchall()
+    """Run one statement and return the row count Trino reports for a write."""
+    _fetch(cursor, control, statement, parameters)
     row_count = cursor.rowcount
     if statement.startswith(("CREATE OR REPLACE TABLE", "MERGE")) and row_count < 0:
         raise RuntimeError("Trino did not report the materialized row count")
     return row_count
+
+
+def _fetch(
+    cursor: Cursor,
+    control: TrinoQueryControl | None,
+    statement: str,
+    parameters: list[object] | None = None,
+) -> list[Any]:
+    """Run one statement, read all of its rows, and report the bytes it processed to ``control``."""
+    if control:
+        control.checkpoint()
+    stats_before = cursor.stats
+    try:
+        if parameters:
+            cursor.execute(statement, parameters)
+        else:
+            cursor.execute(statement)
+        return cursor.fetchall()
+    finally:
+        # The client updates the statistics with every response, so they are final once the rows are read.
+        # A failed statement reports what it processed as of the last response before the error: the client
+        # raises on the error response before it reads that response's statistics, so the figure is a lower bound.
+        # When ``execute`` fails before it starts a query, the cursor still holds the previous statement's
+        # statistics, which are already counted.
+        stats = cursor.stats
+        if control is not None and stats is not None and stats is not stats_before:
+            control.record_processed_bytes(stats.get("processedBytes"))

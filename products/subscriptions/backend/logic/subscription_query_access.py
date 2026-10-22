@@ -62,22 +62,26 @@ def should_check_table_access(*, team_id: int, subscription_id: int | None, attr
 def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> list[dict[str, Any]]:
     """The saved queries of the insights a delivery exports once this write is applied.
 
-    The selection matches `_resolve_exportable_insights` in the delivery activities: the selected
-    insights that are still live tiles of the dashboard, every live tile when there is no
-    selection, or the single insight of an insight subscription.
+    The selection follows `_resolve_exportable_insights` in the delivery activities: the selected
+    insights of the dashboard, every live tile when there is no selection, or the single insight
+    of an insight subscription. A selected insight counts even while its tile is soft-deleted: a
+    tile restore brings it back into the delivery without a subscription write, so the check
+    covers it now rather than never.
     """
     dashboard = attrs["dashboard"] if "dashboard" in attrs else (instance.dashboard if instance else None)
     if dashboard is not None:
         if dashboard.deleted:
             return []
-        live_tiles = dashboard.tiles.filter(insight__isnull=False, insight__deleted=False)
         if "dashboard_export_insights" in attrs:
             selected_ids = list(attrs["dashboard_export_insights"])
         else:
             selected_ids = list(instance.dashboard_export_insights.values_list("id", flat=True)) if instance else []
         if selected_ids:
-            live_tiles = live_tiles.filter(insight_id__in=selected_ids)
-        return [query for query in live_tiles.values_list("insight__query", flat=True) if isinstance(query, dict)]
+            tiles = dashboard.tiles(manager="objects_including_soft_deleted").filter(insight_id__in=selected_ids)
+        else:
+            tiles = dashboard.tiles.all()
+        queries = tiles.filter(insight__isnull=False, insight__deleted=False).values_list("insight__query", flat=True)
+        return [query for query in queries if isinstance(query, dict)]
 
     insight = attrs["insight"] if "insight" in attrs else (instance.insight if instance else None)
     if insight is not None and not insight.deleted and isinstance(insight.query, dict):
