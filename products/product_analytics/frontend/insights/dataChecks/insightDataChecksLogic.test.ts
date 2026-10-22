@@ -31,7 +31,7 @@ describe('insightDataChecksLogic', () => {
     const dataChecks = jest.fn()
     const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
-    let sentRunExpensive: (boolean | undefined)[]
+    let sentDepths: (string | undefined)[]
     let savedFilters: unknown[]
     let capture: jest.SpyInstance
 
@@ -45,10 +45,10 @@ describe('insightDataChecksLogic', () => {
         async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
             const body = (await request.json()) as {
                 query: { source: Record<string, unknown> }
-                run_expensive?: boolean
+                depth?: string
             }
             sentSources.push(body.query.source)
-            sentRunExpensive.push(body.run_expensive)
+            sentDepths.push(body.depth)
             onSent?.()
             await held
             return response
@@ -64,7 +64,7 @@ describe('insightDataChecksLogic', () => {
         dataChecks.mockReset()
         capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         sentSources = []
-        sentRunExpensive = []
+        sentDepths = []
         savedFilters = []
         cancelledQueryIds.length = 0
         useMocks({
@@ -230,33 +230,33 @@ describe('insightDataChecksLogic', () => {
         expect(dataChecks).toHaveBeenCalledTimes(requests)
     })
 
-    it('runs the checks that read a lot only after a person asks, and only for that query', async () => {
+    it('runs a full check only after a person asks, and only for that query', async () => {
         dataChecks.mockImplementationOnce(answer([200, checksOf('on_request')]))
         dataChecks.mockImplementation(answer([200, checksOf('passed')]))
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
-        expect(logic.values.canRunExpensiveChecks).toBe(true)
+        expect(logic.values.canRunFullCheck).toBe(true)
 
         await expectLogic(logic, () => {
-            logic.actions.runExpensiveChecks(logic.values.checkedQuery!)
+            logic.actions.runFullCheck(logic.values.checkedQuery!)
         }).toFinishAllListeners()
-        expect(logic.values).toMatchObject({ status: 'passed', canRunExpensiveChecks: false })
+        expect(logic.values).toMatchObject({ status: 'passed', canRunFullCheck: false })
 
         vizData.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
         await expectLogic(logic, () => logic.actions.checkData()).toFinishAllListeners()
 
-        expect(sentRunExpensive).toEqual([false, true, false])
+        expect(sentDepths).toEqual(['quick', 'full', 'quick'])
     })
 
     it.each([
         ['a check stopped at a limit', 'read_limit', true],
         ['the only skipped check could not run for another reason', 'hidden_property', false],
-    ])('offers to run a partly checked chart in full when %s', async (_name, skipReason, offered) => {
+    ])('offers a full check of a partly checked chart when %s', async (_name, skipReason, offered) => {
         const skipped = { key: 'internal_users', level: 'skipped', skip_reason: skipReason }
         dataChecks.mockImplementation(answer([200, { ...checksOf('partial'), checks: [skipped] }]))
 
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 
-        expect(logic.values.canRunExpensiveChecks).toBe(offered)
+        expect(logic.values.canRunFullCheck).toBe(offered)
     })
 
     it.each([

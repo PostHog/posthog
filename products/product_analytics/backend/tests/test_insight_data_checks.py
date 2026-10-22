@@ -818,11 +818,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         if asked_for == "saved_insight":
             insight = Insight.objects.create(team=self.team, query=query)
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/?run_expensive=true"
-            )
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/?depth=full")
         else:
-            body = {"query": query, "run_expensive": True} if asked_for == "body" else {"query": query}
+            body = {"query": query, "depth": "full"} if asked_for == "body" else {"query": query}
             response = self.client.post(f"/api/projects/{self.team.id}/insights/data_checks/", body, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content

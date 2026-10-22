@@ -53,6 +53,11 @@ class InsightDataCheckAction(LabeledStrEnum):
     OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
 
 
+class InsightDataChecksDepth(LabeledStrEnum):
+    QUICK = "quick", "Read within a small budget, so the checks can run on every load"
+    FULL = "full", "Read with the same limits as the insight's own query"
+
+
 class InsightDataChecksStatus(LabeledStrEnum):
     PASSED = "passed", "No data issues found"
     WARNING = "warning", "A check found a small issue"

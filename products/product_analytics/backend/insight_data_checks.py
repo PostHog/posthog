@@ -46,6 +46,7 @@ from products.product_analytics.backend.facade.contracts import (
 )
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
+    InsightDataChecksDepth,
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
 )
@@ -87,8 +88,8 @@ MAX_ESTIMATED_BYTES = 10_000_000_000
 # Larger than the JSON of almost any event. Below it, the checks skip the size read, which can read hundreds of MB.
 # An event above it only makes a check stop at MAX_BYTES_READ, which offers the person the same button.
 MAX_JSON_BYTES_PER_EVENT = 10_000
-# A check run on request has the same time limit as the insight's own query, and no read limit.
-REQUESTED_MAX_EXECUTION_SECONDS = 60
+# A full check has the same time limit as the insight's own query, and no read limit.
+FULL_MAX_EXECUTION_SECONDS = 60
 JSON_SIZE_SAMPLE = 1_000
 
 # A person cannot repeat an action this fast, but an app that sends an event twice does.
@@ -225,10 +226,10 @@ class _Limits:
     max_sample_bytes_read: int | None
 
 
-def _limits(run_expensive: bool) -> _Limits:
-    if run_expensive:
+def _limits(depth: InsightDataChecksDepth) -> _Limits:
+    if depth == InsightDataChecksDepth.FULL:
         return _Limits(
-            max_execution_seconds=REQUESTED_MAX_EXECUTION_SECONDS, max_bytes_read=None, max_sample_bytes_read=None
+            max_execution_seconds=FULL_MAX_EXECUTION_SECONDS, max_bytes_read=None, max_sample_bytes_read=None
         )
     return _Limits(
         max_execution_seconds=MAX_EXECUTION_SECONDS,
@@ -878,7 +879,12 @@ def _nothing_checked(
 
 
 def run_insight_data_checks(
-    query: Mapping[str, Any], team: Team, user: User, *, email_access: TeamEmailAccess, run_expensive: bool = False
+    query: Mapping[str, Any],
+    team: Team,
+    user: User,
+    *,
+    email_access: TeamEmailAccess,
+    depth: InsightDataChecksDepth = InsightDataChecksDepth.QUICK,
 ) -> InsightDataChecks:
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         events = chart_events(query, team, user)
@@ -895,13 +901,13 @@ def run_insight_data_checks(
             user=user,
             modifiers=_check_modifiers(events.modifiers, keep_project_bot_rules=filters_traffic_type),
             database=events.database,
-            limits=_limits(run_expensive),
+            limits=_limits(depth),
         )
         timezone = ZoneInfo(team.timezone)
         window = _choose_window(events, reader, timezone)
         if isinstance(window, Skipped):
             return _nothing_checked(InsightDataChecksStatus.INCONCLUSIVE, reason=window.reason)
-        if not run_expensive and _would_read_too_much(
+        if depth == InsightDataChecksDepth.QUICK and _would_read_too_much(
             events, reader, window, timezone, email_access=email_access, hidden_properties=hidden_properties
         ):
             return _nothing_checked(

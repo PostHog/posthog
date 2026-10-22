@@ -38,8 +38,8 @@ const AGENT_NOTE =
     'the user agrees. When every check passed, say so in a few words. Do not list the checks that passed. When the ' +
     '`status` is `partial`, say which checks did not run and give each `skip_reason` in plain words.'
 
-// An agent's call is already a request to check, so it runs the checks that would read a lot of data too.
-const RUN_EXPENSIVE = { run_expensive: true }
+// An agent's call is already a request to check, so it runs the full check, whatever it reads.
+const FULL_DEPTH = { depth: 'full' }
 
 const insightTrustCheck = (): ToolBase<typeof schema, Result> => ({
     name: 'insight-trust-check',
@@ -52,12 +52,12 @@ const insightTrustCheck = (): ToolBase<typeof schema, Result> => ({
                 ? await context.api.request<Schemas.InsightDataChecks>({
                       method: 'GET',
                       path: `/api/projects/${projectId}/insights/${encodeURIComponent(String(id))}/data_checks/`,
-                      query: RUN_EXPENSIVE,
+                      query: FULL_DEPTH,
                   })
                 : await context.api.request<Schemas.InsightDataChecks>({
                       method: 'POST',
                       path: `/api/projects/${projectId}/insights/data_checks/`,
-                      body: { query, ...RUN_EXPENSIVE },
+                      body: { query, ...FULL_DEPTH },
                   })
         return withAgentNote(result, AGENT_NOTE)
     },

@@ -9304,7 +9304,7 @@ export interface InsightDataChecksCoverageApi {
 }
 
 export interface InsightDataChecksApi {
-    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data, so they did not run: send `run_expensive` to run them.
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data for a quick check, so they did not run: send `depth` `full` to run them.
      *
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
@@ -9427,6 +9427,18 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * * `quick` - Read within a small budget, so the checks can run on every load
+ * * `full` - Read with the same limits as the insight's own query
+ */
+export type InsightDataChecksDepthEnumApi =
+    (typeof InsightDataChecksDepthEnumApi)[keyof typeof InsightDataChecksDepthEnumApi]
+
+export const InsightDataChecksDepthEnumApi = {
+    Quick: 'quick',
+    Full: 'full',
+} as const
+
 export interface InsightDataChecksRequestApi {
     /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
     query: _InsightQuerySchemaApi
@@ -9435,8 +9447,11 @@ export interface InsightDataChecksRequestApi {
      * @maxLength 128
      */
     client_query_id?: string
-    /** Run the checks even when they would read a lot of data, with the same limits as the insight's own query. Without it, the checks do not run on an insight they would read a lot of data for, and `status` is `on_request`. */
-    run_expensive?: boolean
+    /** `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query */
+    depth?: InsightDataChecksDepthEnumApi
 }
 
 /**
@@ -9872,12 +9887,24 @@ export const InsightsActivityRetrieveFormat = {
 } as const
 
 export type InsightsDataChecksRetrieveParams = {
-    format?: InsightsDataChecksRetrieveFormat
     /**
-     * Run the checks even when they would read a lot of data, with the same limits as the insight's own query. Without it, the checks do not run on an insight they would read a lot of data for, and `status` is `on_request`.
+     * `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     * @minLength 1
      */
-    run_expensive?: boolean
+    depth?: InsightsDataChecksRetrieveDepth
+    format?: InsightsDataChecksRetrieveFormat
 }
+
+export type InsightsDataChecksRetrieveDepth =
+    (typeof InsightsDataChecksRetrieveDepth)[keyof typeof InsightsDataChecksRetrieveDepth]
+
+export const InsightsDataChecksRetrieveDepth = {
+    Quick: 'quick',
+    Full: 'full',
+} as const
 
 export type InsightsDataChecksRetrieveFormat =
     (typeof InsightsDataChecksRetrieveFormat)[keyof typeof InsightsDataChecksRetrieveFormat]

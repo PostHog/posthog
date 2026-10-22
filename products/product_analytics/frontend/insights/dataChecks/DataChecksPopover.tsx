@@ -49,8 +49,8 @@ export interface DataChecksPopoverProps {
 
 export function DataChecksPopover({ insightProps, trigger, children }: DataChecksPopoverProps): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
-    const { visibleChecks, checkedQuery, result, status, canRunExpensiveChecks } = useValues(logic)
-    const { loadDataChecks, reportButtonClicked, reportDataChecksViewed, runExpensiveChecks } = useActions(logic)
+    const { visibleChecks, checkedQuery, result, status, canRunFullCheck } = useValues(logic)
+    const { loadDataChecks, reportButtonClicked, reportDataChecksViewed, runFullCheck } = useActions(logic)
     const { user } = useValues(userLogic)
     const userId = user?.uuid ?? ''
     // Mounted outside the popover content, so a half-written note survives the popover closing.
@@ -130,15 +130,15 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                         Try again
                     </Button>
                 )}
-                {canRunExpensiveChecks && (
+                {canRunFullCheck && (
                     <Button
                         variant="outline"
                         size="sm"
                         className="self-start"
-                        onClick={() => checkedQuery && runExpensiveChecks(checkedQuery)}
-                        data-attr="insight-data-checks-run-expensive"
+                        onClick={() => checkedQuery && runFullCheck(checkedQuery)}
+                        data-attr="insight-data-checks-run-full"
                     >
-                        Run checks
+                        Run a full check
                     </Button>
                 )}
                 {(status === 'passed' || status === 'warning' || status === 'problem' || status === 'partial') && (

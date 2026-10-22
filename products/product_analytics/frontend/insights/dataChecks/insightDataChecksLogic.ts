@@ -111,16 +111,16 @@ export interface insightDataChecksLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
-    canRunExpensiveChecks: boolean
+    canRunFullCheck: boolean
     checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
     checks: InsightDataCheckApi[]
     dataChecksRun: DataChecksRun | null
     dataChecksRunLoading: boolean
-    expensiveChecksQuery: DataChecksQuery | null
     filterRemovesBots: boolean
     filtersTestAccounts: boolean
     findings: InsightDataCheckApi[]
+    fullCheckQuery: DataChecksQuery | null
     labelHeldOpen: boolean
     labelOpen: boolean
     lastResult: InsightDataChecksApi | null
@@ -261,7 +261,7 @@ export interface insightDataChecksLogicActions {
     reportDataChecksViewed: () => {
         value: true
     }
-    runExpensiveChecks: (query: DataChecksQuery) => {
+    runFullCheck: (query: DataChecksQuery) => {
         query: DataChecksQuery
     }
     setFiltersTestAccounts: (
@@ -300,11 +300,11 @@ export interface insightDataChecksLogicMeta {
         queryFiltersTestAccounts: (checkedQuery: DataChecksQuery | null) => boolean
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
-        canRunExpensiveChecks: (
+        canRunFullCheck: (
             status: InsightDataChecksStatus,
             checks: InsightDataCheckApi[],
             checkedQuery: DataChecksQuery | null,
-            expensiveChecksQuery: DataChecksQuery | null
+            fullCheckQuery: DataChecksQuery | null
         ) => boolean
         labelOpen: (status: InsightDataChecksStatus, labelHeldOpen: boolean) => boolean
     }
@@ -331,7 +331,7 @@ function readsEvents(series: Node): boolean {
     return isEventsOrActionsNode(series) || (isGroupNode(series) && series.nodes.every(isEventsOrActionsNode))
 }
 
-// A run on request lifts these limits. It still does not count a day with too many events, so that reason is not here.
+// A full check lifts these limits. It still does not count a day with too many events, so that reason is not here.
 const LIMIT_SKIP_REASONS: (InsightDataCheckSkipReasonEnumApi | null)[] = ['read_limit', 'time_limit', 'memory_limit']
 
 function stoppedAtALimit(skipReason: InsightDataCheckSkipReasonEnumApi | null): boolean {
@@ -384,7 +384,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         }),
         reportCheckExpanded: (check: InsightDataCheckApi) => ({ check }),
         reportDataChecksViewed: true,
-        runExpensiveChecks: (query: DataChecksQuery) => ({ query }),
+        runFullCheck: (query: DataChecksQuery) => ({ query }),
     }),
     loaders(({ cache, values }) => ({
         dataChecksRun: [
@@ -415,7 +415,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                                         {
                                             query,
                                             client_query_id: clientQueryId,
-                                            run_expensive: values.expensiveChecksQuery === query,
+                                            depth: values.fullCheckQuery === query ? 'full' : 'quick',
                                         } as unknown as InsightDataChecksRequestApi,
                                         undefined,
                                         { signal: abortController.signal }
@@ -447,11 +447,11 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 loadDataChecks: (_, query) => query,
             },
         ],
-        // A person asks for each query, so a changed query runs only the checks that are cheap again.
-        expensiveChecksQuery: [
+        // A person asks for each query, so a changed query gets a quick check again.
+        fullCheckQuery: [
             null as DataChecksQuery | null,
             {
-                runExpensiveChecks: (_, { query }) => query,
+                runFullCheck: (_, { query }) => query,
             },
         ],
         // A person can refresh the chart during a run. That run is for the events as they were before.
@@ -554,16 +554,16 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (s) => [s.checks],
             (checks: InsightDataCheckApi[]): InsightDataCheckApi[] => checks.filter(isFinding),
         ],
-        canRunExpensiveChecks: [
-            (s) => [s.status, s.checks, s.checkedQuery, s.expensiveChecksQuery],
+        canRunFullCheck: [
+            (s) => [s.status, s.checks, s.checkedQuery, s.fullCheckQuery],
             (
                 status: InsightDataChecksStatus,
                 checks: InsightDataCheckApi[],
                 checkedQuery: DataChecksQuery | null,
-                expensiveChecksQuery: DataChecksQuery | null
+                fullCheckQuery: DataChecksQuery | null
             ): boolean =>
                 checkedQuery !== null &&
-                checkedQuery !== expensiveChecksQuery &&
+                checkedQuery !== fullCheckQuery &&
                 (status === 'on_request' ||
                     (status === 'partial' && checks.some((check) => stoppedAtALimit(check.skip_reason)))),
         ],
@@ -621,9 +621,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         loadDataSuccess: ({ payload }) => {
             actions.checkData(FORCED_REFRESHES.includes(payload?.refresh))
         },
-        runExpensiveChecks: ({ query }) => {
+        runFullCheck: ({ query }) => {
             // pinned: analytics event name, renaming breaks dashboards
-            posthog.capture('insight data checks run requested', { status: values.status })
+            posthog.capture('insight data checks full check requested', { status: values.status })
             if (!values.dataChecksRunLoading) {
                 actions.loadDataChecks(query)
             }
