@@ -43,6 +43,12 @@ class HeyReachResumeConfig:
     offset: int
 
 
+@frozen
+class StatsWindow:
+    start_date: str
+    end_date: str
+
+
 def _offset_paginator() -> OffsetPaginator:
     # Every HeyReach list endpoint is POST with `offset`/`limit` in the JSON body and a
     # `{"totalCount": n, "items": [...]}` envelope.
@@ -174,17 +180,20 @@ def _fanout_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Itera
                     yield rows
 
 
-def _stats_windows(window_days: int | None) -> Iterator[tuple[str, str]]:
+def _stats_windows(window_days: int | None) -> Iterator[StatsWindow]:
     now = datetime.now(tz=UTC)
     if window_days is None:
-        yield STATS_START_DATE, now.isoformat()
+        yield StatsWindow(start_date=STATS_START_DATE, end_date=now.isoformat())
         return
     start = parser.parse(STATS_START_DATE)
     step = timedelta(days=window_days)
     while start < now:
         # endDate is inclusive, so each window stops 1 ms before the next one starts.
         end = min(start + step - timedelta(milliseconds=1), now)
-        yield start.isoformat(timespec="milliseconds"), end.isoformat(timespec="milliseconds")
+        yield StatsWindow(
+            start_date=start.isoformat(timespec="milliseconds"),
+            end_date=end.isoformat(timespec="milliseconds"),
+        )
         start += step
 
 
@@ -194,13 +203,13 @@ def _daily_stats_rows(
     resumable_source_manager: ResumableSourceManager[HeyReachResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     client = _make_client(api_key)
-    for start_date, end_date in _stats_windows(endpoint_config.stats_window_days):
+    for window in _stats_windows(endpoint_config.stats_window_days):
         body = {
             # Empty arrays mean "all senders" / "all campaigns".
             "accountIds": [],
             "campaignIds": [],
-            "startDate": start_date,
-            "endDate": end_date,
+            "startDate": window.start_date,
+            "endDate": window.end_date,
         }
         # The endpoint returns everything in one response; the selector resolves the day-keyed
         # `byDayStats` object, which paginate wraps as a single-element page.
