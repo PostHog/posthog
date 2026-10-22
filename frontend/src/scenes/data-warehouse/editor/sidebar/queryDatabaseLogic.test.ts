@@ -580,7 +580,7 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
-    it('combines the failed materialization filter with search and clears it when locating a table', async () => {
+    it('combines materialization statuses with search and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
         logic.mount()
@@ -601,7 +601,7 @@ describe('queryDatabaseLogic', () => {
             })) as unknown as DataWarehouseSavedQuery[]
         )
 
-        logic.actions.setShowFailedMaterializationsOnly(true)
+        logic.actions.toggleMaterializationStatusFilter('Failed')
         expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['Views'])
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
             'orders_daily',
@@ -610,15 +610,25 @@ describe('queryDatabaseLogic', () => {
 
         logic.actions.setSearchTerm('orders')
         expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_daily'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
+            'orders_daily',
+            'orders_weekly',
+        ])
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_weekly'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        logic.actions.toggleMaterializationStatusFilter('Failed')
         logic.actions.setSearchTerm('orders_weekly')
         expect(logic.values.displayedTreeData).toEqual([])
         logic.actions.clearSearch()
-        logic.actions.setShowFailedMaterializationsOnly(false)
+        logic.actions.clearMaterializationStatusFilters()
         expect(logic.values.displayedTreeData.find((item) => item.name === 'Views')!.children).toHaveLength(3)
 
-        logic.actions.setShowFailedMaterializationsOnly(true)
+        logic.actions.toggleMaterializationStatusFilter('Failed')
         logic.actions.locateTable('events')
-        expect(logic.values.showFailedMaterializationsOnly).toBe(false)
+        expect(logic.values.materializationStatusFilters).toEqual([])
         logic.unmount()
     })
 
@@ -1028,7 +1038,7 @@ describe('queryDatabaseLogic', () => {
 
         it.each(['source-id', MANAGED_TRINO_SCHEMA_SCOPE])('hides unrelated folders for schema scope %s', (scope) => {
             databaseTableListLogic.findMounted()?.actions.setConnection(scope)
-            logic.actions.setShowFailedMaterializationsOnly(true)
+            logic.actions.toggleMaterializationStatusFilter('Failed')
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })

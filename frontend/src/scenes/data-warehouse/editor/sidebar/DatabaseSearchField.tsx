@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonMenu } from '@posthog/lemon-ui'
 
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
+
+import { MATERIALIZATION_STATUS_FILTER_OPTIONS } from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
 
 import { queryDatabaseLogic } from './queryDatabaseLogic'
 
@@ -11,8 +14,9 @@ interface TreeSearchFieldProps {
 }
 
 export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.Element {
-    const { treeRef, searchTerm, connectionId, showFailedMaterializationsOnly } = useValues(queryDatabaseLogic)
-    const { setSearchTerm, clearSearch, setShowFailedMaterializationsOnly } = useActions(queryDatabaseLogic)
+    const { treeRef, searchTerm, connectionId, materializationStatusFilters } = useValues(queryDatabaseLogic)
+    const { setSearchTerm, clearSearch, toggleMaterializationStatusFilter, clearMaterializationStatusFilters } =
+        useActions(queryDatabaseLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -26,24 +30,67 @@ export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.
     }
 
     return (
-        <>
-            <SearchAutocomplete
-                inputPlaceholder={placeholder}
-                includeNegation
-                defaultValue={searchTerm}
-                onKeyDown={(e) => handleKeyDown(e)}
-                onClear={() => clearSearch()}
-                onChange={(value) => setSearchTerm(value)}
-            />
-            {!connectionId && (
-                <LemonCheckbox
-                    label="Failed materializations only"
-                    checked={showFailedMaterializationsOnly}
-                    onChange={setShowFailedMaterializationsOnly}
-                    data-attr="sql-editor-failed-materializations-filter"
-                    size="small"
+        <div className="flex items-center gap-1 min-w-0">
+            <div className="flex-1 min-w-0">
+                <SearchAutocomplete
+                    inputPlaceholder={placeholder}
+                    includeNegation
+                    defaultValue={searchTerm}
+                    onKeyDown={(e) => handleKeyDown(e)}
+                    onClear={() => clearSearch()}
+                    onChange={(value) => setSearchTerm(value)}
                 />
+            </div>
+            {!connectionId && (
+                <LemonMenu
+                    placement="bottom-end"
+                    closeOnClickInside={false}
+                    items={[
+                        {
+                            title: 'Materialization status',
+                            items: MATERIALIZATION_STATUS_FILTER_OPTIONS.map((status) => ({
+                                key: status,
+                                label: status,
+                                role: 'menuitemcheckbox',
+                                'aria-checked': materializationStatusFilters.includes(status),
+                                onClick: () => toggleMaterializationStatusFilter(status),
+                                'data-attr':
+                                    status === 'Failed'
+                                        ? 'sql-editor-failed-materializations-filter'
+                                        : `sql-editor-materialization-status-${status.toLowerCase()}`,
+                                icon: (
+                                    <LemonCheckbox
+                                        checked={materializationStatusFilters.includes(status)}
+                                        decorative
+                                        className="pointer-events-none"
+                                        size="small"
+                                    />
+                                ),
+                            })),
+                        },
+                        {
+                            items: [
+                                {
+                                    label: 'Clear filters',
+                                    onClick: clearMaterializationStatusFilters,
+                                    disabledReason:
+                                        materializationStatusFilters.length === 0 ? 'No active filters' : null,
+                                    'data-attr': 'sql-editor-clear-materialization-filters',
+                                },
+                            ],
+                        },
+                    ]}
+                >
+                    <LemonButton
+                        icon={<IconEllipsis />}
+                        size="small"
+                        active={materializationStatusFilters.length > 0}
+                        tooltip="Filter tables and views"
+                        aria-label="Filter tables and views"
+                        data-attr="sql-editor-table-filters-menu"
+                    />
+                </LemonMenu>
             )}
-        </>
+        </div>
     )
 }

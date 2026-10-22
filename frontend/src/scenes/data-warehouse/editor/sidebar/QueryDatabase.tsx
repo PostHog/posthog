@@ -143,7 +143,7 @@ export const QueryDatabase = ({
         highlightViewsSectionDrop,
         featureFlags,
         editingPropertyDefinition,
-        showFailedMaterializationsOnly,
+        materializationStatusFilters,
         dataWarehouseSavedQueriesLoading,
     } = useValues(queryDatabaseLogic)
     const {
@@ -1421,13 +1421,11 @@ export const QueryDatabase = ({
     return (
         <>
             {!connectionId &&
-                showFailedMaterializationsOnly &&
+                materializationStatusFilters.length > 0 &&
                 dataWarehouseSavedQueriesLoaded &&
                 !dataWarehouseSavedQueriesLoading &&
                 treeData.length === 0 && (
-                    <p className="px-3 py-2 text-muted text-sm">
-                        {searchTerm ? 'No failed materializations match your search.' : 'No failed materializations.'}
-                    </p>
+                    <p className="px-3 py-2 text-muted text-sm">No materialized views match your filters.</p>
                 )}
             {tree}
             {editingPropertyDefinition ? (

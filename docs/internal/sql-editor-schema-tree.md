@@ -45,10 +45,11 @@ After that request, catalog reloads also restore complete fields for consumers o
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
 
-In PostHog Warehouse, **Failed materializations only** narrows the sidebar to materialized views whose latest run has status `Failed`.
-This includes views paused after repeated failures. Matching views retain their folders and expandable columns.
-The filter combines with sidebar search and does not apply to direct connections.
-Locating a table clears the filter so the requested table can appear.
+In PostHog Warehouse, the **…** menu beside sidebar search filters materialized views by their latest run status: **Failed**, **Running**, or **Completed**.
+Select multiple statuses to include views matching any of them. **Failed** includes views paused after repeated failures.
+Matching views retain their folders and expandable columns. The menu button highlights while a status filter is active.
+These filters combine with sidebar search and do not apply to direct connections.
+**Clear filters** or deselecting every status restores the full tree. Locating a table also clears the status filters so the requested table can appear.
 
 ## Saved-query writes
 

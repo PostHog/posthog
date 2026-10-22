@@ -61,7 +61,10 @@ import {
     createVirtualTableField,
     resolveFieldTraverserTarget,
 } from 'products/data_warehouse/frontend/shared/fieldTraversal'
-import { filterFailedMaterializations } from 'products/data_warehouse/frontend/shared/filterFailedMaterializations'
+import {
+    filterMaterializedViewsByStatus,
+    MaterializationStatusFilter,
+} from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
 import {
     connectionSelectorLogic,
     POSTHOG_WAREHOUSE,
@@ -1747,6 +1750,7 @@ export interface queryDatabaseLogicValues {
     highlightedDropFolderId: string | null
     hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
+    materializationStatusFilters: MaterializationStatusFilter[]
     metricsLoadFailed: boolean
     pendingViewFolderOverrides: Record<string, string | null>
     propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
@@ -1767,7 +1771,6 @@ export interface queryDatabaseLogicValues {
     searchTreeSourceContext: SearchTreeSourceContext
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null
-    showFailedMaterializationsOnly: boolean
     sidebarOverlayTreeItems: TreeItem[]
     sidebarPosthogTables: DatabaseSchemaTable[]
     syncMoreNoticeDismissed: boolean
@@ -1856,6 +1859,9 @@ export interface queryDatabaseLogicActions {
         value: true
     } // viewLinkLogic
     clearDraggedViewState: () => {
+        value: true
+    }
+    clearMaterializationStatusFilters: () => {
         value: true
     }
     clearPendingViewFolderOverride: (viewId: string) => {
@@ -2024,9 +2030,6 @@ export interface queryDatabaseLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
-    setShowFailedMaterializationsOnly: (showFailedMaterializationsOnly: boolean) => {
-        showFailedMaterializationsOnly: boolean
-    }
     setSyncMoreNoticeDismissed: (dismissed: boolean) => {
         dismissed: boolean
     }
@@ -2042,6 +2045,9 @@ export interface queryDatabaseLogicActions {
     ) => {
         folderId: string
         isExpanded: boolean
+    }
+    toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => {
+        status: 'Completed' | 'Failed' | 'Running'
     }
     updateDraggedViewDropTarget: (dropTargetId: string | null) => {
         dropTargetId: string | null
@@ -2171,7 +2177,7 @@ export interface queryDatabaseLogicMeta {
             databaseLoading: boolean,
             databaseLoadError: string | null,
             allTablesMap: Record<string, DatabaseSchemaTable>,
-            showFailedMaterializationsOnly: boolean
+            materializationStatusFilters: ('Completed' | 'Failed' | 'Running')[]
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
             searchTerm: string,
@@ -2220,9 +2226,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setShowFailedMaterializationsOnly: (showFailedMaterializationsOnly: boolean) => ({
-            showFailedMaterializationsOnly,
-        }),
+        toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => ({ status }),
+        clearMaterializationStatusFilters: true,
         setPropertyDefinitionSearch: (
             propertyFieldKey: string,
             target: SidebarPropertyDefinitionTarget,
@@ -2402,12 +2407,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
 
-        showFailedMaterializationsOnly: [
-            false,
+        materializationStatusFilters: [
+            [] as MaterializationStatusFilter[],
             {
-                setShowFailedMaterializationsOnly: (_, { showFailedMaterializationsOnly }) =>
-                    showFailedMaterializationsOnly,
-                locateTable: () => false,
+                toggleMaterializationStatusFilter: (state, { status }) =>
+                    state.includes(status) ? state.filter((value) => value !== status) : [...state, status],
+                clearMaterializationStatusFilters: () => [],
+                locateTable: () => [],
             },
         ],
         searchTerm: [
@@ -3506,7 +3512,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.databaseLoadError,
                 s.allTablesMap,
-                s.showFailedMaterializationsOnly,
+                s.materializationStatusFilters,
             ],
             (
                 searchTerm: string,
@@ -3517,12 +3523,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 databaseLoading: boolean,
                 databaseLoadError: string | null,
                 allTablesMap: Record<string, DatabaseSchemaTable>,
-                showFailedMaterializationsOnly: boolean
+                materializationStatusFilters: MaterializationStatusFilter[]
             ): TreeDataItem[] => {
                 const sourceData = searchTerm ? searchTreeData : treeData
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
-                    return showFailedMaterializationsOnly ? filterFailedMaterializations(sourceData) : sourceData
+                    return filterMaterializedViewsByStatus(sourceData, materializationStatusFilters)
                 }
 
                 const flattenedTables: TreeDataItem[] = []
