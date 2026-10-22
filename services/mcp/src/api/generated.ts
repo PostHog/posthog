@@ -39872,6 +39872,26 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailAttachment {
+      /**
+         * File name the recipient sees, such as `invite.ics`. No paths, and no file types mailbox providers block, such as `.exe`.
+         * @maxLength 255
+         */
+      filename: string;
+      /** The file content, Base64 encoded. */
+      content: string;
+      /**
+         * MIME type with its parameters, such as `text/calendar; method=REQUEST`. Without it, the type follows the file name.
+         * @maxLength 255
+         */
+      content_type?: string;
+      /**
+         * Shows the file inline: reference it in `html` as `<img src="cid:logo">` with `content_id` `logo`.
+         * @maxLength 128
+         */
+      content_id?: string;
+    }
+
     /**
      * * `ai` - AI
      * * `template` - Template
@@ -105892,6 +105912,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       tags?: EmailTag[];
+      /**
+         * Files to attach, at most 10 and 512KB in total after decoding. Not with `template.id`.
+         * @maxItems 10
+         */
+      attachments?: EmailAttachment[];
       /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends. */
       capture_engagement?: boolean;
       /** Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`. */

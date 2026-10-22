@@ -1,6 +1,36 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "attachments": {
+            "description": "Files to attach, at most 10 and 512KB in total after decoding. Not with `template.id`.",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "The file content, Base64 encoded.",
+                        "type": "string"
+                    },
+                    "content_id": {
+                        "description": "Shows the file inline: reference it in `html` as `<img src=\"cid:logo\">` with `content_id` `logo`.",
+                        "maxLength": 128,
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "description": "MIME type with its parameters, such as `text/calendar; method=REQUEST`. Without it, the type follows the file name.",
+                        "maxLength": 255,
+                        "type": "string"
+                    },
+                    "filename": {
+                        "description": "File name the recipient sees, such as `invite.ics`. No paths, and no file types mailbox providers block, such as `.exe`.",
+                        "maxLength": 255,
+                        "type": "string"
+                    }
+                },
+                "required": ["filename", "content"],
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "bcc": {
             "description": "Addresses that get a hidden copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.",
             "items": {

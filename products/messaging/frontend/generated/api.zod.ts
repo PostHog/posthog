@@ -27,6 +27,14 @@ export const messagingSendEmailCreateBodyTagsItemValueMax = 256
 
 export const messagingSendEmailCreateBodyTagsMax = 10
 
+export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 128
+
+export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     to: zod.email().describe('Email address of the recipient.'),
     identifiers: zod
@@ -129,6 +137,35 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Name and value pairs, at most 10, that PostHog adds to the email's engagement events as `$email_tags`. Not with `template.id`."
         ),
+    attachments: zod
+        .array(
+            zod.object({
+                filename: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
+                    .describe(
+                        'File name the recipient sees, such as `invite.ics`. No paths, and no file types mailbox providers block, such as `.exe`.'
+                    ),
+                content: zod.string().describe('The file content, Base64 encoded.'),
+                content_type: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
+                    .optional()
+                    .describe(
+                        'MIME type with its parameters, such as `text\/calendar; method=REQUEST`. Without it, the type follows the file name.'
+                    ),
+                content_id: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentIdMax)
+                    .optional()
+                    .describe(
+                        'Shows the file inline: reference it in `html` as `<img src=\"cid:logo\">` with `content_id` `logo`.'
+                    ),
+            })
+        )
+        .max(messagingSendEmailCreateBodyAttachmentsMax)
+        .optional()
+        .describe('Files to attach, at most 10 and 512KB in total after decoding. Not with `template.id`.'),
     capture_engagement: zod
         .boolean()
         .optional()
