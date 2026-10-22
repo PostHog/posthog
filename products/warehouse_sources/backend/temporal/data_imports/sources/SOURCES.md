@@ -140,6 +140,7 @@ the row lists both.
 | azure_blob                       | HTTP (vendor SDK)           | azure-storage-blob (listing), adlfs (reads), deltalake          | ⚠️                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
+| azure_log_analytics              | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | back_market                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -1068,7 +1069,6 @@ doesn't conflict with concurrent PRs.
 - azure_api_management
 - azure_data_explorer
 - azure_data_factory
-- azure_log_analytics
 - azure_monitor_alerts
 - azure_monitor_metrics
 - azure_openai_usage
