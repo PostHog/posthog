@@ -437,6 +437,12 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
 class MessageAsset:
     invocation_id: str
     action_id: str

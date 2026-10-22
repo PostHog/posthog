@@ -5157,6 +5157,100 @@ export namespace Schemas {
       total_count: number;
     }
 
+    /**
+     * * `ready` - Ready
+     * * `not_ready` - Not Ready
+     */
+    export type ActivitySummaryStatusEnum = typeof ActivitySummaryStatusEnum[keyof typeof ActivitySummaryStatusEnum];
+
+
+    export const ActivitySummaryStatusEnum = {
+      Ready: 'ready',
+      NotReady: 'not_ready',
+    } as const;
+
+    export interface ActivitySummaryFocusArea {
+      /** A main thread of the user's work, in the words of their activity. */
+      topic: string;
+      /**
+         * How much of the recent activity is about this thread: high, medium or low.
+         * @nullable
+         */
+      strength: string | null;
+      /**
+         * The last day with activity on this thread, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    export interface ActivitySummary {
+      /** `ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.
+       *
+       * * `ready` - Ready
+       * * `not_ready` - Not Ready */
+      status: ActivitySummaryStatusEnum;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.
+         * @nullable
+         */
+      profile: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /** The PostHog products the user works with, by name. */
+      products: string[];
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /**
+         * When this version of the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** The number of this version of the summary. 0 before the first. */
+      version: number;
+      /**
+         * The version of the prompt that wrote this summary.
+         * @nullable
+         */
+      prompt_version: number | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+    }
+
+    export interface ActivitySummaryVersion {
+      /** The number of this version. Higher numbers are newer. */
+      version: number;
+      /** When this version was written. */
+      generated_at: string;
+      /** The version of the prompt that wrote this version. */
+      prompt_version: number;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /**
+         * The one-page markdown profile. Set only when the request asks for one version with `version`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
     export interface ActorsPropertyTaxonomyResponse {
       sample_count: number;
       sample_values: (string | number | boolean)[];
@@ -13050,6 +13144,14 @@ export namespace Schemas {
       content_base64: string;
     }
 
+    export interface AsanaIssueSignalExtra {
+      url: string | null;
+      resource_subtype: string | null;
+      created_at: string | null;
+      projects: string[];
+      tags: string[];
+    }
+
     export interface AsknicelyFeedbackSignalExtra {
       score: string | null;
       status: string | null;
@@ -15157,6 +15259,13 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface AzureDevopsIssueSignalExtra {
+      work_item_type: string | null;
+      state: string | null;
+      priority: string | null;
+      created_at: string | null;
+    }
 
     export interface BackfillCreate {
       /** Inclusive lower bound of the historical window to scan. */
@@ -18218,7 +18327,6 @@ export namespace Schemas {
       /** @nullable */
       subscription_level?: string | null;
       has_active_subscription?: boolean;
-      deactivated?: boolean;
       is_annual_plan_customer?: boolean;
       /** @nullable */
       free_trial_until?: string | null;
@@ -18478,7 +18586,6 @@ export namespace Schemas {
       /** @nullable */
       billing_plan: string | null;
       billing_provider: BillingProviderEnum | null;
-      deactivated: boolean;
       is_annual_plan_customer: boolean;
       billing_period: BillingPeriod | null;
       trial: Trial | null;
@@ -31956,6 +32063,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -33367,6 +33475,7 @@ export namespace Schemas {
       AwsCostAndUsageReport: 'AwsCostAndUsageReport',
       AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
       AwsCostExplorer: 'AwsCostExplorer',
+      AwsDocumentDB: 'AwsDocumentDB',
       AwsGlueDataCatalog: 'AwsGlueDataCatalog',
       AwsGuardduty: 'AwsGuardduty',
       AwsHealth: 'AwsHealth',
@@ -34792,6 +34901,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -37552,6 +37662,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -39650,6 +39761,29 @@ export namespace Schemas {
       OptOut: 'opt_out',
       OptIn: 'opt_in',
     } as const;
+
+    export interface EmailUtmParams {
+      /**
+         * Default utm_source. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_source?: string;
+      /**
+         * Default utm_medium. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_medium?: string;
+      /**
+         * Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_campaign?: string;
+      /**
+         * Default utm_content. Empty uses the email step name. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_content?: string;
+    }
 
     export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
 
@@ -42692,13 +42826,20 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -42957,7 +43098,7 @@ export namespace Schemas {
        * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -43349,6 +43490,13 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -49920,6 +50068,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -51365,6 +51514,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -58936,7 +59086,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     * Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.
      */
     export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -58949,7 +59099,7 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
       interval?: string | null;
       kind?: 'MetricsQuery';
       /** How the query is written; the builder when unset. */
@@ -58962,7 +59112,7 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
-      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
       variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -58997,7 +59147,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the filters refer to as `$name`.
+     * Values of the dashboard variables that the filters or interval refer to as `$name`.
      */
     export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -59005,7 +59155,7 @@ export namespace Schemas {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
       filters?: MetricsQueryFilter[] | null;
-      /** Bucket size; auto-picked from the range when omitted */
+      /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
       interval?: string | null;
       kind?: 'MetricsHistogramQuery';
       metricName: string;
@@ -59017,7 +59167,7 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
-      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
       variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -69571,6 +69721,13 @@ export namespace Schemas {
     export interface ModelCatalogueResponse {
       /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
       models: ModelChoice[];
+    }
+
+    export interface MondayIssueSignalExtra {
+      state: string | null;
+      group: string | null;
+      board_id: string | null;
+      created_at: string | null;
     }
 
     export interface MonitorStats {
@@ -83000,13 +83157,20 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -83114,7 +83278,7 @@ export namespace Schemas {
        * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -86016,6 +86180,10 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+      email_utm_tags_enabled?: boolean;
+      /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
+      email_utm_params?: EmailUtmParams;
       /**
          * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
          * @minimum 0
@@ -90862,6 +91030,13 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       labels: unknown[];
+      created_at: string | null;
+    }
+
+    export interface PlaneIssueSignalExtra {
+      identifier: string | null;
+      sequence_id: string | null;
+      priority: string | null;
       created_at: string | null;
     }
 
@@ -99183,7 +99358,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -107699,6 +107874,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -109175,6 +109351,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -110618,6 +110795,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -115597,6 +115775,13 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -134068,6 +134253,19 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsActivitySummaryVersionsRetrieveParams = {
+    /**
+     * The most versions to return, newest first. Capped at the number of versions kept.
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Return only this version, with its full profile. Returns 404 when the version does not exist.
+     * @minimum 1
+     */
+    version?: number;
     };
 
     export type SignalsProcessingListParams = {
