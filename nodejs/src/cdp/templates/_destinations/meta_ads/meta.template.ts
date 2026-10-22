@@ -165,6 +165,10 @@ let HASHED_USER_KEYS := ['em', 'ph', 'fn', 'ln', 'ge', 'db', 'ct', 'st', 'zp', '
 // enough to exhaust the function's execution budget.
 let MAX_NORMALIZED_FIELD_LENGTH := 255
 
+// A real person has no reason to carry more than a handful of emails or phone numbers. Hashing is
+// capped at this many list items, so a very long list cannot exhaust the execution budget either.
+let MAX_USER_DATA_LIST_LENGTH := 50
+
 // splitByString splits on UTF-16 code units, so a character outside the Basic Multilingual Plane
 // arrives as two halves that each fail to match any character. They are joined before the check.
 fn keepMatching(value, pattern) {
@@ -298,8 +302,9 @@ fn hashUserData(key, value) {
         return hashUserValue(key, parsed)
     }
     let hashes := []
-    for (let item in parsed) {
-        let hashed := hashUserValue(key, item)
+    let itemCount := length(parsed) > MAX_USER_DATA_LIST_LENGTH ? MAX_USER_DATA_LIST_LENGTH : length(parsed)
+    for (let i := 1; i <= itemCount; i := i + 1) {
+        let hashed := hashUserValue(key, parsed[i])
         if (not empty(hashed)) {
             hashes := arrayPushBack(hashes, hashed)
         }

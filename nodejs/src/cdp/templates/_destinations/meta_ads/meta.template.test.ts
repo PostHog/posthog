@@ -479,6 +479,11 @@ describe('meta ads template', () => {
                 expected: { em: [sha256('a@posthog.com'), sha256('b@posthog.com')] },
             },
             {
+                name: 'caps a list at 50 items before hashing',
+                userData: { em: Array.from({ length: 51 }, () => 'person@posthog.com') },
+                expected: { em: Array.from({ length: 50 }, () => sha256('person@posthog.com')) },
+            },
+            {
                 name: 'normalizes gender and date of birth',
                 userData: { ge: 'Female', db: '1990-01-31' },
                 expected: { ge: sha256('f'), db: sha256('19900131') },
