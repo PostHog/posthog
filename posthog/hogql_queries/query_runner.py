@@ -3456,7 +3456,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def single_flight_variant(self) -> str:
         """Separates single flights of runs that share a cache key but not their limits or results.
         Runners add any input that changes either without reaching the cache key."""
-        return self.workload.value
+        # A caller tagged with its own ClickHouse user runs under that user's concurrency limit, and
+        # a leader that user's limit refuses or cancels leaves a follower from another user nothing
+        # to serve.
+        ch_user = get_query_tag_value("ch_user")
+        return self.workload.value if ch_user is None else f"{self.workload.value}:ch_user={ch_user}"
 
     def requires_fresh_calculation(self) -> bool:
         """Runners whose results reflect live, mutable state that must never be served stale
