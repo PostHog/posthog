@@ -62,7 +62,7 @@ recordings, notebook, query) live in `products/posthog_ai/frontend/components/to
 and replay vision own their widget families under their respective `products/<product>/frontend` directories.
 Error tracking contributes a declaration list to the central manifest, so its cards render on the sandbox path too.
 Replay vision has no declaration yet, so its scan widget renders only on the LangGraph path until one is added.
-Max's LangGraph path consumes the heavier ones (`VisualizationWidget` / `RecordingsWidget`) through `api/primitives`,
+Max's LangGraph path consumes the heavier ones (`VisualizationWidget` / `RecordingsWidget`) through `api/dataWidgets`,
 and error-tracking and replay-vision widgets directly from their owning products.
 
 ## 5. Where do I add X?
