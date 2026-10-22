@@ -435,6 +435,15 @@ describe('condition ids', () => {
                 [null, ['group', 0]],
             ],
         },
+        {
+            name: 'a group set changes the value of a property on another group type',
+            flagLevel: 0,
+            stored: [planOn(2, 'pro')],
+            sent: (stored) => [
+                echoWithId(stored[0]!, { properties: [{ key: 'plan', operator: 'exact', value: 'business' }] }),
+            ],
+            expected: [[null, ['group', 2]]],
+        },
     ])(
         'restores each condition from the stored condition with its ID when $name',
         ({ flagLevel, stored, sent, expected }) => {
