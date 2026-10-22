@@ -46,6 +46,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
+    _resolve_insert_query,
     _written_rows,
     build_lazy_computation_insert_sql,
     clamp_ranges_to_data_horizon,
@@ -1330,7 +1331,7 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         events: list[str],
         team_modifiers: dict[str, bool],
         table: LazyComputationTable,
-        native: bool,
+        reads_events_json: bool,
     ) -> None:
         query = self.MANUAL_INSERT_QUERY.replace("event = '$pageview'", "event IN {events}")
         build = partial(
@@ -1353,9 +1354,22 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
             ):
                 result = build()
 
-        assert (result.job_ids != legacy.job_ids) is native
-        assert insert.call_count == (2 if native else 1)
-        assert ("events_json" in insert.call_args.args[0]) is native
+        legacy_identity = LazyComputationQuery(
+            query=_resolve_insert_query(
+                query,
+                {
+                    "events": ast.Constant(value=events),
+                    "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+                    "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+                },
+            ),
+            table=table,
+            timezone=self.team.timezone,
+        )
+        assert PreaggregationJob.objects.get(id=legacy.job_ids[0]).query_hash == compute_query_hash(legacy_identity)
+        assert (result.job_ids != legacy.job_ids) is reads_events_json
+        assert insert.call_count == (2 if reads_events_json else 1)
+        assert ("events_json" in insert.call_args.args[0]) is reads_events_json
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only

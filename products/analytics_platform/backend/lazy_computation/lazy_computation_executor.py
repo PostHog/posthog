@@ -595,7 +595,7 @@ class LazyComputationTable(StrEnum):
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
 
 
-_LEGACY_EVENTS_PRECOMPUTE_TABLES = frozenset(
+_TABLES_KEPT_ON_LEGACY_EVENTS = frozenset(
     {
         LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
         LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
@@ -1670,7 +1670,7 @@ class _FlagCalledFinder(TraversingVisitor):
             self.found = True
 
 
-def _reads_flag_called(query: ast.SelectQuery) -> bool:
+def _mentions_flag_called(query: ast.SelectQuery) -> bool:
     finder = _FlagCalledFinder()
     finder.visit(query)
     return finder.found
@@ -1681,8 +1681,8 @@ def _precompute_reads_events_json(
 ) -> bool:
     if (
         native_events_precompute_enabled(team.pk)
-        and table not in _LEGACY_EVENTS_PRECOMPUTE_TABLES
-        and not _reads_flag_called(query)
+        and table not in _TABLES_KEPT_ON_LEGACY_EVENTS
+        and not _mentions_flag_called(query)
     ):
         return True
     return use_new_events_schema(team.pk, effective_modifiers)
@@ -1776,7 +1776,8 @@ def ensure_precomputed(
                       must include result-changing modifier semantics in cache_key_context.
                       Execution-only modifiers such as sessionIdPushdown need no context.
                       For a query that reads `events`, this function picks the events table
-                      (useNewEventsSchema) and adds that choice to the job identity itself.
+                      (useNewEventsSchema). An `events_json` choice joins the job identity;
+                      a legacy build's identity is unchanged.
         cache_key_context: Versioned result semantics not represented in the substituted AST.
                            Use the same effective modifiers for this context and SQL generation.
         end_is_data_horizon: Set True when the insert query bakes `time_range_end`
