@@ -726,7 +726,7 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
                 _run(cfg.command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
 
 
-def _run_changed(extra_args: list[str]) -> None:
+def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
     """Find changed test files and tests for changed source files, then run them."""
     changed = _get_changed_files()
 
@@ -736,6 +736,13 @@ def _run_changed(extra_args: list[str]) -> None:
     for f in changed:
         if not _is_test_file(f):
             discovered.update(_find_test_files_for_source(f))
+
+    if skip_playwright:
+        playwright_specs = {f for f in directly_changed | discovered if f.startswith("playwright/")}
+        if playwright_specs:
+            click.secho(f"Skipping {len(playwright_specs)} Playwright spec(s).", fg="yellow")
+        directly_changed -= playwright_specs
+        discovered -= playwright_specs
 
     all_test_files = sorted(directly_changed | discovered)
 
@@ -828,16 +835,21 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 )
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
+@click.option(
+    "--skip-playwright",
+    is_flag=True,
+    help="With --changed, leave out Playwright specs, which need a running stack",
+)
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, skip_playwright: bool, watch: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")
         if watch:
             raise click.UsageError("Cannot combine --changed with --watch.")
-        _run_changed(list(ctx.args))
+        _run_changed(list(ctx.args), skip_playwright=skip_playwright)
         return
 
     if not file_path:

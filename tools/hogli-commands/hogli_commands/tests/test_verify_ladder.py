@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from hogli_commands.verify_ladder import ChangeKind, Rung, classify, plan_ladder
+from hogli_commands.verify_ladder import ChangeKind, Rung, _print_rungs_by_hand, classify, plan_ladder
 
 
 class TestClassify:
@@ -25,6 +25,7 @@ class TestClassify:
             (".agents/skills/verifying-changes/SKILL.md", ChangeKind.DOCS_OR_SKILLS),
             ("products/surveys/skills/creating-surveys/references/guide.md", ChangeKind.DOCS_OR_SKILLS),
             ("posthog/settings/web.py", ChangeKind.APP_WIRING),
+            ("products/surveys/backend/routes.py", ChangeKind.APP_WIRING),
             ("posthog/models/team/team.py", ChangeKind.PURE_LOGIC),
         ],
     )
@@ -49,3 +50,10 @@ class TestPlanLadder:
         plan = plan_ladder(paths)
         assert plan.runs_unit_tests is runs_unit_tests
         assert plan.rungs_by_hand == rungs_by_hand
+
+    @pytest.mark.parametrize("skipped,claims_enough", [(0, True), (1, False)])
+    def test_skipped_check_does_not_claim_enough(
+        self, capsys: pytest.CaptureFixture[str], skipped: int, claims_enough: bool
+    ) -> None:
+        _print_rungs_by_hand(plan_ladder(["docs/internal/monorepo-layout.md"]), skipped)
+        assert ("are enough for this diff" in capsys.readouterr().out) is claims_enough

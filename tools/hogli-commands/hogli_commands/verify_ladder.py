@@ -78,7 +78,13 @@ KIND_RULES: tuple[KindRule, ...] = (
     KindRule(kind=ChangeKind.REACT_COMPONENT, globs=("*.tsx",), sufficient=Rung.STORYBOOK),
     KindRule(
         kind=ChangeKind.APP_WIRING,
-        globs=("posthog/settings/*", "posthog/urls.py", "posthog/middleware.py", "docker-compose*.yml"),
+        globs=(
+            "posthog/settings/*",
+            "posthog/urls.py",
+            "products/*/backend/routes.py",
+            "posthog/middleware.py",
+            "docker-compose*.yml",
+        ),
         sufficient=Rung.STACK,
     ),
 )
@@ -173,10 +179,17 @@ def _print_plan(plan: LadderPlan) -> None:
     click.echo()
 
 
-def _print_rungs_by_hand(plan: LadderPlan) -> None:
+def _print_rungs_by_hand(plan: LadderPlan, skipped: int = 0) -> None:
     covered = "Lint, format, typecheck and the nearest tests" if plan.runs_unit_tests else "Lint, format and typecheck"
+    if skipped:
+        click.secho(
+            f"  {skipped} check(s) skipped, so this diff is not verified yet. "
+            "Set up what they need, then run `hogli verify --changed` again.",
+            fg="yellow",
+        )
     if not plan.rungs_by_hand:
-        click.secho(f"  {covered} are enough for this diff. Higher rungs add no coverage.", fg="green")
+        if not skipped:
+            click.secho(f"  {covered} are enough for this diff. Higher rungs add no coverage.", fg="green")
         return
     click.secho(f"  {covered} are not enough for this diff. Run these next, cheapest first:", bold=True)
     for rung in plan.rungs_by_hand:
@@ -202,9 +215,11 @@ def verify(changed: bool, plan_only: bool) -> None:
 
     click.secho("  Rung 1: lint, format, typecheck", bold=True)
     failures = 0
+    skipped = 0
     for check in _static_checks(files):
         status, detail = _run_diff_check(check, do_fix=False, against=None, strict=False, changed=files)
         failures += status == "fail"
+        skipped += status == "skipped"
         click.secho(f"   {_ICON[status]} [{check.key}] {check.label}", fg=_COLOR[status])
         click.echo(f"       {detail}")
     click.echo()
@@ -213,10 +228,11 @@ def verify(changed: bool, plan_only: bool) -> None:
         sys.exit(1)
 
     if plan.runs_unit_tests:
-        click.secho("  Rung 2: hogli test --changed", bold=True)
-        if subprocess.run([sys.executable, "-m", "hogli", "test", "--changed"], cwd=REPO_ROOT).returncode != 0:
+        click.secho("  Rung 2: hogli test --changed --skip-playwright", bold=True)
+        test_command = [sys.executable, "-m", "hogli", "test", "--changed", "--skip-playwright"]
+        if subprocess.run(test_command, cwd=REPO_ROOT).returncode != 0:
             click.secho("\n  Tests failed. Fix them before you climb to a higher rung.", fg="red")
             sys.exit(1)
         click.echo()
 
-    _print_rungs_by_hand(plan)
+    _print_rungs_by_hand(plan, skipped)
