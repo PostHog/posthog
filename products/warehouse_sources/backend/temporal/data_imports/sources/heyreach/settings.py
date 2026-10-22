@@ -36,8 +36,10 @@ class HeyReachEndpointConfig:
     request_body: dict[str, Any] = field(default_factory=dict)
     fanout: HeyReachFanoutConfig | None = None
     # The endpoint returns one `byDayStats` object instead of the paginated `items` envelope,
-    # and is reshaped into one row per day.
+    # and is reshaped into one row per day (per campaign, for the by-campaign breakdown).
     daily_stats: bool = False
+    # The endpoint pages with `pageNumber`/`pageSize` in the body instead of `offset`/`limit`.
+    page_number_pagination: bool = False
 
 
 ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
@@ -74,6 +76,17 @@ ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
         primary_keys=["id"],
         partition_key="creationTime",
     ),
+    "list_companies": HeyReachEndpointConfig(
+        name="list_companies",
+        path="/list/GetCompaniesFromList",
+        # Companies carry no id; the company name is their identity within a list.
+        primary_keys=["listId", "name"],
+        fanout=HeyReachFanoutConfig(
+            parent="lists",
+            body_param="listId",
+            parent_body={"listType": "COMPANY_LIST"},
+        ),
+    ),
     "list_leads": HeyReachEndpointConfig(
         name="list_leads",
         path="/list/GetLeadsFromList",
@@ -92,6 +105,21 @@ ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
         path="/stats/GetOverallStats",
         primary_keys=["date"],
         daily_stats=True,
+    ),
+    "campaign_stats": HeyReachEndpointConfig(
+        name="campaign_stats",
+        path="/stats/GetOverallStatsByCampaign",
+        primary_keys=["date", "campaignId"],
+        partition_key="date",
+        daily_stats=True,
+    ),
+    "sender_network": HeyReachEndpointConfig(
+        name="sender_network",
+        path="/MyNetwork/GetMyNetworkForSender",
+        primary_keys=["senderId", "profileUrl"],
+        request_body={"pageSize": PAGE_SIZE},
+        fanout=HeyReachFanoutConfig(parent="linkedin_accounts", body_param="senderId"),
+        page_number_pagination=True,
     ),
 }
 

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     OffsetPaginator,
+    PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -49,6 +51,13 @@ def _offset_paginator() -> OffsetPaginator:
         total_path="totalCount",
         param_location="json",
     )
+
+
+def _child_paginator(endpoint_config: HeyReachEndpointConfig) -> BasePaginator:
+    if endpoint_config.page_number_pagination:
+        # The response carries a row count, not a page count, so paging stops at the first empty page.
+        return PageNumberPaginator(base_page=0, page_param="pageNumber", param_location="json")
+    return _offset_paginator()
 
 
 def _make_client(api_key: str) -> RESTClient:
@@ -154,7 +163,7 @@ def _fanout_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Itera
                 path=endpoint_config.path,
                 method="post",
                 json={**endpoint_config.request_body, fanout.body_param: parent_id},
-                paginator=_offset_paginator(),
+                paginator=_child_paginator(endpoint_config),
                 data_selector="items",
             ):
                 # An API-provided field of the same name wins over the injected parent id.
@@ -163,7 +172,7 @@ def _fanout_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Itera
                     yield rows
 
 
-def _overall_stats_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+def _daily_stats_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Iterator[list[dict[str, Any]]]:
     client = _make_client(api_key)
     body = {
         # Empty arrays mean "all senders" / "all campaigns".
@@ -181,7 +190,12 @@ def _overall_stats_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -
         data_selector="byDayStats",
     ):
         for by_day in page:
-            rows = [{"date": parser.parse(day), **(stats or {})} for day, stats in (by_day or {}).items()]
+            rows = []
+            for day, stats in (by_day or {}).items():
+                date = parser.parse(day)
+                # The by-campaign breakdown maps each day to a list of per-campaign stats.
+                for entry in stats if isinstance(stats, list) else [stats]:
+                    rows.append({"date": date, **(entry or {})})
             if rows:
                 yield rows
 
@@ -209,7 +223,7 @@ def heyreach_source(
         raise ValueError(f"HeyReach endpoint does not exist: {endpoint}")
 
     if endpoint_config.daily_stats:
-        return _build_response(endpoint_config, partial(_overall_stats_rows, api_key, endpoint_config))
+        return _build_response(endpoint_config, partial(_daily_stats_rows, api_key, endpoint_config))
 
     if endpoint_config.fanout is not None:
         # Fan-out runs restart from the first parent on resume: the parent set can change
