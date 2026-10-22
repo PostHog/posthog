@@ -272,6 +272,10 @@ _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 # credentials when a read carries none.
 _CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
 
+# The deployment sets the egress proxy in the uppercase variables, and chdb reads only the lowercase
+# ones. Without a lowercase copy, chdb connects directly and its reads skip the proxy's address checks.
+_CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
 # A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
@@ -292,6 +296,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
             env={
                 **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **{name.lower(): os.environ[name] for name in _CHDB_SUBPROCESS_PROXY_ENV_VARS if name in os.environ},
                 **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
             },
         )
