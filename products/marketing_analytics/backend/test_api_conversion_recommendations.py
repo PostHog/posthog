@@ -231,7 +231,12 @@ class TestConversionRecommendations(APIBaseTest):
             self.assertEqual(self.client.post(self.base + "/start", {}).status_code, 403)
 
     def test_child_analysis_uses_project_catalog_and_its_own_configured_goals(self) -> None:
-        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Test environment")
+        child = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Test environment",
+        )
         for team, event in [(self.team, "invoice_paid"), (child, "application_submitted")]:
             config = get_or_create_team_extension(team, TeamMarketingAnalyticsConfig)
             config.conversion_goals = [
@@ -267,6 +272,9 @@ class TestConversionRecommendations(APIBaseTest):
         )
         with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
             ConversionRecommendationService(child, self.user).execute(run_id)
+        run = ConversionRecommendationRun.objects.for_team(child.pk).get(pk=run_id)
+        self.assertEqual(run.status, ConversionRecommendationRun.Status.COMPLETED, run.error)
+        client.messages.create.assert_called_once()
         payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
         self.assertEqual([goal["source_ref"] for goal in payload["configured_goals"]], ["event:application_submitted"])
         self.assertEqual(
