@@ -3260,7 +3260,11 @@ class TestTaskAPI(BaseTaskAPITest):
             )
 
         self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
-        self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+        note = self._discussion_notes().get()
+        self.assertEqual(note.skill_name, skill_name)
+        # The scout learns whose preferences and routing the question reflects.
+        actor_clause, _, _ = note.content.partition(" opened a discussion on report")
+        self.assertIn(self.user.email, actor_clause)
 
     @parameterized.expand(
         [
