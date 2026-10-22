@@ -13,8 +13,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
+        AnnouncedTransition,
         EvaluationAnnouncement,
         LegacyEventEmission,
+        MessageImage,
     )
 
 
@@ -28,3 +30,11 @@ def emit_insight_legacy_events(
     platform_alert_legacy_events.emit_insight_legacy_events(
         request=request, announcement=announcement, emissions=emissions
     )
+
+
+def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+    from products.alerts.backend import (
+        platform_alert_legacy_events,  # noqa: PLC0415 - keeps the alert task helpers off the startup path
+    )
+
+    return platform_alert_legacy_events.insight_chart_image(team_id=team_id, transition=transition)

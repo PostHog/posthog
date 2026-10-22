@@ -16,10 +16,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescription,
 )
 
-DETAIL = {
+DETAIL: dict[str, Any] = {
     "breaches": ["Signups (50) is less than lower threshold (100)"],
     "insight_name": "Signups",
     "insight_short_id": "abc123",
+    "insight_chart_asset_id": 7,
+    "insight_chart_render_user_id": 3,
 }
 LINK = MessageLink(label="View insight", url=absolute_uri("/project/7/insights/abc123"))
 
@@ -28,7 +30,7 @@ class TestDescribeInsightTransition(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "a_firing_states_its_breach_and_links_its_insight",
+                "a_firing_states_its_breach_and_shows_and_links_its_insight",
                 AlertEventKind.FIRING,
                 DETAIL,
                 SourceDescription(

@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     LegacyEventEmission,
+    MessageImage,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
@@ -68,6 +69,14 @@ def insight_chart_url_of(team_id: int, source_detail: dict[str, Any]) -> str | N
     return insight_chart_url(
         team_id=team_id, chart=RenderedInsightChart(asset_id=asset_id, render_user_id=render_user_id)
     )
+
+
+def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+    """The chart a native message shows for a firing, with its URL minted as the message goes out."""
+    if transition.kind != AlertEventKind.FIRING:
+        return None
+    url = insight_chart_url_of(team_id, transition.source_detail)
+    return MessageImage(url=url, alt_text="Insight chart") if url else None
 
 
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
