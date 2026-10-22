@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
@@ -33,6 +34,11 @@ function personForFlow(
 ): CyclotronPerson | null | undefined {
     return person && hogFlow.trigger?.type === 'api' ? { ...person, properties: {}, name: '' } : person
 }
+
+const counterPinnedVersionMissing = new Counter({
+    name: 'cdp_hogflow_pinned_version_missing_total',
+    help: 'A transactional email ran its live version because no revision holds the version it was accepted at',
+})
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected override name = 'CdpCyclotronWorkerHogFlow'
@@ -84,6 +90,26 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
+    // A transactional email sends the content it was accepted with, so an edit after the API answered 202
+    // never changes an email that is already queued. Other workflows pick up live edits.
+    private async versionToRun(hogFlow: HogFlow, state: CyclotronJobInvocationHogFlow['state']): Promise<HogFlow> {
+        const accepted = state.flowVersion
+        if (hogFlow.trigger?.type !== 'api' || accepted === undefined || accepted === hogFlow.version) {
+            return hogFlow
+        }
+        const pinned = await this.hogFlowManager.getHogFlowAtVersion(hogFlow, accepted)
+        if (!pinned) {
+            logger.warn('⚠️', 'No revision holds the accepted version of a transactional email, sending the live one', {
+                id: hogFlow.id,
+                accepted,
+                live: hogFlow.version,
+            })
+            counterPinnedVersionMissing.inc()
+            return hogFlow
+        }
+        return pinned
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
@@ -131,6 +157,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
+                const runnableHogFlow = await this.versionToRun(hogFlow, hogFlowInvocationState)
 
                 // Row-scoped invocations (a warehouse row, a Slack message, a GitHub event) don't have
                 // a real person — the delivery is the unit of work and person-dependent steps no-op for
@@ -223,7 +250,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const loaded: CyclotronJobInvocationHogFlow = {
                     ...item,
                     state: hogFlowInvocationState,
-                    hogFlow,
+                    hogFlow: runnableHogFlow,
                     person: person ?? undefined,
                     groups,
                     filterGlobals,
