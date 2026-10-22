@@ -2398,138 +2398,6 @@ export namespace Schemas {
       groups: AccountTrackRuleGroup[];
     }
 
-    /**
-     * * `private` - Personal
-     * * `team` - Team
-     */
-    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
-
-
-    export const AccountViewVisibilityEnum = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `doc` - doc
-     */
-    export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
-
-
-    export const AccountViewContentTypeEnum = {
-      Doc: 'doc',
-    } as const;
-
-    /**
-     * * `ph-markdown-notebook` - ph-markdown-notebook
-     */
-    export type AccountViewMarkdownNodeTypeEnum = typeof AccountViewMarkdownNodeTypeEnum[keyof typeof AccountViewMarkdownNodeTypeEnum];
-
-
-    export const AccountViewMarkdownNodeTypeEnum = {
-      PhMarkdownNotebook: 'ph-markdown-notebook',
-    } as const;
-
-    export interface AccountViewMarkdownAttributes {
-      /** Stable identifier for this document. */
-      nodeId: string;
-      /**
-         * Component-only Markdown stored by the account view editor.
-         * @maxLength 262144
-         */
-      markdown: string;
-    }
-
-    export interface AccountViewMarkdownNode {
-      /** Markdown notebook node type.
-       *
-       * * `ph-markdown-notebook` - ph-markdown-notebook */
-      type: AccountViewMarkdownNodeTypeEnum;
-      /** Markdown notebook attributes. */
-      attrs: AccountViewMarkdownAttributes;
-    }
-
-    export interface AccountViewContent {
-      /** Document root type.
-       *
-       * * `doc` - doc */
-      type: AccountViewContentTypeEnum;
-      /**
-         * The single Markdown notebook node containing the account view components.
-         * @minItems 1
-         * @maxItems 1
-         */
-      content: AccountViewMarkdownNode[];
-    }
-
-    export interface AccountView {
-      /** Stable account view identifier. */
-      readonly id: string;
-      /** Name shown in the account view. */
-      readonly name: string;
-      /** Whether the view is personal or available to the project.
-       *
-       * * `private` - Personal
-       * * `team` - Team */
-      readonly visibility: AccountViewVisibilityEnum;
-      /** Validated Markdown notebook document. */
-      readonly content: AccountViewContent;
-      /** Searchable component labels extracted from content. */
-      readonly text_content: string;
-      /** Optimistic concurrency version. */
-      readonly version: number;
-      /**
-         * Creator user ID.
-         * @nullable
-         */
-      readonly created_by: number | null;
-      /**
-         * User ID that last changed the view.
-         * @nullable
-         */
-      readonly last_modified_by: number | null;
-      /** When the view was created. */
-      readonly created_at: string;
-      /** When the view was last changed. */
-      readonly updated_at: string;
-      /** Whether the requesting user can edit the view. */
-      readonly can_edit: boolean;
-      /** Whether the requesting user can delete the view. */
-      readonly can_delete: boolean;
-      /** Whether the requesting user can change the view visibility. */
-      readonly can_change_visibility: boolean;
-    }
-
-    export interface AccountViewCreate {
-      /**
-         * View name.
-         * @maxLength 400
-         */
-      name: string;
-      /** Initial account view components. */
-      content: AccountViewContent;
-    }
-
-    export interface AccountViewUpdate {
-      /**
-         * New view name. Omit to keep the current name.
-         * @maxLength 400
-         */
-      name?: string;
-      /** Replacement account view components. Omit to keep current content. */
-      content?: AccountViewContent;
-      /** New visibility. Only the creator or a project admin can change it.
-       *
-       * * `private` - Personal
-       * * `team` - Team */
-      visibility?: AccountViewVisibilityEnum;
-      /**
-         * Version returned by the last read.
-         * @minimum 1
-         */
-      version: number;
-    }
-
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -2948,6 +2816,189 @@ export namespace Schemas {
       type?: 'warehouse_sync';
     }
 
+    export interface ActorsQueryResponse {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit: number;
+      missing_actors_count?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: string[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryLogTags {
+      /** Name of the query, preferably unique. For example web_analytics_vitals */
+      name?: string | null;
+      /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+      presetId?: string | null;
+      /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
+      productKey?: string | null;
+      /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
+      scene?: string | null;
+    }
+
+    export interface AccountUsersQuery {
+      /** ID of the account whose users to list. */
+      accountId: string;
+      kind?: 'AccountUsersQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ActorsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * * `private` - Personal
+     * * `team` - Team
+     */
+    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+
+
+    export const AccountViewVisibilityEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    /**
+     * * `doc` - doc
+     */
+    export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
+
+
+    export const AccountViewContentTypeEnum = {
+      Doc: 'doc',
+    } as const;
+
+    /**
+     * * `ph-markdown-notebook` - ph-markdown-notebook
+     */
+    export type AccountViewMarkdownNodeTypeEnum = typeof AccountViewMarkdownNodeTypeEnum[keyof typeof AccountViewMarkdownNodeTypeEnum];
+
+
+    export const AccountViewMarkdownNodeTypeEnum = {
+      PhMarkdownNotebook: 'ph-markdown-notebook',
+    } as const;
+
+    export interface AccountViewMarkdownAttributes {
+      /** Stable identifier for this document. */
+      nodeId: string;
+      /**
+         * Component-only Markdown stored by the account view editor.
+         * @maxLength 262144
+         */
+      markdown: string;
+    }
+
+    export interface AccountViewMarkdownNode {
+      /** Markdown notebook node type.
+       *
+       * * `ph-markdown-notebook` - ph-markdown-notebook */
+      type: AccountViewMarkdownNodeTypeEnum;
+      /** Markdown notebook attributes. */
+      attrs: AccountViewMarkdownAttributes;
+    }
+
+    export interface AccountViewContent {
+      /** Document root type.
+       *
+       * * `doc` - doc */
+      type: AccountViewContentTypeEnum;
+      /**
+         * The single Markdown notebook node containing the account view components.
+         * @minItems 1
+         * @maxItems 1
+         */
+      content: AccountViewMarkdownNode[];
+    }
+
+    export interface AccountView {
+      /** Stable account view identifier. */
+      readonly id: string;
+      /** Name shown in the account view. */
+      readonly name: string;
+      /** Whether the view is personal or available to the project.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      readonly visibility: AccountViewVisibilityEnum;
+      /** Validated Markdown notebook document. */
+      readonly content: AccountViewContent;
+      /** Searchable component labels extracted from content. */
+      readonly text_content: string;
+      /** Optimistic concurrency version. */
+      readonly version: number;
+      /**
+         * Creator user ID.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * User ID that last changed the view.
+         * @nullable
+         */
+      readonly last_modified_by: number | null;
+      /** When the view was created. */
+      readonly created_at: string;
+      /** When the view was last changed. */
+      readonly updated_at: string;
+      /** Whether the requesting user can edit the view. */
+      readonly can_edit: boolean;
+      /** Whether the requesting user can delete the view. */
+      readonly can_delete: boolean;
+      /** Whether the requesting user can change the view visibility. */
+      readonly can_change_visibility: boolean;
+    }
+
+    export interface AccountViewCreate {
+      /**
+         * View name.
+         * @maxLength 400
+         */
+      name: string;
+      /** Initial account view components. */
+      content: AccountViewContent;
+    }
+
+    export interface AccountViewUpdate {
+      /**
+         * New view name. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Replacement account view components. Omit to keep current content. */
+      content?: AccountViewContent;
+      /** New visibility. Only the creator or a project admin can change it.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      visibility?: AccountViewVisibilityEnum;
+      /**
+         * Version returned by the last read.
+         * @minimum 1
+         */
+      version: number;
+    }
+
     export interface AccountsQueryResponse {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -2976,17 +3027,6 @@ export namespace Schemas {
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface QueryLogTags {
-      /** Name of the query, preferably unique. For example web_analytics_vitals */
-      name?: string | null;
-      /** Short id of the saved Web analytics filter preset this query was run under, if any. */
-      presetId?: string | null;
-      /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
-      productKey?: string | null;
-      /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
-      scene?: string | null;
     }
 
     export interface AccountsQuery {
@@ -5160,34 +5200,6 @@ export namespace Schemas {
     export interface PropertyGroupFilterValue {
       type: FilterLogicalOperator;
       values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
-    }
-
-    export interface ActorsQueryResponse {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit: number;
-      missing_actors_count?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: string[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type Compare = typeof Compare[keyof typeof Compare];
@@ -7565,7 +7577,7 @@ export namespace Schemas {
       response?: ActorsQueryResponse | null;
       search?: string | null;
       select?: string[] | null;
-      source?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery | HogQLQuery | null;
+      source?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery | AccountUsersQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -22863,6 +22875,13 @@ export namespace Schemas {
       CustomSql: 'custom_sql',
     } as const;
 
+    export interface ChecklyErrorGroupSignalExtra {
+      check_id: string | null;
+      error_hash: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
     /**
      * * `code` - Code
      * * `slack` - Slack
@@ -31219,6 +31238,7 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -32629,6 +32649,7 @@ export namespace Schemas {
       IncidentIo: 'IncidentIo',
       Pingdom: 'Pingdom',
       Cloudflare: 'Cloudflare',
+      CloudflareD1: 'CloudflareD1',
       CosmosDB: 'CosmosDB',
       PlanetScaleMySQL: 'PlanetScaleMySQL',
       PlanetScalePostgres: 'PlanetScalePostgres',
@@ -34053,6 +34074,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -36812,6 +36834,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -45349,6 +45372,7 @@ export namespace Schemas {
 
 
     export const ExperimentExposureHealthFindingActionKind = {
+      OpenFeatureFlag: 'open_feature_flag',
       EditExposureCriteria: 'edit_exposure_criteria',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
@@ -45644,6 +45668,11 @@ export namespace Schemas {
       ReleaseConditions: 'release_conditions',
     } as const;
 
+    /**
+     * Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent.
+     */
+    export type ExperimentHealthInputsEventsReceived = {[key: string]: boolean};
+
     export interface ExperimentHealthInputsReleaseCondition {
       /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
       number: number;
@@ -45690,6 +45719,26 @@ export namespace Schemas {
       variants: ExperimentHealthInputsVariant[];
       /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
       split_text: string;
+    }
+
+    export interface ExperimentHealthInputsExposureEvents {
+      /**
+         * The event the exposure criteria count in place of the flag calls. Null for flag calls or an action.
+         * @nullable
+         */
+      custom_event: string | null;
+      /**
+         * The flag key the exposure query requires on the flag call events. Null for a custom event or an action.
+         * @nullable
+         */
+      required_flag_key: string | null;
+      /** The event property that holds the variant. */
+      variant_property: string;
+      /**
+         * The event, or the action's name, that has to follow a user's flag call before the user counts. Null without an activation.
+         * @nullable
+         */
+      activation: string | null;
     }
 
     export interface ExperimentHealthInputsFlagChange {
@@ -46070,6 +46119,25 @@ export namespace Schemas {
       secondary_metric_count: number;
       /** The experiment's feature flag. Null when it has none. */
       flag: ExperimentHealthInputsFlag | null;
+      /**
+         * The flag's latest recorded call, which a periodic sync of the flag call events sets. Null when the experiment has no flag, or the flag has no recorded call.
+         * @nullable
+         */
+      flag_last_called_at: string | null;
+      /**
+         * Whether PostHog has recorded any call of the flag. The flag traffic check reads it on a draft. Null when the experiment has no flag, or the organization's flag calls are stored where the checks can't read them.
+         * @nullable
+         */
+      flag_called: boolean | null;
+      /**
+         * Whether PostHog has recorded a call of the flag between launch and the end, or until now. The zero exposures check reads it to say whether the flag is called. Null before launch, after a latest call that came after the end, or when the organization's flag calls can't be read.
+         * @nullable
+         */
+      flag_called_during_run: boolean | null;
+      /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
+      exposure_events: ExperimentHealthInputsExposureEvents | null;
+      /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
+      events_received: ExperimentHealthInputsEventsReceived;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -49148,6 +49216,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -50592,6 +50661,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -64149,6 +64219,14 @@ export namespace Schemas {
       results: LabelSummary[];
     }
 
+    export interface LaceworkScannerFindingSignalExtra {
+      alert_type: string | null;
+      severity: string | null;
+      status: string | null;
+      internet_exposure: string | null;
+      start_time: string | null;
+    }
+
     /**
      * * `today` - today
      * * `this_week` - this_week
@@ -69306,6 +69384,169 @@ export namespace Schemas {
     }
 
     /**
+     * * `chunk_not_uploaded` - Source map not uploaded
+     * * `no_source_map_linked` - Script links no source map
+     * * `file_not_reachable` - Script or source map not reachable
+     * * `invalid_source_map` - Source map URL returns something else
+     * * `too_large_to_fetch` - Too large to fetch
+     * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+     * * `mapping_not_uploaded` - Mapping file not uploaded
+     * * `dsym_not_uploaded` - dSYM not uploaded
+     * * `debug_symbols_not_uploaded` - Debug symbols not uploaded
+     */
+    export type MissingSymbolsReasonEnum = typeof MissingSymbolsReasonEnum[keyof typeof MissingSymbolsReasonEnum];
+
+
+    export const MissingSymbolsReasonEnum = {
+      ChunkNotUploaded: 'chunk_not_uploaded',
+      NoSourceMapLinked: 'no_source_map_linked',
+      FileNotReachable: 'file_not_reachable',
+      InvalidSourceMap: 'invalid_source_map',
+      TooLargeToFetch: 'too_large_to_fetch',
+      BundleNotInjected: 'bundle_not_injected',
+      MappingNotUploaded: 'mapping_not_uploaded',
+      DsymNotUploaded: 'dsym_not_uploaded',
+      DebugSymbolsNotUploaded: 'debug_symbols_not_uploaded',
+    } as const;
+
+    export interface MissingSymbolsIssue {
+      /** The issue ID. */
+      id: string;
+      /**
+         * The issue name, usually the exception type.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * The issue description, usually the message.
+         * @nullable
+         */
+      description: string | null;
+      /** How many of the issue's exceptions in the lookback window contain these frames. */
+      occurrences: number;
+    }
+
+    export interface MissingSymbolsStackFrame {
+      /**
+         * The function name, resolved when symbols were available.
+         * @nullable
+         */
+      function: string | null;
+      /**
+         * The file, script URL or module of the frame.
+         * @nullable
+         */
+      source: string | null;
+      /**
+         * The line number, when known.
+         * @nullable
+         */
+      line: number | null;
+      /**
+         * The column number, when known.
+         * @nullable
+         */
+      column: number | null;
+      /** Whether the frame is the team's own code. */
+      in_app: boolean;
+      /** Whether an upload of symbols would resolve this frame. */
+      missing_symbols: boolean;
+    }
+
+    export interface MissingSymbolsExampleException {
+      /**
+         * The issue the exception belongs to, or null when no issue owns its fingerprint.
+         * @nullable
+         */
+      issue_id: string | null;
+      /** The exception's fingerprint, which the issue page uses to find it. */
+      fingerprint: string;
+      /** When the exception happened. */
+      timestamp: string;
+      /**
+         * The exception type, such as TypeError.
+         * @nullable
+         */
+      type: string | null;
+      /**
+         * The exception message.
+         * @nullable
+         */
+      value: string | null;
+      /** The stack trace, most recent call first, cut to the frames nearest the crash. */
+      frames: MissingSymbolsStackFrame[];
+    }
+
+    export interface MissingSymbolsExample {
+      /** Why the frames miss symbols, as a code. Each code maps to one kind of setup gap.
+       *
+       * * `chunk_not_uploaded` - Source map not uploaded
+       * * `no_source_map_linked` - Script links no source map
+       * * `file_not_reachable` - Script or source map not reachable
+       * * `invalid_source_map` - Source map URL returns something else
+       * * `too_large_to_fetch` - Too large to fetch
+       * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+       * * `mapping_not_uploaded` - Mapping file not uploaded
+       * * `dsym_not_uploaded` - dSYM not uploaded
+       * * `debug_symbols_not_uploaded` - Debug symbols not uploaded */
+      reason: MissingSymbolsReasonEnum;
+      /**
+         * Where the frames come from: the script URL or path, the bundle, or an example class or app image.
+         * @nullable
+         */
+      location: string | null;
+      /**
+         * The chunk ID, mapping ID or debug ID that the missing symbols must be uploaded under, when known.
+         * @nullable
+         */
+      symbol_id: string | null;
+      /**
+         * The HTTP status the script or source map returned, for 'file_not_reachable'.
+         * @nullable
+         */
+      http_status: number | null;
+      /** How many distinct stack frames in the lookback window this covers. */
+      frames: number;
+      /** Up to five issues whose exceptions in the lookback window contain these frames, most occurrences first. */
+      issues: MissingSymbolsIssue[];
+      /** How many issues have exceptions in the lookback window that contain these frames. */
+      issue_count: number;
+      /** True when the exception scan searched only a sample of the frames or stopped at its limit, so `issue_count` is a lower bound. */
+      issue_count_capped: boolean;
+      /** A recent exception whose stack trace contains these frames, or null when none was found. */
+      example_exception: MissingSymbolsExampleException | null;
+    }
+
+    /**
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native
+     */
+    export type SymbolsPlatformEnum = typeof SymbolsPlatformEnum[keyof typeof SymbolsPlatformEnum];
+
+
+    export const SymbolsPlatformEnum = {
+      Javascript: 'javascript',
+      Java: 'java',
+      Native: 'native',
+    } as const;
+
+    export interface MissingSymbolsExamples {
+      /** The platform the examples are for.
+       *
+       * * `javascript` - JavaScript
+       * * `java` - Android
+       * * `native` - iOS and native */
+      platform: SymbolsPlatformEnum;
+      /** How many hours of recent stack frames the examples cover. */
+      lookback_hours: number;
+      /** False when the exception lookup failed, so `issues` and `example_exception` are unknown, not empty. */
+      exceptions_loaded: boolean;
+      /** The files and builds with the most frames missing symbols, most frames first. */
+      results: MissingSymbolsExample[];
+    }
+
+    /**
      * * `claude` - claude
      * * `codex` - codex
      */
@@ -71577,6 +71818,15 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       tags: unknown[];
+      source: string | null;
+      created_at: string | null;
+    }
+
+    export interface OrcaSecurityScannerFindingSignalExtra {
+      category: string | null;
+      risk_level: string | null;
+      orca_score: string | null;
+      status: string | null;
       source: string | null;
       created_at: string | null;
     }
@@ -98928,7 +99178,33 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra;
+    export interface TenableVulnerabilityManagementScannerFindingSignalExtra {
+      asset_uuid: string | null;
+      plugin_id: string | null;
+      port_number: string | null;
+      protocol: string | null;
+      plugin_cvss3_base_score: string | null;
+      severity: string | null;
+      state: string | null;
+      first_found: string | null;
+    }
+
+    export interface TriggerDevErrorSignalExtra {
+      task_identifier: string | null;
+      status: string | null;
+      count: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
+    export interface RoarkIssueSignalExtra {
+      severity: string | null;
+      status: string | null;
+      event_count: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106726,6 +107002,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -108201,6 +108478,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -109643,6 +109921,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -128018,6 +128297,27 @@ export namespace Schemas {
     force?: boolean;
     };
 
+    export type ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams = {
+    /**
+     * The platform to list examples for: 'javascript', 'java' (Android) or 'native' (iOS and native).
+     *
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native
+     * @minLength 1
+     */
+    platform: ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform;
+    };
+
+    export type ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform[keyof typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform];
+
+
+    export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
+      Javascript: 'javascript',
+      Java: 'java',
+      Native: 'native',
+    } as const;
+
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
@@ -132827,18 +133127,6 @@ export namespace Schemas {
 
 
     export const PersonsEmailsListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsPropertiesTimelineRetrieveParams = {
-    format?: PersonsPropertiesTimelineRetrieveFormat;
-    };
-
-    export type PersonsPropertiesTimelineRetrieveFormat = typeof PersonsPropertiesTimelineRetrieveFormat[keyof typeof PersonsPropertiesTimelineRetrieveFormat];
-
-
-    export const PersonsPropertiesTimelineRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

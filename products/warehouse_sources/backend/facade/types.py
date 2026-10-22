@@ -270,6 +270,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     INCIDENTIO = "IncidentIo", "IncidentIo"
     PINGDOM = "Pingdom", "Pingdom"
     CLOUDFLARE = "Cloudflare", "Cloudflare"
+    CLOUDFLARED1 = "CloudflareD1", "CloudflareD1"
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"

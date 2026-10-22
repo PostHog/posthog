@@ -538,12 +538,22 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    sections = [f"Input: {input_data}"]
+    output_section = f"\n\nOutput: {output_data}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
+
+    sections = [input_data]
     if tools_data:
         sections.append(f"Tools available:\n{tools_data}")
-    sections.append(f"Output: {output_data}")
-    user_prompt = "\n\n".join(sections)
-    user_prompt = truncate_by_line_sampling(user_prompt, EVENT_TEXT_MAX_CHARS)
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    user_prompt = f"Input: {context}{output_section}"
 
     return call_llm_judge(
         evaluation=evaluation,
