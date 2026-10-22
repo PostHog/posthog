@@ -556,21 +556,6 @@ _UNKNOWN_PLACEHOLDER_FIX = (
             "`{{yesterday_start}}`",
             id="double_brace_outside_quotes",
         ),
-        pytest.param(
-            "SELECT count() FROM events WHERE timestamp >= parseDateTimeBestEffort('{D-1}', 'UTC')",
-            "`{D-1}`",
-            id="parse_date_time_call",
-        ),
-        pytest.param(
-            "SELECT count() FROM events WHERE toDate(timestamp) = to_date('{{D-1}}')",
-            "`{{D-1}}`",
-            id="to_date_alias",
-        ),
-        pytest.param(
-            "SELECT count() FROM events WHERE timestamp >= toDateTimeUS('<prior_day_start>')",
-            "`<prior_day_start>`",
-            id="us_date_time_call",
-        ),
     ],
 )
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

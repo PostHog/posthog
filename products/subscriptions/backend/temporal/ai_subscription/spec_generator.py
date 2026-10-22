@@ -100,7 +100,13 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_END_PLACEHOLDER,
 )
 _NULL_ON_FAILURE_DATE_PARSERS = frozenset(
-    {"parseDateTime64BestEffortOrNull", "parseDateTime64BestEffortUSOrNull", "toDateOrNull"}
+    {
+        "parseDateTimeOrNull",
+        "parseDateTime64BestEffortOrNull",
+        "parseDateTime64BestEffortUSOrNull",
+        "toDateOrNull",
+        "toModifiedJulianDayOrNull",
+    }
 )
 _DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
 _BRACKETED_NAME = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
