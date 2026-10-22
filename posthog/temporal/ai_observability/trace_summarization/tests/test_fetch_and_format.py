@@ -1,6 +1,8 @@
 """Tests for unified fetch_and_format activity."""
 
 import uuid
+import asyncio
+import threading
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -211,6 +213,56 @@ class TestFetchAndFormatActivity:
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
         return team
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_concurrent_activities_share_the_clickhouse_fetch_slots(self, mock_team):
+        lock = threading.Lock()
+        release = threading.Event()
+        in_flight = 0
+        peak = 0
+
+        def blocking_fetch_trace_size(*args, **kwargs):
+            nonlocal in_flight, peak
+            with lock:
+                in_flight += 1
+                peak = max(peak, in_flight)
+            release.wait(timeout=10)
+            with lock:
+                in_flight -= 1
+            return TraceSize(event_count=1, payload_chars=10**12)
+
+        with (
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format._clickhouse_fetch_slots",
+                asyncio.Semaphore(2),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
+                side_effect=blocking_fetch_trace_size,
+            ),
+        ):
+            activities = asyncio.gather(
+                *(
+                    fetch_and_format_activity(
+                        FetchAndFormatInput(
+                            trace_id=str(uuid.uuid4()),
+                            trace_first_timestamp=datetime.now(UTC).isoformat(),
+                            team_id=mock_team.id,
+                            window_start="2025-01-01T00:00:00Z",
+                            window_end="2025-01-01T01:00:00Z",
+                        )
+                    )
+                    for _ in range(4)
+                )
+            )
+            # Without the cap, all four queries start, so give them the time to do so before release.
+            await asyncio.sleep(0.5)
+            release.set()
+            results = await activities
+
+        assert peak == 2
+        assert all(result.skip_reason == "trace_too_large" for result in results)
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

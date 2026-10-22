@@ -424,6 +424,16 @@ LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE
 # Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
 # slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
 LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
+# Trace summarization fetches that query ClickHouse at once on one worker. Each fetch holds one of the shared
+# CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES slots, so a worker must not send one query per activity slot.
+# The LLM calls do not count against this limit.
+LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES: int = get_from_env(
+    "LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES", 4, type_cast=int
+)
+if LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES <= 0:
+    raise ImproperlyConfigured(
+        "LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES must be a positive integer, or no summarization fetch ever starts"
+    )
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

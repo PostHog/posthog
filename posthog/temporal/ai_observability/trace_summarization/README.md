@@ -201,6 +201,7 @@ Oversized generation text splits the budget between the input and output section
 
 Sampling keeps ClickHouse capacity errors retryable deliberately: each run covers a disjoint wall-clock window with no persisted cursor, so a run that gives up loses that hour of traces for that team permanently.
 Concurrency is bounded centrally by `CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES`, not by this workflow's fan-out, because trace clustering and eval reports draw on the same budget.
+Each worker also caps its in-flight summarization fetches at `LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES` (default 4). The fetch activities run on the slot-sized thread pool, so without this cap one worker can send one query per activity slot and fill the shared budget. A fetch that waits for a local slot does not poll the limiter and does not fail with `ConcurrencyLimitExceeded`.
 
 ## Redis Intermediate Storage
 

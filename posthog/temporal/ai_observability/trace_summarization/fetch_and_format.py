@@ -1,6 +1,9 @@
 """Activity for fetching trace/generation data and storing formatted text in Redis."""
 
 import time
+import asyncio
+
+from django.conf import settings
 
 import structlog
 import temporalio
@@ -33,6 +36,10 @@ from products.ai_observability.backend.text_repr.formatters import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# The slot-sized thread pool lets every activity slot run a query, which is far more than the shared
+# ClickHouse budget allows. Queries above that budget fail in the limiter, so they wait here instead.
+_clickhouse_fetch_slots = asyncio.Semaphore(settings.LLMA_SUMMARIZATION_MAX_CONCURRENT_FETCHES)
 
 
 def _fetch_and_format_trace(
@@ -334,19 +341,20 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
     async with Heartbeater():
         t0 = time.monotonic()
 
-        if input.generation_id:
-            result = await on_asyncify_pool(_fetch_and_format_generation)(
-                input.generation_id,
-                input.trace_id,
-                input.team_id,
-                input.window_start,
-                input.window_end,
-                input.max_length,
-            )
-        else:
-            result = await on_asyncify_pool(_fetch_and_format_trace)(
-                input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
-            )
+        async with _clickhouse_fetch_slots:
+            if input.generation_id:
+                result = await on_asyncify_pool(_fetch_and_format_generation)(
+                    input.generation_id,
+                    input.trace_id,
+                    input.team_id,
+                    input.window_start,
+                    input.window_end,
+                    input.max_length,
+                )
+            else:
+                result = await on_asyncify_pool(_fetch_and_format_trace)(
+                    input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
+                )
 
         fetch_duration_s = time.monotonic() - t0
 
