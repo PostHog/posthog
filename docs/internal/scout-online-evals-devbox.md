@@ -5,11 +5,13 @@ Trials run scout versions in parallel, then judge them against the same saved ru
 ## Preparing a portable scout environment
 
 Use the internal [creating-scout-eval-environments skill](../../.agents/skills/creating-scout-eval-environments/SKILL.md)
-with a saved scout, or a draft skill and target project. It defaults to a minimal
-real-data slice; trace reconstruction is an explicit alternative. No prior scout
-run is required for the real-data route. The source exporter preserves supported
-context, checks complete pagination and rejects unsupported dependencies instead
-of filling them with synthetic data.
+with a saved scout, or a draft skill and target project. Run it from the user's
+local machine to create a devbox, validate one real trial and leave the environment
+running for future evaluations. A minimal real-data slice is the default data
+route; trace reconstruction is an explicit alternative. No prior scout run is
+required for the real-data route. The source exporter preserves supported context,
+checks complete pagination and rejects unsupported dependencies instead of filling
+them with synthetic data.
 
 The existing Parquet `pack` command accepts `--scout-case <private case.json>`.
 This produces a version-2 archive containing events, optional governed metrics,
@@ -26,11 +28,19 @@ still binds the case and harness version; the native `runtime-prompt.json` is a
 verification descriptor, not a prompt override. Recorded replay remains explicit
 and follows the instructions below.
 
-From a host able to provision devboxes, create a fresh box for each validation
-attempt. Inspect one real trial before comparing variants. Save diagnostics and
-remove only the workflow-created failed box before retrying; keep a successful
-box running for evaluations. When limited to bundle preparation, report static
-checks separately and leave runtime validation outstanding.
+Create a fresh devbox and reuse existing provisioning and spend authorization.
+Ask for a paid-trial budget only if the session has no usable remaining budget.
+Check representative task queries, isolation and the full trace from one real
+trial. Fix environment failures; do not rewrite the scout's task or skill to
+improve its score. Repairs that preserve the frozen baseline can use the same box.
+Changes to the bundle or shared starting state require a fresh disposable box;
+save diagnostics and remove only the box created for that failed attempt.
+
+Keep a working devbox running. Return its project and trial URLs, tested login
+route and instructions, reusable bundle, restore receipt and validation results.
+Stop at bundle preparation only on an explicit request or a concrete host,
+credential or required-data blocker. Report the remaining work; static checks
+alone do not complete this workflow.
 
 ## Reconstructing an isolated project from traces
 
@@ -124,7 +134,9 @@ cannot detect every event edit.
 Review tool responses and available reasoning summaries for both evaluation
 awareness and suspected fabricated data. Report the exact evidence separately;
 an absence of remarks does not establish what the scout believed. Fix concrete
-inconsistencies, reset and rebuild, then inspect another single run before a batch.
+environment faults and inspect another single run. Recreate the disposable box
+only when the bundle or shared baseline changed. Keep scout quality changes and
+comparison batches separate from environment validation.
 Configured local evaluations also snapshot the starting project profile. A
 `force_refresh` call runs the real profile builder, rolls back its shared cache
 and pruning writes and background callbacks, then saves the result only in that

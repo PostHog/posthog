@@ -1,17 +1,18 @@
 ---
 name: creating-scout-eval-environments
 description: >
-  Creates private, portable Parquet bundles for isolated scout evaluation
-  environments from a saved scout or a draft skill and target project. Exports a
-  minimal real-data slice by default, or reconstructs from LLM traces when asked.
-  Includes supported starting context and uses devbox:prepare-eval-env to restore
-  and validate the environment. Requires a PostHog checkout.
+  Creates isolated scout evaluation devboxes from a saved scout or a draft skill
+  and target project. Exports a minimal real-data slice by default, or reconstructs
+  from LLM traces when asked. Builds portable Parquet inputs, restores a devbox,
+  validates one real Scout trial and leaves the environment running for future
+  evaluations. Requires a local PostHog checkout and devbox access.
 ---
 
 # Creating scout evaluation environments
 
-Turn a scout's task into the smallest sufficient private data bundle. Use one
-shared restore format for two explicit routes. A saved scout does not need prior
+Start from the user's local machine and deliver a working devbox for future
+scout evaluations, together with its reusable private data bundle. Use one shared
+restore format for two explicit data routes. A saved scout does not need prior
 runs; a draft skill needs a target project and configuration.
 
 Use the repository's [skill writing guide](../writing-skills/SKILL.md) when
@@ -42,15 +43,25 @@ repository root through `.codex/with-flox`.
    cutoff, complete pagination and representative task queries. Reject unsupported
    tables, integrations or context before declaring the bundle ready. Routine
    use of this skill does not implement a new adapter or bypass a failed check.
-6. **Create and test a fresh environment when authorized and possible.** Follow
-   [validation and lifecycle](references/validation.md): create a new devbox, run
-   one real Scout trial, inspect its full trace, and repeat only to fix concrete
-   environment failures. Keep a successful devbox running for evaluations.
+6. **Create a fresh devbox.** Continue through
+   [validation and lifecycle](references/validation.md) using
+   `hogli devbox:prepare-eval-env`. Provisioning is part of this workflow. Reuse
+   existing user authorization and budget; ask only for missing access or a paid
+   trial budget when the session does not already provide them.
+7. **Validate one real Scout trial.** Check task-relevant queries and local
+   routing, then run within the remaining authorized budget and inspect the full
+   trace. Fix concrete environment failures. Recreate only a workflow-created
+   disposable box when data or shared-state changes require a fresh baseline.
+   Scout finding or policy failures are evaluation results, not reasons to
+   rewrite its task or skill.
+8. **Keep and hand over the working environment.** Leave a successful devbox
+   running. Return its project and trial URLs, login route and instructions,
+   reusable bundle, restore receipt and validation results.
 
-If execution must stop before provisioning, deliver the validated bundle and
-checks that passed, or the concrete dependency preventing a complete bundle.
-Clearly mark the runtime trial as untested. Do not call static checks a successful
-Scout run.
+Stop at bundle preparation only when the user explicitly asks for it or a concrete
+host, credential or required-data blocker prevents the remaining work. Preserve
+completed outputs, explain the blocker and mark the runtime trial as untested.
+A bundle alone does not complete the default workflow.
 
 ## Shared rules
 
@@ -73,9 +84,14 @@ Scout run.
   For trace reconstruction, freeze the first version before opening held-out
   exports or expected findings. A scout's silence about synthetic data does not
   prove it believed the environment was production.
-- Paid execution uses a shared budget ledger and local Go gateway. Check spend
-  authorization and routing before launch; bundle creation itself makes no model
-  calls. Keep external credentials out of the bundle.
+- Paid execution uses a shared budget ledger and local Go gateway. Check the
+  existing spend authorization, remaining budget and routing before launch. Do
+  not ask again for permission already granted. Bundle creation itself makes no
+  model calls. Keep external credentials out of the bundle.
+- Improve the environment, not the evaluated scout. Keep its task, skill, model
+  and scope intact unless the user separately requests changes. Further trial
+  comparisons are follow-up work. Default validation uses one inspected trial;
+  report its actual coverage before declaring the environment ready.
 
 ## Implementation map
 
