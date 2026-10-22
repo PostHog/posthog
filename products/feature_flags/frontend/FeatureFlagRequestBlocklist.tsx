@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -7,22 +6,16 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { teamLogic } from 'scenes/teamLogic'
+
+import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
 
 export function FeatureFlagRequestBlocklist(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const [blockedHosts, setBlockedHosts] = useState<string[]>([])
-    const [blockedIps, setBlockedIps] = useState<string[]>([])
+    const { currentTeam, currentTeamLoading, blockedHosts, blockedIps } = useValues(featureFlagRequestBlocklistLogic)
+    const { setBlockedHosts, setBlockedIps, saveBlocklist } = useActions(featureFlagRequestBlocklistLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-
-    useEffect(() => {
-        setBlockedHosts(currentTeam?.feature_flag_policy_config?.blocked_hosts ?? [])
-        setBlockedIps(currentTeam?.feature_flag_policy_config?.blocked_ips ?? [])
-    }, [currentTeam])
 
     if (!currentTeam) {
         return <LemonSkeleton />
@@ -64,11 +57,7 @@ export function FeatureFlagRequestBlocklist(): JSX.Element {
                 <LemonButton
                     type="primary"
                     data-attr="feature-flag-request-blocklist-save"
-                    onClick={() =>
-                        updateCurrentTeam({
-                            feature_flag_policy_config: { blocked_hosts: blockedHosts, blocked_ips: blockedIps },
-                        })
-                    }
+                    onClick={saveBlocklist}
                     loading={currentTeamLoading}
                     disabledReason={restrictedReason}
                 >
