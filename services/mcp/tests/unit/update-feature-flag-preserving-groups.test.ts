@@ -227,13 +227,21 @@ describe('update-feature-flag preserving groups', () => {
                 shape: 'serde guard',
                 detail: 'groups[1].properties[0].type: invalid property type',
                 code: 'invalid',
+                fix: "Don't guess `person`",
             },
             {
                 shape: 'structural',
                 detail: 'groups[1].properties[0].type: This field is required.',
                 code: 'structural.groups[].properties[].type.required',
+                fix: "Don't guess `person`",
             },
-        ])('names the rejected property and its fix for the $shape rejection', async ({ detail, code }) => {
+            {
+                shape: 'group type mismatch',
+                detail: "groups[1].properties[0]: Group properties must match the condition set's group type.",
+                code: 'cross_field.group_property_type_index_mismatch',
+                fix: 'Ask the user which group type the condition should target',
+            },
+        ])('names the rejected property and its fix for the $shape rejection', async ({ detail, code, fix }) => {
             const { request } = rejectPatchWith(detail, code)
 
             const rejection: unknown = await tool.handler(createMockContext(request), params).catch((e: unknown) => e)
@@ -244,7 +252,7 @@ describe('update-feature-flag preserving groups', () => {
             expect(message).toContain(detail)
             expect(message).toContain('filters.groups[1].properties[0]')
             expect(message).toContain('"plan"')
-            expect(message).toContain("Don't guess `person`")
+            expect(message).toContain(fix)
             expect(message).not.toContain('"email"')
         })
 
@@ -258,6 +266,11 @@ describe('update-feature-flag preserving groups', () => {
                 scenario: 'a type path the sent filters do not contain',
                 detail: 'groups[5].properties[0].type: invalid property type',
                 code: 'invalid',
+            },
+            {
+                scenario: 'another rule on a property path',
+                detail: 'groups[1].properties[0]: Group-aggregated conditions can only use group properties.',
+                code: 'cross_field.group_aggregation_property_type',
             },
         ])('rethrows the API error unchanged for $scenario', async ({ detail, code }) => {
             const { request, error } = rejectPatchWith(detail, code)
