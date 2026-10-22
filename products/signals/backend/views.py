@@ -782,7 +782,7 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Use 'monitoring' when implementation is complete and outcome verification is pending. "
             "New entry requires the organization rollout and the implementation-completion service. "
             "Entry is unavailable until that service is integrated. Manual completion records caller "
-            "attribution and does not claim automatic verification or an evidence amendment."
+            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -3653,7 +3653,10 @@ class SignalReportViewSet(
             # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
             # and refund row and refuse, instead of overwriting the suppression and re-opening
             # already-refunded work.
-            if SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first() is not None:
+            if (
+                SignalReport.objects.select_for_update(no_key=True).filter(id=report.id, team_id=self.team.id).first()
+                is not None
+            ):
                 report.refresh_from_db()
             if dismissal_reason == "verified_manually" and (
                 not self._report_monitoring_enabled
@@ -3755,7 +3758,7 @@ class SignalReportViewSet(
                 SignalReport.Status.MONITORING,
             )
 
-            if (
+            stopping_monitoring = (
                 target_status == SignalReport.Status.RESOLVED
                 and not already_holds_verdict
                 and self._report_monitoring_enabled
@@ -3766,7 +3769,8 @@ class SignalReportViewSet(
                         and report.status_before_suppression == SignalReport.Status.MONITORING
                     )
                 )
-            ):
+            )
+            if stopping_monitoring:
                 manual_note = (
                     "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
                 )
@@ -3790,6 +3794,14 @@ class SignalReportViewSet(
                 except (ValueError, TypeError) as e:
                     logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
                     return SignalReportBulkStateOutcome.FAILED, None
+
+                if stopping_monitoring:
+                    for check in (
+                        SignalReportCheck.objects.for_team(self.team.id)
+                        .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
+                        .order_by("id")
+                    ):
+                        cancel_check(check, reason="stopped_by_person", attribution=self._request_attribution())
 
                 # Tell the status-changed receiver that this transition carries caller-supplied feedback,
                 # so the label picks up the artefact written just below. Set before the save because the

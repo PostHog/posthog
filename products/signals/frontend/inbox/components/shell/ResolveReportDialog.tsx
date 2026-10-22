@@ -67,7 +67,7 @@ export function openResolveReportDialog({
           ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
           : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isMonitoring
-        ? `This stops monitoring and resolves the report. PostHog will not record an automatic verification result or update the report's evidence.${hasOpenPr ? ' The pull request opened for this report will be closed.' : ''}`
+        ? `This stops remaining follow-up checks and resolves the report. PostHog will not record an automatic verification result or update the report's evidence.${hasOpenPr ? ' The pull request opened for this report will be closed.' : ''}`
         : isPlural
           ? `Mark these useful reports as done. If an issue comes back, you get a new report linked to the old one.${hasOpenPr ? ' Any open pull request for these reports will be closed.' : ''}`
           : `This marks a useful report as done. If the issue comes back, you get a new report linked to this one.${
@@ -109,7 +109,15 @@ export function openResolveReportDialog({
                         )
                     }
                 </LemonField>
-                <LemonField name="note" label="Details (optional)" info="Add context or a link to the implementation.">
+                <LemonField
+                    name="note"
+                    label="Details (optional)"
+                    info={
+                        isMonitoring
+                            ? 'Add context or a link to supporting evidence.'
+                            : 'Add context or a link to the implementation.'
+                    }
+                >
                     <LemonTextArea
                         // stopPropagation keeps Enter in this multi-line note from reaching the dialog
                         // form and resolving the report (and closing its PR) mid-sentence.
@@ -117,7 +125,11 @@ export function openResolveReportDialog({
                         // With the reason already chosen, the note is the only thing left to type.
                         // Never focus otherwise: the hotkey flow reads digits as reason picks.
                         autoFocus={initialReason != null}
-                        placeholder="Add context or a link to the implementation"
+                        placeholder={
+                            isMonitoring
+                                ? 'Add context or a link to supporting evidence'
+                                : 'Add context or a link to the implementation'
+                        }
                         maxLength={4000}
                         minRows={3}
                         maxRows={8}

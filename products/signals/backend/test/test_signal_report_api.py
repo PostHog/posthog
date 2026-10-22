@@ -64,6 +64,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportCheck,
     SignalReportPullRequest,
     SignalReportTask,
     SignalScoutConfig,
@@ -2931,7 +2932,13 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
-    @parameterized.expand([(False, None), (True, None), (False, "verified_manually"), (True, "verified_manually")])
+    @parameterized.expand(
+        [
+            (bulk, reason)
+            for bulk in (False, True)
+            for reason in (None, "verified_manually", "no_action_needed", "already_fixed", "other")
+        ]
+    )
     def test_manual_monitoring_preserves_period_and_records_completion(self, bulk: bool, reason: str | None) -> None:
         report = self._create_report()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
@@ -2945,6 +2952,23 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.MONITORING
             assert report.monitoring_started_at == original_start
+            checks = [
+                SignalReportCheck.objects.for_team(self.team.id).create(
+                    team_id=self.team.id,
+                    report=report,
+                    title="Check the synthetic fix",
+                    kind=kind,
+                    status=check_status,
+                    config={},
+                    expires_at=timezone.now() + timedelta(days=30),
+                    next_run_at=timezone.now() + timedelta(hours=6),
+                )
+                for kind, check_status in [
+                    (SignalReportCheck.Kind.AGENT, SignalReportCheck.Status.PENDING),
+                    (SignalReportCheck.Kind.METRIC_THRESHOLD, SignalReportCheck.Status.ACTIVE),
+                    (SignalReportCheck.Kind.AGENT, SignalReportCheck.Status.PASSED),
+                ]
+            ]
             url = (
                 f"/api/projects/{self.team.id}/signals/reports/bulk-state/" if bulk else self._state_url(str(report.id))
             )
@@ -2962,6 +2986,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             content = json.loads(feedback.content)
             assert content["state"] == "resolved"
             assert content["reason"] == reason
+            for check in checks:
+                check.refresh_from_db()
+            assert [check.status for check in checks] == [
+                SignalReportCheck.Status.CANCELLED,
+                SignalReportCheck.Status.CANCELLED,
+                SignalReportCheck.Status.PASSED,
+            ]
+            cancellations = SignalReportArtefact.objects.filter(report=report, type="check_cancelled")
+            assert cancellations.count() == 2
+            assert set(cancellations.values_list("created_by_id", flat=True)) == {self.user.id}
             assert content["user_id"] == self.user.id
             assert feedback.created_by_id == self.user.id
             assert (
@@ -2970,6 +3004,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             )
             assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
             assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == (3 if reason else 2)
+            assert cancellations.count() == 2
 
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
@@ -3013,6 +3048,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     def test_manual_verification_skips_reports_without_a_monitoring_period_in_bulk(self) -> None:
         monitoring = self._create_report()
         ready = self._create_report()
+        unrelated_check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=ready,
+            title="Keep another report's check",
+            kind=SignalReportCheck.Kind.AGENT,
+            status=SignalReportCheck.Status.PENDING,
+            config={},
+            expires_at=timezone.now() + timedelta(days=30),
+            next_run_at=timezone.now() + timedelta(hours=6),
+        )
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             monitoring.save(
                 update_fields=monitoring.transition_to(
@@ -3034,7 +3079,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             str(ready.id): "skipped",
         }
         ready.refresh_from_db()
+        unrelated_check.refresh_from_db()
         assert ready.status == SignalReport.Status.READY
+        assert unrelated_check.status == SignalReportCheck.Status.PENDING
         assert not SignalReportArtefact.objects.filter(report=ready, type="dismissal").exists()
 
     def _state_url(self, report_id: str) -> str:
