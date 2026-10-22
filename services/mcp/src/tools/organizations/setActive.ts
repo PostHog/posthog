@@ -1,9 +1,10 @@
 import type { z } from 'zod'
 
-import { PinnedContextSwitchError } from '@/lib/errors'
+import type { Schemas } from '@/api/generated'
+import { PinnedContextSwitchError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
+import type { CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationSetActiveSchema
 
@@ -25,22 +26,26 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
             throw new PinnedContextSwitchError(pinned.pin)
         }
     }
-    await context.stateManager.setActiveContext({ orgId })
-    // Record the switch on the MCP session so a pinned connection's resent pin
-    // doesn't revert it on the next request.
-    await context.setSessionActiveContext?.({ orgId })
-
-    // Fetch fresh org data and cache it
-    let org: CachedOrg | undefined
     const orgResult = await context.api.organizations().get({ orgId })
-    if (orgResult.success) {
-        org = orgResult.data
-        await context.cache.set(`cachedOrg:${orgId}` as const, org)
-        await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
+    if (!orgResult.success) {
+        throw wrapError(
+            `Could not switch to organization ${orgId}: it was not found or you do not have access. ` +
+                'Use `organizations-get` to list available organizations.',
+            orgResult.error
+        )
     }
 
-    // Read cached project for full metadata block
-    const projectId = pinned?.projectId ?? (await context.cache.get('projectId')) ?? 'unknown'
+    const org: Schemas.Organization = orgResult.data
+    const selectedProjectId = pinned?.projectId
+    const keepProject = org.id === orgId && org.teams?.some((team) => String(team.id) === selectedProjectId)
+    await context.stateManager.setActiveContext({
+        orgId,
+        ...(keepProject ? { projectId: selectedProjectId } : {}),
+    })
+    await context.cache.set(`cachedOrg:${orgId}` as const, org)
+    await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
+
+    const projectId = (pinned ? pinned.projectId : await context.cache.get('projectId')) ?? 'unknown'
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
     const integrationKinds = project
