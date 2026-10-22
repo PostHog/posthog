@@ -28,6 +28,9 @@ class KalshiEndpointConfig:
     city_fan_out: bool = False
     # Portfolio endpoints read the account's own data and need a signed API key.
     requires_auth: bool = False
+    # Kalshi reads only subaccount 0 unless asked for another, or the rows do not say which
+    # subaccount they belong to, so these endpoints are read once per subaccount.
+    subaccount_fan_out: bool = False
     extra_params: dict[str, str] = field(default_factory=dict)
     page_size: int = 200
 
@@ -241,8 +244,9 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         name="positions",
         path="/portfolio/positions",
         data_key="market_positions",
-        primary_keys=["ticker"],
+        primary_keys=["subaccount_number", "ticker"],
         requires_auth=True,
+        subaccount_fan_out=True,
         extra_params={"settlement_status": "all"},
         page_size=1000,
     ),
@@ -251,8 +255,9 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         name="historical_positions",
         path="/historical/positions",
         data_key="market_positions",
-        primary_keys=["ticker"],
+        primary_keys=["subaccount_number", "ticker"],
         requires_auth=True,
+        subaccount_fan_out=True,
         page_size=1000,
     ),
     # Payouts per settled market. A settlement carries only `settled_time`, which is what `min_ts`
@@ -261,12 +266,13 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         name="settlements",
         path="/portfolio/settlements",
         data_key="settlements",
-        primary_keys=["ticker"],
+        primary_keys=["subaccount_number", "ticker"],
         partition_key="settled_time",
         incremental_fields=_settled_time_field(),
         supports_incremental=True,
         newest_first=True,
         requires_auth=True,
+        subaccount_fan_out=True,
         page_size=1000,
     ),
 }

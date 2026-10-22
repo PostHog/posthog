@@ -115,7 +115,6 @@ class TestKalshiTransport:
             ("historical_trades", "/trade-api/v2/historical/trades", "created_time"),
             ("fills", "/trade-api/v2/portfolio/fills", "created_time"),
             ("historical_fills", "/trade-api/v2/historical/fills", "created_time"),
-            ("settlements", "/trade-api/v2/portfolio/settlements", "settled_time"),
         ]
     )
     def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str, incremental_field: str) -> None:
@@ -131,9 +130,7 @@ class TestKalshiTransport:
         assert result.requests[0].param("min_ts") == "1609459200"
         assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(
-        ["markets", "events", "milestones", "historical_markets", "orders", "historical_orders", "positions"]
-    )
+    @parameterized.expand(["markets", "events", "milestones", "historical_markets", "orders", "historical_orders"])
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
@@ -178,7 +175,6 @@ class TestKalshiTransport:
             ("trades", "desc"),
             ("historical_trades", "desc"),
             ("fills", "desc"),
-            ("settlements", "desc"),
             ("markets", "asc"),
             ("series", "asc"),
         ]
@@ -278,33 +274,67 @@ class TestKalshiPortfolio:
 
     @parameterized.expand(
         [
-            ("positions", "/trade-api/v2/portfolio/positions", "all"),
-            ("historical_positions", "/trade-api/v2/historical/positions", None),
+            ("positions", "/trade-api/v2/portfolio/positions", "market_positions", "all"),
+            ("historical_positions", "/trade-api/v2/historical/positions", "market_positions", None),
+            ("settlements", "/trade-api/v2/portfolio/settlements", "settlements", None),
         ]
     )
-    def test_positions_read_market_positions_in_every_settlement_state(
-        self, endpoint: str, path: str, settlement_status: str | None
+    def test_subaccount_endpoints_read_every_subaccount(
+        self, endpoint: str, path: str, data_key: str, settlement_status: str | None
     ) -> None:
-        # `/portfolio/positions` returns only unsettled positions unless asked for all of them.
+        # Positions default to subaccount 0, and settlement rows carry no subaccount, so each
+        # subaccount is read on its own and stamped onto its rows.
         result = _driver().run(
             endpoint,
             [
-                ScriptedResponse(
-                    json={
-                        "market_positions": [{"ticker": "A"}],
-                        "event_positions": [{"event_ticker": "E"}],
-                        "cursor": "c1",
-                    }
-                ),
-                ScriptedResponse(json={"market_positions": [{"ticker": "B"}], "event_positions": []}),
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": 3}, {"subaccount_number": 0}]}),
+                _page(data_key, [{"ticker": "A"}], cursor="c1"),
+                _page(data_key, [{"ticker": "B"}]),
+                _page(data_key, [{"ticker": "A"}]),
             ],
         )
 
         assert result.raised is None
-        assert result.paths == [path, path]
-        assert result.params("settlement_status") == [settlement_status, settlement_status]
-        assert result.params("cursor") == [None, "c1"]
-        assert [row["ticker"] for row in result.rows] == ["A", "B"]
+        assert result.paths == ["/trade-api/v2/portfolio/subaccounts/balances", path, path, path]
+        assert result.params("subaccount") == [None, "0", "0", "3"]
+        assert result.params("cursor") == [None, None, "c1", None]
+        assert result.params("settlement_status") == [None, settlement_status, settlement_status, settlement_status]
+        assert [(row["subaccount_number"], row["ticker"]) for row in result.rows] == [(0, "A"), (0, "B"), (3, "A")]
+        assert result.response is not None
+        assert result.response.primary_keys == ["subaccount_number", "ticker"]
+
+    def test_settlements_incremental_sends_min_ts_for_each_subaccount(self) -> None:
+        result = _driver().run(
+            "settlements",
+            [
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": 0}, {"subaccount_number": 1}]}),
+                _page("settlements", [{"ticker": "A"}]),
+                _page("settlements", [{"ticker": "B"}]),
+            ],
+            incremental_field="settled_time",
+            db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.params("min_ts") == [None, "1609459200", "1609459200"]
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+
+    def test_subaccount_walk_resumes_and_stages_the_next_subaccount(self) -> None:
+        result = _driver().run(
+            "positions",
+            [
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": n} for n in (0, 1, 2)]}),
+                _page("market_positions", [{"ticker": "B"}]),
+                _page("market_positions", [{"ticker": "C"}]),
+            ],
+            resume_state=KalshiResumeConfig(cursor="saved", subaccount=1),
+        )
+
+        assert result.raised is None
+        assert result.params("subaccount") == [None, "1", "2"]
+        assert result.params("cursor") == [None, "saved", None]
+        assert KalshiResumeConfig(cursor="", subaccount=2) in result.committed_states
 
 
 class TestKalshiCandlesticks:

@@ -147,7 +147,7 @@ To sync your own fills, orders, positions, and settlements, add an API key. Crea
     def get_endpoint_permissions(
         self, config: KalshiSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
-        has_key = bool(config.api_key_id and config.private_key)
+        has_key = bool((config.api_key_id or "").strip() and (config.private_key or "").strip())
         return {
             name: MISSING_CREDENTIALS_MESSAGE
             if not has_key and name in KALSHI_ENDPOINTS and KALSHI_ENDPOINTS[name].requires_auth
