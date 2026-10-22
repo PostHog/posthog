@@ -209,8 +209,7 @@ jobs:
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
             # only. That coverage is worth a batched queue run, because a webkit-only break then
             # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so author PRs stay chromium-only. Flake verification renders the story files a PR
-            # changes in webkit once.
+            # so author PRs stay chromium-only. Flake verification still renders changed stories in webkit.
             - name: Build matrix
               id: matrix
               env:

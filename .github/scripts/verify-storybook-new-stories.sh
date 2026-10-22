@@ -130,9 +130,7 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     run_stories chromium "chromium-run-$run" "$snapshot_flag"
 done
 
-# PR matrices render chromium only, so without this run a webkit-only break first fails in
-# the merge queue. One run is enough because webkit takes no snapshots to compare, and
-# --updateSnapshot keeps a missing baseline from failing it, as in the first chromium run.
+# PR matrices render chromium only. --updateSnapshot stops a missing baseline from failing this run.
 run_stories webkit webkit-run --updateSnapshot
 
 if [ "${#failed_runs[@]}" -gt 0 ]; then
