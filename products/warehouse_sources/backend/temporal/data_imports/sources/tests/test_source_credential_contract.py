@@ -110,6 +110,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Depot": "config",
     "Docusign": "config",
     "Dynamics365": "config",
+    "FileUpload": "config",
     "Firebase": "config",
     "Framer": "config",
     "GcpCloudBilling": "config",

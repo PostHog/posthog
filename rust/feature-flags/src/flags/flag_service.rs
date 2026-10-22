@@ -284,20 +284,11 @@ impl FlagService {
                     1,
                 );
 
-                let flags = crate::flags::cache_builder::load_supported_flags(
+                let wrapper = crate::flags::cache_builder::build_fallback_wrapper(
                     self.pg_client.clone(),
                     team_id,
                 )
                 .await?;
-                let evaluation_metadata =
-                    crate::flags::cache_builder::compute_flag_dependencies_or_single_stage(
-                        team_id, &flags,
-                    );
-                let wrapper = HypercacheFlagsWrapper {
-                    flags,
-                    cohorts: None,
-                    evaluation_metadata,
-                };
                 Ok((Some(wrapper), CacheSource::Fallback))
             }
         }

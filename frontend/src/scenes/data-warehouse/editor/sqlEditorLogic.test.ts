@@ -8,7 +8,10 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -1926,9 +1929,9 @@ describe('sqlEditorLogic', () => {
                 { display_name: 'Monthly active users', unit: 'users' },
             ],
             [
-                'omits the optional fields when they are blank',
+                'posts blank optional fields as blank, so an overwrite clears them',
                 { ...PREFILL, display_name: '', unit: '' },
-                { display_name: undefined, unit: undefined },
+                { display_name: '', unit: '' },
             ],
         ])('%s', async (_case, fields, expectedOptionalFields) => {
             let createBody: Record<string, any> | undefined
@@ -1947,10 +1950,66 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetricSubmit(fields)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody).toMatchObject({
+                name: fields.name,
+                description: fields.description,
+                created_source: 'user',
+            })
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        it('asks before it overwrites a taken name, and reopens the form with the typed values and query on dismiss', async () => {
+            const createBodies: Record<string, any>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createBodies.push(body)
+                        return body.overwrite
+                            ? [201, { name: body.name }]
+                            : [
+                                  409,
+                                  {
+                                      type: 'invalid_request',
+                                      code: 'metric_name_taken',
+                                      detail: 'A metric with this name already exists.',
+                                      extra: { existing_metric: { name: body.name, status: 'approved' } },
+                                  },
+                              ]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
+
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false])
+            // A dismissal runs only onAfterClose.
+            open.mock.calls.at(-1)?.[0].onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+            const reopenedForm = openForm.mock.calls.at(-1)?.[0]
+            expect(reopenedForm?.initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
+
+            await reopenedForm?.onSubmit({ ...PREFILL, saveTarget: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+            // A click on Overwrite runs onClick, and the close that follows runs onAfterClose.
+            const confirmDialog = open.mock.calls.at(-1)?.[0]
+            confirmDialog?.primaryButton?.onClick?.({} as any)
+            confirmDialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, false, true])
+            expect(createBodies[2].definition.query).toEqual('SELECT 2')
+            expect(openForm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
+            open.mockRestore()
+            openForm.mockRestore()
         })
 
         it('refreshes the sidebar metric list after saving a metric', async () => {
@@ -2705,6 +2764,7 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw ?? '')).toEqual(rawMode ? '1' : '')
             expect(router.values.hashParams.engine).toEqual('managed_trino')
             expect(router.values.hashParams.c).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
             await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
             expect(router.values.hashParams.engine).toEqual('managed_trino')
             expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
@@ -2716,15 +2776,17 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.query).toEqual('SELECT 1')
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
             expect(router.values.hashParams.engine).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toBeNull()
         })
 
-        it('restores the hosted target from the URL', async () => {
+        it.each([false, true])('restores the hosted target and raw mode %s from the URL', async (sendRawQuery) => {
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', engine: 'managed_trino' })
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1', executionTarget: 'managed_trino', sendRawQuery }))
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
-            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(logic.values.sendRawQueryEnabled).toEqual(sendRawQuery)
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
         })
 
         it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(

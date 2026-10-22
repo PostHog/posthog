@@ -17,7 +17,13 @@ from posthog.models.integration import Integration
 from posthog.redis import get_client
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
-from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportSlackThread,
+    SignalScoutEmission,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_DM_TARGETS,
@@ -97,6 +103,91 @@ class TestGetScoutSlackDestination(SimpleTestCase):
 
 
 class TestScoutSlackDelivery(BaseTest):
+    @parameterized.expand([(False, None), (False, "An update"), (True, None), (True, "An update")])
+    def test_trial_report_delivery_checks_side_effect_flag(self, allowed: bool, edit_note: str | None) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        SignalReportArtefact.objects.create(team=self.team, report=report, type="reviewer_corrections", content="{}")
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=allowed),
+            patch.object(deliver_scout_slack_output, "delay") as enqueue,
+            patch("products.signals.backend.tasks.post_scout_report_to_slack") as post,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.get_scout_slack_destination",
+                return_value=ScoutSlackDestination(integration_id=9, targets=("CSCOUTS",)),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                queue_configured_scout_slack_delivery(
+                    run_id=str(emission.scout_run_id),
+                    output_type="report",
+                    output_id=str(report.id),
+                    edit_note=edit_note,
+                )
+            assert enqueue.called is allowed
+            # Exercise a task queued before the flag changed as well.
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                str(uuid.uuid4()),
+                9,
+                "CSCOUTS",
+                edit_note=edit_note,
+            )
+            assert post.called is allowed
+
+    def test_trial_report_thread_retry_stops_when_side_effects_are_disabled(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        SignalReportArtefact.objects.create(team=self.team, report=report, type="reviewer_corrections", content="{}")
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=False),
+            patch("products.signals.backend.tasks.SlackIntegration") as slack,
+        ):
+            deliver_scout_slack_thread_replies.run(
+                team_id=self.team.id,
+                integration_id=9,
+                channel="CSCOUTS",
+                thread_ts="1.2",
+                delivery_id=str(uuid.uuid4()),
+                reply_blocks=[],
+                fallback="Report",
+                chunk_offset=0,
+                report_id=str(report.id),
+            )
+        slack.assert_not_called()
+
+    def test_trial_enrollment_during_render_stops_report_delivery(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+
+        def enroll_during_render(*args, **kwargs):
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type="reviewer_corrections", content="{}"
+            )
+            return [], "Report"
+
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=False),
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=enroll_during_render,
+            ),
+        ):
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                str(uuid.uuid4()),
+                integration.id,
+                "CSCOUTS",
+            )
+        slack.assert_not_called()
+
     def _make_emission(self, description: str = "**Checkout** failures") -> SignalScoutEmission:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
