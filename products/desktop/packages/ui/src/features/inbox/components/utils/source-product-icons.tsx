@@ -188,27 +188,6 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     color: "var(--amber-9)",
     label: "Judge.me",
   },
-  trustpilot: { Icon: StarIcon, color: "var(--grass-9)", label: "Trustpilot" },
-  okendo: { Icon: StarIcon, color: "var(--purple-9)", label: "Okendo" },
-  sleekplan: {
-    Icon: LightbulbIcon,
-    color: "var(--teal-9)",
-    label: "Sleekplan",
-  },
-  bettermode: {
-    Icon: ChatsIcon,
-    color: "var(--violet-9)",
-    label: "Bettermode",
-  },
-  discourse: { Icon: ChatsIcon, color: "var(--amber-9)", label: "Discourse" },
-  mintlify: { Icon: MegaphoneIcon, color: "var(--green-9)", label: "Mintlify" },
-  langsmith: { Icon: BrainIcon, color: "var(--teal-9)", label: "LangSmith" },
-  sprig: { Icon: MegaphoneIcon, color: "var(--pink-9)", label: "Sprig" },
-  gainsight_px: {
-    Icon: StarIcon,
-    color: "var(--orange-9)",
-    label: "Gainsight PX",
-  },
   intercom: { Icon: ChatsIcon, color: "var(--blue-9)", label: "Intercom" },
   hubspot: { Icon: LifebuoyIcon, color: "var(--orange-9)", label: "HubSpot" },
   google_search_console: {
