@@ -1051,6 +1051,12 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
+    it('includes workflow disable when the workflows feature is enabled', () => {
+        const tools = getToolsForFeatures({ features: ['workflows'] })
+        expect(tools).toContain('workflows-disable')
+        expect(tools).toContain('workflows-enable')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.

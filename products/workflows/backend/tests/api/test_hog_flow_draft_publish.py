@@ -100,8 +100,17 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     # ── Draft routing ────────────────────────────────────────────────
 
-    def test_mcp_content_edit_on_active_flow_routes_to_draft(self):
+    @parameterized.expand([("active", False), ("disabled_after_active", True)])
+    def test_mcp_content_edit_on_protected_flow_routes_to_draft(self, _name: str, disable: bool) -> None:
         flow_id = self._create_active_flow()
+        if disable:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": "draft"},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            assert response.status_code == 200, response.json()
+
         live_actions_before = HogFlow.objects.get(pk=flow_id).actions
 
         response = self._patch_actions_via_mcp(flow_id)
@@ -111,10 +120,33 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
         assert flow.draft_updated_at is not None
+        assert flow.disabled_from_active is disable
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://changed.example.com"]
         # The response surfaces the draft so callers can see what they staged
         assert response.json()["draft"] is not None
+
+    def test_mcp_content_update_on_disabled_flow_routes_to_draft(self) -> None:
+        flow_id = self._create_active_flow()
+        disable = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "draft"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert disable.status_code == 200, disable.json()
+        live_exit_condition = HogFlow.objects.get(pk=flow_id).exit_condition
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"exit_condition": "exit_only_at_end"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.exit_condition == live_exit_condition
+        assert flow.draft is not None
+        assert flow.draft["exit_condition"] == "exit_only_at_end"
 
     def test_web_content_edit_on_active_flow_still_applies_live(self):
         flow_id = self._create_active_flow()

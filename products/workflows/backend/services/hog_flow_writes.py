@@ -411,6 +411,11 @@ def update_workflow(
             validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
+            target_status = validated_data.get("status")
+            if target_status is not None and target_status != before_update.status:
+                validated_data["disabled_from_active"] = (
+                    before_update.status == HogFlow.State.ACTIVE and target_status == HogFlow.State.DRAFT
+                )
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
@@ -439,7 +444,7 @@ def edit_workflow_content(
     team_id: int,
     user_id: Optional[int],
     hog_flow_id: UUID,
-    stage_if_active: bool,
+    stage_if_protected: bool,
     base_updated_at: Optional[str],
     edit: Callable[[WorkflowEditState, list[dict], list[dict]], dict],
     changes_graph: bool,
@@ -449,7 +454,9 @@ def edit_workflow_content(
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
 
-        route_to_draft = stage_if_active and locked.status == HogFlow.State.ACTIVE
+        route_to_draft = stage_if_protected and (
+            locked.status == HogFlow.State.ACTIVE or locked.disabled_from_active is True
+        )
 
         # Optimistic concurrency, mirroring update_workflow: the surgical endpoints are the only MCP
         # paths that write graph content, so they carry the base_updated_at staleness contract.
