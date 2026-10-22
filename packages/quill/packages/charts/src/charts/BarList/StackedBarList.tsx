@@ -151,7 +151,10 @@ function StackedBarListInner<Meta = unknown>({
                         }}
                     >
                         <div className="flex min-w-0 items-center gap-1.5">{renderLabel(i)}</div>
-                        <div className="shrink-0 whitespace-nowrap text-(--color-graph-axis-label) tabular-nums">
+                        <div
+                            className="shrink-0 whitespace-nowrap text-(--color-graph-axis-label) tabular-nums"
+                            translate="no"
+                        >
                             {renderValue(i)}
                         </div>
                     </div>
@@ -176,6 +179,7 @@ function StackedBarListInner<Meta = unknown>({
                     <div
                         className="col-start-3 whitespace-nowrap text-right text-(--color-graph-axis-label) tabular-nums"
                         style={{ gridRow: i + 1 }}
+                        translate="no"
                     >
                         {renderValue(i)}
                     </div>

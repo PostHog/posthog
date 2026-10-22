@@ -190,6 +190,7 @@ export function drawBarChartStatic(
                 return []
             }
             const ceilings = coloredSeries
+                .filter((s) => !s.visibility?.excluded)
                 .map((s) => s.trackData?.[dataIndex])
                 .filter((ceiling): ceiling is number => ceiling != null && isFinite(d3Scales.value(ceiling)))
             const farEnd = ceilings.length > 0 ? d3Scales.value(Math.max(...ceilings)) : axisEnd
