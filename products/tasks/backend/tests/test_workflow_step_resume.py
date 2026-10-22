@@ -7,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP
+from products.tasks.backend.constants import FINAL_MESSAGE_MAX_CHARS
 from products.tasks.backend.facade.api import update_task_run
 from products.tasks.backend.logic.services.workflow_step_resume import (
     DEFERRED_RESUME_TASK,
@@ -227,12 +228,19 @@ class TestResumeWorkflowStepForRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("without_output_fields", None, ["Opened 2 draft PRs"], 0),
-            ("with_output_fields", {"type": "object", "properties": {"title": {"type": "string"}}}, [], 1),
+            ("without_output_fields", None, "Opened 2 draft PRs", "Opened 2 draft PRs", 0),
+            (
+                "with_output_fields",
+                {"type": "object", "properties": {"title": {"type": "string"}}},
+                "Opened 2 draft PRs",
+                "Opened 2 draft PRs",
+                1,
+            ),
+            ("oversized_report", None, "x" * (FINAL_MESSAGE_MAX_CHARS + 1), "x" * FINAL_MESSAGE_MAX_CHARS, 0),
         ]
     )
     def test_agent_completion_with_a_report_keeps_it_and_waits_for_output_fields(
-        self, _name: str, json_schema: dict | None, woken_with: list[str], deferred_wakes: int
+        self, _name: str, json_schema: dict | None, report: str, saved_report: str, deferred_wakes: int
     ) -> None:
         run = self._run(status=TaskRun.Status.IN_PROGRESS, final_message="Previous turn", json_schema=json_schema)
         run.state = {"end_run_when_done": True}
@@ -248,7 +256,7 @@ class TestResumeWorkflowStepForRun(BaseTest):
                     run.id,
                     run.task_id,
                     self.team.id,
-                    validated_data={"status": "completed", "output": {"final_message": "Opened 2 draft PRs"}},
+                    validated_data={"status": "completed", "output": {"final_message": report}},
                     only_if_non_terminal=True,
                     caller_is_agent=True,
                 )
@@ -256,8 +264,10 @@ class TestResumeWorkflowStepForRun(BaseTest):
 
         run.refresh_from_db()
         assert run.output is not None
-        assert run.output["final_message"] == "Opened 2 draft PRs"
-        assert [call.kwargs["result"]["final_message"] for call in resume.call_args_list] == woken_with
+        assert run.output["final_message"] == saved_report
+        assert [call.kwargs["result"]["final_message"] for call in resume.call_args_list] == (
+            [] if deferred_wakes else [saved_report]
+        )
         assert send_task.call_count == deferred_wakes
 
     @parameterized.expand(
