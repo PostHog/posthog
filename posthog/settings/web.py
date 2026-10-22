@@ -10,6 +10,7 @@ from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
 
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
+from posthog.run_mode import derive_run_mode
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import (
@@ -179,6 +180,10 @@ INSTALLED_APPS = [
     "django_admin_inline_paginator",
 ]
 
+_UNVERSIONED_STATIC_MIDDLEWARE = (
+    ["posthog.middleware.UnversionedStaticPathMiddleware"] if derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby else []
+)
+
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
@@ -196,6 +201,7 @@ MIDDLEWARE = [
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
+    *_UNVERSIONED_STATIC_MIDDLEWARE,  # Must precede WhiteNoise — it reads the path this rewrites
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
