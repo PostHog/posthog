@@ -855,6 +855,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         applyView: ({ view }) => {
+            // This selection is newer than an in-flight restore of another view.
+            cache.latestViewShortId = view.short_id
             // Snapshot the user's own date selection the first time a view overwrites it.
             // The snapshot survives view switches and detaches (a detached view's dates
             // remain applied and persisted, so the snapshot is the only copy of the
@@ -1002,10 +1004,22 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 return
             }
-            const leavingSavedView = !!values.activeView || !!cache.latestViewShortId
+            if (!hasFilterParams(searchParams)) {
+                if (values.activeView) {
+                    // The tickets nav link is bare `/support/tickets`. Reload the persisted
+                    // view here, or the next visit drops it. Filter params below still detach.
+                    actions.loadSavedView(values.activeView.short_id)
+                } else if (cache.latestViewShortId) {
+                    // A view link that has not loaded yet has no persisted selection behind it.
+                    // Drop the response, or it puts the view back after the user leaves the link.
+                    actions.applyUrlFilters(urlParamsToFilters(searchParams))
+                }
+                return
+            }
             if (
-                leavingSavedView ||
-                (hasFilterParams(searchParams) && !urlFiltersMatchState(searchParams, values.currentFilters))
+                values.activeView ||
+                cache.latestViewShortId ||
+                !urlFiltersMatchState(searchParams, values.currentFilters)
             ) {
                 actions.applyUrlFilters(urlParamsToFilters(searchParams))
             }
@@ -1018,6 +1032,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
         if (!embedded && searchParams.view) {
+            // The table has no rows until this request finishes. Mark it loading first,
+            // or the empty state flashes.
+            actions.setTicketsLoading(true)
             actions.loadSavedView(String(searchParams.view))
             return
         }
@@ -1028,6 +1045,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                     actions.applyUrlFilters(urlParamsToFilters(searchParams))
                     return
                 }
+            } else if (values.activeView) {
+                // Writing these filters into the query string looks like an explicit filter
+                // link and detaches the view. Keep the empty table loading until the view loads.
+                actions.setTicketsLoading(true)
+                actions.loadSavedView(values.activeView.short_id)
+                return
             } else {
                 // No filters in the URL — reflect the persisted selection so the page is shareable on open.
                 const currentFilterParams = filtersToUrlParams(values.currentFilters)

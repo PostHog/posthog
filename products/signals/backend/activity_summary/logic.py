@@ -1,8 +1,9 @@
 """One activity summary update for one (team, user): gather, filter, render, summarize, persist."""
 
 import datetime
+import dataclasses
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from django.db.models import Value
 from django.db.models.functions import Coalesce
@@ -11,9 +12,15 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.inputs import user_activity, user_tasks
+from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
-from products.signals.backend.activity_summary.render import RENDER_VERSION, WINDOW_DAYS, build_input, sampling_seed
+from products.signals.backend.activity_summary.render import (
+    DEFAULT_LIMITS,
+    RENDER_VERSION,
+    RenderLimits,
+    build_input,
+    sampling_seed,
+)
 from products.signals.backend.activity_summary.summaries import (
     DEFAULT_MODEL,
     MODEL_PRICES,
@@ -63,10 +70,34 @@ class ActivitySummaryUpdate:
     error: str | None = None
     inputs_used: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
+    rebuilt: bool = False
 
 
-def _input_start(watermark: datetime.datetime | None, now: datetime.datetime) -> datetime.datetime:
-    earliest = now - datetime.timedelta(days=WINDOW_DAYS)
+class StoredSummaryVersion(Protocol):
+    @property
+    def prompt_version(self) -> int | None: ...
+
+    @property
+    def render_version(self) -> int | None: ...
+
+    @property
+    def generated_at(self) -> datetime.datetime | None: ...
+
+
+def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datetime | None) -> bool:
+    """True when a stored summary came from an older prompt or render, or before `rebuild_before`.
+
+    A stale summary is rebuilt from the full window, so a version change reaches every input.
+    """
+    if stored is None or stored.generated_at is None:
+        return False
+    if (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION):
+        return True
+    return rebuild_before is not None and stored.generated_at < rebuild_before
+
+
+def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, window_days: int) -> datetime.datetime:
+    earliest = now - datetime.timedelta(days=window_days)
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
@@ -142,12 +173,15 @@ def update_activity_summary(
     force: bool = False,
     min_units: int = MIN_UNITS,
     min_update_interval: datetime.timedelta = MIN_UPDATE_INTERVAL,
+    limits: RenderLimits = DEFAULT_LIMITS,
+    rebuild_before: datetime.datetime | None = None,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
-    Reads only the inputs newer than the stored watermark, or the last `WINDOW_DAYS` on a first
-    run. A failed update records the error and keeps the stored summary and the watermark. With
-    `dry_run`, the model is still called but nothing is written. `force` ignores `next_eligible_at`.
+    Reads only the inputs newer than the stored watermark, or the last `limits.window_days` on a first
+    run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
+    update records the error and keeps the stored summary and the watermark. With `dry_run`, the
+    model is still called but nothing is written. `force` ignores `next_eligible_at`.
     A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
@@ -159,10 +193,20 @@ def update_activity_summary(
     if not force and stored is not None and stored.next_eligible_at is not None and stored.next_eligible_at > now:
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
-    start = _input_start(stored.input_watermark if stored else None, now)
+    rebuild = is_stale(stored, rebuild_before)
+    start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
-    rendered = build_input(tasks, activity, as_of=now, seed=sampling_seed(now.date().isoformat(), team_id, user_id))
+    views = user_views(team_id, user_id, start, now)
+    rendered = build_input(
+        tasks,
+        activity,
+        as_of=now,
+        seed=sampling_seed(now.date().isoformat(), team_id, user_id),
+        views=views,
+        limits=limits,
+        parents=activity_parents(team_id, activity),
+    )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
             _back_off(team_id, user_id, stored, now + RETRY_BACKOFF)
@@ -175,11 +219,13 @@ def update_activity_summary(
     inputs_used: dict[str, Any] = {
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
+        "view_lines": rendered.n_view_lines,
         "input_chars": rendered.input_chars,
         "drops": rendered.drops,
+        "limits": dataclasses.asdict(limits),
     }
-    watermark = max([task.at for task in tasks] + [item.at for item in activity])
-    previous = stored.summary if stored is not None else None
+    watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
+    previous = stored.summary if stored is not None and not rebuild else None
     model = DEFAULT_MODEL
     outcome = summarize(
         gateway_client(team_id, user_id, now.date()),
@@ -187,6 +233,8 @@ def update_activity_summary(
         previous_summary=previous,
         model=model,
         as_of=now.date(),
+        max_completion_tokens=limits.max_completion_tokens,
+        profile_max_chars=limits.profile_max_chars,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(
@@ -200,6 +248,7 @@ def update_activity_summary(
         error=outcome.error,
         inputs_used=inputs_used,
         input_watermark=watermark if outcome.summary is not None else None,
+        rebuilt=rebuild,
     )
     if dry_run:
         return result

@@ -34,7 +34,7 @@ class SandboxEvalEnv(BaseModel):
     )
     LLM_GATEWAY_ANTHROPIC_API_KEY: str = Field(
         min_length=1,
-        description="Anthropic API key the LLM gateway proxies the agent's model calls with",
+        description="Anthropic API key the AI gateway proxies the agent's model calls with",
     )
 
 
@@ -56,7 +56,7 @@ class CodexEvalEnv(BaseModel):
 
     LLM_GATEWAY_OPENAI_API_KEY: str = Field(
         min_length=1,
-        description="OpenAI API key the LLM gateway proxies the codex agent's model calls with",
+        description="OpenAI API key the AI gateway proxies the codex agent's model calls with",
     )
 
 
@@ -143,8 +143,8 @@ def validate_eval_env(
 ) -> None:
     """Fail fast, before any infrastructure boots, if a required variable is unset.
 
-    ``engine_env`` is the selected engine's ``required_env()`` (e.g. the Braintrust
-    engine's ``BRAINTRUST_API_KEY``). Only the env models for the selected suites'
+    ``engine_env`` is the selected engine's ``required_env(no_send_logs=...)``
+    for the selected suites' reporting settings. Only the env models for the selected suites'
     kinds are checked, so a run without sandboxed suites doesn't demand sandbox
     credentials. Without this a missing key surfaces minutes into a run as an
     opaque mid-case failure (gateway 401s, engine login errors) instead of a

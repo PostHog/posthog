@@ -469,7 +469,11 @@ class TestWebAuthnLogin(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("SSO", response.json()["error"])
+        body = response.json()
+        self.assertIn("SSO", body["error"])
+        self.assertEqual(body["code"], "sso_enforced")
+        self.assertEqual(body["sso_enforcement"], "saml")
+        self.assertEqual(body["email"], self.user.email)
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")

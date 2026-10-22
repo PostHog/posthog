@@ -9,6 +9,7 @@ pub mod grpc_transport;
 pub mod kafka_stats;
 pub mod ledger_rejection;
 pub mod order_sentinel;
+pub mod partition_budget;
 pub mod readiness;
 pub mod rebalance;
 pub mod routing;
