@@ -92,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     IncrementalBatchRangeReader,
     IncrementalHandoffCheckpoint,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -193,6 +194,8 @@ class PipelineV3(Generic[ResumableData]):
     _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
     _job_rows_synced_through_batch: int = 0
     _kept_rows_synced: int | None = None
+    # Set once the run handed its replace scope to the loader.
+    _replace_scope_ref: ReplaceScopeRef | None = None
 
     def __init__(
         self,
@@ -219,7 +222,10 @@ class PipelineV3(Generic[ResumableData]):
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
         # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
         # intermittently returns nothing.
-        self._resource.primary_keys = resolve_primary_keys(models.schema, self._resource)
+        # A replace scope loads as appends, so a key persisted by an earlier mode must not come back.
+        self._resource.primary_keys = (
+            None if source_response.replace_scope is not None else resolve_primary_keys(models.schema, self._resource)
+        )
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
@@ -274,6 +280,10 @@ class PipelineV3(Generic[ResumableData]):
 
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
+        if self._resumable_source_manager is not None and source_response.replace_scope is not None:
+            # A resumed attempt skips the rows before its cursor, and stages no scope, so its keyless
+            # batches would merge. Each attempt of a scoped run must read from the start.
+            raise ValueError("A source that resumes from its own cursor cannot send a replace scope")
         self._preemption = preemption
         self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
         self._sent_resumed_run_finalization = False
@@ -414,6 +424,7 @@ class PipelineV3(Generic[ResumableData]):
         The source must promise ascending order, and nothing else may own the restart point: a
         source that resumes from its own cursor reads that cursor, and a reset reloads the table.
         A run that writes several tables keeps one queue per table, which one value cannot cover.
+        A replace scope makes each attempt delete every file it reads again, so it must read from the start.
         """
         return (
             self._schema.is_incremental
@@ -423,6 +434,7 @@ class PipelineV3(Generic[ResumableData]):
             and self._resumable_source_manager is None
             and not source_response.lanes
             and source_response.cdc_write_mode is None
+            and source_response.replace_scope is None
             and self._run_uuid is not None
         )
 
@@ -550,6 +562,25 @@ class PipelineV3(Generic[ResumableData]):
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
         self._prefix_checkpoint = None
+
+    async def _stage_replace_scope(self, sync_type: SyncTypeLiteral) -> None:
+        """Hand the source's replace scope to the loader, before the first batch is queued.
+
+        Not called for a first sync or a reset: the table starts empty, so no row needs to go.
+        """
+        scope = self._resource.replace_scope
+        if scope is None:
+            return
+        if sync_type != "incremental" or self._resource.lanes:
+            await self._logger.awarning("V3 Pipeline: Ignoring a replace scope on a run that does not merge one table")
+            return
+        manifest_path = await asyncio.to_thread(self._s3_batch_writer.write_replace_scope, scope)
+        self._replace_scope_ref = ReplaceScopeRef(column=scope.column, manifest_path=manifest_path)
+        self._pg_producer.replace_scope = self._replace_scope_ref
+
+    async def _stage_empty_replace_scope_batch(self, scope: ReplaceScopeRef) -> None:
+        """Queue one batch with no rows, so a scope that only removes rows still reaches the loader."""
+        await self._stage_batch(pa.table({scope.column: pa.array([], pa.string())}), batch_index=0, row_count=0)
 
     async def _record_table_rebuild(self, run_uuid: str) -> None:
         """Record that this attempt loads the table from empty (see `TableRebuildRun`).
@@ -825,6 +856,9 @@ class PipelineV3(Generic[ResumableData]):
                     is_cdc_companion=self._maintains_companion_table(),
                 )
 
+            if not is_fresh_sync and not should_resume:
+                await self._stage_replace_scope(sync_type)
+
             async def stage_remaining_rows() -> None:
                 nonlocal chunk_index, row_count
                 while self._batcher.should_yield(include_incomplete_chunk=True):
@@ -948,6 +982,9 @@ class PipelineV3(Generic[ResumableData]):
             # The source ended, so it holds no rows and its last cursor is safe.
             self._confirm_resume_state()
             await stage_remaining_rows()
+            if chunk_index == 0 and self._replace_scope_ref is not None:
+                await self._stage_empty_replace_scope_batch(self._replace_scope_ref)
+                chunk_index += 1
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -1013,18 +1050,23 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
-        pa_table = normalize_table_column_names(pa_table)
+        if not self._resource.preserve_column_names:
+            pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
+            # The loader deletes rows by the replace scope's column, so a column selection must keep it.
+            replace_scope = self._resource.replace_scope
             pa_table = await observe_and_project_table(
                 pa_table,
                 self._schema.enabled_columns,
-                self._resource.primary_keys,
+                [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
                 self._schema.incremental_field,
                 [
                     *(self._schema.partitioning_keys_override or []),
                     *(self._schema.partitioning_keys or []),
                     *(self._resource.partition_keys or []),
+                    # The loader deletes by this column, so a row without it could never be replaced.
+                    *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
                 ],
                 self._observed_columns,
                 self._logger,

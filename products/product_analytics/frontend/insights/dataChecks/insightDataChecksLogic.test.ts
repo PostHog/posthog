@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,6 +32,12 @@ describe('insightDataChecksLogic', () => {
     const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
     let savedFilters: unknown[]
+    let capture: jest.SpyInstance
+
+    const loadedEvents = (): Record<string, unknown>[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'insight data checks loaded')
+            .map(([, properties]) => properties as Record<string, unknown>)
 
     const answer =
         (response: [number, Record<string, unknown>], held?: Promise<void>, onSent?: () => void) =>
@@ -50,6 +57,7 @@ describe('insightDataChecksLogic', () => {
 
     beforeEach(() => {
         dataChecks.mockReset()
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         sentSources = []
         savedFilters = []
         cancelledQueryIds.length = 0
@@ -211,6 +219,19 @@ describe('insightDataChecksLogic', () => {
         expect(logic.values.status).toBe(expected)
     })
 
+    it.each([
+        ['problem', true],
+        ['warning', true],
+        ['passed', false],
+    ])('keeps the label open after a %s result only when there is a finding', async (result, open) => {
+        dataChecks.mockImplementation(answer([200, checksOf(result)]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        logic.actions.closeLabel()
+
+        expect(logic.values.labelOpen).toBe(open)
+    })
+
     it('checks again when the chart type changes and the chart reuses its result', async () => {
         dataChecks.mockImplementation(answer([200, checksOf('passed')]))
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
@@ -281,6 +302,24 @@ describe('insightDataChecksLogic', () => {
         expect(cancelledQueryIds).toEqual([clientQueryId])
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['cancelled', 'passed'])
+    })
+
+    it.each([
+        [
+            'a run with findings',
+            200,
+            { ...checksOf('warning'), checks: [{ key: 'bot_traffic', level: 'warning' }] },
+            { status: 'warning', findings: ['bot_traffic'] },
+        ],
+        ['a run the server could not finish', 500, { detail: 'No.' }, { status: 'failed', findings: [] }],
+        ['a run the person may not see', 403, { detail: 'No.' }, { status: 'unavailable', findings: [] }],
+    ])('reports how %s ended', async (_name, responseStatus, response, expected) => {
+        dataChecks.mockImplementation(answer([responseStatus, response]))
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(loadedEvents()).toEqual([{ ...expected, duration_ms: expect.any(Number) }])
     })
 
     it('turns the filter on for the insight from the checks, then checks the filtered chart', async () => {
@@ -299,6 +338,21 @@ describe('insightDataChecksLogic', () => {
     const addTheRule = (): void => {
         logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
     }
+    it("adds the check's rule to this insight's filters once, then checks the filtered chart", async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+        const check = { key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi
+
+        await expectLogic(logic, () => {
+            logic.actions.excludeFromInsight(check)
+            logic.actions.excludeFromInsight(check)
+        }).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.properties).toEqual([rule])
+        expect(sentSources.at(-1)?.properties).toEqual([rule])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
     it("adds the check's rule to the project's filter, then checks again", async () => {
         const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
         dataChecks.mockImplementation(answer([200, checksOf('warning')]))

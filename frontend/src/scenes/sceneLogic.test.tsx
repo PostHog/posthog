@@ -30,6 +30,7 @@ import {
     AccessControlResourceType,
     ActivityTab,
     type AppContext,
+    type InsightShortId,
     type OrganizationType,
     type TeamType,
 } from '~/types'
@@ -208,16 +209,6 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
     })
 
-    it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
-        router.actions.push('/feature-flags')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlags())
-
-        router.actions.push('/feature-flags/123')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
-    })
-
     it.each<[string, boolean]>([
         ['/inbox/scout-trials', false],
         ['/inbox/scout-trials', true],
@@ -260,6 +251,13 @@ describe('sceneLogic', () => {
         router.actions.push(urls.billingAuthorizationStatus())
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
+    it('sends the /source-maps-key short link to a new key with the source map upload preset', async () => {
+        router.actions.push('/source-maps-key')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('user-api-keys'))
+        expect(router.values.searchParams).toEqual({ preset: 'source_map_upload' })
     })
 
     it.each([
@@ -339,6 +337,7 @@ describe('sceneLogic', () => {
     // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
     // both across. The hash also carries global side-panel state, so it has to survive too.
     // Visual review PR comments, commit statuses and digests link to the old /visual_review paths.
+    // Emails, comments and bookmarks link to the old /feature_flags paths.
     it.each([
         ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
         ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
@@ -354,6 +353,11 @@ describe('sceneLogic', () => {
             {},
             { panel: 'max:inspect' },
         ],
+        ['/feature_flags', () => urls.featureFlags(), { tab: 'history' }, {}],
+        ['/feature_flags/123', () => urls.featureFlag('123'), {}, { panel: 'max:inspect' }],
+        ['/feature_flags/templates', () => urls.featureFlagTemplates(), { search: 'checkout' }, {}],
+        ['/feature_flags/staff', () => urls.featureFlagsStaffTools(), { team_id: 2 }, {}],
+        ['/feature_flags/staff/cohorts', () => urls.cohortsStaffTools(), { cohort_id: 3 }, {}],
     ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
         router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)
@@ -557,6 +561,84 @@ describe('sceneLogic', () => {
 
             expect(router.values.location.pathname).toEqual(refusedLink)
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it('keeps an impersonating staff member on the page when the first project has no data', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: MOCK_DEFAULT_ORGANIZATION, is_impersonated: true },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+                removeProjectIdIfPresent(urls.eventDefinitions())
+            )
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it.each([
+        [
+            'sends the homepage to the welcome page and keeps the side panel prompt',
+            `${urls.projectHomepage()}#panel=max:hello`,
+            urls.onboardingWelcome(),
+            { panel: 'max:hello' },
+        ],
+        [
+            'keeps a deep link open',
+            urls.insightView('abc123' as InsightShortId),
+            urls.insightView('abc123' as InsightShortId),
+            {},
+        ],
+    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: {
+                    ...MOCK_DEFAULT_USER,
+                    organization: MOCK_DEFAULT_ORGANIZATION,
+                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                    onboarding_skipped_reason: 'connector',
+                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(router.values.hashParams).toEqual(expectedHashParams)
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }

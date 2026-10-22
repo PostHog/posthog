@@ -217,6 +217,8 @@ export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    /** Hides the tile menus and the drag-to-edit controls, even for users who can edit the dashboard. */
+    readOnly?: boolean
 }
 
 interface PendingFilterChange {
@@ -429,6 +431,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -917,26 +920,6 @@ export interface dashboardLogicActions {
         editing: DashboardEditing | null
         source: DashboardEventSource
     }
-    setDashboardEditingFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    setDashboardEditingSuccess: (
-        dashboard: DashboardType | null,
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    ) => {
-        dashboard: DashboardType | null
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1303,6 +1286,7 @@ export interface dashboardLogicMeta {
         ) => boolean
         asDashboardTemplate: (dashboard: DashboardType | null) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
+        readOnly: (arg: any) => boolean
         apiUrl: (
             id: number
         ) => (
@@ -1398,7 +1382,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
@@ -1955,25 +1939,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: [...(values.tiles || []), tile],
                         } as DashboardType
                     }
-                },
-                setDashboardEditing: async ({ editing, source }) => {
-                    if (
-                        editing === null &&
-                        source === DashboardEventSource.DashboardHeaderDiscardChanges &&
-                        values.dashboard?.tiles
-                    ) {
-                        // layout changes were discarded so need to reset to original state
-                        // (as a new object — selectors only recompute when the reference changes)
-                        return {
-                            ...values.dashboard,
-                            tiles: values.dashboard.tiles.map((tile) => ({
-                                ...tile,
-                                layouts: values.dashboardLayouts?.[tile.id],
-                            })),
-                        }
-                    }
-
-                    return values.dashboard
                 },
                 duplicateTile: async ({ tile }) => {
                     try {
@@ -3216,6 +3181,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.placement],
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
+        readOnly: [() => [(_, props) => props.readOnly], (readOnly: boolean | undefined): boolean => !!readOnly],
         apiUrl: [
             (_, p) => [p.id],
             (id: number) => {
@@ -4855,7 +4821,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             exitFilterEditModeWhenSaved(values, actions)
         },
         saveLayoutChanges: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -4870,7 +4838,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.cancelLayoutEdit()
         },
         saveLayout: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -4988,6 +4958,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardEditing: async ({ editing, source }) => {
+            if (
+                editing === null &&
+                source === DashboardEventSource.DashboardHeaderDiscardChanges &&
+                values.dashboard?.tiles
+            ) {
+                actions.applyDashboardUpdate(
+                    {
+                        ...values.dashboard,
+                        tiles: values.dashboard.tiles.map((tile) => ({
+                            ...tile,
+                            layouts: values.dashboardLayouts[tile.id],
+                        })),
+                    },
+                    values.dashboardLayouts
+                )
+            }
             if (editing?.layout && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
@@ -5312,7 +5298,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .length ?? 0,
             })
 
-            if (values.canAutoPreview) {
+            // The builtin placement has no Preview button, so a selection there always applies.
+            if (values.canAutoPreview || values.placement === DashboardPlacement.Builtin) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,

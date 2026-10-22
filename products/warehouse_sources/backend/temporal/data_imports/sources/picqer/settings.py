@@ -22,15 +22,23 @@ def _incremental_fields(cursor_field: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
+class PicqerFanoutConfig:
+    # Parent endpoint whose rows drive the child requests, and the parent field substituted into
+    # the `{<resolve_field>}` placeholder of the child path.
+    parent_name: str
+    resolve_field: str
+
+
+@dataclass(frozen=True)
 class PicqerEndpointConfig:
     name: str
     path: str  # Path under /api/v1, e.g. "/orders"
     primary_keys: list[str]
     # Query param that filters the list by modification time (e.g. `updated_after`). Only set when
     # the API documents a genuine server-side UPDATE-based filter — creation-only filters
-    # (`sincedate`) are deliberately left off, since using them as an incremental cursor would miss
-    # updates to mutable records. None => full refresh.
+    # (`sincedate`) are deliberately left off for mutable records, since using them as an
+    # incremental cursor would miss updates. Immutable records may use them. None => full refresh.
     incremental_filter_param: Optional[str] = None
     # Response field the `incremental_filter_param` compares against, and the cursor the pipeline
     # tracks. Must be present in every row so the watermark can advance. None => full refresh.
@@ -39,6 +47,10 @@ class PicqerEndpointConfig:
     # sync). None when the resource exposes no reliable creation timestamp.
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    # False for list endpoints the docs do not mark as paginated. An offset loop on an endpoint that
+    # ignores `offset` would fetch the same full page forever.
+    paginated: bool = True
+    fanout: Optional[PicqerFanoutConfig] = None
 
     @property
     def supports_incremental(self) -> bool:
@@ -91,6 +103,31 @@ PICQER_ENDPOINTS: dict[str, PicqerEndpointConfig] = {
         incremental_cursor_field="updated_at",
         partition_key="created_at",
     ),
+    # Shipments can be cancelled after creation and only expose a creation-date filter
+    # (`sincedate`), so they sync full refresh like orders and picklists.
+    "shipments": PicqerEndpointConfig(
+        name="shipments",
+        path="/shipments",
+        primary_keys=["idshipment"],
+        partition_key="created",
+    ),
+    # Stock history rows can never be changed, so the creation-date filter is a safe cursor.
+    "stockhistory": PicqerEndpointConfig(
+        name="stockhistory",
+        path="/stockhistory",
+        primary_keys=["idproduct_stock_history"],
+        incremental_filter_param="sincedate",
+        incremental_cursor_field="changed_at",
+        partition_key="changed_at",
+    ),
+    # Current stock per product per warehouse. Fanned out over warehouses rather than products,
+    # because a warehouse returns all of its products in pages of 100.
+    "warehouse_stock": PicqerEndpointConfig(
+        name="warehouse_stock",
+        path="/warehouses/{idwarehouse}/stock",
+        primary_keys=["idwarehouse", "idproduct"],
+        fanout=PicqerFanoutConfig(parent_name="warehouses", resolve_field="idwarehouse"),
+    ),
     # Catalog / reference resources. Products carry a `created` field but expose no time filter.
     "products": PicqerEndpointConfig(
         name="products",
@@ -132,6 +169,12 @@ PICQER_ENDPOINTS: dict[str, PicqerEndpointConfig] = {
         name="tags",
         path="/tags",
         primary_keys=["idtag"],
+    ),
+    "return_reasons": PicqerEndpointConfig(
+        name="return_reasons",
+        path="/return_reasons",
+        primary_keys=["idreturn_reason"],
+        paginated=False,
     ),
 }
 

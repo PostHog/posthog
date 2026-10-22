@@ -60,6 +60,10 @@ use crate::limits::{
     SourceFootprint,
 };
 use crate::pkset::PkSet;
+use crate::probecache::{
+    file_key, key_signature, sorted_intersect, CollectedKeys, KeyCollector, ProbeCache,
+};
+use crate::readahead::{max_row_group_pair_fetch_bytes, ReadAheadStore};
 use crate::schema::{cast_to_schema, unknown_columns};
 use crate::smallfile::{fetch_small_file, reads_whole, SmallFileStore};
 use crate::writer::StreamingWriter;
@@ -225,6 +229,11 @@ pub struct UpsertOptions {
     /// `max_parallel_files` whole files. A row group larger than the cap still runs, alone.
     /// The process-wide cap in [`ProcessLimits`] applies on top.
     pub max_fetch_bytes: usize,
+    /// Read the next row group of a file while the reader decodes the current one (see
+    /// `crate::readahead`). A reader then holds up to two row groups, and reserves both
+    /// from the fetch budget. A file whose two largest neighbouring row groups do not fit
+    /// the fetch budget is read without read-ahead. Off by default.
+    pub read_ahead_row_groups: bool,
     /// Commit retry budget handed to `CommitBuilder`.
     pub commit_max_retries: usize,
     /// Row-count granularity for Parquet reads and source-slice writes.
@@ -264,6 +273,11 @@ pub struct UpsertOptions {
     pub max_source_bytes: Option<usize>,
     /// Process-wide concurrency budgets shared with every other concurrent upsert.
     pub limits: Arc<ProcessLimits>,
+    /// Cache of the PK hashes of data files (see [`crate::probecache`]). With
+    /// `prune_strategy=probe`, a cached file is decided without a read, a probed file that
+    /// holds no match is cached, and the files this upsert writes are cached once its
+    /// commit lands. `None` probes every candidate file from storage.
+    pub probe_cache: Option<Arc<ProbeCache>>,
 }
 
 impl Default for UpsertOptions {
@@ -278,6 +292,7 @@ impl Default for UpsertOptions {
             max_parallel_files: 4,
             max_buffered_bytes: 64 * 1024 * 1024,
             max_fetch_bytes: DEFAULT_MAX_FETCH_BYTES,
+            read_ahead_row_groups: false,
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
@@ -285,6 +300,7 @@ impl Default for UpsertOptions {
             max_row_group_bytes: None,
             max_source_bytes: None,
             limits: ProcessLimits::global().clone(),
+            probe_cache: Some(ProbeCache::global().clone()),
         }
     }
 }
@@ -304,6 +320,8 @@ pub struct UpsertStats {
     pub files_carried_over: usize,
     /// Files whose PK column(s) were actually read by the probe (prune_strategy=probe).
     pub files_probed: usize,
+    /// Candidate files the probe decided from the probe cache, with no read.
+    pub files_probe_cached: usize,
     /// Existing rows dropped in favour of an incoming row.
     pub rows_updated: usize,
     /// Incoming rows with no existing match.
@@ -318,6 +336,9 @@ pub struct UpsertStats {
     pub plan_ms: u64,
     /// Wall-clock ms spent rewriting the touched partitions (reading + probing targets, writing files).
     pub rewrite_ms: u64,
+    /// Wall-clock ms the partition workers spent probing, summed over partitions (part of
+    /// `rewrite_ms`, which runs partitions in parallel).
+    pub probe_ms: u64,
     /// Wall-clock ms spent committing the new file set to the Delta log.
     pub commit_ms: u64,
     /// Non-nullable columns relaxed to nullable before this upsert because the table's
@@ -511,11 +532,17 @@ struct PartitionOutcome {
     files_added: usize,
     files_removed: usize,
     files_probed: usize,
+    files_probe_cached: usize,
+    probe_ms: u64,
     rows_updated: usize,
     rows_copied: usize,
     rows_inserted: usize,
     null_pk_rows: usize,
     carried: usize,
+    /// Cache keys of the files this partition removes.
+    removed_keys: Vec<String>,
+    /// Key hashes of the files this partition wrote, stored once the commit lands.
+    written_keys: Vec<(String, CollectedKeys)>,
 }
 
 /// A unit of byte budget: one permit from the per-call budget and one from the
@@ -594,6 +621,12 @@ impl Budgets {
             _local: local,
             _global: global,
         })
+    }
+
+    /// Bytes of compressed row-group data one reader can hold without passing either
+    /// fetch budget.
+    pub(crate) fn fetch_cap_bytes(&self) -> usize {
+        self.fetch_local_cap_kb.min(self.limits.fetch_cap_kb()) as usize * 1024
     }
 
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
@@ -736,6 +769,8 @@ pub async fn upsert_cached_with_state(
             counter!("deltalite_files_carried_over_total")
                 .increment(stats.files_carried_over as u64);
             counter!("deltalite_files_probed_total").increment(stats.files_probed as u64);
+            counter!("deltalite_files_probe_cached_total")
+                .increment(stats.files_probe_cached as u64);
             counter!("deltalite_rows_updated_total").increment(stats.rows_updated as u64);
             counter!("deltalite_rows_inserted_total").increment(stats.rows_inserted as u64);
             counter!("deltalite_rows_copied_total").increment(stats.rows_copied as u64);
@@ -1093,6 +1128,8 @@ async fn upsert_inner(
         ..Default::default()
     };
     let mut actions: Vec<Action> = Vec::new();
+    let mut removed_keys: Vec<String> = Vec::new();
+    let mut written_keys: Vec<(String, CollectedKeys)> = Vec::new();
 
     for h in handles {
         let outcome = h
@@ -1101,12 +1138,16 @@ async fn upsert_inner(
         stats.files_added += outcome.files_added;
         stats.files_removed += outcome.files_removed;
         stats.files_probed += outcome.files_probed;
+        stats.files_probe_cached += outcome.files_probe_cached;
+        stats.probe_ms += outcome.probe_ms;
         stats.files_carried_over += outcome.carried;
         stats.rows_updated += outcome.rows_updated;
         stats.rows_copied += outcome.rows_copied;
         stats.rows_inserted += outcome.rows_inserted;
         stats.null_pk_rows += outcome.null_pk_rows;
         actions.extend(outcome.actions);
+        removed_keys.extend(outcome.removed_keys);
+        written_keys.extend(outcome.written_keys);
     }
 
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
@@ -1158,6 +1199,16 @@ async fn upsert_inner(
         .build(Some(snapshot), table.log_store(), operation)
         .await?;
     let commit_ms = commit_started.elapsed().as_millis() as u64;
+
+    // Only a landed commit makes the written files live and the removed files dead. Before
+    // it, a written file may be an orphan that no snapshot ever names.
+    if let Some(cache) = &opts.probe_cache {
+        cache.remove_all(removed_keys.iter().map(String::as_str));
+        let signature = pk_signature(&table_schema, &opts.primary_keys, &partition_col)?;
+        for (key, keys) in written_keys {
+            keys.store(key, signature);
+        }
+    }
 
     if (finalized.version() + 1) % checkpoint_interval == 0 {
         let maintenance_started = Instant::now();
@@ -1931,21 +1982,13 @@ async fn probe_file(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
+    mut collector: Option<&mut KeyCollector>,
 ) -> Result<(bool, Arc<ParquetMetaData>)> {
     let (builder, held_fetch) = open_builder(store, f, budgets).await?;
     let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
-    let mut pk_types: Vec<DataType> = Vec::with_capacity(opts.primary_keys.len());
-    for pk in &opts.primary_keys {
-        pk_types.push(
-            table_schema
-                .field_with_name(pk)
-                .map_err(|e| Error::Generic(format!("PK column lookup: {e}")))?
-                .data_type()
-                .clone(),
-        );
-    }
+    let pk_types = pk_types(table_schema, &opts.primary_keys)?;
 
     let mut sources: Vec<PkSource> = Vec::with_capacity(opts.primary_keys.len());
     let mut projection: Vec<usize> = Vec::new();
@@ -1973,7 +2016,8 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        return Ok((pkset.contains_any_columns(&cols, 1)?, metadata));
+        let hashes = collector.as_mut().and_then(|c| c.reserve(1));
+        return Ok((pkset.probe_columns(&cols, 1, hashes)?, metadata));
     }
 
     // Fetch budget before any data is fetched; held until the stream is gone.
@@ -2019,7 +2063,8 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
+        let hashes = collector.as_mut().and_then(|c| c.reserve(batch.num_rows()));
+        let hit = pkset.probe_columns(&cols, batch.num_rows(), hashes)?;
         drop(permit);
         if hit {
             drop(stream);
@@ -2032,10 +2077,32 @@ async fn probe_file(
     Ok((false, metadata))
 }
 
-/// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved. Up to one
-/// reader wave of kept files carries the footer its probe parsed; retaining every hit
-/// footer would make memory grow with the partition's file count before rewrites start.
+/// What the probe cache contributes to one partition's probe.
+struct ProbeCacheView<'a> {
+    cache: Arc<ProbeCache>,
+    table_url: &'a str,
+    signature: u64,
+    /// Sorted hashes of the partition's source keys.
+    source_hashes: Vec<u64>,
+}
+
+/// Result of [`probe_files`].
+struct Probed {
+    /// Files that contain at least one match, in input order.
+    keep: Vec<TargetFile>,
+    /// Files proven match-free.
+    skipped: usize,
+    /// Files decided from the probe cache, with no read.
+    cached: usize,
+}
+
+/// Probe `files` with bounded concurrency. Order is preserved. Up to one reader wave of
+/// kept files carries the footer its probe parsed; retaining every hit footer would make
+/// memory grow with the partition's file count before rewrites start.
+///
+/// With a cache, a cached file is decided from its key hashes, and a probed file that
+/// holds no match is cached: the probe read all of its keys to prove that. A file that
+/// holds a match is not cached, because this upsert removes it.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -2046,10 +2113,19 @@ async fn probe_files(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
-) -> Result<(Vec<TargetFile>, usize)> {
+    cache: Option<&ProbeCacheView<'_>>,
+) -> Result<Probed> {
     let results = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
         async move {
+            let key = cache.map(|c| file_key(c.table_url, &f.path));
+            if let (Some(c), Some(key)) = (cache, &key) {
+                if let Some(hashes) = c.cache.get(key, c.signature) {
+                    let hit = sorted_intersect(&c.source_hashes, &hashes);
+                    return Ok::<_, Error>((f, hit, None, true));
+                }
+            }
+            let mut collector = cache.and_then(|c| c.cache.collector());
             let (hit, metadata) = probe_file(
                 &store,
                 &f,
@@ -2059,28 +2135,148 @@ async fn probe_files(
                 partition_value,
                 opts,
                 budgets,
+                collector.as_mut(),
             )
             .await?;
-            Ok::<_, Error>((f, hit, metadata))
+            if let (false, Some(c), Some(key), Some(collector)) = (hit, cache, key, collector) {
+                collector.store(key, c.signature);
+            }
+            Ok((f, hit, Some(metadata), false))
         }
     }))
     .buffered(opts.probe_concurrency.max(1));
     futures::pin_mut!(results);
 
     let retained_footer_limit = opts.max_parallel_files.max(1);
-    let mut keep = Vec::new();
-    let mut skipped = 0usize;
-    while let Some((mut f, hit, metadata)) = results.try_next().await? {
+    let mut out = Probed {
+        keep: Vec::new(),
+        skipped: 0,
+        cached: 0,
+    };
+    while let Some((mut f, hit, metadata, cached)) = results.try_next().await? {
+        out.cached += usize::from(cached);
         if hit {
-            if keep.len() < retained_footer_limit {
-                f.metadata = Some(metadata);
+            if out.keep.len() < retained_footer_limit {
+                f.metadata = metadata;
             }
-            keep.push(f);
+            out.keep.push(f);
         } else {
-            skipped += 1;
+            out.skipped += 1;
         }
     }
-    Ok((keep, skipped))
+    Ok(out)
+}
+
+/// The table schema's types of the PK columns, in PK order.
+fn pk_types(table_schema: &SchemaRef, primary_keys: &[String]) -> Result<Vec<DataType>> {
+    primary_keys
+        .iter()
+        .map(|pk| {
+            Ok(table_schema
+                .field_with_name(pk)
+                .map_err(|e| Error::Generic(format!("PK column lookup: {e}")))?
+                .data_type()
+                .clone())
+        })
+        .collect()
+}
+
+/// The probe-cache signature of this table's PK encoding.
+fn pk_signature(
+    table_schema: &SchemaRef,
+    primary_keys: &[String],
+    partition_col: &Option<String>,
+) -> Result<u64> {
+    Ok(key_signature(
+        primary_keys,
+        &pk_types(table_schema, primary_keys)?,
+        partition_col.as_deref(),
+    ))
+}
+
+/// Collects the key hashes of each file a partition writes, so that the next upsert does
+/// not probe a file this one wrote. Every batch the writer receives is in the table
+/// schema with the partition column, so its PK columns encode exactly as a later probe
+/// of the written file encodes them.
+struct OutputKeys {
+    cache: Arc<ProbeCache>,
+    pk_idx: Vec<usize>,
+    pk_types: Vec<DataType>,
+    current: Option<KeyCollector>,
+    /// Decoded path of each written file with its key hashes.
+    done: Vec<(String, CollectedKeys)>,
+}
+
+impl OutputKeys {
+    fn new(
+        cache: Arc<ProbeCache>,
+        table_schema: &SchemaRef,
+        primary_keys: &[String],
+    ) -> Result<Self> {
+        let mut pk_idx = Vec::with_capacity(primary_keys.len());
+        for pk in primary_keys {
+            pk_idx.push(table_schema.index_of(pk).map_err(|_| {
+                Error::SchemaMismatch(format!(
+                    "primary key column '{pk}' not found in table schema"
+                ))
+            })?);
+        }
+        let current = cache.collector();
+        Ok(Self {
+            pk_types: pk_types(table_schema, primary_keys)?,
+            cache,
+            pk_idx,
+            current,
+            done: Vec::new(),
+        })
+    }
+
+    /// Record the keys of `batch`, which goes into the open output file.
+    fn note_write(&mut self, pkset: &PkSet, batch: &RecordBatch) -> Result<()> {
+        let Some(hashes) = self
+            .current
+            .as_mut()
+            .and_then(|c| c.reserve(batch.num_rows()))
+        else {
+            return Ok(());
+        };
+        let cast_opts = CastOptions {
+            safe: false,
+            ..Default::default()
+        };
+        let mut cols: Vec<Arc<dyn Array>> = Vec::with_capacity(self.pk_idx.len());
+        for (&ci, ty) in self.pk_idx.iter().zip(&self.pk_types) {
+            let col = batch.column(ci);
+            cols.push(if col.data_type() == ty {
+                col.clone()
+            } else {
+                cast_with_options(col, ty, &cast_opts)?
+            });
+        }
+        pkset.hash_columns(&cols, batch.num_rows(), hashes)
+    }
+
+    /// Attach the keys recorded so far to the file a flush closed, if it closed one.
+    fn note_flush(&mut self, new_adds: &[Add]) {
+        if new_adds.is_empty() {
+            return;
+        }
+        let finished = std::mem::replace(&mut self.current, self.cache.collector());
+        // One partition per writer gives one file per flush; anything else is not cached.
+        if let ([add], Some(keys)) = (new_adds, finished.and_then(KeyCollector::finish)) {
+            let path = percent_encoding::percent_decode_str(&add.path)
+                .decode_utf8_lossy()
+                .into_owned();
+            self.done.push((path, keys));
+        }
+    }
+
+    fn into_written(self, table_url: &str) -> Vec<(String, CollectedKeys)> {
+        self.done
+            .into_iter()
+            .map(|(path, keys)| (file_key(table_url, &path), keys))
+            .collect()
+    }
 }
 
 /// Per-file result from a reader task.
@@ -2107,15 +2303,31 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let (builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
+    let (mut builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
     // Reserve the compressed bytes the reader will hold before it fetches any data.
     // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
     let fetch = match held_fetch {
         Some(fetch) => fetch,
         None => {
-            budgets
-                .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
-                .await?
+            let meta = builder.metadata().clone();
+            let pair = max_row_group_pair_fetch_bytes(&meta);
+            if opts.read_ahead_row_groups
+                && meta.num_row_groups() > 1
+                && pair <= budgets.fetch_cap_bytes()
+            {
+                let path = Path::parse(&f.path)
+                    .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+                let read_ahead: Arc<dyn ObjectStore> =
+                    Arc::new(ReadAheadStore::new(store.clone(), path.clone(), &meta));
+                let reader = ParquetObjectReader::new(read_ahead, path).with_file_size(f.size);
+                let arrow_meta = ArrowReaderMetadata::try_new(meta, Default::default())?;
+                builder = ParquetRecordBatchStreamBuilder::new_with_metadata(reader, arrow_meta);
+                budgets.acquire_fetch(pair).await?
+            } else {
+                budgets
+                    .acquire_fetch(max_row_group_fetch_bytes(&meta, None))
+                    .await?
+            }
         }
     };
     let batch_rows = byte_bounded_batch_rows(
@@ -2239,11 +2451,18 @@ async fn rewrite_partition(
 
     let writer = StreamingWriter::for_table(table)?;
     let store: Arc<dyn ObjectStore> = table.object_store();
+    let table_url = table.table_url().as_str().to_string();
+    let cache = match opts.prune_strategy {
+        PruneStrategy::Probe => opts.probe_cache.clone().filter(|c| c.enabled()),
+        _ => None,
+    };
 
     // Content-based file selection: keep only files that actually contain a matched
     // row, exactly as MERGE's join does. Files proven match-free are carried over --
     // neither read again, rewritten, nor tombstoned.
     let mut files_probed = 0usize;
+    let mut files_probe_cached = 0usize;
+    let probe_started = Instant::now();
     if opts.prune_strategy == PruneStrategy::Probe && !rewrite.is_empty() {
         if pkset.is_empty() {
             // Every source row has a NULL PK component: nothing can match, so every
@@ -2251,8 +2470,17 @@ async fn rewrite_partition(
             carried += rewrite.len();
             rewrite = Vec::new();
         } else {
-            files_probed = rewrite.len();
-            let (keep, skipped) = probe_files(
+            let candidates = rewrite.len();
+            let probe_cache = match &cache {
+                Some(cache) => Some(ProbeCacheView {
+                    cache: cache.clone(),
+                    table_url: &table_url,
+                    signature: pk_signature(&table_schema, &opts.primary_keys, &partition_col)?,
+                    source_hashes: pkset.sorted_key_hashes(),
+                }),
+                None => None,
+            };
+            let probed = probe_files(
                 &store,
                 rewrite,
                 &pkset,
@@ -2261,22 +2489,45 @@ async fn rewrite_partition(
                 &value,
                 opts,
                 &budgets,
+                probe_cache.as_ref(),
             )
             .await?;
-            rewrite = keep;
-            carried += skipped;
+            rewrite = probed.keep;
+            carried += probed.skipped;
+            files_probe_cached = probed.cached;
+            files_probed = candidates - probed.cached;
         }
     }
+    let probe_ms = probe_started.elapsed().as_millis() as u64;
+    let removed_keys: Vec<String> = match &cache {
+        Some(_) => rewrite
+            .iter()
+            .map(|f| file_key(&table_url, &f.path))
+            .collect(),
+        None => Vec::new(),
+    };
+    let mut writer_keys = match &cache {
+        Some(cache) => Some(OutputKeys::new(
+            cache.clone(),
+            &table_schema,
+            &opts.primary_keys,
+        )?),
+        None => None,
+    };
 
     // Single writer task per partition: file count and output sizing behave exactly as
     // in the sequential implementation. The channel is unbounded; memory is bounded by
     // the byte-budget permits attached to every message, not by message count.
     let (tx, mut rx) = mpsc::unbounded_channel::<(RecordBatch, BudgetPermit)>();
     let max_row_group_bytes = opts.max_row_group_bytes;
+    let writer_pkset = pkset.clone();
     let writer_task = tokio::spawn(async move {
         let mut writer = writer;
         let mut adds = Vec::new();
         while let Some((batch, permit)) = rx.recv().await {
+            if let Some(keys) = writer_keys.as_mut() {
+                keys.note_write(&writer_pkset, &batch)?;
+            }
             writer.write(batch)?;
             // The batch now lives (encoded) in the writer; release its budget.
             drop(permit);
@@ -2284,6 +2535,7 @@ async fn rewrite_partition(
             // Bound resident memory: the writer holds the open file until flushed, so
             // flush on a size threshold instead of once at the end. Each flush yields
             // Add actions and starts a new file.
+            let before = adds.len();
             roll_writer(
                 &mut writer,
                 &mut adds,
@@ -2291,8 +2543,11 @@ async fn rewrite_partition(
                 max_row_group_bytes,
             )
             .await?;
+            if let Some(keys) = writer_keys.as_mut() {
+                keys.note_flush(&adds[before..]);
+            }
         }
-        Ok::<_, Error>((writer, adds))
+        Ok::<_, Error>((writer, adds, writer_keys))
     });
 
     // Reader tasks: up to max_parallel_files files stream concurrently (per call AND
@@ -2344,14 +2599,18 @@ async fn rewrite_partition(
 
     // Writer errors take precedence: when the writer dies, readers fail secondarily on
     // send, and reporting those would mask the root cause.
-    let (mut writer, mut adds) = writer_task
+    let (mut writer, mut adds, mut output_keys) = writer_task
         .await
         .map_err(|e| Error::Generic(format!("writer task panicked: {e}")))??;
     if let Some(e) = reader_err {
         return Err(e);
     }
     if opts.isolate_source_rows {
+        let before = adds.len();
         adds.extend(writer.flush().await?);
+        if let Some(keys) = output_keys.as_mut() {
+            keys.note_flush(&adds[before..]);
+        }
     }
 
     // Source rows are written LAST: an updated row therefore carries the source values,
@@ -2376,8 +2635,13 @@ async fn rewrite_partition(
         let mut offset = 0usize;
         while offset < selected.num_rows() {
             let n = (selected.num_rows() - offset).min(slice_rows);
-            writer.write(selected.slice(offset, n))?;
+            let slice = selected.slice(offset, n);
+            if let Some(keys) = output_keys.as_mut() {
+                keys.note_write(&pkset, &slice)?;
+            }
+            writer.write(slice)?;
             offset += n;
+            let before = adds.len();
             roll_writer(
                 &mut writer,
                 &mut adds,
@@ -2385,9 +2649,20 @@ async fn rewrite_partition(
                 max_row_group_bytes,
             )
             .await?;
+            if let Some(keys) = output_keys.as_mut() {
+                keys.note_flush(&adds[before..]);
+            }
         }
     }
+    let before = adds.len();
     adds.extend(writer.flush().await?);
+    let written_keys = match output_keys {
+        Some(mut keys) => {
+            keys.note_flush(&adds[before..]);
+            keys.into_written(&table_url)
+        }
+        None => Vec::new(),
+    };
 
     // Every source row is written, but a source row that replaced an existing one is an
     // update, not an insert -- the batch is deduped, so each match consumes exactly one
@@ -2404,11 +2679,15 @@ async fn rewrite_partition(
         files_added,
         files_removed,
         files_probed,
+        files_probe_cached,
+        probe_ms,
         rows_updated,
         rows_copied,
         rows_inserted,
         null_pk_rows,
         carried,
+        removed_keys,
+        written_keys,
     })
 }
 

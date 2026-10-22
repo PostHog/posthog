@@ -1238,6 +1238,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -2176,6 +2177,9 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `GoogleAdMob` - GoogleAdMob
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
+ * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2645,6 +2649,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -3583,6 +3588,9 @@ export const ExternalDataSourceTypeEnumApi = {
     GoogleAdMob: 'GoogleAdMob',
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
+    CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
 } as const
 
 /**
@@ -4194,6 +4202,7 @@ export interface ExternalDataSourceCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -5131,7 +5140,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -6108,6 +6120,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -7045,7 +7058,10 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7595,6 +7611,7 @@ export interface DatabaseSchemaRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -8532,7 +8549,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9006,6 +9026,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -9943,7 +9964,10 @@ export interface DirectConnectionSourceOptionApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10471,6 +10495,7 @@ export interface SourcePreviewRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -11408,7 +11433,10 @@ export interface SourcePreviewRequestApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11917,6 +11945,7 @@ export interface SourceSetupApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -12854,7 +12883,10 @@ export interface SourceSetupApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13370,6 +13402,7 @@ export interface SourceCredentialCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -14307,7 +14340,10 @@ export interface SourceCredentialCreateApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -14497,7 +14533,6 @@ export interface SourceFieldSwitchGroupConfigApi {
 export type ReleaseStatusApi = (typeof ReleaseStatusApi)[keyof typeof ReleaseStatusApi]
 
 export const ReleaseStatusApi = {
-    Alpha: 'alpha',
     Beta: 'beta',
     Ga: 'ga',
 } as const
