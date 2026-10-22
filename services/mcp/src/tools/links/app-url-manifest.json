@@ -75,7 +75,7 @@
         "scope": "project"
     },
     "aiObservabilityDatasets": {
-        "template": "/ai-evals/evaluations/offline/experiments",
+        "template": "/ai-evals/evaluations/offline/experiments?tab=datasets",
         "params": [],
         "scope": "project"
     },
