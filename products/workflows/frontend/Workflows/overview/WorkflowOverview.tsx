@@ -156,7 +156,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
-            <WorkflowOverviewFeedback />
+            {!appMetricsTrendsLoading && total(started) > 0 ? <WorkflowOverviewFeedback /> : null}
             <div className="flex flex-wrap items-center justify-end gap-2">
                 {controls ?? <AppMetricsFilters logicKey={logicKey} />}
             </div>
