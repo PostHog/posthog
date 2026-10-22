@@ -14,20 +14,24 @@ class AlertsConfig(AppConfig):
         # scope — see activity_logging's docstring.
         from products.alerts.backend import activity_logging  # noqa: F401, PLC0415
 
-        # The platform cannot import this product, so it reaches this product's destinations, and the
-        # schema an edit to an insight alert's copy is checked against, here.
+        # The platform cannot import this product, so it reaches this product's destinations, the schema
+        # an edit to an insight alert's copy is checked against, and the `$insight_alert_firing` events of
+        # an insight alert on the HogFunction path, here.
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
             list_delivery_destination_groups,
         )
+        from products.alerts.backend.platform_hooks import emit_insight_legacy_events  # noqa: PLC0415
         from products.alerts.backend.platform_source_config import load_insight_source_config  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
             register_delivery_path_chooser,
             register_destination_resolver,
+            register_legacy_event_emitter,
         )
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
         register_destination_resolver(list_delivery_destination_groups)
         register_delivery_path_chooser(choose_delivery_path)
+        register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)
