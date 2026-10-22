@@ -1081,6 +1081,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=self.request,
         )
 
+    @staticmethod
+    def _delete_new_source(source: ExternalDataSource, cdc_adapter: CDCSourceAdapter | None) -> None:
+        # A hard delete leaves no source row for the orphan-slot sweeper to find, so drop the slot
+        # and publication created for this source first.
+        if cdc_adapter is not None:
+            cdc_adapter.cleanup_resources(source)
+        source.delete()
+
     def _create_external_data_source(
         self,
         request: Request,
@@ -1498,7 +1506,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 isinstance(payload_masked_columns, list)
                 and all(isinstance(column, str) for column in payload_masked_columns)
             ):
-                new_source_model.delete()
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
@@ -1703,7 +1711,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     incremental_fields=[incremental_field],
                 )
                 if masking_error:
-                    new_source_model.delete()
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Column masking not allowed for schema '{schema_name}': {masking_error}"},
