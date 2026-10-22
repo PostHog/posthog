@@ -2134,6 +2134,7 @@ _DIRECT_PROXY = coder.DirectProxy(
     origin="https://10.0.0.5:8411",
     ip="10.0.0.5",
     ca_pem="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+    token="fake-token",
     app_up=True,
     vite_up=True,
 )
@@ -2166,7 +2167,7 @@ class TestDevboxDirect:
 
         assert result.exit_code == 0, result.output
         assert started == [("devbox-test-user-direct", 8411)]
-        assert "PostHog UI at https://10.0.0.5:8411" in result.output
+        assert "PostHog UI at https://10.0.0.5:8411/?devbox_token=fake-token" in result.output
         ca_path = devbox_config_path.parent / "devbox-direct" / "devbox-test-user-direct.pem"
         assert ca_path.read_text() == _DIRECT_PROXY.ca_pem
         assert str(ca_path) in result.output
@@ -2182,7 +2183,9 @@ class TestDevboxDirect:
         assert result.exit_code == 0, result.output
         assert json.loads(result.output) == {
             "workspace": "devbox-test-user-direct",
+            "url": "https://10.0.0.5:8411/?devbox_token=fake-token",
             "origin": "https://10.0.0.5:8411",
+            "token": "fake-token",
             "ip": "10.0.0.5",
             "port": 8411,
             "reachable": True,
@@ -2250,6 +2253,7 @@ class TestDirectProxyScript:
             "origin": "https://10.0.0.5:8411",
             "ip": "10.0.0.5",
             "ca_pem": "PEM",
+            "token": "fake-token",
             "app_up": True,
             "vite_up": False,
         }
@@ -2263,7 +2267,7 @@ class TestDirectProxyScript:
         proxy = coder.start_direct_proxy("devbox-test-user-direct", 8411)
 
         assert proxy == coder.DirectProxy(
-            origin="https://10.0.0.5:8411", ip="10.0.0.5", ca_pem="PEM", app_up=True, vite_up=False
+            origin="https://10.0.0.5:8411", ip="10.0.0.5", ca_pem="PEM", token="fake-token", app_up=True, vite_up=False
         )
         [args] = calls
         assert args[:2] == ["ssh", "coder.devbox-test-user-direct"]
@@ -2313,8 +2317,22 @@ class TestDirectProxyScript:
         # Django reads this header in posthog/utils.py (VITE_SAME_ORIGIN_HEADER).
         assert "header_up X-PostHog-Vite-Origin $origin" in script
         assert "@vite path /@* /src/* /node_modules/* /public/surveys/*" in script
-        assert "reverse_proxy 127.0.0.1:8234" in script
-        assert "reverse_proxy 127.0.0.1:8010" in script
+        assert "reverse_proxy @vite 127.0.0.1:8234" in script
+        assert "reverse_proxy 127.0.0.1:8010 {" in script
+
+    def test_script_refuses_requests_without_the_token_before_any_proxy(self) -> None:
+        script = coder._DIRECT_PROXY_SCRIPT
+        route = script[script.index("    route {") :]
+        # `route` keeps this order: the sign-in and the refusal run before anything reaches Vite or Django.
+        assert route.index("redir @sign_in") < route.index("respond @stranger") < route.index("reverse_proxy")
+        assert "@stranger not header Cookie *posthog_devbox_direct=$token*" in script
+        assert "HttpOnly" in script
+
+    def test_script_checks_a_new_port_before_it_removes_the_running_proxy(self) -> None:
+        script = coder._DIRECT_PROXY_SCRIPT
+        assert script.index("is in use on the devbox") < script.index(
+            'docker rm -f "$container" >/dev/null 2>&1 || true\n    mv'
+        )
 
 
 @pytest.fixture

@@ -1721,6 +1721,10 @@ DIRECT_PROXY_TIMEOUT = 180
 # which opens on "/") and everything else, through the dev stack's proxy on 8010. The X-PostHog-Vite-Origin header
 # tells Django (posthog/utils.py, get_js_url) to load the frontend from that same origin. The CA lives in a Docker
 # volume, so its root certificate stays the same across restarts. Prints one JSON line.
+#
+# Anyone on the network can reach the private address, and the dev app lets anyone in: its dev login and its test
+# account need no secret. So Caddy refuses every request without the box's token. The URL hogli prints carries the
+# token once (`?devbox_token=`), and Caddy keeps it in an HttpOnly cookie. The token stays the same across runs.
 _DIRECT_PROXY_SCRIPT = r"""#!/usr/bin/env bash
 set -euo pipefail
 container=posthog-devbox-direct
@@ -1738,7 +1742,12 @@ fi
 origin="https://$ip:$port"
 dir="$HOME/.cache/hogli/devbox-direct"
 mkdir -p "$dir"
-cat >"$dir/Caddyfile.next" <<EOF
+chmod 700 "$dir"
+if [ ! -s "$dir/token" ]; then
+    (umask 077 && python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$dir/token")
+fi
+token=$(cat "$dir/token")
+(umask 077 && cat >"$dir/Caddyfile.next") <<EOF
 {
     admin off
     skip_install_trust
@@ -1749,19 +1758,19 @@ $origin {
     bind $ip
     tls internal
 
+    @sign_in query devbox_token=$token
+    @stranger not header Cookie *posthog_devbox_direct=$token*
     @vite path /@* /src/* /node_modules/* /public/surveys/*
     @vite_socket header Sec-WebSocket-Protocol vite-hmr
     @vite_ping header Accept text/x-vite-ping
-    handle @vite_socket {
-        reverse_proxy 127.0.0.1:8234
-    }
-    handle @vite_ping {
-        reverse_proxy 127.0.0.1:8234
-    }
-    handle @vite {
-        reverse_proxy 127.0.0.1:8234
-    }
-    handle {
+
+    route {
+        header @sign_in Set-Cookie "posthog_devbox_direct=$token; Path=/; Secure; HttpOnly; SameSite=Lax"
+        redir @sign_in {path} 302
+        respond @stranger "Open the URL that hogli devbox:direct prints." 403
+        reverse_proxy @vite_socket 127.0.0.1:8234
+        reverse_proxy @vite_ping 127.0.0.1:8234
+        reverse_proxy @vite 127.0.0.1:8234
         reverse_proxy 127.0.0.1:8010 {
             header_up X-PostHog-Vite-Origin $origin
         }
@@ -1772,11 +1781,16 @@ running=$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || ech
 if [ "$running" = true ] && cmp -s "$dir/Caddyfile.next" "$dir/Caddyfile"; then
     rm -f "$dir/Caddyfile.next"
 else
-    docker rm -f "$container" >/dev/null 2>&1 || true
-    if [ -n "$(ss -Hltn "( sport = :$port )")" ]; then
-        echo "Port $port is in use on the devbox. Pick another one with --port." >&2
-        exit 1
+    # A running proxy holds the port in its own Caddyfile. Check any other port before it removes the running proxy.
+    current_port=$(sed -n 's|^https://.*:\([0-9]*\) {$|\1|p' "$dir/Caddyfile" 2>/dev/null | head -n 1)
+    if [ "$running" != true ] || [ "$port" != "$current_port" ]; then
+        if [ -n "$(ss -Hltn "( sport = :$port )")" ]; then
+            rm -f "$dir/Caddyfile.next"
+            echo "Port $port is in use on the devbox. Pick another one with --port." >&2
+            exit 1
+        fi
     fi
+    docker rm -f "$container" >/dev/null 2>&1 || true
     mv "$dir/Caddyfile.next" "$dir/Caddyfile"
     docker run -d --name "$container" --restart unless-stopped --network host \
         -v "$container:/data" -v "$dir/Caddyfile:/etc/caddy/Caddyfile:ro" \
@@ -1794,8 +1808,8 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != tru
     exit 1
 fi
 answers() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && echo true || echo false; }
-python3 -c 'import json, sys; print(json.dumps({"origin": sys.argv[1], "ip": sys.argv[2], "ca_pem": sys.argv[3], "app_up": sys.argv[4] == "true", "vite_up": sys.argv[5] == "true"}))' \
-    "$origin" "$ip" "$pem" "$(answers 8010)" "$(answers 8234)"
+python3 -c 'import json, sys; print(json.dumps({"origin": sys.argv[1], "ip": sys.argv[2], "ca_pem": sys.argv[3], "token": sys.argv[4], "app_up": sys.argv[5] == "true", "vite_up": sys.argv[6] == "true"}))' \
+    "$origin" "$ip" "$pem" "$token" "$(answers 8010)" "$(answers 8234)"
 """
 
 
@@ -1806,8 +1820,14 @@ class DirectProxy:
     origin: str
     ip: str
     ca_pem: str
+    token: str
     app_up: bool
     vite_up: bool
+
+    @property
+    def url(self) -> str:
+        """The URL that lets a browser past the proxy: it carries the token, which the proxy keeps in a cookie."""
+        return f"{self.origin}/?devbox_token={self.token}"
 
 
 def _run_direct_proxy_script(name: str, args: list[str]) -> dict[str, Any]:
@@ -1846,6 +1866,7 @@ def start_direct_proxy(name: str, port: int) -> DirectProxy:
             origin=str(payload["origin"]),
             ip=str(payload["ip"]),
             ca_pem=str(payload["ca_pem"]),
+            token=str(payload["token"]),
             app_up=bool(payload["app_up"]),
             vite_up=bool(payload["vite_up"]),
         )

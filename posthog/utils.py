@@ -421,7 +421,11 @@ def _vite_same_origin(request: HttpRequest) -> str | None:
     value = request.headers.get(VITE_SAME_ORIGIN_HEADER)
     if not value:
         return None
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        # For example an unclosed IPv6 bracket. A bad header must not break the page.
+        return None
     if parsed.scheme not in ("http", "https") or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         return None
     if not parsed.netloc or parsed.netloc.lower() != request.get_host().lower():

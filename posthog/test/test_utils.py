@@ -304,6 +304,7 @@ class TestGetJsUrl(SimpleTestCase):
             ("with_query", True, "10.0.0.5:8411", "https://10.0.0.5:8411?x=1", "https://frontend.devbox.example"),
             ("other_scheme", True, "10.0.0.5:8411", "javascript://10.0.0.5:8411", "https://frontend.devbox.example"),
             ("not_a_url", True, "10.0.0.5:8411", "10.0.0.5:8411", "https://frontend.devbox.example"),
+            ("unparseable", True, "10.0.0.5:8411", "https://[", "https://frontend.devbox.example"),
             ("empty", True, "10.0.0.5:8411", "", "https://frontend.devbox.example"),
             (
                 "ignored_outside_debug",

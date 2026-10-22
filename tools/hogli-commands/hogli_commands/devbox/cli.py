@@ -1942,7 +1942,7 @@ def devbox_forward(workspace: str | None, port: int) -> None:
 @click.command(name="devbox:direct", help="Serve PostHog UI over HTTPS on the devbox's private address")
 @workspace_argument
 @click.option("--port", default=DIRECT_PROXY_PORT, type=int, help="Port on the devbox")
-@click.option("--json", "as_json", is_flag=True, help="Print the origin, address and CA certificate as JSON")
+@click.option("--json", "as_json", is_flag=True, help="Print the URL, token and CA certificate as JSON")
 @click.option("--stop", is_flag=True, help="Stop serving and remove the proxy from the devbox")
 def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -> None:
     """Serve the PostHog UI and Vite on one HTTPS origin on the devbox's private address.
@@ -1953,6 +1953,9 @@ def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -
     private network over Tailscale, this command lets the browser talk HTTP/2
     straight to the devbox instead. The devbox signs its own certificate; the
     command saves its CA certificate locally so a browser or tool can trust it.
+
+    The proxy refuses requests without the devbox's token. The printed URL
+    carries it once, and the proxy keeps it in a cookie.
 
     It runs until `--stop`, also across devbox restarts.
     """
@@ -1980,7 +1983,9 @@ def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -
             json.dumps(
                 {
                     "workspace": name,
+                    "url": proxy.url,
                     "origin": proxy.origin,
+                    "token": proxy.token,
                     "ip": proxy.ip,
                     "port": port,
                     "reachable": reachable,
@@ -2003,7 +2008,10 @@ def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -
             "through Coder."
         )
 
-    click.echo(f"PostHog UI at {proxy.origin} (HTTPS straight to the devbox)")
+    click.echo(f"PostHog UI at {proxy.url}")
+    click.echo(
+        "HTTPS straight to the devbox. The URL carries the devbox's token: share it only with whoever may use the app."
+    )
     if not proxy.app_up:
         click.echo(
             click.style(
@@ -2019,7 +2027,6 @@ def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -
     click.echo()
     click.echo("The devbox signs its own certificate. A browser warns about it until it trusts this CA certificate:")
     click.echo(f"  {ca_path}")
-    click.echo("Anyone who can reach the devbox's private address can open this URL.")
     click.echo(f"Stop serving it with `hogli devbox:direct{suffix} --stop`.")
 
 
