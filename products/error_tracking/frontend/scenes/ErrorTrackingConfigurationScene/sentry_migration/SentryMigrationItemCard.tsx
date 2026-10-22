@@ -1,20 +1,12 @@
-import { LemonCard, LemonCheckbox, LemonDivider, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
-import { AnyPropertyFilter } from '~/types'
+import { Badge, Card, CardContent, CardHeader, Checkbox, Label, Text } from '@posthog/quill'
 
 import type { SentryMigrationFitEnumApi, SentryMigrationItemApi } from '../../../generated/api.schemas'
+import { describeSuppressionFilters, formatRateLimit } from './sentryMigrationFormat'
 
-const FIT_TAGS: Record<SentryMigrationFitEnumApi, { label: string; type: LemonTagType }> = {
-    good: { label: 'Same behavior', type: 'success' },
-    partial: { label: 'Close match', type: 'warning' },
-    unsupported: { label: "Can't import", type: 'muted' },
-}
-
-function bucketLabel(minutes: number): string {
-    return minutes % 60 === 0 ? `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}` : `${minutes} minutes`
+const FIT_BADGES: Record<SentryMigrationFitEnumApi, { label: string; variant: 'success' | 'warning' | 'default' }> = {
+    good: { label: 'Same behavior', variant: 'success' },
+    partial: { label: 'Close match', variant: 'warning' },
+    unsupported: { label: "Can't import", variant: 'default' },
 }
 
 export interface SentryMigrationItemCardProps {
@@ -30,63 +22,71 @@ export function SentryMigrationItemCard({
     disabledReason,
     onToggle,
 }: SentryMigrationItemCardProps): JSX.Element {
-    const fitTag = FIT_TAGS[item.fit]
-    const filters = (item.suppression_rule_filters?.values ?? []) as AnyPropertyFilter[]
+    const fitBadge = FIT_BADGES[item.fit]
+    const checkboxId = `sentry-migration-${item.id}`
+    const filters = item.suppression_rule_filters
+    const filterRows = filters ? describeSuppressionFilters(filters) : []
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col p-0">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                <LemonCheckbox
-                    checked={selected}
-                    onChange={onToggle}
-                    disabledReason={disabledReason}
-                    label={item.sentry_setting}
-                    data-attr="error-tracking-sentry-migration-item"
-                />
-                <div className="flex flex-wrap items-center gap-1">
-                    {item.already_in_posthog && <LemonTag type="muted">Already in PostHog</LemonTag>}
-                    <LemonTag type={fitTag.type}>{fitTag.label}</LemonTag>
+        <Card size="sm">
+            <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <Checkbox
+                            id={checkboxId}
+                            checked={selected}
+                            onCheckedChange={onToggle}
+                            disabledReason={disabledReason}
+                            data-attr="error-tracking-sentry-migration-item"
+                        />
+                        <Label htmlFor={checkboxId}>{item.sentry_setting}</Label>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                        {item.already_in_posthog && <Badge variant="completed">Already in PostHog</Badge>}
+                        <Badge variant={fitBadge.variant}>{fitBadge.label}</Badge>
+                    </div>
                 </div>
-            </div>
-            <LemonDivider className="my-0" />
-            <div className="flex flex-col gap-2 px-3 py-2">
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase text-secondary">In Sentry</span>
-                    <code className="break-all text-sm" translate="no">
+                    <Text size="xs" variant="muted" weight="medium" className="m-0">
+                        In Sentry
+                    </Text>
+                    <Text size="xs" className="m-0 break-all font-mono" translate="no">
                         {item.sentry_value}
-                    </code>
+                    </Text>
                 </div>
                 {item.rate_limit ? (
                     <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase text-secondary">
+                        <Text size="xs" variant="muted" weight="medium" className="m-0">
                             Project rate limit in PostHog
-                        </span>
-                        <span className="text-sm" translate="no">
-                            {item.rate_limit.value.toLocaleString()} exceptions per{' '}
-                            {bucketLabel(item.rate_limit.bucket_size_minutes)}
-                        </span>
+                        </Text>
+                        <Text size="xs" className="m-0" translate="no">
+                            {formatRateLimit(item.rate_limit)}
+                        </Text>
                     </div>
-                ) : filters.length > 0 ? (
+                ) : filters && filterRows.length > 0 ? (
                     <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase text-secondary">
-                            Suppression rule in PostHog, match{' '}
-                            {item.suppression_rule_filters?.type === 'OR' ? 'any' : 'all'}
-                        </span>
-                        <PropertyFilters
-                            editable={false}
-                            propertyFilters={filters}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.ErrorTrackingProperties,
-                                TaxonomicFilterGroupType.EventProperties,
-                            ]}
-                            onChange={() => {}}
-                            pageKey={`sentry-migration-${item.id}`}
-                            buttonSize="small"
-                        />
+                        <Text size="xs" variant="muted" weight="medium" className="m-0">
+                            Suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
+                        </Text>
+                        {filterRows.map((row, index) => (
+                            <Text key={index} size="xs" className="m-0 break-all">
+                                <span>{row.property}</span>{' '}
+                                <span className="text-muted-foreground">{row.operator}</span>{' '}
+                                <span className="font-mono" translate="no">
+                                    {row.value}
+                                </span>
+                            </Text>
+                        ))}
                     </div>
                 ) : null}
-                {item.note && <p className="text-secondary text-xs m-0">{item.note}</p>}
-            </div>
-        </LemonCard>
+                {item.note && (
+                    <Text size="xs" variant="muted" className="m-0">
+                        {item.note}
+                    </Text>
+                )}
+            </CardContent>
+        </Card>
     )
 }
