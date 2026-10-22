@@ -7456,6 +7456,9 @@ class TestCohortTypeIntegration(APIBaseTest):
             ).id
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
+        elif usage == "wait":
+            condition = {"filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}}
+            action = {"id": "wait", "type": "wait_until_condition", "config": {"condition": condition}}
         else:
             filter_type = "precalculated-cohort" if usage == "branch_precalculated" else "cohort"
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
@@ -7470,6 +7473,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             ("active_branch", "branch", "active", 400),
             ("active_branch_precalculated", "branch_precalculated", "active", 400),
             ("active_conversion_goal", "conversion_goal", "active", 400),
+            ("active_wait", "wait", "active", 400),
             ("draft_trigger", "trigger", "draft", 200),
         ]
     )

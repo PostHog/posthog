@@ -77,6 +77,7 @@ export function StepWaitUntilConditionConfiguration({
                 />
                 <HogFlowPropertyFilters
                     filtersKey={`wait-until-condition-${action.id}`}
+                    includeCohorts
                     filters={condition.filters ?? {}}
                     setFilters={(filters) =>
                         partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })

@@ -362,6 +362,8 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+# The steps whose conditions can check realtime cohort membership.
+COHORT_CONDITION_ACTION_TYPES = frozenset({"conditional_branch", "wait_until_condition"})
 
 
 def _cohort_conditions_enabled_in(context: dict) -> bool:
@@ -484,7 +486,8 @@ def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
 
 def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
     """
-    True when this conditional_branch condition matches one already persisted for the same action.
+    True when this conditional_branch or wait_until_condition condition matches one already persisted
+    for the same action.
 
     Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
     edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
@@ -501,13 +504,14 @@ def _cohort_condition_already_stored(action: dict, condition: dict, context: dic
 
 
 def _actions_reference_cohorts(actions: Any) -> bool:
-    """True when a conditional_branch condition in these actions can compile to a cohort membership check."""
+    """True when a branch or wait condition in these actions can compile to a cohort membership check."""
     if not isinstance(actions, list):
         return False
     for flow_action in actions:
-        if not isinstance(flow_action, dict) or flow_action.get("type") != "conditional_branch":
+        if not isinstance(flow_action, dict) or flow_action.get("type") not in COHORT_CONDITION_ACTION_TYPES:
             continue
-        for condition in (flow_action.get("config") or {}).get("conditions") or []:
+        config = flow_action.get("config") or {}
+        for condition in [*(config.get("conditions") or []), config.get("condition")]:
             filters = condition.get("filters") if isinstance(condition, dict) else None
             if isinstance(filters, dict) and (filter_cohort_ids(filters) or filter_action_ids(filters)):
                 return True
@@ -2138,7 +2142,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
                     cohorts_supported = (
-                        is_conditional_branch
+                        data.get("type") in COHORT_CONDITION_ACTION_TYPES
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
                         and (
                             _cohort_condition_already_stored(data, condition, self.context)
@@ -3424,7 +3428,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 if isinstance(stored_condition, dict)
             ]
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
-            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
+            if isinstance(action, dict) and action.get("id") and action.get("type") in COHORT_CONDITION_ACTION_TYPES
         }
 
         status = data.get("status")

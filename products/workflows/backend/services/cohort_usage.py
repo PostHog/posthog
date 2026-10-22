@@ -14,10 +14,10 @@ def _action_uses_realtime_cohort(action: Any, cohort_ids: set[int]) -> bool:
     config = action.get("config") or {}
     if action.get("type") == "trigger":
         return config.get("type") == "cohort" and config.get("cohort_id") in cohort_ids
-    if action.get("type") == "conditional_branch":
+    if action.get("type") in ("conditional_branch", "wait_until_condition"):
         return any(
             not cohort_ids.isdisjoint(filter_cohort_ids(condition.get("filters")))
-            for condition in config.get("conditions") or []
+            for condition in [*(config.get("conditions") or []), config.get("condition")]
             if isinstance(condition, dict)
         )
     return False
