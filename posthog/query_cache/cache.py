@@ -145,15 +145,16 @@ class QueryCache:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return False
 
-        if self._updates_freshness_index and target_age:
-            update_target_age(
-                team_id=self.team_id,
-                insight_id=self.insight_id,
-                dashboard_id=self.dashboard_id,
-                target_age=target_age,
-            )
-        elif self._updates_freshness_index:
-            remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
+        if self._updates_freshness_index:
+            if target_age:
+                update_target_age(
+                    team_id=self.team_id,
+                    insight_id=self.insight_id,
+                    dashboard_id=self.dashboard_id,
+                    target_age=target_age,
+                )
+            else:
+                remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
 
         count_cache_write_data(data_size)
         return True
