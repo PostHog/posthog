@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
@@ -70,7 +71,6 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const isUnordered = funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
-    const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     // Paths are user-based, so there is nothing to link to when aggregating by groups.
     const showStepPaths =
@@ -154,7 +154,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                 {steps.map((step, stepIndex) => (
                     <div
                         key={step.order}
-                        className="flex"
+                        className={clsx('flex', isStepOptional(stepIndex + 1) && 'opacity-60')}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: rows.filter((row) => row.stepIndex === stepIndex).length * ROW_HEIGHT }}
                     >
@@ -163,8 +163,8 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                             stepCount={steps.length}
                             glyphNumber={step.order + 1}
                             isUnordered={isUnordered}
-                            isOptional={isStepOptional(stepIndex + 1)}
-                            hasOptionalSteps={hasOptionalSteps}
+                            isOptional={false}
+                            hasOptionalSteps={false}
                         />
                     </div>
                 ))}
