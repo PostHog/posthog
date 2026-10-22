@@ -93,9 +93,7 @@ describe('SQL table rendering', () => {
             </BindLogic>
         )
         if (!transpose) {
-            fireEvent.click(
-                screen.getByRole('columnheader', { name: /region/i }).querySelector('.LemonTable__header-content')!
-            )
+            fireEvent.click(screen.getByText('region').closest('.LemonTable__header-content')!)
         }
         expect(screen.getByText('EU').closest('tbody')!.querySelector('tr[data-row-key]')).toHaveTextContent(
             transpose ? 'US' : 'EU'
@@ -182,9 +180,7 @@ describe('SQL table rendering', () => {
                 </BindLogic>
             )
             localeFormat.mockClear()
-            fireEvent.click(
-                screen.getByRole('columnheader', { name: /value/i }).querySelector('.LemonTable__header-content')!
-            )
+            fireEvent.click(screen.getByText('value').closest('.LemonTable__header-content')!)
             expect(container.querySelector('tbody tr[data-row-key]')).toHaveTextContent('0')
             expect(localeFormat.mock.calls.length).toBeGreaterThan(0)
             expect(localeFormat.mock.calls.length).toBeLessThanOrEqual(rowCount * 3)
