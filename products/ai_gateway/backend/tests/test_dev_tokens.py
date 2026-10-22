@@ -19,6 +19,7 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -199,7 +200,7 @@ class TestDevTokens(APIBaseTest):
                 "connection_refused",
                 {
                     "side_effect": requests.ConnectionError(
-                        MaxRetryError(None, "/v1/tokens", NewConnectionError(None, "refused"))
+                        MaxRetryError(HTTPConnectionPool("gateway"), "/v1/tokens", NewConnectionError(None, "refused"))
                     )
                 },
                 False,
