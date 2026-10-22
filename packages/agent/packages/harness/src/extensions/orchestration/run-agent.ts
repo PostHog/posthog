@@ -319,7 +319,12 @@ export async function runAgent(
       ) ??
       false;
     const extensionFactories = wantsWebAccess
-      ? [{ name: "web-access", factory: createWebAccessExtension() }]
+      ? [
+          {
+            name: "web-access",
+            factory: createWebAccessExtension({ headers: modelAuth.headers }),
+          },
+        ]
       : [];
     const systemPrompt = effectiveAgent.systemPrompt.trim() || undefined;
     const resourceLoader = new DefaultResourceLoader({
