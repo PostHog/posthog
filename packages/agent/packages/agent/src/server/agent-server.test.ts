@@ -2244,7 +2244,10 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
-    function createRetryTestServer(prompt: ReturnType<typeof vi.fn>) {
+    function createRetryTestServer(
+      prompt: ReturnType<typeof vi.fn>,
+      mode: "interactive" | "background" = "background",
+    ) {
       const testServer = createFailureTestServer();
       const session = {
         cancellationVersion: 0,
@@ -2255,7 +2258,7 @@ describe("AgentServer HTTP Mode", () => {
           "run-1",
         ),
         acpSessionId: "acp-1",
-        payload: { run_id: "run-1", task_id: "task-1" },
+        payload: { run_id: "run-1", task_id: "task-1", mode },
         logWriter: {
           appendRawLine: vi.fn(),
           flush: vi.fn(async () => {}),
@@ -2439,7 +2442,11 @@ describe("AgentServer HTTP Mode", () => {
         testServer.session = {
           ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2", task_id: "task-2" },
+          payload: {
+            ...testServer.session.payload,
+            run_id: "run-2",
+            task_id: "task-2",
+          },
           clientConnection: {
             ...testServer.session.clientConnection,
             prompt: vi.fn(),
@@ -2523,6 +2530,71 @@ describe("AgentServer HTTP Mode", () => {
         }
       },
     );
+
+    it.each(["interactive", "background"] as const)(
+      "cancels a retry with an in-flight state update in %s mode",
+      async (mode) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValue(new Error("Rate limit reached"));
+          const testServer = createRetryTestServer(prompt, mode);
+          let reportSignal: AbortSignal | undefined;
+          testServer.posthogAPI.updateTaskRun.mockImplementation(
+            (_taskId, _runId, _update, signal: AbortSignal) => {
+              reportSignal = signal;
+              return new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason), {
+                  once: true,
+                });
+              });
+            },
+          );
+          const result = testServer.runRetryWrappedTurn(() =>
+            testServer.promptWithUpstreamRetry({
+              sessionId: "acp-1",
+              prompt: [{ type: "text", text: "do the task" }],
+            }),
+          );
+          await vi.advanceTimersByTimeAsync(0);
+          expect(reportSignal?.aborted).toBe(false);
+
+          await testServer.executeCommand("cancel", {});
+
+          await expect(result).resolves.toEqual({ stopReason: "cancelled" });
+          expect(reportSignal?.aborted).toBe(true);
+          await vi.runAllTimersAsync();
+          expect(prompt).toHaveBeenCalledOnce();
+          expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledOnce();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("keeps a canceled turn canceled when the provider rejects afterward", async () => {
+      let rejectPrompt!: (error: Error) => void;
+      const prompt = vi.fn(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectPrompt = reject;
+          }),
+      );
+      const testServer = createRetryTestServer(prompt);
+      const result = testServer.runRetryWrappedTurn(() =>
+        testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        }),
+      );
+
+      await testServer.executeCommand("cancel", {});
+      rejectPrompt(new Error("Invalid request"));
+
+      await expect(result).resolves.toEqual({ stopReason: "cancelled" });
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
 
     it("allows a later turn to retry after canceling a retry wait", async () => {
       vi.useFakeTimers();
@@ -2614,7 +2686,11 @@ describe("AgentServer HTTP Mode", () => {
         testServer.session = {
           ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2", task_id: "task-2" },
+          payload: {
+            ...testServer.session.payload,
+            run_id: "run-2",
+            task_id: "task-2",
+          },
           clientConnection: {
             ...testServer.session.clientConnection,
             prompt: vi.fn(),
@@ -2865,7 +2941,7 @@ describe("AgentServer HTTP Mode", () => {
           retryAfterMs: 12_300,
         }),
         classification: "upstream_rate_limited",
-        delays: [12_300, 15_000, 30_000, 60_000],
+        delays: [19_800, 27_300, 42_300, 66_150],
       },
       {
         name: "a rate limit when retry telemetry fails",

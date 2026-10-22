@@ -527,6 +527,10 @@ export class AgentServer {
     ActiveSession,
     AbortController
   >();
+  private readonly upstreamRetryReports = new WeakMap<
+    ActiveSession,
+    Promise<void>
+  >();
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
@@ -2797,6 +2801,41 @@ export class AgentServer {
     return result;
   }
 
+  private reportUpstreamTurnRetry(
+    session: ActiveSession,
+    classification: AgentErrorClassification,
+    attempt: number,
+    delayMs: number,
+    retrySignal: AbortSignal,
+  ): void {
+    const signal = AbortSignal.any([retrySignal, AbortSignal.timeout(30_000)]);
+    // Serialize state writes so a slow request cannot overwrite a later attempt.
+    const report = (this.upstreamRetryReports.get(session) ?? Promise.resolve())
+      .then(async () => {
+        if (signal.aborted || this.session !== session) return;
+        await this.posthogAPI.updateTaskRun(
+          session.payload.task_id,
+          session.payload.run_id,
+          {
+            state: {
+              upstream_turn_retry: {
+                classification,
+                attempt,
+                delay_ms: delayMs,
+              },
+            },
+          },
+          signal,
+        );
+      })
+      .catch((error: unknown) => {
+        this.logger.debug("Failed to persist the upstream turn retry", {
+          error,
+        });
+      });
+    this.upstreamRetryReports.set(session, report);
+  }
+
   /**
    * Send an initial/resume turn prompt, absorbing transient upstream
    * failures with a bounded number of retries. These turns run unattended
@@ -2882,6 +2921,16 @@ export class AgentServer {
           usage,
         } = this.extractErrorClassification(error);
         const accumulatedUsage = mergeUsage(retryUsage, usage);
+        if (
+          this.session === originatingSession &&
+          (this.cancelledStartupSessions.delete(originatingSession) ||
+            retrySignal.aborted)
+        ) {
+          return {
+            stopReason: "cancelled",
+            ...(accumulatedUsage ? { usage: accumulatedUsage } : {}),
+          };
+        }
         const retryable =
           isRetryableUpstreamErrorClassification(classification);
         const delayMs = upstreamTurnRetryDelayMs(
@@ -2922,26 +2971,13 @@ export class AgentServer {
             continueInterruptedTurn,
           },
         );
-        void this.posthogAPI
-          .updateTaskRun(
-            originatingSession.payload.task_id,
-            originatingSession.payload.run_id,
-            {
-              state: {
-                upstream_turn_retry: {
-                  classification,
-                  attempt: retries,
-                  delay_ms: delayMs,
-                },
-              },
-            },
-            AbortSignal.timeout(30_000),
-          )
-          .catch((error: unknown) => {
-            this.logger.debug("Failed to persist the upstream turn retry", {
-              error,
-            });
-          });
+        this.reportUpstreamTurnRetry(
+          originatingSession,
+          classification,
+          retries,
+          delayMs,
+          retrySignal,
+        );
         await sleepWithBackoff(0, { initialDelayMs: delayMs }, retrySignal);
         if (this.session !== originatingSession) {
           throw new Error(
@@ -4903,6 +4939,10 @@ export class AgentServer {
     const persistedErrorMessage = options?.errorCategory
       ? `${options.errorCategory}: ${errorMessage ?? "Agent error"}`
       : terminalErrorMessage;
+    // The terminal event can trigger teardown before the status PATCH reaches Django.
+    if (stopReason === "error" && sessionMatchesRun) {
+      await this.upstreamRetryReports.get(currentSession);
+    }
     // The Django drain reads this contract from the S3 log. Enqueue it before
     // the flush so the drain can report the safe classified cause.
     if (stopReason === "error" && (!currentSession || sessionMatchesRun)) {

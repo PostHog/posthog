@@ -13,6 +13,16 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Keep backend validation and drain retry decisions aligned with the agent's
+# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in adapters/error-classification.ts.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+    "upstream_rate_limited",
+)
+
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
 # ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the

@@ -8,6 +8,7 @@ const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
 const MAX_RATE_LIMIT_TURN_RETRIES = 4;
 const RATE_LIMIT_RETRY_BASE_MS = 15_000;
 const RATE_LIMIT_RETRY_CAP_MS = 120_000;
+const RATE_LIMIT_RETRY_HINT_CAP_MS = RATE_LIMIT_RETRY_CAP_MS / 2;
 
 export function upstreamTurnRetryDelayMs(
   classification: AgentErrorClassification,
@@ -23,13 +24,11 @@ export function upstreamTurnRetryDelayMs(
   }
   if (retries >= MAX_RATE_LIMIT_TURN_RETRIES) return undefined;
 
-  const ceiling = Math.min(
-    RATE_LIMIT_RETRY_CAP_MS,
+  // Reserve jitter even when every run receives the same large retry hint.
+  const hint = Math.min(retryAfterMs, RATE_LIMIT_RETRY_HINT_CAP_MS);
+  const jitterWindow = Math.min(
+    RATE_LIMIT_RETRY_CAP_MS - hint,
     RATE_LIMIT_RETRY_BASE_MS * 2 ** retries,
   );
-  // Full jitter spreads runs that encounter the same provider burst.
-  return Math.min(
-    RATE_LIMIT_RETRY_CAP_MS,
-    Math.max(retryAfterMs, Math.floor(random() * ceiling)),
-  );
+  return hint + Math.floor(random() * jitterWindow);
 }
