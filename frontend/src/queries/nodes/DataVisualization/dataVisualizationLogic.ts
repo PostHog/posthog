@@ -79,6 +79,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
+import { lazyMap } from './lazyMap'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -1546,7 +1547,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return {
                             column,
-                            data: data.map((n) => {
+                            data: lazyMap(data, (n) => {
                                 try {
                                     const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
@@ -1725,8 +1726,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 const memberDisplay =
                     query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
 
-                return data.map((row): TableDataCell<any>[] => {
-                    return sourceTabularColumns.map((column): TableDataCell<any> => {
+                return lazyMap(data, (row): TableDataCell<any>[] => {
+                    return lazyMap(sourceTabularColumns, (column): TableDataCell<any> => {
                         if (!column) {
                             return {
                                 value: null,
@@ -1837,7 +1838,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                             },
                         },
                     },
-                    ...sourceTabularData.map(
+                    ...Array.from(
+                        { length: sourceTabularData.length },
                         (_, index): AxisSeries<any> => ({
                             column: {
                                 name: `${TRANSPOSED_ROW_COLUMN_PREFIX}${index}`,
@@ -1875,19 +1877,24 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return []
                 }
 
-                return sourceTabularColumns.map((column, columnIndex) => [
-                    {
-                        value: column.column.name,
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: column.column.name,
-                        isTransposedHeader: true,
-                    },
-                    ...sourceTabularData.map((row) => ({
-                        ...row[columnIndex],
-                        sourceColumnName: column.column.name,
-                    })),
-                ])
+                const rowIndices = Array.from({ length: sourceTabularData.length + 1 }, (_, index) => index)
+                return lazyMap(sourceTabularColumns, (column, columnIndex) =>
+                    lazyMap(rowIndices, (rowIndex): TableDataCell<any> => {
+                        if (rowIndex === 0) {
+                            return {
+                                value: column.column.name,
+                                formattedValue: null,
+                                type: 'STRING',
+                                sourceColumnName: column.column.name,
+                                isTransposedHeader: true,
+                            }
+                        }
+                        return {
+                            ...sourceTabularData[rowIndex - 1][columnIndex],
+                            sourceColumnName: column.column.name,
+                        }
+                    })
+                )
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
