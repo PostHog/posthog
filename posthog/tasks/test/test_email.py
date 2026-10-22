@@ -2767,6 +2767,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
         assert ongoing_row["failed_runs"] == 3
         assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+        # A view with a DAG node opens its node detail; one without falls back to the SQL editor.
+        urls = {v["name"]: v["url"] for v in message.properties["views"]}
+        assert urls[tiered.name].endswith(f"/project/{self.team.id}/models/{tiered_node.id}")
+        assert urls[paused.name].endswith(f"/project/{self.team.id}/sql?open_view={paused.id}")
 
         html = message.html_body
         assert html.count("Not scheduled.") == len(unscheduled_cases)
