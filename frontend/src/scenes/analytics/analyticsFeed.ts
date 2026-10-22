@@ -22,6 +22,8 @@ export interface AnalyticsFeedQuery {
     createdByMe: boolean
     /** Tag names a row must all carry. Like the creator, narrowed on the client. */
     tags: string[]
+    /** Leaves insights out of the All list. Picking the insight type still shows them. */
+    hideInsights?: boolean
 }
 
 export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
@@ -66,7 +68,10 @@ export interface AnalyticsFeed {
 const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
 
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
-    const types = query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    const types =
+        query.type !== 'all'
+            ? [query.type]
+            : ANALYTICS_TYPES.map((info) => info.type).filter((type) => !query.hideInsights || type !== 'insight')
     return query.tags.length ? types.filter((type) => TAGGABLE_ANALYTICS_TYPES.has(type)) : types
 }
 

@@ -133,13 +133,17 @@ export function analyticsListFiltersActive(filters: AnalyticsListFilters): boole
 }
 
 /** Narrows rows the server did not filter: folder contents come back whole. */
-export function filterAnalytics(items: AnalyticsItem[], filters: AnalyticsListFilters): AnalyticsItem[] {
+export function filterAnalytics(
+    items: AnalyticsItem[],
+    filters: AnalyticsListFilters,
+    insightsHidden = false
+): AnalyticsItem[] {
     const needle = filters.search.trim().toLowerCase()
     const createdBy = filters.createdBy
     return items.filter(
         (item) =>
             filters.tags.every((tag) => item.tags.includes(tag)) &&
-            (filters.type === 'all' || item.type === filters.type) &&
+            (filters.type === 'all' ? !insightsHidden || item.type !== 'insight' : item.type === filters.type) &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))
     )
@@ -166,6 +170,7 @@ export interface analyticsListLogicValues {
     folderContentsLoading: boolean
     folderFailed: boolean
     hasMore: boolean
+    insightsHidden: boolean
     items: AnalyticsItem[]
     listState: AnalyticsListState
     loadedCount: number
@@ -276,6 +281,9 @@ export interface analyticsListLogicActions {
     setFiltersFromUrl: (filters: AnalyticsListFilters) => {
         filters: AnalyticsListFilters
     }
+    setInsightsHidden: (hidden: boolean) => {
+        hidden: boolean
+    }
     setScope: (scope: AnalyticsListScope) => {
         scope: AnalyticsListScope
     }
@@ -308,7 +316,8 @@ export interface analyticsListLogicMeta {
                     AnalyticsListScope,
                     NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
                 >
-            >
+            >,
+            insightsHidden: boolean
         ) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
@@ -326,7 +335,8 @@ export interface analyticsListLogicMeta {
             mode: AnalyticsListMode,
             feed: AnalyticsFeed,
             folderContents: FolderContents | null,
-            filters: AnalyticsListFilters
+            filters: AnalyticsListFilters,
+            insightsHidden: boolean
         ) => AnalyticsItem[]
         subfolders: (
             mode: AnalyticsListMode,
@@ -394,6 +404,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     })),
     actions({
         setScope: (scope: AnalyticsListScope) => ({ scope }),
+        setInsightsHidden: (hidden: boolean) => ({ hidden }),
         setFilters: (filters: Partial<AnalyticsListFilters>) => ({ filters }),
         rememberOrderBy: (scope: AnalyticsListScope, orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => ({
             scope,
@@ -464,6 +475,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
         ],
         scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
+        // One choice for View all and My work. pinned: storage key; renaming it shows everyone's insights again.
+        insightsHidden: [false, SORT_PERSIST_OPTIONS, { setInsightsHidden: (_, { hidden }) => hidden }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
             {
@@ -512,14 +525,23 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 scope === 'mine' ? (currentUserUuid ? [currentUserUuid] : []) : filters.createdBy,
         ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.scope, s.sortChoicesByScope],
+            (s) => [
+                s.filters,
+                s.feedSearch,
+                s.creators,
+                s.currentUserUuid,
+                s.scope,
+                s.sortChoicesByScope,
+                s.insightsHidden,
+            ],
             (
                 filters: AnalyticsListFilters,
                 feedSearch: string,
                 creators: string[],
                 currentUserUuid: string | null,
                 scope: AnalyticsListScope,
-                sortChoicesByScope: AnalyticsSortChoices
+                sortChoicesByScope: AnalyticsSortChoices,
+                insightsHidden: boolean
             ): AnalyticsFeedQuery => ({
                 type: filters.type,
                 orderBy: filters.orderBy ?? sortChoicesByScope[scope] ?? '-last_viewed_at',
@@ -527,6 +549,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 createdBy: creators,
                 createdByMe: !!currentUserUuid && creators.length === 1 && creators[0] === currentUserUuid,
                 tags: filters.tags,
+                hideInsights: insightsHidden,
             }),
         ],
         currentFeed: [
@@ -558,12 +581,13 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (currentFeed: AnalyticsFeed, feed: AnalyticsFeed): boolean => !currentFeed.initialized && feed.initialized,
         ],
         items: [
-            (s) => [s.mode, s.feed, s.folderContents, s.filters],
+            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.insightsHidden],
             (
                 mode: AnalyticsListMode,
                 feed: AnalyticsFeed,
                 folderContents: FolderContents | null,
-                filters: AnalyticsListFilters
+                filters: AnalyticsListFilters,
+                insightsHidden: boolean
             ): AnalyticsItem[] => {
                 if (mode === 'feed') {
                     return feed.items
@@ -575,7 +599,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         : null
                     return item ? [item] : []
                 })
-                return filterAnalytics(items, filters)
+                return filterAnalytics(items, filters, insightsHidden)
             },
         ],
         subfolders: [
@@ -771,6 +795,18 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     await breakpoint(search.trim() ? 200 : 0)
                 }
                 actions.setFilters({ search })
+            },
+            setInsightsHidden: ({ hidden }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('analytics insights toggled', {
+                    hidden,
+                    scope: values.scope,
+                    folder: values.filters.folder !== null,
+                })
+                // A folder's rows are already loaded and narrowed on the client.
+                if (values.mode === 'feed') {
+                    loadCurrentMode()
+                }
             },
             setFilters: ({ filters }) => {
                 if (filters.orderBy) {

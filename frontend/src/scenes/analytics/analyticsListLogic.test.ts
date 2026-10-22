@@ -126,6 +126,32 @@ describe('analyticsListLogic', () => {
         expect(withSavedChoice.values.feedQuery.orderBy).toBe('-created_at')
     })
 
+    it('hides insights from All in both scopes, keeps them under the insight type, and remembers the choice', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.id)).toEqual(expect.arrayContaining(['i1', 'n1']))
+
+        await expectLogic(logic, () => logic.actions.setInsightsHidden(true)).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.id)).toEqual(['n1'])
+        expect(capture).toHaveBeenCalledWith('analytics insights toggled', {
+            hidden: true,
+            scope: 'all',
+            folder: false,
+        })
+
+        await expectLogic(logic, () => logic.actions.setFilters({ type: 'insight' })).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.type)).toContain('insight')
+
+        await expectLogic(logic, () => router.actions.push(urls.analyticsMine())).toFinishAllListeners()
+        expect(logic.values.feedQuery.hideInsights).toBe(true)
+        logic.unmount()
+
+        const restored = analyticsListLogic()
+        restored.mount()
+        expect(restored.values.insightsHidden).toBe(true)
+    })
+
     it('refreshes view times when URL filters restore a cached sorted list', async () => {
         const logic = analyticsListLogic()
         logic.mount()

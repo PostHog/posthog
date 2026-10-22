@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTrends } from '@posthog/icons'
+import { IconEye, IconHide, IconTrends } from '@posthog/icons'
 import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
@@ -18,8 +18,8 @@ import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
 /** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
 export function AnalyticsListFilters(): JSX.Element {
-    const { filters, filtersActive, searchInput, scope } = useValues(analyticsListLogic)
-    const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
+    const { filters, filtersActive, searchInput, scope, insightsHidden } = useValues(analyticsListLogic)
+    const { setSearchInput, setFilters, clearFilters, setInsightsHidden } = useActions(analyticsListLogic)
     const { tags: allTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
@@ -97,6 +97,18 @@ export function AnalyticsListFilters(): JSX.Element {
                 emptyText="No tag matches"
                 dataAttr="analytics-list-tags"
             />
+            {filters.type === 'all' && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setInsightsHidden(!insightsHidden)}
+                    data-attr="analytics-list-hide-insights"
+                >
+                    {insightsHidden ? <IconEye /> : <IconHide />}
+                    {insightsHidden ? 'Show insights' : 'Hide insights'}
+                </Button>
+            )}
             {filtersActive && (
                 <Button variant="link-muted" size="sm" onClick={() => clearFilters()} data-attr="analytics-list-clear">
                     Clear filters
