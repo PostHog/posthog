@@ -428,16 +428,15 @@ class _NoRedirectSession(requests.Session):
         return super().send(request, **kwargs)
 
 
-_SessionOptions = ParamSpec("_SessionOptions")
+_P = ParamSpec("_P")
 _session_observers: list[Callable[[dict[str, Any]], None]] = []
 
 
 @contextmanager
 def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iterator[None]:
-    """Give `observer` the keyword arguments of each `make_tracked_session` call in the block.
+    """Pass the keyword arguments of each `make_tracked_session` call in the block to `observer`.
 
-    The source test harness uses this. The innermost observer takes each call, so a nested block sees only its own
-    sessions.
+    For the source test harness. Only the innermost observer sees a call, so a nested block records its own sessions.
     """
     _session_observers.append(observer)
     try:
@@ -446,11 +445,9 @@ def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iter
         _session_observers.remove(observer)
 
 
-def _observed(
-    factory: Callable[_SessionOptions, requests.Session],
-) -> Callable[_SessionOptions, requests.Session]:
+def _observed(factory: Callable[_P, requests.Session]) -> Callable[_P, requests.Session]:
     @functools.wraps(factory)
-    def make(*args: _SessionOptions.args, **kwargs: _SessionOptions.kwargs) -> requests.Session:
+    def make(*args: _P.args, **kwargs: _P.kwargs) -> requests.Session:
         if _session_observers:
             _session_observers[-1](dict(kwargs))
         return factory(*args, **kwargs)

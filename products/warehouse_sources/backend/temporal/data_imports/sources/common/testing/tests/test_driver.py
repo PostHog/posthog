@@ -152,7 +152,6 @@ class TestSourceDriver:
         assert result.session_options == [{"redact_values": ("t",)}]
 
     def test_a_run_nested_in_a_scripted_network_records_its_sessions_and_leaves_later_runs_recording(self) -> None:
-        # A module imported inside the outer network used to leave every later run recording no session.
         with patch.dict(sys.modules):
             with scripted_network([]) as outer:
                 sys.modules["_imported_while_patched"] = types.ModuleType("_imported_while_patched")
