@@ -11,7 +11,11 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.logic.external_data_source.alerts import emit_terminal_run_alerts
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
 from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -190,10 +194,18 @@ def update_external_job_status(
         # later can stale-overwrite newer data or flip this job's status. A normal v3 completion
         # has drained the queue by construction, so the common completion path stays queue-free.
         # on_commit: the queue is a separate Postgres; never call it holding these row locks.
+        # Worker restarts stop a run without a final batch, and Failed stays absorbing, so a later
+        # batch can neither complete the job nor promote its cursor. The loader drains those batches
+        # for a merge sync and fails them for any other, and the next job continues from the cursor
+        # that this run committed. Sweeping them would leave a gap of rows that no run reads again.
+        stopped_by_worker_restarts = (
+            status == ExternalDataJobStatus.FAILED and error_to_persist == WORKER_RESTART_ERROR_MESSAGE
+        )
         should_sweep_queue = (
             model.pipeline_version == ExternalDataJobPipelineVersion.V3
             and status in TERMINAL_JOB_STATUSES
             and (status != ExternalDataJobStatus.COMPLETED or is_takeover_recovery)
+            and not stopped_by_worker_restarts
         )
         if should_sweep_queue:
             transaction.on_commit(

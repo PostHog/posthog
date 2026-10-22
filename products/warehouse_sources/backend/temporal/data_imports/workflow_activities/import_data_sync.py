@@ -33,6 +33,7 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
@@ -196,6 +197,45 @@ def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
     return ExternalDataJob.objects.filter(
         schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
     ).exists()
+
+
+# The v3 pipeline queues these sync types as `incremental`, and the loader still loads the queued
+# batches of a failed `incremental` run (`_drainable_after_failure` in the v3 consumer). Only these
+# can continue a failed job's cursor without losing the rows that job extracted.
+CONTINUABLE_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+        ExternalDataSchema.SyncType.XMIN,
+    }
+)
+
+
+@database_sync_to_async_pool
+def _job_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> ExternalDataJob | None:
+    """The previous job of this schema, when worker restarts stopped it and this job can continue its cursor.
+
+    The job finalizer leaves the queued batches of such a job to the loader, so every row before
+    its cursor still reaches the table (see `update_external_job_status`).
+    """
+    if schema.sync_type not in CONTINUABLE_SYNC_TYPES:
+        return None
+    previous = (
+        ExternalDataJob.objects.filter(team_id=job.team_id, schema_id=schema.id, created_at__lt=job.created_at)
+        .order_by("-created_at")
+        .only("id", "status", "latest_error", "schema_snapshot", "workflow_run_id")
+        .first()
+    )
+    if (
+        previous is None
+        or previous.status != ExternalDataJob.Status.FAILED
+        or previous.latest_error != WORKER_RESTART_ERROR_MESSAGE
+    ):
+        return None
+    # A cursor belongs to the query that wrote it, and another sync type reads the source with another query.
+    if (previous.schema_snapshot or {}).get("sync_type") != schema.sync_type:
+        return None
+    return previous
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -719,6 +759,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     )
 
             resumable_source_manager: ResumableSourceManager | None = None
+            continued_workflow_run_id: str | None = None
             try:
                 # Some source setup functions bridge back to async code. Keep their outer blocking
                 # call off the shared default executor so that nested work cannot deadlock behind it.
@@ -726,6 +767,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                        job_to_continue = await _job_to_continue(model, schema) if use_stored_cursors else None
+                        if job_to_continue is not None and await database_sync_to_async_pool(
+                            resumable_source_manager.continue_from_job
+                        )(str(job_to_continue.id)):
+                            continued_workflow_run_id = job_to_continue.workflow_run_id
+                            await logger.ainfo(
+                                "Continuing the resumable cursor of the previous job, which stopped before it finished",
+                                previous_job_id=str(job_to_continue.id),
+                            )
                         source_response = await database_sync_to_async_pool(
                             new_source.source_for_pipeline, executor=executor
                         )(config, resumable_source_manager, source_inputs)
@@ -778,6 +828,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
                 kept_rows_synced=kept_rows_synced,
+                continued_workflow_run_id=continued_workflow_run_id,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1155,6 +1206,7 @@ async def _run(
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
     kept_rows_synced: int | None = None,
+    continued_workflow_run_id: str | None = None,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1176,6 +1228,7 @@ async def _run(
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
             kept_rows_synced=kept_rows_synced,
+            continued_workflow_run_id=continued_workflow_run_id,
         )
 
         result = await pipeline.run()
