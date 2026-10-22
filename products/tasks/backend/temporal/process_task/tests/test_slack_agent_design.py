@@ -245,7 +245,7 @@ class TestSlackAgentDesignStream(TestCase):
             self.task_run.save(update_fields=["state"])
         if request_origin == "slack_message":
             record_delivered_message(
-                str(self.task_run.id), message_id, actor_slack_user_id="U456", person_message="How are signups?"
+                str(self.task_run.id), "slack_message", actor_slack_user_id="U456", person_message="How are signups?"
             )
         client = mock_get_client.return_value
         client.chat_postMessage.return_value = {"ts": "2.0"}

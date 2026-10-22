@@ -112,7 +112,7 @@ class TestRelaySlackMessage(TestCase):
             self.task_run.save(update_fields=["state"])
         if request_origin == "slack_message":
             record_delivered_message(
-                str(self.task_run.id), message_id, actor_slack_user_id="U123", person_message="Continue"
+                str(self.task_run.id), "slack_message", actor_slack_user_id="U123", person_message="Continue"
             )
         relay_slack_message(
             RelaySlackMessageInput(
