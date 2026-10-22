@@ -55,6 +55,7 @@ class SourceType(str, Enum):
     ERROR_TRACKING = "error_tracking"
     CUSTOMER_ANALYTICS = "customer_analytics"
     TICKET = "ticket"
+    REPLAY_OBSERVATION = "replay_observation"
 
 
 class NotificationOnlyResourceType(str, Enum):
