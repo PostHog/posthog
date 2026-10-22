@@ -79,9 +79,38 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
         internal_links: [],
         source_notes: [],
     },
-    original_markdown: '# Web analytics\n\nWeb analytics shows traffic.',
-    proposed_markdown:
-        '# Web analytics\n\nWeb analytics shows traffic, sources, and conversions without cookies.\n\n## Frequently asked questions',
+    original_markdown: [
+        '# Web analytics',
+        '',
+        'Web analytics shows traffic.',
+        '',
+        '## Install the snippet',
+        '',
+        'Add the snippet to every page you want to track.',
+        '',
+        '## Read the dashboard',
+        '',
+        'The dashboard shows visitors, page views, and sessions.',
+    ].join('\n'),
+    proposed_markdown: [
+        '# Web analytics',
+        '',
+        'Web analytics shows traffic, sources, and conversions without cookies.',
+        '',
+        '## Install the snippet',
+        '',
+        'Add the snippet to every page you want to track.',
+        '',
+        '```js',
+        "posthog.init('phc_example', { api_host: 'https://us.i.posthog.com' })",
+        '```',
+        '',
+        '## Read the dashboard',
+        '',
+        'The dashboard shows visitors, page views, and sessions.',
+        '',
+        '## Frequently asked questions',
+    ].join('\n'),
     brief: {
         intent: 'Decide whether a privacy-friendly web analytics tool covers their needs.',
         audience: 'Marketers and founders comparing analytics tools',
@@ -113,6 +142,7 @@ export const EXAMPLE_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
     evidence: EXAMPLE_PROPOSAL.evidence,
     validation_report: EXAMPLE_PROPOSAL.validation_report,
     file_path: EXAMPLE_PROPOSAL.content_package.file_path,
+    target_url: EXAMPLE_PROPOSAL.target_url,
     created_at: EXAMPLE_PROPOSAL.created_at,
     updated_at: EXAMPLE_PROPOSAL.updated_at,
 }
@@ -168,3 +198,36 @@ export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
         updated_at: '2026-08-26T12:00:00Z',
     },
 ]
+
+export const EXAMPLE_FAILED_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
+    ...EXAMPLE_PROPOSAL_LIST,
+    id: '00000000-0000-4000-8000-000000000213',
+    lifecycle_status: 'failed',
+    title: 'Track AI crawler traffic',
+    target_query: 'How do I track AI crawler traffic on my website?',
+    file_path: 'docs/web-analytics/ai-crawlers.md',
+    target_url: 'https://docs.example.com/docs/web-analytics/ai-crawlers',
+    validation_report: {
+        ...EXAMPLE_PROPOSAL.validation_report,
+        passed: false,
+        checks: [
+            ...EXAMPLE_PROPOSAL.validation_report.checks,
+            {
+                check_key: 'grounding',
+                label: 'Sourced facts',
+                passed: false,
+                message: 'These claims aren\'t backed by a source: "Crawler visits never count toward pageviews."',
+                blocking: true,
+            },
+        ],
+    },
+}
+
+export const EXAMPLE_FAILED_DRAFT_OPPORTUNITY: ContentAutopilotOpportunityApi = {
+    ...EXAMPLE_OPPORTUNITIES[0],
+    id: '00000000-0000-4000-8000-000000000303',
+    proposal_id: EXAMPLE_FAILED_PROPOSAL_LIST.id,
+    run_id: EXAMPLE_RUN.id,
+    title: 'How do I track AI crawler traffic on my website?',
+    status: 'drafted',
+}

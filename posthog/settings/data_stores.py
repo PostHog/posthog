@@ -303,6 +303,9 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "clickhouse")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+# Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
+# Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
+CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
@@ -635,6 +638,24 @@ WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
 # key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
 WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal

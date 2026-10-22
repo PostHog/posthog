@@ -22,6 +22,7 @@ BatchStep = Literal[
     "mark_processed",
     "post_write",
     "compact_during_rebuild",
+    "replace_rows",
 ]
 
 

@@ -16,6 +16,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ActivitySummaryGetSchema = () => z.object({})
+
+const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
+    name: 'activity-summary-get',
+    schema: ActivitySummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ActivitySummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/`,
+        })
+        return result
+    },
+})
+
+const ActivitySummaryVersionsListSchema = () => {
+    const SignalsActivitySummaryVersionsRetrieveQueryParams =
+        orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
+    return SignalsActivitySummaryVersionsRetrieveQueryParams
+}
+
+const activitySummaryVersionsList = (): ToolBase<
+    ReturnType<typeof ActivitySummaryVersionsListSchema>,
+    Schemas.ActivitySummaryVersion[]
+> => ({
+    name: 'activity-summary-versions-list',
+    schema: ActivitySummaryVersionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummaryVersionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummaryVersion[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/versions/`,
+            query: {
+                limit: params.limit,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 const InboxReportActionsListSchema = () => {
     const SignalsReportsActionsListParams = orvalSchemas.SignalsReportsActionsListParams()
     return z.preprocess(
@@ -88,6 +129,15 @@ const inboxReportArtefactsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.claim_id !== undefined) {
             body['claim_id'] = params.claim_id
         }
@@ -502,9 +552,11 @@ const inboxReportsList = (): ToolBase<
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 created_after: params.created_after,
+                exclude: params.exclude,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 include_source_metadata: params.include_source_metadata,
+                include_unlisted: params.include_unlisted,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -1295,6 +1347,15 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -2160,6 +2221,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -2722,6 +2784,15 @@ const signalsScoutEditReport = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -3187,6 +3258,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -3195,6 +3267,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'activity-summary-get': activitySummaryGet,
+    'activity-summary-versions-list': activitySummaryVersionsList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,

@@ -1904,6 +1904,9 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
     the latest occurrence of a key carries the freshest data. Either way the merge
     receives at most one source row per key, avoiding ambiguous multi-match merge
     semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
+
+    When no PK tuple repeats, the input table itself is returned, so the caller does not hold a
+    second copy of it.
     """
     if not pk_columns or pa_table.num_rows == 0:
         return pa_table
@@ -1922,6 +1925,10 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
 
     # 2. Group by PK, keeping only one position per PK
     grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
+
+    # One group per row keeps every row in its place, and `take` would only copy the whole table.
+    if grouped.num_rows == pa_table.num_rows:
+        return pa_table
 
     # 3. Sort those positions ascending so the output mirrors the input row order
     kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())

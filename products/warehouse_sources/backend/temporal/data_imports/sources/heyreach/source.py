@@ -108,14 +108,14 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
             category=DataWarehouseSourceCategory.SALES,
             label="HeyReach",
             caption=(
-                "Import campaigns, leads, LinkedIn sender accounts, inbox conversations, and daily "
-                "outreach stats from HeyReach. Create an API key in HeyReach under "
+                "Import campaigns, leads, company lists, LinkedIn sender accounts and their networks, "
+                "inbox conversations, and daily outreach stats from HeyReach. Create an API key in HeyReach under "
                 "Settings > Integrations > HeyReach API."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/heyreach",
             iconPath="/static/services/heyreach.png",
             keywords=["linkedin outreach", "sales engagement", "heyreach"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

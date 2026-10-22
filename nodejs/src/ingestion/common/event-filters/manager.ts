@@ -4,6 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { Component } from '~/ingestion/common/scopes'
 
 import { treeHasConditions } from './evaluate'
+import { eventFiltersRefreshErrors } from './metrics'
 import { EventFilterRowSchema, EventFilterRule } from './schema'
 
 /**
@@ -17,15 +18,22 @@ export class EventFilterManager {
     private refresher: BackgroundRefresher<Map<number, EventFilterRule>>
 
     constructor(private readonly postgres: PostgresRouter) {
-        this.refresher = new BackgroundRefresher(async () => this.fetchAllFilters(), 60_000)
+        // A failed reload keeps the last loaded filters. The default handler rethrows from a
+        // detached promise, and the server stops on an unhandled rejection.
+        this.refresher = new BackgroundRefresher(
+            async () => this.fetchAllFilters(),
+            60_000,
+            (error) => {
+                logger.error('Failed to refresh event filter config', { error })
+                eventFiltersRefreshErrors.inc()
+            }
+        )
     }
 
     async prime(): Promise<void> {
-        // Failures are logged but don't surface — `tryGet` will retry in the
-        // background on subsequent reads.
-        await this.refresher.get().catch((error) => {
-            logger.error('Failed to initialize event filter config', { error })
-        })
+        // Do not catch a first load error: startup must fail. A consumer without its filters
+        // ingests the events that a filter drops, and those events cannot be removed later.
+        await this.refresher.get()
     }
 
     /** Returns the filter for a team, or null if disabled or has no conditions. Non-blocking. */

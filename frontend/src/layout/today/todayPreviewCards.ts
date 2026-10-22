@@ -1,7 +1,8 @@
 import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { SidebarProductMeta, sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -51,7 +52,13 @@ export interface TodayObjectPreview {
     lastViewedAt: string | null
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview
+export interface TodayProductPreview extends SidebarProductMeta {
+    kind: 'product'
+    label: string
+    product: FileSystemImport
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview | TodayProductPreview
 
 export function sessionPreview(
     item: TodayWorkItem,
@@ -114,4 +121,8 @@ export function chatPreview(item: TodayWorkItem): TodayChatPreview {
         source: 'PostHog AI',
         timestamp: item.timestamp,
     }
+}
+
+export function productPreview(label: string, product: FileSystemImport): TodayProductPreview {
+    return { kind: 'product', label, product, ...sidebarProductMeta(product) }
 }

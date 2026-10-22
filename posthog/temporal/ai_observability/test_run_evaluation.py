@@ -412,6 +412,18 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             {"verdict": True, "probability": 0.5},
         ),
         (
+            "boolean",
+            {"decision_threshold": 0.8},
+            [{"name": "verdict", "type": "predicate", "probability": 0.7}],
+            {"verdict": False, "probability": 0.7},
+        ),
+        (
+            "boolean",
+            {"decision_threshold": 0.35},
+            [{"name": "verdict", "type": "predicate", "probability": 0.35}],
+            {"verdict": True, "probability": 0.35},
+        ),
+        (
             "categorical",
             {
                 "selection_mode": "single",
@@ -625,8 +637,20 @@ def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(fl
     ],
 )
 @pytest.mark.parametrize(
-    "probability,applicability,allows_na,verdict",
-    [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
+    "probability,applicability,allows_na,threshold,verdict",
+    [
+        (0.49, 1.0, False, None, False),
+        (0.5, 1.0, False, None, True),
+        (0.9, 0.1, True, None, None),
+        (0.0, 0.9, True, None, False),
+        (0.7, 1.0, False, 0.8, False),
+        (0.35, 1.0, False, 0.35, True),
+        (0.0, 1.0, False, 0.0, True),
+        (1.0, 1.0, False, 1.0, True),
+        (0.7, 0.6, True, 0.8, False),
+        (0.8, 0.6, True, 0.8, True),
+        (0.9, 0.4, True, 0.2, None),
+    ],
 )
 @pytest.mark.parametrize("judge_method", [None, "decision"])
 def test_system_one_judge_emits_boolean_probability_without_reasoning(
@@ -634,6 +658,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     probability: float,
     applicability: float,
     allows_na: bool,
+    threshold: float | None,
     verdict: bool | None,
     provider: str,
     connection_config: dict[str, str],
@@ -657,6 +682,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
+        "output_config": {"decision_threshold": threshold} if threshold is not None else {},
         "evaluation_config": {
             "prompt": prompt,
             **({"judge_method": judge_method} if judge_method else {}),
@@ -1620,6 +1646,7 @@ class TestRunEvaluationWorkflow:
             raw_size = sum(len(message["content"]) for message in oversized_input)
             assert len(sent_prompt) <= EVENT_TEXT_MAX_CHARS
             assert len(sent_prompt) < raw_size
+            assert sent_prompt.endswith("\n\nOutput: assistant: ok")
 
     @pytest.mark.parametrize(
         "output_config,expected_verdict,expected_applicable",
@@ -4473,6 +4500,68 @@ class TestJudgePromptAssembly:
     """Asserts on the actual user prompt sent to the judge — guards against
     regressions in section ordering, tool catalog inclusion, and tool_call_id
     correlation that the unit tests for the helpers can't catch alone."""
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            pytest.param("The result is ready.\nDetails: all checks passed.\nEnd of response.", id="multiline"),
+            pytest.param("x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ")), id="no_context_budget"),
+            pytest.param("x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ") - 1), id="one_context_character"),
+        ],
+    )
+    def test_prompt_bounds_tools_without_sampling_output(self, output: str) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+        }
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "Check the result.",
+                "$ai_output_choices": output,
+                "$ai_tools": [{"type": "function", "function": {"name": "check_result", "description": "x" * 600_000}}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        user_prompt = judge.call_args.kwargs["user_prompt"]
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith(f"\n\nOutput: {output}")
+        assert user_prompt.startswith("Input: ")
+
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
+    @pytest.mark.parametrize("allows_na", [False, True])
+    def test_prompt_skips_output_that_cannot_fit(self, output_type: str, allows_na: bool) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": output_type,
+            "output_config": {
+                "allows_na": allows_na,
+                **({"options": [{"key": "correct", "label": "Correct"}]} if output_type == "categorical" else {}),
+            },
+        }
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "",
+                "$ai_output_choices": "x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ") + 1),
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert judge.call_count == 0
+        assert result == build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
 
     def test_prompt_contains_input_tools_and_output_sections_in_order(self):
         evaluation = {

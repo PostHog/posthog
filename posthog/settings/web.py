@@ -136,6 +136,7 @@ PRODUCTS_APPS = [
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
     "products.subscriptions.backend.apps.SubscriptionsConfig",
+    "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
 ]
 
 INSTALLED_APPS = [
@@ -893,6 +894,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|session_logs)/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
@@ -1072,6 +1074,9 @@ ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 # shows the full value of the seeded dev personal API key in the UI (also requires DEBUG)
 ALLOW_DEV_API_KEY_REVEAL = get_from_env("ALLOW_DEV_API_KEY_REVEAL", False, type_cast=str_to_bool)
+
+# admits the click-to-source server of frontend/vite.config.mts in the dev CSP (also requires DEBUG)
+DEV_CODE_INSPECTOR = get_from_env("DEV_CODE_INSPECTOR", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary
@@ -1341,6 +1346,9 @@ HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogfere
 # Each decision is a billed gateway call, so these bound the cost of one query.
 HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
 HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
+# Gateway requests one `jev` column keeps in flight. The model servers refuse prompt tokens past a
+# per-pod limit, so raise this only together with model capacity.
+HOGQL_JEV_CONCURRENCY = get_from_env("HOGQL_JEV_CONCURRENCY", 4, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.

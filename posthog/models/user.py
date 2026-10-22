@@ -233,6 +233,14 @@ class OnboardingSkippedReason(models.TextChoices):
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
+    CONNECTOR = "connector", "Signed up through an OAuth connector"
+
+
+class OnboardingFlowVariant(models.TextChoices):
+    # pinned: analytics property values. "legacy" names the default flow, because funnel
+    # insights filter on it.
+    LEGACY = "legacy", "Default onboarding"
+    SIMPLE = "simple", "Simple onboarding"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -593,6 +601,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             "organization_id": str(self.organization.id) if self.organization else None,
             "current_organization_membership_level": (
                 current_organization_membership.level if current_organization_membership else None
+            ),
+            "current_organization_membership_level_name": (
+                current_organization_membership.get_level_display() if current_organization_membership else None
             ),
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,

@@ -43,13 +43,14 @@ export class PlayerController {
     constructor(
         capturePage: CapturePage,
         blockProxy: BlockSource,
+        teamId: number,
         onProgress: () => void,
         log: Logger = createLogger()
     ) {
         this.capturePage = capturePage
         this.log = log
         this.onProgress = onProgress
-        this.interceptor = new RequestInterceptor(capturePage, blockProxy, this.log)
+        this.interceptor = new RequestInterceptor(capturePage, blockProxy, teamId, this.log)
     }
 
     get page(): Page {

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, transaction
 from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
@@ -24,6 +25,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.interceptor import is_transient_rpc_error
@@ -46,6 +48,7 @@ from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
     close_open_population_attempts,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -230,6 +233,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -237,7 +241,6 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             is_static=True,
             is_calculating=True,
             deleted=False,
-            errors_calculating__lt=MAX_ERRORS_CALCULATING,
         )
         .filter(
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
@@ -1109,6 +1112,41 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     # paging at the cap risks a deterministic, retry-immune timeout on large or
     # condition-heavy flags, so page well below it.
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=2_000)
+
+
+STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS = 10
+
+
+def _static_cohort_count_refresh_key(cohort_id: int) -> str:
+    return f"static-cohort-count-refresh:{cohort_id}"
+
+
+def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> None:
+    """Recount a static cohort soon, at most once per delay, for callers that add members one at a time.
+
+    Call it after the insert. The task deletes the key before it counts, so an insert that finds the key
+    already set is still in the pending count.
+    """
+    key = _static_cohort_count_refresh_key(cohort_id)
+    if not cache.add(key, True, timeout=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS * 10):
+        return
+    try:
+        refresh_static_cohort_count.apply_async(
+            kwargs={"team_id": team_id, "cohort_id": cohort_id},
+            countdown=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS,
+        )
+    except Exception:
+        # No task is queued to delete the key, so leaving it set would block the next insert's recount.
+        cache.delete(key)
+        raise
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
+    cache.delete(_static_cohort_count_refresh_key(cohort_id))
+    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
+    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:

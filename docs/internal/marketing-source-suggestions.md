@@ -11,6 +11,12 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## Background source checks
+
+Source health checks run when the window regains focus and every 30 seconds while a source is syncing.
+These checks update source metadata and validation without forcing all dashboard queries to refresh.
+Queries reload when their inputs change or when the user refreshes the dashboard.
+
 ## MCP setup recommendations
 
 The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
@@ -296,3 +302,26 @@ The panel includes the source validation details shown by the status banner.
 When the panel displays a connection, its duplicate status banner entry is hidden.
 Configuration validation failures and issues for sources outside the panel remain in the banner.
 With source onboarding disabled, the existing banner remains available.
+
+## Ad performance metric cards
+
+The Ad performance summary uses the same metric cards as Web analytics.
+Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.
+
+Ad performance cards include time-series sparklines for advertising metrics, including platform-reported conversions.
+Select an advertising metric card to update the existing trend chart while keeping the date range, interval, and source filters.
+CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals in both sparklines and the main trend, with monetary values converted to the project currency; undefined ratios leave gaps rather than zeroes.
+Attributed PostHog conversion goals retain their summary cards without sparklines or selection.
+
+Advertising metrics appear first, followed by attributed conversion goals and their cost per conversion.
+The goal cards use a separate grid so cards without sparklines keep a compact height.
+
+The overview loads on demand so other query surfaces do not load marketing-specific validation eagerly.
+
+The Ad performance summary groups metrics by source: Ad platforms contains platform-reported metrics, and PostHog contains configured conversion goals and their costs.
+Configure metrics uses the same apply-and-cancel interaction as Configure columns.
+It lets users show or hide individual metrics, show or hide an entire group, and reorder metrics within each group with the move buttons.
+Each group can also collapse without changing which metrics are selected.
+The summary saves visibility, order, and collapsed groups in browser storage per project and view, matching table column preferences.
+These preferences survive reloads in the same browser; they do not change table columns or the underlying queries.
+New metrics appear by default, and removed goals do not leave empty cards.

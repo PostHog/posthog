@@ -88,8 +88,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
-    '/ai-evals/datasets': ['AIObservabilityDatasets', 'aiObservabilityDatasets'],
-    '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+    '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
     '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
     '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
     '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
@@ -133,7 +132,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
-    '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -242,8 +241,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error-tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/experiments': ['Experiments', 'experiments'],
     '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
-    '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-    '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/games/shipit': ['ShipIt', 'shipIt'],
@@ -293,7 +292,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -339,6 +338,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
+    '/uptime-monitoring': ['UptimeMonitoring', 'uptimeMonitoring'],
     '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
@@ -411,6 +411,10 @@ export const productRedirects: Record<
     },
     '/ai-evals': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/datasets': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
+    '/ai-evals/datasets/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
     '/ai-evals/tags': (_params, searchParams, hashParams) =>
@@ -468,7 +472,7 @@ export const productRedirects: Record<
     '/llm-analytics/clusters/:runId/:clusterId': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityCluster(params.runId, params.clusterId), searchParams, hashParams).url,
     '/llm-analytics/datasets': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityDatasets(), searchParams, hashParams).url,
+        combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
     '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/llm-analytics/tags': (_params, searchParams, hashParams) =>
@@ -557,6 +561,10 @@ export const productRedirects: Record<
         combineUrl(`/error-tracking/alerts/${id}`, searchParams, hashParams).url,
     '/error_tracking/:id': ({ id }, searchParams, hashParams) =>
         combineUrl(`/error-tracking/${id}`, searchParams, hashParams).url,
+    '/feature_flags': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+    '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+        combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -565,6 +573,8 @@ export const productRedirects: Record<
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay/vision': '/replay-vision',
+    '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+        combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1247,6 +1257,12 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         iconType: 'tracing',
     },
+    UptimeMonitoring: {
+        name: 'Uptime monitoring',
+        projectBased: true,
+        description: 'Check that your sites and endpoints respond, and find out when they go down.',
+        iconType: 'uptime_monitoring',
+    },
     VisualReviewIndex: {
         name: 'Visual review',
         description:
@@ -1373,13 +1389,13 @@ export const productUrls = {
         return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityPlayground: (): string => '/ai-observability/playground',
-    aiObservabilityDatasets: (): string => '/ai-evals/datasets',
+    aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
     aiObservabilityDataset: (
         id: string,
         params?: {
             item?: string
         }
-    ): string => combineUrl(`/ai-evals/datasets/${id}`, params).url,
+    ): string => combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
     aiObservabilityTags: (): string => '/ai-evals/taggers',
     aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
     aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
@@ -1454,7 +1470,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     cohortsStaffTools: (cohortId?: number): string =>
-        `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+        `/feature-flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1684,10 +1700,10 @@ export const productUrls = {
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-    featureFlagTemplates: (): string => '/feature_flags/templates',
-    featureFlagsStaffTools: (teamId?: number): string => `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+    featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+    featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagTemplates: (): string => '/feature-flags/templates',
+    featureFlagsStaffTools: (teamId?: number): string => `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
     featureFlagNew: ({
         type,
         sourceId,
@@ -1722,7 +1738,7 @@ export const productUrls = {
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
         }
-        return `/feature_flags/new?${params.toString()}`
+        return `/feature-flags/new?${params.toString()}`
     },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
@@ -1878,8 +1894,8 @@ export const productUrls = {
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-    replayVisionTemplates: (): string => '/replay-vision/new/template',
-    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+    replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
@@ -1949,6 +1965,7 @@ export const productUrls = {
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
+    uptimeMonitoring: (): string => '/uptime-monitoring',
     visualReviewRuns: (): string => '/visual-review',
     visualReviewSettings: (): string => '/visual-review/settings',
     visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
@@ -2131,7 +2148,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
-    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$pageview'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -2332,7 +2349,6 @@ export type ProductTreePath =
     | 'Dashboards'
     | 'Data catalog'
     | 'Data warehouse'
-    | 'Datasets'
     | 'Early access features'
     | 'Endpoints'
     | 'Engineering analytics'
@@ -2366,6 +2382,7 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
@@ -2598,42 +2615,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
-        path: 'Datasets',
-        intents: [ProductKey.LLM_DATASETS],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'llm_datasets',
-        iconType: 'llm_datasets' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-datasets-light)', 'var(--color-product-llm-datasets-dark)'],
-        href: urls.aiObservabilityDatasets(),
-        searchKeywords: ['test sets', 'golden set'],
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
-        tags: ['beta'],
-        sceneKey: 'AIObservabilityDatasets',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityScorers',
-            'AIObservabilityScorer',
-            'AIObservabilityOfflineExperiments',
-            'AIObservabilityOfflineExperiment',
-            'AIObservabilityOfflineScorerHistory',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
-    },
-    {
         path: 'ETL',
         displayLabel: 'ELT',
         intents: [ProductKey.DATA_WAREHOUSE],
@@ -2722,32 +2703,26 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
-        searchTabs: [
-            { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
-            {
-                name: 'Recommendations',
-                href: urls.errorTracking({ activeTab: 'recommendations' }),
-                flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
-            },
-        ],
+        searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },
     {
         path: 'Evaluations',
-        intents: [ProductKey.LLM_EVALUATIONS],
+        intents: [ProductKey.LLM_EVALUATIONS, ProductKey.LLM_DATASETS],
         category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_evaluations',
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
         href: urls.aiObservabilityEvaluations(),
-        searchKeywords: ['llm judge', 'llm as a judge', 'grading'],
+        searchKeywords: ['llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
         searchTabs: [
             {
                 name: 'Offline evals',
                 href: urls.aiObservabilityOfflineEvaluations(),
                 flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
             },
+            { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
             { name: 'Scorers', href: urls.aiObservabilityScorers() },
         ],
         sceneKey: 'AIObservabilityEvaluations',
@@ -3289,11 +3264,23 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
-        searchKeywords: ['apm', 'spans', 'latency'],
+        searchKeywords: ['traces', 'distributed tracing', 'apm', 'spans', 'latency'],
         searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
+    },
+    {
+        path: 'Uptime monitoring',
+        intents: [ProductKey.UPTIME_MONITORING],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'uptime_monitoring',
+        href: urls.uptimeMonitoring(),
+        searchKeywords: ['uptime', 'status', 'health check', 'synthetics', 'ping'],
+        flag: FEATURE_FLAGS.UPTIME_MONITORING,
+        tags: ['alpha'],
+        sceneKey: 'UptimeMonitoring',
+        sceneKeys: ['UptimeMonitoring'],
     },
     {
         path: 'Visual review',
@@ -3502,7 +3489,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             {
                 name: 'Data quality',
                 href: urls.models('data-quality'),
-                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                 searchKeywords: ['tests', 'checks', 'freshness'],
             },
         ],

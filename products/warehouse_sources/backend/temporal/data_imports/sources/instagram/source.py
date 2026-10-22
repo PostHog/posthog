@@ -87,7 +87,7 @@ Connect your Instagram account, then pick the professional account you want to s
             iconPath="/static/services/instagram.png",
             docsUrl="https://posthog.com/docs/cdp/sources/instagram",
             keywords=["ig", "meta", "social"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             featureFlag="dwh-instagram",
             fields=cast(
                 list[FieldType],
@@ -143,6 +143,13 @@ Connect your Instagram account, then pick the professional account you want to s
             # Retrying can't bring the row back; only reconnecting can.
             "Integration not found": (
                 "The Instagram connection for this source no longer exists. Reconnect your Instagram account."
+            ),
+            # Meta's code 100 catch-all for a GET on a node the token can no longer reach — the
+            # account was unlinked from its page, the post was deleted, or a permission was
+            # revoked without tripping one of the auth/permission codes above.
+            "does not exist, cannot be loaded due to missing permissions, or does not support this operation": (
+                "Instagram could not find the account or content this sync needs. Reconnect your Instagram "
+                "account and confirm it's still linked to the page you authorized."
             ),
         }
 

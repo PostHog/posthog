@@ -132,9 +132,6 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
-export const dashboardsCreateBodyRestrictionLevelMin = 21
-export const dashboardsCreateBodyRestrictionLevelMax = 21
-
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
@@ -187,14 +184,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .number()
-            .min(dashboardsCreateBodyRestrictionLevelMin)
-            .max(dashboardsCreateBodyRestrictionLevelMax)
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
-            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -238,9 +227,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
-export const dashboardsUpdateBodyRestrictionLevelMin = 21
-export const dashboardsUpdateBodyRestrictionLevelMax = 21
-
 export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
@@ -293,14 +279,6 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .number()
-            .min(dashboardsUpdateBodyRestrictionLevelMin)
-            .max(dashboardsUpdateBodyRestrictionLevelMax)
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
-            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -344,9 +322,6 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
-export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
-export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
-
 export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
@@ -500,14 +475,6 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod
-            .number()
-            .min(dashboardsPartialUpdateBodyRestrictionLevelMin)
-            .max(dashboardsPartialUpdateBodyRestrictionLevelMax)
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
-            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -632,11 +599,11 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 ),
                             config: zod
                                 .union([
@@ -1554,9 +1521,104 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
+
 export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        widgets: zod
+            .array(
+                zod.object({
+                    name: zod
+                        .string()
+                        .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax)
+                        .nullish()
+                        .describe('Optional custom display name for the widget tile.'),
+                    description: zod
+                        .string()
+                        .optional()
+                        .describe('Optional markdown description shown when show_description is enabled.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe(
+                                    'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                ),
+                        })
+                        .optional()
+                        .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                    show_description: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to show the description on the dashboard tile.'),
+                    widget_type: zod
+                        .enum([
+                            'activity_events_list',
+                            'canvas_app',
+                            'conversations_recent_tickets',
+                            'error_tracking_list',
+                            'experiment_results',
+                            'experiments_list',
+                            'logs_list',
+                            'notebook_widget',
+                            'session_replay_list',
+                            'survey_results',
+                        ])
+                        .describe(
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                        )
+                        .describe(
+                            'Widget type to add. Use dashboard-widget-catalog-list to pick one.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                        ),
+                    config: zod
+                        .record(zod.string(), zod.unknown())
+                        .describe(
+                            "Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field."
+                        ),
+                })
+            )
+            .min(1)
+            .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
+            .describe(
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+            ),
+    })
+    .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
 
 /**
  * Update the settings of existing widgets in place, atomically — config, name, and description.
@@ -1567,80 +1629,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
  * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
  * remove one, use delete_tile.
  */
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneNotebookShortIdOneMax = 128
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault = 25
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax = 50
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax = 4000
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax = 100
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax = 4000
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneMax = 20
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitMax = 25
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault = `occurrences`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneStatusDefault = `active`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitMax = 25
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault = `start_time`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitMax = 25
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderByDefault = `created_at`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneStatusDefault = `all`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax = 25
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault = 50
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax = 100
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneOrderByDefault = `latest`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneWrapLinesDefault = false
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneTimezoneDefault = `UTC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineNameMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitMax = 25
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneStatusDefault = `all`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneChannelDefault = `all`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneAssigneesMax = 100
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchDefault = ``
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax = 200
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
@@ -1648,843 +1637,48 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
     .object({
         widgets: zod
             .array(
-                zod.union([
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['notebook_widget']),
-                        config: zod
-                            .object({
-                                notebookShortId: zod
-                                    .union([
-                                        zod
-                                            .string()
-                                            .min(1)
-                                            .max(
-                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneNotebookShortIdOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Source notebook short ID.'),
-                                snapshotId: zod
-                                    .union([zod.uuid(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the notebook widget widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['activity_events_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'is_cleaned_path_not_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault)
-                                    .describe('Maximum number of events to return.'),
-                                eventName: zod
-                                    .union([zod.string().min(1), zod.null()])
-                                    .optional()
-                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
-                                properties: zod
-                                    .union([
-                                        zod
-                                            .array(
-                                                zod.object({
-                                                    key: zod
-                                                        .string()
-                                                        .min(1)
-                                                        .max(
-                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax
-                                                        ),
-                                                    label: zod
-                                                        .union([
-                                                            zod
-                                                                .string()
-                                                                .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax
-                                                                ),
-                                                            zod.null(),
-                                                        ])
-                                                        .optional(),
-                                                    operator: zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'starts_with',
-                                                        'not_starts_with',
-                                                        'ends_with',
-                                                        'not_ends_with',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'is_cleaned_path_not_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    type: zod.enum(['event', 'person']),
-                                                    value: zod
-                                                        .union([
-                                                            zod
-                                                                .array(
-                                                                    zod.union([
-                                                                        zod
-                                                                            .string()
-                                                                            .max(
-                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax
-                                                                            ),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                )
-                                                                .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax
-                                                                ),
-                                                            zod
-                                                                .string()
-                                                                .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax
-                                                                ),
-                                                            zod.number(),
-                                                            zod.boolean(),
-                                                            zod.null(),
-                                                        ])
-                                                        .optional(),
-                                                })
-                                            )
-                                            .max(
-                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Event and person property filters, matching Activity > Explore events.'),
-                            })
-                            .optional()
-                            .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['error_tracking_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'is_cleaned_path_not_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
-                                    .describe('Maximum number of issues to return.'),
-                                orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
-                                    .describe('Issue ranking column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                status: zod
-                                    .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneStatusDefault)
-                                    .describe('Issue status filter.'),
-                                assignee: zod
-                                    .union([
-                                        zod.object({
-                                            id: zod.union([zod.string(), zod.number()]),
-                                            type: zod.enum(['user', 'role']),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
-                            })
-                            .optional()
-                            .describe('New configuration for the top issues widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['session_replay_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'is_cleaned_path_not_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitDefault)
-                                    .describe('Maximum number of recordings to return.'),
-                                orderBy: zod
-                                    .enum([
-                                        'start_time',
-                                        'activity_score',
-                                        'recording_duration',
-                                        'duration',
-                                        'click_count',
-                                        'console_error_count',
-                                    ])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault)
-                                    .describe('Recording ranking column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                savedFilterId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
-                                    ),
-                                collectionId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the recent recordings widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['experiments_list']),
-                        config: zod
-                            .object({
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitDefault)
-                                    .describe('Maximum number of experiments to return.'),
-                                orderBy: zod
-                                    .enum(['created_at', 'name', 'start_date'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderByDefault)
-                                    .describe('Experiment list sort column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                status: zod
-                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneStatusDefault)
-                                    .describe('Experiment status filter.'),
-                                createdBy: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe('Filter by creator (user id). Omit for any creator.'),
-                            })
-                            .optional()
-                            .describe('New configuration for the experiments list widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['experiment_results']),
-                        config: zod
-                            .object({
-                                experimentId: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Experiment to show results for. Null until the user picks one in the widget settings.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the experiment results widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['survey_results']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe("Null or omitted means all time (the survey's full lifetime)."),
-                                surveyId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Survey to show performance stats and recent responses for. Null until the user picks one.'
-                                    ),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault)
-                                    .describe('Maximum number of recent responses to return.'),
-                            })
-                            .optional()
-                            .describe('New configuration for the survey results widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['logs_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault)
-                                    .describe('Maximum number of log lines to return.'),
-                                orderBy: zod
-                                    .enum(['latest', 'earliest'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneOrderByDefault)
-                                    .describe('Sort by newest (latest) or oldest (earliest) first.'),
-                                severityLevels: zod
-                                    .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
-                                    .optional()
-                                    .describe('Only show logs at these severity levels. Empty shows all levels.'),
-                                serviceNames: zod
-                                    .array(zod.string())
-                                    .optional()
-                                    .describe('Only show logs from these services. Empty shows all services.'),
-                                wrapLines: zod
-                                    .boolean()
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneWrapLinesDefault)
-                                    .describe('Wrap long log lines instead of truncating them to a single row.'),
-                                timezone: zod
-                                    .enum(['UTC', 'local'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneTimezoneDefault)
-                                    .describe("Render log timestamps in UTC or in each viewer's local timezone."),
-                                savedViewId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the recent logs widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['conversations_recent_tickets']),
-                        config: zod
-                            .object({
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitDefault)
-                                    .describe('Maximum number of tickets to return.'),
-                                status: zod
-                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneStatusDefault)
-                                    .describe('Ticket status filter.'),
-                                priorities: zod
-                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
-                                    .optional()
-                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
-                                channel: zod
-                                    .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneChannelDefault)
-                                    .describe('Ticket channel filter.'),
-                                assignees: zod
-                                    .array(
-                                        zod.union([
-                                            zod.enum(['me', 'unassigned']),
-                                            zod.object({
-                                                id: zod.union([zod.string(), zod.number()]),
-                                                type: zod.enum(['user', 'role']),
-                                            }),
-                                        ])
-                                    )
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneAssigneesMax)
-                                    .optional()
-                                    .describe(
-                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
-                                    ),
-                                search: zod
-                                    .string()
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchDefault)
-                                    .describe(
-                                        'Search requester name or email, ticket subject, message text, or ticket number.'
-                                    ),
-                                savedViewId: zod
-                                    .union([
-                                        zod
-                                            .string()
-                                            .max(
-                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
-                    }),
-                    zod.object({
-                        tile_id: zod
-                            .number()
-                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
-                        name: zod
-                            .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax)
-                            .nullish()
-                            .describe(
-                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
-                            ),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod.enum(['canvas_app']),
-                        config: zod
-                            .object({
-                                canvasId: zod
-                                    .union([zod.uuid(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Canvas to render in the tile. Null until the user picks one in the widget settings.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('New configuration for the canvas app widget. Omit to leave unchanged.'),
-                    }),
-                ])
+                zod.object({
+                    tile_id: zod
+                        .number()
+                        .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                    name: zod
+                        .string()
+                        .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNameMax)
+                        .nullish()
+                        .describe(
+                            'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                        ),
+                    description: zod
+                        .string()
+                        .optional()
+                        .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                    widget_type: zod
+                        .enum([
+                            'activity_events_list',
+                            'canvas_app',
+                            'conversations_recent_tickets',
+                            'error_tracking_list',
+                            'experiment_results',
+                            'experiments_list',
+                            'logs_list',
+                            'notebook_widget',
+                            'session_replay_list',
+                            'survey_results',
+                        ])
+                        .describe(
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                        )
+                        .optional()
+                        .describe(
+                            "The tile's widget type. It cannot be changed, so omit it or pass the current type.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results"
+                        ),
+                    config: zod
+                        .record(zod.string(), zod.unknown())
+                        .optional()
+                        .describe(
+                            "Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged."
+                        ),
+                })
             )
             .min(1)
             .max(dashboardsUpdateWidgetsBatchBodyWidgetsMax)
@@ -2613,15 +1807,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -2724,15 +1909,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional()
-            .describe(
-                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())

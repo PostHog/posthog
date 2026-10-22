@@ -485,6 +485,7 @@ def list_metric_attribute_values(
     *,
     team: Team,
     key: str,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
@@ -493,13 +494,20 @@ def list_metric_attribute_values(
     """List observed values for one metric attribute key, most frequent first,
     for the filter bar's value autocomplete.
 
-    `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 24 hours. Returns
+    When a metric name is provided, only values seen on that metric supply
+    choices. `service_name`/`service.name` read the first-class column,
+    matching how filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
     runner = MetricAttributeValuesQueryRunner(
-        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        team=team,
+        key=key,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
     return runner.run()
 
@@ -873,6 +881,14 @@ def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTempl
     )
 
     return service.reject(user, template_id)
+
+
+def regenerate_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.regenerate(user, template_id)
 
 
 def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:

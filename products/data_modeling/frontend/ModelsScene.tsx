@@ -2,11 +2,14 @@ import { useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonButton, LemonTab } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -32,8 +35,7 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, dataQualityTabEnabled, suspensionBySavedQueryId } =
-        useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId } = useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
@@ -42,6 +44,7 @@ export function ModelsScene(): JSX.Element {
         },
         [savedQueryIdToNodeId]
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -72,17 +75,13 @@ export function ModelsScene(): JSX.Element {
             keepMounted: lineageTabVisited,
             'data-attr': 'models-tab-lineage',
         },
-        ...(dataQualityTabEnabled
-            ? [
-                  {
-                      key: 'data-quality' as const,
-                      label: 'Data quality',
-                      link: urls.models('data-quality'),
-                      content: <DataQualityOverview />,
-                      'data-attr': 'models-tab-data-quality',
-                  },
-              ]
-            : []),
+        {
+            key: 'data-quality',
+            label: 'Data quality',
+            link: urls.models('data-quality'),
+            content: <DataQualityOverview />,
+            'data-attr': 'models-tab-data-quality',
+        },
     ]
 
     return (
@@ -106,15 +105,26 @@ export function ModelsScene(): JSX.Element {
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.sqlEditor({ source: 'view' })}
-                                    size="small"
-                                    tooltip="Create view"
-                                    data-attr="new-view-button"
-                                >
-                                    Create view
-                                </LemonButton>
+                                {todayRailNav ? (
+                                    <Button
+                                        variant="primary"
+                                        render={<LinkPrimitive to={urls.sqlEditor({ source: 'view' })} />}
+                                        tooltip="Create view"
+                                        data-attr="new-view-button"
+                                    >
+                                        Create view
+                                    </Button>
+                                ) : (
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.sqlEditor({ source: 'view' })}
+                                        size="small"
+                                        tooltip="Create view"
+                                        data-attr="new-view-button"
+                                    >
+                                        Create view
+                                    </LemonButton>
+                                )}
                             </AccessControlAction>
                         </Shortcut>
                     </div>
