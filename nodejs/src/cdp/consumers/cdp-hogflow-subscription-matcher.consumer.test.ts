@@ -3,6 +3,7 @@ import '../../../tests/helpers/mocks/consumer.mock'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
@@ -176,6 +177,12 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 })
             ),
         }
+        ;(this as any).deps = {
+            teamManager: {
+                getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+            },
+        }
+        ;(this as any).config = { SITE_URL: 'http://localhost:8000' }
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
@@ -230,6 +237,54 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
 }
 
 const stateBuffer = (state: any): Buffer => Buffer.from(JSON.stringify({ state }))
+
+const rawEvent = (overrides: Record<string, any>): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            uuid: 'e-uuid',
+            event: 'wuc_subscribed',
+            team_id: 1,
+            distinct_id: 'user-1',
+            person_id: 'person-uuid-1',
+            timestamp: '2024-01-01 00:00:00.000',
+            properties: '{}',
+            elements_chain: '',
+            ...overrides,
+        })
+    ),
+})
+
+const rawPerson = (overrides: Record<string, any>): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            id: 'person-uuid-1',
+            team_id: 1,
+            properties: JSON.stringify({ plan: 'enterprise' }),
+            is_deleted: 0,
+            timestamp: '2024-01-01 00:00:00.000',
+            ...overrides,
+        })
+    ),
+})
+
+const rawInternalEvent = (overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            team_id: overrides.team_id ?? 1,
+            event: {
+                uuid: 'evt-uuid-1',
+                event: '$insight_alert_firing',
+                distinct_id: 'distinct-1',
+                properties: {},
+                timestamp: '2024-01-01T00:00:00Z',
+                ...overrides.event,
+            },
+            ...(overrides.person !== undefined ? { person: overrides.person } : {}),
+        })
+    ),
+})
+
+const invalidTeamIds = [undefined, null, 'abc', 1.5, 3_000_000_000]
 
 describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     let matcher: MatcherUnderTest
@@ -1106,29 +1161,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parseKafkaBatch', () => {
-        const rawMessage = (overrides: Record<string, any>): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    uuid: 'e-uuid',
-                    event: 'wuc_subscribed',
-                    team_id: 1,
-                    distinct_id: 'user-1',
-                    person_id: 'person-uuid-1',
-                    timestamp: '2024-01-01 00:00:00.000',
-                    properties: '{}',
-                    elements_chain: '',
-                    ...overrides,
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             // Team 1 has an actionable (wait_until_condition) flow so events reach conversion.
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
@@ -1137,9 +1170,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // A job can be parked by distinct_id alone (the lookup has a (team_id, distinct_id)
             // branch), so an event carrying only a distinct_id must still flow into matching.
             const result = await (matcher as any)._parseKafkaBatch([
-                rawMessage({ person_id: '', distinct_id: 'only-distinct' }),
-                rawMessage({ person_id: '', distinct_id: '' }),
-                rawMessage({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
+                rawEvent({ person_id: '', distinct_id: 'only-distinct' }),
+                rawEvent({ person_id: '', distinct_id: '' }),
+                rawEvent({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
             ])
 
             const distinctIds = result.map((g: HogFunctionInvocationGlobals) => g.event.distinct_id).sort()
@@ -1158,8 +1191,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const getTeam = (matcher as any).deps.teamManager.getTeam
 
             const result = await (matcher as any)._parseKafkaBatch([
-                rawMessage({ team_id: 2, distinct_id: 'user-2' }),
-                rawMessage({ team_id: 1, distinct_id: 'user-1' }),
+                rawEvent({ team_id: 2, distinct_id: 'user-2' }),
+                rawEvent({ team_id: 1, distinct_id: 'user-1' }),
             ])
 
             expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1])
@@ -1170,26 +1203,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parsePersonBatch', () => {
-        const rawPerson = (overrides: Record<string, any>): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    id: 'person-uuid-1',
-                    team_id: 1,
-                    properties: JSON.stringify({ plan: 'enterprise' }),
-                    is_deleted: 0,
-                    timestamp: '2024-01-01 00:00:00.000',
-                    ...overrides,
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
@@ -1233,32 +1247,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parseInternalEventsBatch', () => {
-        const rawInternalEvent = (
-            overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}
-        ): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    team_id: overrides.team_id ?? 1,
-                    event: {
-                        uuid: 'evt-uuid-1',
-                        event: '$insight_alert_firing',
-                        distinct_id: 'distinct-1',
-                        properties: {},
-                        timestamp: '2024-01-01T00:00:00Z',
-                        ...overrides.event,
-                    },
-                    ...(overrides.person !== undefined ? { person: overrides.person } : {}),
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
@@ -1290,17 +1279,127 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(result).toEqual([])
         })
+    })
 
-        it('drops a malformed message (schema parse failure) without throwing', async () => {
-            const result = await (matcher as any)._parseInternalEventsBatch([
-                { value: Buffer.from(JSON.stringify({ team_id: 1 })) }, // missing required `event`
-                rawInternalEvent(),
-            ])
-
-            // The bad message is dropped; the valid one still parses.
-            expect(result).toHaveLength(1)
-            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
+    describe('message and lookup failures', () => {
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+            // Postgres rejects a team id outside int4 on every read. The valid messages here all use team 1.
+            // The mock rejects every other team id.
+            const getHogFlowsForTeam = (matcher as any).hogFlowManager.getHogFlowsForTeam
+            const flowsForTeam = getHogFlowsForTeam.getMockImplementation()
+            getHogFlowsForTeam.mockImplementation((teamId: unknown) =>
+                teamId === 1 ? flowsForTeam(teamId) : Promise.reject(new Error('invalid input syntax for type integer'))
+            )
         })
+
+        it.each([
+            ...invalidTeamIds.flatMap((teamId) => [
+                {
+                    name: `an event with team_id ${teamId}`,
+                    parse: '_parseKafkaBatch',
+                    bad: rawEvent({ team_id: teamId }),
+                    good: rawEvent({}),
+                },
+                {
+                    name: `a person with team_id ${teamId}`,
+                    parse: '_parsePersonBatch',
+                    bad: rawPerson({ team_id: teamId }),
+                    good: rawPerson({}),
+                },
+            ]),
+            // The schema already rejects a missing, null or string team_id.
+            ...invalidTeamIds
+                .filter((teamId) => typeof teamId === 'number')
+                .map((teamId) => ({
+                    name: `an internal event with team_id ${teamId}`,
+                    parse: '_parseInternalEventsBatch',
+                    bad: rawInternalEvent({ team_id: teamId }),
+                    good: rawInternalEvent(),
+                })),
+            {
+                name: 'an event that is not JSON',
+                parse: '_parseKafkaBatch',
+                bad: { value: Buffer.from('not json') },
+                good: rawEvent({}),
+            },
+            {
+                name: 'an event whose properties are not JSON',
+                parse: '_parseKafkaBatch',
+                bad: rawEvent({ properties: 'not json' }),
+                good: rawEvent({}),
+            },
+            {
+                name: 'a person whose properties are not JSON',
+                parse: '_parsePersonBatch',
+                bad: rawPerson({ properties: 'not json' }),
+                good: rawPerson({}),
+            },
+            {
+                name: 'an internal event without its required event',
+                parse: '_parseInternalEventsBatch',
+                bad: { value: Buffer.from(JSON.stringify({ team_id: 1 })) },
+                good: rawInternalEvent(),
+            },
+        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good }) => {
+            const result = await (matcher as any)[parse]([bad, good])
+
+            expect(result).toHaveLength(1)
+        })
+
+        const streams = [
+            { stream: 'events', consumer: 'kafkaConsumer', message: rawEvent({}) },
+            { stream: 'realtime-only events', consumer: 'realtimeOnlyEventsKafkaConsumer', message: rawEvent({}) },
+            { stream: 'person', consumer: 'personKafkaConsumer', message: rawPerson({}) },
+            { stream: 'internal events', consumer: 'internalEventsKafkaConsumer', message: rawInternalEvent() },
+        ]
+        const lookupFailures = [
+            {
+                lookup: 'the team lookup hits a retriable Postgres error',
+                fail: (m: MatcherUnderTest): Error => {
+                    const error = new DependencyUnavailableError(
+                        'connection reset',
+                        'Postgres',
+                        new Error('ECONNRESET')
+                    )
+                    ;(m as any).deps.teamManager.getTeam.mockRejectedValueOnce(error)
+                    return error
+                },
+            },
+            {
+                // handlePostgresError does not mark this transient replica error as retriable.
+                lookup: 'the hog flow lookup is cancelled on the read replica',
+                fail: (m: MatcherUnderTest): Error => {
+                    const error = new Error('canceling statement due to conflict with recovery')
+                    ;(m as any).hogFlowManager.getHogFlowsForTeam.mockRejectedValueOnce(error)
+                    return error
+                },
+            },
+        ]
+
+        it.each(streams.flatMap((s) => lookupFailures.map((f) => ({ ...s, ...f }))))(
+            'fails the $stream batch when $lookup, and processes the event when the batch is read again',
+            async ({ consumer, message, fail }) => {
+                const connect = jest.fn().mockResolvedValue(undefined)
+                ;(matcher as any)[consumer] = { connect }
+                await matcher.start()
+                const handleBatch = connect.mock.calls[0][0]
+                const processBatch = jest.spyOn(matcher, 'processBatch')
+                const error = fail(matcher)
+
+                // The consumer stores a batch's offsets only after its handler resolves. A rejection
+                // leaves them uncommitted. The pod then reads the batch again after it restarts.
+                await expect(handleBatch([message])).rejects.toBe(error)
+                expect(processBatch).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch([message])
+                await backgroundTask
+                expect(processBatch).toHaveBeenCalledWith(
+                    [expect.objectContaining({ project: expect.objectContaining({ id: 1 }) })],
+                    expect.any(String)
+                )
+            }
+        )
     })
 
     describe('_parsePersonDistinctIdBatch', () => {
@@ -1327,11 +1426,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 0 }])
         })
 
-        it('drops deletions, missing-id, versionless and malformed messages', () => {
+        it('drops deletions, missing-id, versionless, invalid-team and malformed messages', () => {
             const result = (matcher as any)._parsePersonDistinctIdBatch([
                 rawMove({ is_deleted: 1 }), // distinct_id being deleted
                 rawMove({ person_id: '' }), // no person to point at
                 rawMove({ version: null }), // no version to order against
+                // The move lookups send team_id to int4 columns, which reject these on every read.
+                ...invalidTeamIds.map((teamId) => rawMove({ team_id: teamId })),
                 { value: Buffer.from('not json') }, // malformed
                 rawMove(),
             ])

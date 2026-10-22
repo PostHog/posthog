@@ -3256,7 +3256,11 @@ class TestTaskAPI(BaseTaskAPITest):
             )
 
         self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
-        self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+        note = self._discussion_notes().get()
+        self.assertEqual(note.skill_name, skill_name)
+        # The scout learns whose preferences and routing the question reflects.
+        actor_clause, _, _ = note.content.partition(" opened a discussion on report")
+        self.assertIn(self.user.email, actor_clause)
 
     @parameterized.expand(
         [
@@ -11197,6 +11201,54 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
+
+    @parameterized.expand(
+        [
+            ("latest_turn_across_the_chain", "?tail_bytes=1", status.HTTP_200_OK, ("2", "3", "1"), ["latest"]),
+            ("older_page_before_an_offset", "?tail_bytes=1&before=2", status.HTTP_200_OK, ("0", "3", "0"), ["older"]),
+            ("before_needs_tail_bytes", "?before=2", status.HTTP_400_BAD_REQUEST, None, None),
+            ("entries_after_a_start_index", "?tail_bytes=1&start=2", status.HTTP_200_OK, ("2", "3", "0"), ["latest"]),
+            ("start_needs_tail_bytes", "?start=2", status.HTTP_400_BAD_REQUEST, None, None),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_pages_through_the_resume_chain(
+        self,
+        _name: str,
+        query: str,
+        expected_status: int,
+        expected_headers: tuple[str, str, str] | None,
+        expected_turns: list[str] | None,
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team)
+        target = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+
+        def user_turn(text: str) -> str:
+            update = {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}
+            return json.dumps({"notification": {"method": "session/update", "params": {"update": update}}})
+
+        run_started = json.dumps({"notification": {"method": "_posthog/run_started", "params": {"runId": "r"}}})
+        logs = {ancestor.log_url: f"{user_turn('older')}\n{run_started}\n", target.log_url: f"{user_turn('latest')}\n"}
+        mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/{query}")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_headers is not None:
+            self.assertEqual(
+                (response["X-Log-Offset"], response["X-Log-Count"], response["X-Log-Preamble"]), expected_headers
+            )
+            self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+            self.assertIn("X-Log-Origin", response["Access-Control-Expose-Headers"])
+            lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
+            turns = [
+                line["notification"]["params"]["update"]["content"]["text"]
+                for line in lines
+                if line["notification"]["method"] == "session/update"
+            ]
+            self.assertEqual(turns, expected_turns)
 
     @parameterized.expand(
         [

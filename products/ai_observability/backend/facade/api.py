@@ -3,6 +3,8 @@ from datetime import datetime
 from posthog.models import Team, User
 
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters
+from ..logic.traces.evaluation_result import EvaluationResult
+from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.events_fallback import fallback_window
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
@@ -155,3 +157,32 @@ def get_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters
     or categorical passing rule, and no skipped, N/A or sentiment runs. The conditions change when an evaluation's
     output config changes, so a caller that stores them rebuilds them on `evaluation_output_changed`."""
     return build_evaluation_pass_filters(team_id)
+
+
+def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
+    rows = load_evaluation_results(team, user, trace_id)
+    configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
+    return contracts.TraceEvaluationResults(
+        results=[
+            _to_evaluation_result(
+                EvaluationResult.from_row(
+                    row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {})
+                )
+            )
+            for row in rows
+        ]
+    )
+
+
+def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluationResult:
+    return contracts.TraceEvaluationResult(
+        id=result.id,
+        evaluation_id=result.evaluation_id,
+        evaluation_name=result.name,
+        target_node_id=result.target_node_id,
+        outcome=result.outcome,
+        label=result.label,
+        reasoning=result.reasoning,
+        timestamp=result.timestamp,
+        is_backfill=result.is_backfill,
+    )
