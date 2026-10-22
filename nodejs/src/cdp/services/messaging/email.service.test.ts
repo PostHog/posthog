@@ -16,6 +16,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
@@ -497,6 +498,112 @@ describe('EmailService', () => {
                 expect(result.metrics).toEqual(
                     expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
                 )
+            })
+        })
+
+        describe('transactional email status', () => {
+            let record: jest.Mock
+            let statusService: EmailService
+            let statusSendSpy: jest.SpyInstance
+
+            const recordedStatuses = (): [string, string | undefined][] =>
+                record.mock.calls.map(([change]) => [change.status, change.reason])
+
+            beforeEach(() => {
+                record = jest.fn().mockResolvedValue(undefined)
+                statusService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    null,
+                    null,
+                    { record, recordInBackground: jest.fn() }
+                )
+                statusSendSpy = jest.spyOn(statusService.sesV2Client!, 'send') as any
+                statusSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.emailRecipientHash = 'a1b2'
+            })
+
+            it('records the send as sent and tags it for the SES webhook', async () => {
+                await statusService.executeSendEmail(invocation)
+
+                const sentCommand = statusSendSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.EmailTags).toContainEqual({ Name: 'ph_recipient_hash', Value: 'a1b2' })
+
+                expect(record.mock.calls).toEqual([
+                    [
+                        {
+                            teamId: team.id,
+                            messageId: invocation.id,
+                            status: 'sent',
+                            at: expect.any(Date),
+                            recipientHash: 'a1b2',
+                        },
+                    ],
+                ])
+            })
+
+            it.each<[string, () => void, [string, string | undefined][]]>([
+                [
+                    'a provider error as failed',
+                    () =>
+                        statusSendSpy.mockRejectedValueOnce(
+                            new MessageRejected({ $metadata: {}, message: 'rejected' })
+                        ),
+                    [['failed', 'provider_error']],
+                ],
+                [
+                    'a policy skip as skipped with the policy code',
+                    () => {
+                        invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
+                    },
+                    [['skipped', 'template_paused']],
+                ],
+                [
+                    'nothing for a throttle, because the retry sends it',
+                    () =>
+                        statusSendSpy.mockRejectedValueOnce(
+                            new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                        ),
+                    [],
+                ],
+                [
+                    'nothing for a run queued before it carried the recipient hash',
+                    () => {
+                        delete invocation.state.emailRecipientHash
+                    },
+                    [],
+                ],
+            ])('records %s', async (_name, arrange, expected) => {
+                arrange()
+
+                await statusService.executeSendEmail(invocation)
+
+                expect(recordedStatuses()).toEqual(expected)
+            })
+
+            it('sends the email once when the status write fails', async () => {
+                record.mockRejectedValue(new Error('kafka is down'))
+
+                const result = await statusService.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(statusSendSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_sent'])
             })
         })
 

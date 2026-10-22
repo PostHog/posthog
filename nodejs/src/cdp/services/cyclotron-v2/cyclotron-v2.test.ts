@@ -9,6 +9,7 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
+import { EmailStatusWriter } from '../messaging/email-status.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
@@ -74,7 +75,11 @@ function parseProducedResult(produce: jest.Mock): Record<string, any> {
     return parseJSON(value.toString('utf-8'))
 }
 
-function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {
+function createJanitor(
+    overrides?: Record<string, unknown>,
+    results?: HogInvocationResultsService,
+    emailStatus?: EmailStatusWriter
+): CyclotronV2Janitor {
     return new CyclotronV2Janitor(
         {
             pool: { dbUrl: DB_URL },
@@ -86,7 +91,8 @@ function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocat
             stallBackoffBaseMs: 0,
             ...overrides,
         },
-        results
+        results,
+        emailStatus
     )
 }
 
@@ -2820,6 +2826,62 @@ describe('Cyclotron V2', () => {
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
 
             await janitor.stop()
+        })
+
+        describe('transactional email status', () => {
+            const jobState = (triggerEvent: string): Buffer =>
+                Buffer.from(
+                    JSON.stringify({
+                        state: { event: { event: triggerEvent }, actionStepCount: 0, emailRecipientHash: 'a1b2' },
+                    })
+                )
+
+            it.each<[string, string, string, number, [string, string | undefined][]]>([
+                [
+                    'a stalled transactional email as unknown',
+                    'email',
+                    '$transactional_email',
+                    0,
+                    [['unknown', undefined]],
+                ],
+                [
+                    'a transactional email it gives up on as failed',
+                    'email',
+                    '$transactional_email',
+                    3,
+                    [['failed', 'gave_up']],
+                ],
+                ['nothing for a stalled workflow email', 'email', '$pageview', 0, []],
+            ])('records %s', async (_name, queueName, triggerEvent, touchCount, expected) => {
+                const jobId = uuidv7()
+                await insertRawJob({
+                    id: jobId,
+                    function_id: uuidv7(),
+                    queue_name: queueName,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: touchCount,
+                    state: jobState(triggerEvent),
+                })
+                const record = jest.fn().mockResolvedValue(undefined)
+
+                const janitor = createJanitor(
+                    { stallTimeoutMs: 1_000, maxTouchCount: 2 },
+                    createMockResults(true).service,
+                    {
+                        record,
+                        recordInBackground: jest.fn(),
+                    }
+                )
+                await janitor.runOnce()
+                await janitor.stop()
+
+                expect(record.mock.calls.map(([change]) => [change.status, change.reason])).toEqual(expected)
+                for (const [change] of record.mock.calls) {
+                    expect(change).toMatchObject({ teamId: 1, messageId: jobId, recipientHash: 'a1b2' })
+                }
+            })
         })
     })
 })
