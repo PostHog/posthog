@@ -78,7 +78,8 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { getTeamUtmDefaults, newEmailUtmConfig } from '../Workflows/hogflows/steps/components/utmDefaults'
+import type { UtmTagKey, UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import {
     REALTIME_COHORT_STATUS_POLL_MS,
     isRealtimeCohortUnresolved,
@@ -183,6 +184,8 @@ export interface BroadcastEmailSettings {
     trackingEnabled: boolean
     utmTagsEnabled: boolean
     utmParams: UtmTagValues
+    /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
+    utmParamsFromDefault?: UtmTagKey[]
 }
 
 export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
@@ -204,6 +207,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
         utmParams: config.utm_params ?? {},
+        utmParamsFromDefault: config.utm_params_from_default,
     }
 }
 
@@ -217,6 +221,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
         utm_params: settings.utmParams,
+        utm_params_from_default: settings.utmParamsFromDefault,
     }
 }
 
@@ -499,6 +504,11 @@ export interface broadcastWizardLogicActions {
     saveName: () => {
         value: true
     }
+    seedTeamUtmDefaults: (
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    ) => {
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    }
     sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
@@ -696,6 +706,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
+        seedTeamUtmDefaults: (
+            settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
+        ) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
         applyDefaultSender: true,
@@ -968,6 +981,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL_SETTINGS,
             {
                 setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                // Not setEmailSettings: that one autosaves, and opening /broadcasts/new must not create a draft.
+                seedTeamUtmDefaults: (state, { settings }) => ({ ...state, ...settings }),
                 hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, readEmailSettings)
@@ -1414,7 +1429,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.applyDefaultSender()
             actions.landOnPrefilledStep()
         },
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: ({ currentTeam }) => {
+            // A new broadcast that mounted before the team loaded still shows the built-in settings.
+            // Anything the user changed since replaced that object, so it is left alone.
+            if (props.id === 'new' && currentTeam && values.emailSettings === DEFAULT_BROADCAST_EMAIL_SETTINGS) {
+                seedTeamUtmDefaults(actions, currentTeam)
+            }
             actions.applyDefaultSender()
             actions.landOnPrefilledStep()
         },
@@ -2201,6 +2221,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.loadBroadcast()
             return
         }
+        if (values.currentTeam) {
+            seedTeamUtmDefaults(actions, values.currentTeam)
+        }
         actions.applyDefaultSender()
         const {
             [AUDIENCE_PREFILL_PARAM]: audience,
@@ -2295,6 +2318,18 @@ async function saveDraftSchedule(
     for (const schedule of existing) {
         await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
     }
+}
+
+function seedTeamUtmDefaults(
+    actions: broadcastWizardLogicType['actions'],
+    currentTeam: TeamPublicType | TeamType
+): void {
+    const utm = newEmailUtmConfig(getTeamUtmDefaults(currentTeam.workflows_config))
+    actions.seedTeamUtmDefaults({
+        utmTagsEnabled: utm.utm_tags_enabled,
+        utmParams: utm.utm_params,
+        utmParamsFromDefault: utm.utm_params_from_default,
+    })
 }
 
 async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {

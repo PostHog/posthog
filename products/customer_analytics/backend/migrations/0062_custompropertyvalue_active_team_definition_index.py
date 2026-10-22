@@ -7,16 +7,16 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("workflows", "0036_hogflow_source_record"),
+        ("customer_analytics", "0061_announcement_send_as"),
     ]
 
     operations = [
         SafeAddIndexConcurrently(
-            model_name="hogflow",
+            model_name="custompropertyvalue",
             index=models.Index(
-                condition=models.Q(source_record__isnull=False),
-                fields=["team", "source_record"],
-                name="hogflow_team_source_record_idx",
+                condition=models.Q(("is_deleted", False)),
+                fields=["team", "definition", "account"],
+                name="cpv_active_team_definition_idx",
             ),
         ),
     ]

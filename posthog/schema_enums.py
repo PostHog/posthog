@@ -1080,6 +1080,7 @@ class CustomChannelOperator(StrEnum):
 class Kind(StrEnum):
     CUSTOM_PROPERTY = "custom_property"
     RELATIONSHIP = "relationship"
+    ACCOUNT_FIELD = "account_field"
 
 
 class DataColorToken(StrEnum):

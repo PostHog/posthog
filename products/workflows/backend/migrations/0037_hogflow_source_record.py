@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workflows", "0035_hogflowbatchjob_waiting_index"),
+        ("workflows", "0036_teamworkflowsconfig_email_utm_defaults"),
     ]
 
     operations = [
