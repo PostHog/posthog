@@ -13,6 +13,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
 
 from products.managed_migrations.backend import trial_storage
@@ -624,8 +625,70 @@ class TestBatchImportAdminChangeForm(BaseTest):
             "status": batch_import.status,
             "status_message": batch_import.status_message or "",
             "sink_type": sink["type"],
-            "send_rate": str(sink["send_rate"]),
+            "send_rate": str(sink.get("send_rate", "")),
         }
+
+    def _post_admin_form(
+        self, batch_import: BatchImport, shown: dict[str, str], edits: dict[str, str], with_initial=True
+    ):
+        self.user.is_staff = True
+        self.user.save()
+        self.model_admin = admin.site._registry[BatchImport]
+        self.request = RequestFactory().post("/")
+        self.request.user = self.user
+        # Django admin loads the row when the POST arrives, so it already holds any worker write.
+        loaded_at_post = BatchImport.objects.get(id=batch_import.id)
+        initial = {f"initial-{name}": value for name, value in shown.items()} if with_initial else {}
+        return self.model_admin.get_form(self.request, loaded_at_post, change=True)(
+            data={**initial, **shown, **edits}, instance=loaded_at_post
+        )
+
+    def _save(self, form) -> None:
+        self.model_admin.save_model(self.request, form.save(commit=False), form, change=True)
+
+    @parameterized.expand(
+        [
+            ("trial", {"type": "trial_s3", "record_limit": 100}, {}, {"type": "trial_s3", "record_limit": 100}),
+            ("noop", {"type": "noop"}, {}, {"type": "noop"}),
+            (
+                "trial_rate_change_keeps_record_limit",
+                {"type": "trial_s3", "record_limit": 100},
+                {"send_rate": "600"},
+                {"type": "trial_s3", "record_limit": 100, "send_rate": 600},
+            ),
+        ]
+    )
+    def test_save_changes_only_the_sink_keys_the_operator_edits(self, _name, sink, edits, expected_sink):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": sink},
+            status=BatchImport.Status.PAUSED,
+        )
+
+        form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status_message": "note", **edits})
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save(form)
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.import_config["sink"], expected_sink)
+        self.assertEqual(batch_import.status_message, "note")
+
+    def test_save_rejects_a_page_without_initial_values(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            status=BatchImport.Status.RUNNING,
+            lease_id="live-worker-lease",
+        )
+
+        form = self._post_admin_form(
+            batch_import, self._form_values(batch_import), {"send_rate": "500"}, with_initial=False
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("This page is out of date", str(form.non_field_errors()))
 
     @parameterized.expand(
         [
@@ -650,22 +713,13 @@ class TestBatchImportAdminChangeForm(BaseTest):
             state={"parts": [{"key": "day-1", "current_offset": 100, "total_size": None}]},
         )
         shown = self._form_values(batch_import)
-        loaded_for_save = BatchImport.objects.get(id=batch_import.id)
         BatchImport.objects.filter(id=batch_import.id).update(
             status=worker_status, state=self.WORKER_STATE, lease_id="lease-after-worker-commit"
         )
 
-        self.user.is_staff = True
-        self.user.save()
-        model_admin = admin.site._registry[BatchImport]
-        request = RequestFactory().post("/")
-        request.user = self.user
-        form = model_admin.get_form(request, loaded_for_save, change=True)(
-            data={**{f"initial-{name}": value for name, value in shown.items()}, **shown, **edits},
-            instance=loaded_for_save,
-        )
+        form = self._post_admin_form(batch_import, shown, edits)
         self.assertTrue(form.is_valid(), form.errors)
-        model_admin.save_model(request, form.save(commit=False), form, change=True)
+        self._save(form)
 
         batch_import.refresh_from_db()
         self.assertEqual(batch_import.status, expected_status)
@@ -1167,6 +1221,13 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(batch_import.status_message, "Resumed by user")
         self.assertIsNone(batch_import.display_status_message)
         self.assertIsNone(batch_import.pending_commit)
+        logged_fields = [
+            change["field"]
+            for log in ActivityLog.objects.filter(scope="BatchImport", item_id=str(batch_import.id))
+            for change in (log.detail or {}).get("changes") or []
+        ]
+        self.assertIn("status", logged_fields)
+        self.assertNotIn("pending_commit", logged_fields)
 
     @parameterized.expand(
         [

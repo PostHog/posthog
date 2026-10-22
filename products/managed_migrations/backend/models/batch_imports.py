@@ -61,9 +61,8 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)
-    # Worker-owned. The worker sets it to the chunk it is sending (part key and offsets) before
-    # it sends, and clears it after the sink accepts the chunk. A value on a row that no worker
-    # holds means a worker stopped mid-commit, so the chunk may or may not have reached the sink.
+    # Worker-owned marker for the chunk being sent. A value on a row no worker holds means a worker
+    # stopped mid-commit, so the chunk may not have reached the sink.
     pending_commit = models.JSONField(null=True, blank=True)
 
     class Meta:
