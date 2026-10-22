@@ -120,10 +120,10 @@ describe('emailDomainWizardLogic', () => {
     it.each([
         [
             'the typed name, address and reply-to',
-            'Thomas Obermüller',
-            'thomas',
+            'Support team',
+            'support',
             'support@acme.com',
-            { name: 'Thomas Obermüller', email: 'thomas@mail.acme.com', reply_to: 'support@acme.com' },
+            { name: 'Support team', email: 'support@mail.acme.com', reply_to: 'support@acme.com' },
         ],
         [
             'the suggestions when the fields are left blank',
