@@ -46,6 +46,8 @@ MAX_TEXT_LENGTH = 4000
 SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
 # The name and attribute tables store hourly buckets, so the bucket that holds the start of the range counts too.
 OPTIONS_RANGE = "time_bucket >= toStartOfHour($__from) AND time_bucket < $__to"
+# A dashboard opens on the last hour, as the metrics viewer does. Without it, each tile reads the last 24 hours.
+DASHBOARD_DATE_FROM = "-1h"
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
 
@@ -226,7 +228,7 @@ def create_dashboard(
 ) -> tuple[CreatedDashboard | None, BuiltTiles]:
     """Create the dashboard as the user. Returns no dashboard when no panel has data in this team.
 
-    The dashboard gets only the variables that its tiles refer to.
+    The dashboard gets only the variables that its tiles refer to, and opens on the last hour.
     """
     built = build_tiles(panels, catalog, refill=refill)
     if not any(isinstance(tile, NewInsightTile) for tile in built.tiles):
@@ -244,7 +246,10 @@ def create_dashboard(
             tiles=built.tiles,
             idempotency_key=idempotency_key,
             unlisted=unlisted,
-            filters={"metricVariables": kept_variables} if kept_variables else None,
+            filters={
+                "date_from": DASHBOARD_DATE_FROM,
+                **({"metricVariables": kept_variables} if kept_variables else {}),
+            },
         ),
     )
     return created, built
