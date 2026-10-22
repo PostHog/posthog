@@ -49,6 +49,9 @@ TIER1_SOURCES = [
     # OAuth-connected support sources
     (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
+    # CRM case tools
+    (ExternalDataSourceType.DYNAMICS365, "Cases", "dynamics365", "ticket"),
+    (ExternalDataSourceType.ZOHOCRM, "Cases", "zoho_crm", "ticket"),
     # Incident management / on-call
     (ExternalDataSourceType.PAGERDUTY, "incidents", "pagerduty", "incident"),
     (ExternalDataSourceType.OPSGENIE, "alerts", "opsgenie", "incident"),

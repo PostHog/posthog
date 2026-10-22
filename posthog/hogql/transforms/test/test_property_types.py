@@ -227,7 +227,7 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
                 (
-                    f"JSONExtractRaw(if(empty(events.properties), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                    "JSONExtractRaw(events.properties, ",
                     f"JSONHas(if(empty(events.properties), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
                 ),
                 ("properties_group_feature_flags", "mapFilter("),

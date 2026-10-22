@@ -26,6 +26,10 @@ class PropertyAccessLevel(str, Enum):
         return self in (PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ)
 
 
+class UserNotOrganizationMemberError(ValueError):
+    """The user has no membership in the organization, so their property access cannot be resolved."""
+
+
 # --- Output DTOs ---
 
 
