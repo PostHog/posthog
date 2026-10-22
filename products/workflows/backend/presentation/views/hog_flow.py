@@ -3692,13 +3692,22 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     "hog_flow_graph_warning", warning=warning, hog_flow_id=str(instance.id) if instance else None
                 )
 
+        # The invocations endpoint nests this serializer without an instance and passes the workflow in context.
+        stored_flow = instance or cast(Optional[WorkflowEditState], self.context.get("instance"))
+        activating = data.get("status") == HogFlow.State.ACTIVE and (
+            stored_flow is None or stored_flow.status != HogFlow.State.ACTIVE
+        )
+        if activating and "conversion" not in data and stored_flow and (stored_flow.conversion or {}).get("filters"):
+            # A draft's goal cohort can be deleted, or the flag turned off, after the draft was saved.
+            data["conversion"] = deepcopy(stored_flow.conversion)
+
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
             if filters:
                 filters_context = self.context
                 if filter_cohort_ids({"properties": filters}) and self._conversion_cohorts_allowed(
-                    filters, instance, strict
+                    filters, stored_flow, strict
                 ):
                     filters_context = {**self.context, "cohort_membership_supported": True}
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=filters_context)

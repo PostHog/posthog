@@ -2206,6 +2206,22 @@ class TestHogFlowAPI(APIBaseTest):
             )
             assert resave.status_code == 200, resave.json()
 
+            # The editor's test request sends the workflow inline, and nests the serializer without an instance.
+            with patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke:
+                mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+                test_run = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                    {
+                        "configuration": {**created.json(), "conversion": stored_conversion},
+                        "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                        "mock_async_functions": True,
+                    },
+                    format="json",
+                )
+            assert test_run.status_code == 200, test_run.json()
+
             new_adoption = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
                 {
@@ -2217,6 +2233,38 @@ class TestHogFlowAPI(APIBaseTest):
             )
             assert new_adoption.status_code == 400, new_adoption.json()
             assert "aren't available for this organization" in str(new_adoption.json())
+
+    @parameterized.expand(
+        [
+            ("deleted_cohort", True, False, "doesn't exist in this environment"),
+            ("flag_off", False, True, "aren't available for this organization"),
+        ]
+    )
+    def test_hog_flow_activation_revalidates_a_stored_cohort_conversion_goal(
+        self, _name, flag_on_at_activation, cohort_survives, expected_error
+    ):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        draft = self._hog_flow_with_conversion_filters([{"key": "id", "type": "cohort", "value": cohort.id}])
+        draft["status"] = "draft"
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True
+        ):
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", draft)
+        assert created.status_code == 201, created.json()
+        if not cohort_survives:
+            cohort.deleted = True
+            cohort.save()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false",
+            return_value=flag_on_at_activation,
+        ):
+            activation = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}", {"status": "active"}
+            )
+
+        assert activation.status_code == 400, activation.json()
+        assert expected_error in str(activation.json()), activation.json()
 
     def _cohort_trigger_flow(self, config: dict) -> dict:
         return {
