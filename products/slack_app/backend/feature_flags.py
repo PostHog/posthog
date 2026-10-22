@@ -46,9 +46,8 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
+SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
-SLACK_APP_REPLY_SUGGESTIONS_FLAG = "slack-app-reply-suggestions"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
@@ -128,22 +127,14 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for the in-thread project picker. With the gate closed, a mention that could go
-    to more than one project gets the text hint."""
+def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
+    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
+    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
+    when the run starts, and stored on the run for the unfurl webhook to read."""
     return _workspace_flag_enabled(
-        SLACK_APP_PROJECT_PICKER_FLAG,
+        SLACK_APP_CHART_LINKS_FLAG,
         integration,
-        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
-    return _workspace_flag_enabled(
-        SLACK_APP_REPLY_SUGGESTIONS_FLAG,
-        integration,
-        failure_log_key="slack_app_reply_suggestions_feature_flag_check_failed",
+        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
     )
 
 

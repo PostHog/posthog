@@ -2,6 +2,7 @@ import {
   ArrowClockwise,
   CaretDown,
   Coins,
+  GameController,
   HourglassMedium,
   RocketLaunch,
   SignOut,
@@ -30,6 +31,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   FIELD_CONTENT_CLASS,
   FIELD_TRIGGER_CLASS,
@@ -67,8 +69,15 @@ const SIGNUPS_PAUSED_CONTENT = {
   icon: <HourglassMedium />,
   title: "Desktop sign-ups are paused",
   description:
-    "Sorry, we aren't accepting new sign-ups for PostHog Desktop right now. We'll contact you with next steps when we're ready.",
+    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know.",
 };
+
+const POSTHOG_GAMES_URL = "https://posthog.com/sparks-joy";
+
+function openGames(): void {
+  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link: "games" });
+  openExternalUrl(POSTHOG_GAMES_URL);
+}
 
 interface DesktopAccessScreenProps {
   access: DesktopAccess;
@@ -186,6 +195,18 @@ export function DesktopAccessScreen({
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent className="w-full max-w-md gap-4">
+              {isSignupsPaused && (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={openGames}
+                  data-attr="desktop-access-games"
+                >
+                  <GameController />
+                  Play a hedgehog game instead
+                </Button>
+              )}
+
               <div className="flex w-full flex-col gap-4">
                 <Field className="min-w-0">
                   <FieldLabel htmlFor="desktop-access-organization">
@@ -331,7 +352,7 @@ export function DesktopAccessScreen({
               )}
 
               <Button
-                variant="primary"
+                variant={isSignupsPaused ? "outline" : "primary"}
                 loading={isRetrying}
                 disabled={isRetrying || isSwitching}
                 onClick={onRetry}

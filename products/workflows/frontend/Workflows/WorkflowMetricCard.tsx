@@ -66,6 +66,9 @@ export interface WorkflowMetricCardProps {
     description?: ReactNode
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
+    /** Names the previous value, e.g. "Previous run (Oct 12)". The card then shows that value in words
+     *  under its own, instead of a bare change pill. */
+    previousLabel?: string
     color?: string
     /** Per-series sparkline colors keyed by series name. When the response has more than one series,
      *  the tile draws one line per series (colored from here) instead of a single summed line. */
@@ -101,6 +104,7 @@ export function WorkflowMetricCard({
     description,
     timeSeries,
     previousPeriodTimeSeries,
+    previousLabel,
     color,
     seriesColors,
     colorIfZero,
@@ -207,7 +211,7 @@ export function WorkflowMetricCard({
                     labels={timeSeries?.labels}
                     theme={theme}
                     color={total === 0 ? colorIfZero : color}
-                    change={change}
+                    change={previousLabel ? null : change}
                     positiveColor={neutral}
                     negativeColor={neutral}
                     formatValue={(v) => humanFriendlyNumber(v)}
@@ -237,6 +241,12 @@ export function WorkflowMetricCard({
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
+                    {previousLabel && previousPeriodTimeSeries && (
+                        <div className="text-xs text-muted" data-attr="workflow-metric-card-previous">
+                            {`${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}`}
+                            {total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''}
+                        </div>
+                    )}
                     <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (
