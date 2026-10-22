@@ -86,7 +86,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        feature_flag: workflows-transactional-email-api
         enrich_url: '{id}'
         title: Make email template transactional
         description: >
@@ -97,16 +96,17 @@ tools:
             otherwise the project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
             can review and publish it.
-        confirmed_action:
-            message: >
-                About to make email template '{id}' transactional. This can't be undone, and its sends will ignore
-                marketing opt-outs. Reply 'confirm' to proceed.
-            action_label: make email template transactional
+        feature_flag: workflows-transactional-email-api
         response:
             exclude:
                 - content
                 - draft_content
                 - created_by
+        confirmed_action:
+            message: >
+                About to make email template '{id}' transactional. This can't be undone, and its sends will ignore
+                marketing opt-outs. Reply 'confirm' to proceed.
+            action_label: make email template transactional
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
         enabled: true
