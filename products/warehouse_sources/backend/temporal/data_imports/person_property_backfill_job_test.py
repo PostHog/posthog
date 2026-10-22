@@ -151,7 +151,8 @@ async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -
 
 
 @pytest.mark.asyncio
-async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -> None:
+@pytest.mark.parametrize("records_failure", [False, True])
+async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran(records_failure: bool) -> None:
     # The API reports a request that lands mid-run as queued, so losing it with the run it happened
     # to overlap would strand a mapping edit with nothing telling the user.
     first = _inputs(900004)
@@ -164,7 +165,10 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
     release_first = asyncio.Event()
     observed: list[PersonPropertyBackfillActivityInputs] = []
 
-    async def execute_activity(_activity, inputs, **_kwargs):
+    async def execute_activity(activity_fn, inputs, **_kwargs):
+        if activity_fn is bj.record_failed_person_property_backfill_runs_activity:
+            # The failed-run record can itself be lost to a worker shutdown.
+            raise _activity_error()
         observed.append(inputs)
         if len(observed) == 1:
             first_started.set()
@@ -175,7 +179,8 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
         patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
-        patch.object(bj.workflow, "patched", return_value=False),
+        patch.object(bj.workflow, "patched", return_value=records_failure),
+        patch.object(bj.workflow, "logger"),
     ):
         running = asyncio.create_task(runner.run(seed))
         await first_started.wait()
@@ -183,7 +188,7 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
         release_first.set()
         await running
 
-    assert observed == [first, latest]
+    assert [i.schema_name for i in observed] == [first.schema_name, latest.schema_name]
 
 
 @pytest.mark.asyncio

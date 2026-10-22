@@ -238,3 +238,52 @@ async def test_failed_history_from_before_the_failed_run_record_still_replays(
             history = await handle.fetch_history()
 
     await Replayer(workflows=[workflow_cls], workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(history)
+
+
+async def test_sync_activity_deadline_leaves_time_to_record_the_failure_before_the_workflow_deadline() -> None:
+    inputs = PersonPropertySyncActivityInputs(
+        team_id=1,
+        schema_id=None,
+        source_id=None,
+        job_id="job-deadline",
+        source_type="saved_query",
+        schema_name="example_view",
+        last_synced_at=None,
+        saved_query_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    )
+    other_activities = [
+        a for a in PERSON_PROPERTY_SYNC_ACTIVITIES if a is not sync_warehouse_person_properties_activity
+    ]
+    task_queue = str(uuid.uuid4())
+    with (
+        patch(f"{HOOKS}._person_property_sync_sources_resolver", lambda _team_id, _binding: []),
+        patch(f"{HOOKS}._person_property_sync_recorder", lambda _record: None),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as environment:
+            async with Worker(
+                environment.client,
+                task_queue=task_queue,
+                workflows=[SyncWarehousePersonPropertiesWorkflow],
+                activities=[_sync_activity_killed_by_worker_shutdown, *other_activities],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await environment.client.start_workflow(
+                    SyncWarehousePersonPropertiesWorkflow.run,
+                    inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(hours=6),
+                )
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+                history = await handle.fetch_history()
+
+    scheduled = [
+        e.activity_task_scheduled_event_attributes
+        for e in history.events
+        if e.activity_task_scheduled_event_attributes.activity_type.name == "sync_warehouse_person_properties_activity"
+    ]
+    assert len(scheduled) == 1
+    # The recorder needs up to 3 attempts of 5 minutes after the sync activity gives up.
+    deadline = scheduled[0].schedule_to_close_timeout.ToTimedelta()
+    assert timedelta(0) < deadline <= timedelta(hours=6) - timedelta(minutes=15)

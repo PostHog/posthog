@@ -16,6 +16,7 @@ counts it once in the metrics below, also when the activity was timed out, cance
 import json
 import time
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -44,6 +45,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 logger = structlog.get_logger(__name__)
 
 INTERRUPTED_RUN_NEXT_STEP = "The next sync will try again."
+# Three recorder attempts of up to 5 minutes each.
+RECORD_FAILED_RUN_RESERVE = timedelta(minutes=15)
 RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"
 
 PERSON_PROPERTY_SYNC_TOTAL = Counter(
@@ -159,35 +162,47 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PersonPropertySyncActivityInputs) -> None:
+        # Temporal terminates the workflow at its own deadline without running the except branch
+        # below, so the activity has to give up early enough to leave time to record the failure.
+        schedule_to_close_timeout = None
+        info = workflow.info()
+        if info.execution_timeout is not None:
+            elapsed = workflow.now() - info.start_time
+            schedule_to_close_timeout = info.execution_timeout - elapsed - RECORD_FAILED_RUN_RESERVE
         try:
             await workflow.execute_activity(
                 sync_warehouse_person_properties_activity,
                 inputs,
                 start_to_close_timeout=timedelta(hours=6),
+                schedule_to_close_timeout=schedule_to_close_timeout,
                 heartbeat_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except ActivityError as e:
             if workflow.patched(RECORD_FAILED_RUN_PATCH):
-                await workflow.execute_activity(
-                    record_failed_person_property_sync_runs_activity,
-                    PersonPropertyFailedRunInputs(
-                        team_id=inputs.team_id,
-                        schema_id=inputs.schema_id,
-                        saved_query_id=inputs.saved_query_id,
-                        job_id=inputs.job_id,
-                        trigger="scheduled",
-                        started_at=workflow.info().start_time.isoformat(),
-                        error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
+                try:
+                    await workflow.execute_activity(
+                        record_failed_person_property_sync_runs_activity,
+                        PersonPropertyFailedRunInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.schema_id,
+                            saved_query_id=inputs.saved_query_id,
+                            job_id=inputs.job_id,
+                            trigger="scheduled",
+                            started_at=info.start_time.isoformat(),
+                            error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except ActivityError:
+                    # Fail with the sync's own error, not the recorder's.
+                    workflow.logger.exception("Failed to record the failed person-property sync run")
             raise
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES = [
+PERSON_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., Any]] = [
     sync_warehouse_person_properties_activity,
     record_failed_person_property_sync_runs_activity,
 ]

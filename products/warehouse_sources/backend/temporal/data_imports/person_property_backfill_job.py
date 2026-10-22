@@ -197,22 +197,26 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
                 )
             except ActivityError as e:
                 if records_failure:
-                    await workflow.execute_activity(
-                        record_failed_person_property_backfill_runs_activity,
-                        PersonPropertyFailedRunInputs(
-                            team_id=activity_inputs.team_id,
-                            schema_id=activity_inputs.schema_id,
-                            saved_query_id=activity_inputs.saved_query_id,
-                            job_id=None,
-                            trigger=activity_inputs.trigger,
-                            started_at=started_at.isoformat(),
-                            error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        # The recorder swallows its own errors. A retry could only follow a write
-                        # that already landed, and without a job_id it would add a second failed row.
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+                    try:
+                        await workflow.execute_activity(
+                            record_failed_person_property_backfill_runs_activity,
+                            PersonPropertyFailedRunInputs(
+                                team_id=activity_inputs.team_id,
+                                schema_id=activity_inputs.schema_id,
+                                saved_query_id=activity_inputs.saved_query_id,
+                                job_id=None,
+                                trigger=activity_inputs.trigger,
+                                started_at=started_at.isoformat(),
+                                error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                            ),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            # The recorder swallows its own errors. A retry could only follow a write
+                            # that already landed, and without a job_id it would add a second failed row.
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except ActivityError:
+                        # A lost failure record must not also drop a request queued behind this run.
+                        workflow.logger.exception("Failed to record the failed person-property backfill run")
                 # A request that arrived while the activity ran was reported to its caller as
                 # queued, so serve that before giving up — a mapping edit must not die with the run
                 # it happened to overlap. With nothing pending, fail the workflow as before.
