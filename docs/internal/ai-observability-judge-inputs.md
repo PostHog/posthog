@@ -35,7 +35,8 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 ## Generation formatting
 
 Generation evaluations extract message text without the per-message character cutoff.
-They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
+They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
+If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
@@ -181,6 +182,11 @@ A provider rejection of an invalid token setting does not count as a truncated r
 The playground keeps the provider's explanation so users can correct the setting before trying again.
 
 ## Backfill recovery
+
+Estimates and new backfills clamp their start to UTC midnight 29 days before the current UTC date.
+This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
+Ranges ending at or before that boundary are rejected.
+Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.

@@ -12,16 +12,13 @@ from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
+from posthog.clickhouse.native_metadata import POLL_DEADLINE_SECONDS, submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event.new_events_schema import get_new_events_cluster_host_or_none
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
 logger = get_logger(__name__)
-
-
-_LEGACY_POLL_TIMEOUT_SECONDS = 3.0
 
 
 def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[QueryStatusManager]:
@@ -70,19 +67,17 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
     native = None
     if native_host:
         try:
-            native = submit_native_metadata(
-                {"operation": "poll", "sql": SYSTEM_PROCESSES_SQL}, native_host=native_host, polling=True
-            )
+            native = submit_native_metadata({"operation": "poll", "sql": SYSTEM_PROCESSES_SQL}, native_host=native_host)
         except Exception:
             logger.exception("Failed to prepare native query progress")
     try:
         if native_host:
-            legacy = submit_legacy_metadata({"operation": "poll", "sql": SYSTEM_PROCESSES_SQL}, polling=True)
+            legacy = submit_legacy_metadata({"operation": "poll", "sql": SYSTEM_PROCESSES_SQL})
             if legacy is None:
                 raw_results = []
             else:
                 try:
-                    raw_results = legacy.result(timeout=_LEGACY_POLL_TIMEOUT_SECONDS)
+                    raw_results = legacy.result(timeout=POLL_DEADLINE_SECONDS)
                 except TimeoutError:
                     legacy.add_done_callback(partial(_log_detached_poll, "legacy"))
                     raise
@@ -102,7 +97,7 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
     yield _format_results(raw_results)
     if native is None:
         return
-    remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
+    remaining = min(POLL_DEADLINE_SECONDS, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
     try:
         yield _format_results(native.result(timeout=max(0.0, remaining)))
     except TimeoutError:
