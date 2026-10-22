@@ -158,6 +158,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
+    from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
     from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
@@ -199,6 +200,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.rapid7_insightvm_vulnerabilities import RAPID7_INSIGHTVM_CONFIG
     from products.signals.backend.emission.raygun_error_groups import RAYGUN_CONFIG
     from products.signals.backend.emission.retently_feedback import RETENTLY_CONFIG
+    from products.signals.backend.emission.roark_issues import ROARK_CONFIG
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
@@ -211,6 +213,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
+    from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -295,6 +298,10 @@ def _register_all_emitters() -> None:
         "vulnerabilities",
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
+    # Error monitors (record kind: issue)
+    register_signal_source(ExternalDataSourceType.TRIGGERDEV, "errors", TRIGGER_DEV_CONFIG)
+    register_signal_source(ExternalDataSourceType.CHECKLY, "error_groups", CHECKLY_CONFIG)
+    register_signal_source(ExternalDataSourceType.ROARK, "issue", ROARK_CONFIG)
 
 
 _register_all_emitters()
