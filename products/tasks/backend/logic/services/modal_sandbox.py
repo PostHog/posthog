@@ -25,6 +25,7 @@ from django.conf import settings
 import modal
 import requests
 from cachetools import TTLCache, cached
+from modal._utils.async_utils import synchronizer as modal_synchronizer
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -32,6 +33,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
 
@@ -145,7 +147,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
 SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
@@ -1997,6 +1999,26 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode == 124:
             return "timed out"
         return f"exited with code {returncode}"
+
+    def exit_status(self) -> str | None:
+        try:
+            returncode = self._sandbox.poll()
+        except Exception as e:
+            logger.warning(f"Failed to poll sandbox {self.id} for its exit status: {e}")
+            return "unknown"
+        if returncode is None:
+            return "running"
+        try:
+            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            if result is not None:
+                return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
+        except Exception as e:
+            logger.warning(f"Failed to read exit status for sandbox {self.id}: {e}")
+        if returncode == 124:
+            return "timeout"
+        if returncode == 137:
+            return "terminated"
+        return "success" if returncode == 0 else "failure"
 
     @property
     def name(self) -> str:

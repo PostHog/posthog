@@ -8,6 +8,7 @@ import asyncio
 import datetime
 from collections import Counter
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -15,6 +16,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import openai_gateway_configured
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
 from posthog.schema_enums import EmbeddingModelName
@@ -24,7 +26,14 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
-from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
+from products.signals.backend.activity_summary.logic import (
+    MAX_VERSIONS,
+    ActivitySummaryUpdate,
+    UpdateAfterModelCallError,
+    UpdateStatus,
+    record_update_exception,
+    update_activity_summary,
+)
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
@@ -32,7 +41,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import RENDER_VERSION
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
@@ -47,12 +56,13 @@ EMBEDDING_RENDERING = "summary_text"
 STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
 STOP_MAX_PAIRS_PER_DAY = "max_pairs_per_day"
 STOP_MAX_COST_USD_PER_DAY = "max_cost_usd_per_day"
+STOP_GATEWAY_NOT_CONFIGURED = "gateway_not_configured"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=5)
 # One model call has a 120 second request timeout and one retry on a malformed answer.
 _PAIR_TIMEOUT = datetime.timedelta(minutes=5)
 _PAIR_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
-# Only transient errors raise out of the pair activity: `update_activity_summary` records model failures.
+# An attempt that raises is retried. The last attempt records the exception as a failed update instead.
 _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=2, initial_interval=datetime.timedelta(seconds=10))
 
 
@@ -77,6 +87,10 @@ class ActivitySummaryTickPlan:
     emit_embeddings: bool
     capture_events: bool
     stop_reason: str | None
+    # A default, so a plan that a workflow history recorded before this field existed still decodes.
+    limits: RenderLimits = DEFAULT_LIMITS
+    rebuild_before: datetime.datetime | None = None
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -87,6 +101,11 @@ class ActivitySummaryPairInput:
     min_update_interval_hours: float
     emit_embeddings: bool
     capture_events: bool
+    # A default, so a pair input that a tick queued before this field existed still decodes.
+    limits: RenderLimits = DEFAULT_LIMITS
+    rebuild_before: datetime.datetime | None = None
+    # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -109,7 +128,12 @@ class ActivitySummaryTickResult:
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
     config = read_config()
-    usage = daily_usage(now) if config.enabled else None
+    gateway_missing = config.enabled and not openai_gateway_configured()
+    if gateway_missing:
+        # Every pair would fail on the same missing gateway, so the tick runs none.
+        logger.warning("activity_summary_tick_gateway_not_configured")
+    enabled = config.enabled and not gateway_missing
+    usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick
@@ -117,25 +141,30 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     due = select_pairs(config, now, tick_limit + 1) if updates_left and cost_left else []
 
     stop_reason: str | None = None
-    if config.enabled and not updates_left:
+    if gateway_missing:
+        stop_reason = STOP_GATEWAY_NOT_CONFIGURED
+    elif enabled and not updates_left:
         stop_reason = STOP_MAX_PAIRS_PER_DAY
-    elif config.enabled and not cost_left:
+    elif enabled and not cost_left:
         stop_reason = STOP_MAX_COST_USD_PER_DAY
     elif len(due) > tick_limit:
         stop_reason = STOP_MAX_PAIRS_PER_TICK
     return ActivitySummaryTickPlan(
-        enabled=config.enabled,
+        enabled=enabled,
         pairs=due[:tick_limit],
         candidates=len(due),
         updates_left=updates_left,
         cost_left_usd=cost_left,
-        max_update_cost_usd=max_update_cost_usd(),
+        max_update_cost_usd=max_update_cost_usd(config.limits),
         max_concurrency=config.max_concurrency,
         min_units=config.min_units,
         min_update_interval_hours=config.min_update_interval_hours,
         emit_embeddings=config.emit_embeddings,
         capture_events=config.capture_events,
+        limits=config.limits,
         stop_reason=stop_reason,
+        rebuild_before=config.rebuild_before,
+        max_versions=config.max_versions,
     )
 
 
@@ -174,6 +203,7 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
         properties={
             "team_id": team_id,
             "user_id": user_id,
+            "deployment": settings.CLOUD_DEPLOYMENT,
             "status": update.status.value,
             "error": update.error,
             "model": DEFAULT_MODEL,
@@ -184,25 +214,37 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "cost_usd": update.cost_usd,
             "latency_ms": update.latency_ms,
             "inputs_used": update.inputs_used,
+            "rebuilt": update.rebuilt,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
 
 
-def run_pair(input: ActivitySummaryPairInput) -> ActivitySummaryPairResult:
-    update = update_activity_summary(
-        input.team_id,
-        input.user_id,
-        min_units=input.min_units,
-        min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
-    )
-    called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
+def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> ActivitySummaryPairResult:
+    try:
+        update = update_activity_summary(
+            input.team_id,
+            input.user_id,
+            min_units=input.min_units,
+            min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
+            limits=input.limits,
+            rebuild_before=input.rebuild_before,
+            max_versions=input.max_versions,
+        )
+        called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
+    except Exception as error:
+        if not last_attempt:
+            raise
+        logger.exception("activity_summary_update_failed", team_id=input.team_id, user_id=input.user_id)
+        # Without a failed row and a backoff, the queue picks the same pair again on the next tick.
+        update = record_update_exception(input.team_id, input.user_id, error)
+        called_model = isinstance(error, UpdateAfterModelCallError)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
-    if called_model and input.capture_events:
+    if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
         try:
             _capture_generated(input.team_id, input.user_id, update)
         except Exception:
@@ -224,6 +266,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         distinct_id=PIPELINE_DISTINCT_ID,
         event="activity summary tick",
         properties={
+            "deployment": settings.CLOUD_DEPLOYMENT,
             "candidates": result.candidates,
             "picked": result.picked,
             **{f"status_{status}": count for status, count in (result.statuses or {}).items()},
@@ -245,8 +288,9 @@ async def plan_activity_summary_tick_activity(input: ActivitySummaryTickInput) -
 @scoped_temporal()
 @close_db_connections
 async def update_activity_summary_pair_activity(input: ActivitySummaryPairInput) -> ActivitySummaryPairResult:
+    last_attempt = activity.info().attempt >= _PAIR_RETRY_POLICY.maximum_attempts
     async with Heartbeater():
-        return await database_sync_to_async(run_pair, thread_sensitive=False)(input)
+        return await database_sync_to_async(run_pair, thread_sensitive=False)(input, last_attempt=last_attempt)
 
 
 @activity.defn
@@ -267,7 +311,7 @@ class ActivitySummaryTickWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         if not plan.enabled:
-            return ActivitySummaryTickResult()
+            return ActivitySummaryTickResult(stop_reason=plan.stop_reason)
 
         statuses: Counter[str] = Counter()
         errored = 0
@@ -299,6 +343,9 @@ class ActivitySummaryTickWorkflow:
                             min_update_interval_hours=plan.min_update_interval_hours,
                             emit_embeddings=plan.emit_embeddings,
                             capture_events=plan.capture_events,
+                            limits=plan.limits,
+                            rebuild_before=plan.rebuild_before,
+                            max_versions=plan.max_versions,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
