@@ -111,6 +111,14 @@ class EmailSendingSuspensionActivityContext(ActivityContextBase):
 
 
 @dataclasses.dataclass(frozen=True)
+class EmailSendingTierActivityContext(ActivityContextBase):
+    previous_tier: int
+    new_tier: int
+    pinned: bool
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
 class AIGatewayCreditActivityContext(ActivityContextBase):
     amount_usd: str
     reason: str
@@ -791,6 +799,39 @@ class TeamAdmin(admin.ModelAdmin):
             ),
         )
 
+    def _log_email_tier_activity(
+        self,
+        request,
+        team: Team,
+        *,
+        activity: str,
+        previous_tier: int,
+        new_tier: int,
+        pinned: bool,
+        reason: str,
+    ) -> None:
+        # The tier sets how fast a team may send, and nothing else records who moved it: the daily
+        # sweep writes only email_sending_tier_demoted_at, and a staff write leaves no trace at all.
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+            item_id=team.pk,
+            scope="Team",
+            activity=activity,
+            detail=Detail(
+                name=team.name,
+                type="admin_email_sending_tier",
+                context=EmailSendingTierActivityContext(
+                    previous_tier=previous_tier,
+                    new_tier=new_tier,
+                    pinned=pinned,
+                    reason=reason,
+                ),
+            ),
+        )
+
     def _notify_email_suspension_changed(self, team: Team, suspended: bool, reason: str) -> None:
         create_notification(
             NotificationData(
@@ -1038,6 +1079,15 @@ class TeamAdmin(admin.ModelAdmin):
 
         previous_tier = set_email_sending_tier(team.pk, tier=tier, pinned=pinned)
 
+        self._log_email_tier_activity(
+            request,
+            team,
+            activity="email_sending_tier_set",
+            previous_tier=previous_tier,
+            new_tier=tier,
+            pinned=pinned,
+            reason="staff_set",
+        )
         logger.info(
             "admin_set_email_sending_tier",
             team_id=team.id,
@@ -1099,6 +1149,15 @@ class TeamAdmin(admin.ModelAdmin):
                 level=messages.INFO,
             )
         else:
+            self._log_email_tier_activity(
+                request,
+                team,
+                activity="email_sending_tier_recomputed",
+                previous_tier=decision.previous_tier,
+                new_tier=decision.new_tier,
+                pinned=False,
+                reason=decision.reason,
+            )
             self.message_user(
                 request,
                 f"Team '{team.name}' moved from tier {decision.previous_tier} to tier {decision.new_tier} "

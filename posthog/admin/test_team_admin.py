@@ -724,6 +724,43 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         rendered = [str(message) for message in request._messages]
         assert any("keeps tier 4" in message and "has not held its current tier" in message for message in rendered)
 
+    def test_set_tier_records_who_moved_it(self) -> None:
+        get_or_create_team_extension(self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 2})
+
+        response = self.admin.set_email_sending_tier_view(self._post({"tier": "5", "pinned": "on"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_set")
+        assert entry.user == self.user
+        context = (entry.detail or {}).get("context", {})
+        assert context.get("previous_tier") == 2
+        assert context.get("new_tier") == 5
+        assert context.get("pinned") is True
+
+    @parameterized.expand(
+        [
+            ("moved", 5, 4, "rates_above_threshold", 1),
+            ("held", 4, 4, "too_soon", 0),
+        ]
+    )
+    def test_recompute_records_only_a_tier_that_moved(
+        self, _name: str, previous_tier: int, new_tier: int, reason: str, expected_entries: int
+    ) -> None:
+        decision = TierDecision(team_id=self.team.id, previous_tier=previous_tier, new_tier=new_tier, reason=reason)
+        with patch("posthog.admin.admins.team_admin.recompute_email_sending_tier", return_value=decision):
+            response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+
+        entries = ActivityLog.objects.filter(
+            scope="Team", team_id=self.team.id, activity="email_sending_tier_recomputed"
+        )
+        assert entries.count() == expected_entries
+        if expected_entries:
+            context = (entries.get().detail or {}).get("context", {})
+            assert context.get("previous_tier") == previous_tier
+            assert context.get("new_tier") == new_tier
+            assert context.get("reason") == reason
+
     def test_recompute_creates_a_missing_workflows_config(self) -> None:
         # A team that predates the extension signal can have no config row, and the sweep skips a
         # rowless team, so the recompute action must create the row before it runs.

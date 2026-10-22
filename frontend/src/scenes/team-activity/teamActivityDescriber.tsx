@@ -820,6 +820,39 @@ function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedCha
     }
 }
 
+function describeWorkflowEmailTier(logItem: ActivityLogItem): HumanizedChange {
+    const context = logItem.detail?.context as
+        | { previous_tier?: number; new_tier?: number; pinned?: boolean; reason?: string }
+        | undefined
+    const wasSetByStaff = logItem.activity === 'email_sending_tier_set'
+    const newTier = context?.new_tier
+    const previousTier = context?.previous_tier
+    const moved = previousTier !== undefined && newTier !== undefined && previousTier !== newTier
+    const verb = wasSetByStaff ? 'set' : 'recomputed'
+    const summary = `${wasSetByStaff ? 'Set' : 'Recomputed'} the workflow email sending tier${
+        newTier !== undefined ? ` to ${newTier}` : ''
+    }`
+    return {
+        summary: activityLogSummary(logItem, summary, shortIdActivityLink(logItem, urls.notebook)),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {verb} the workflow email sending tier on{' '}
+                {shortIdActivityLink(logItem, urls.notebook)}
+                {moved ? (
+                    <>
+                        {' '}
+                        from {previousTier} to {newTier}
+                    </>
+                ) : newTier !== undefined ? (
+                    <> to {newTier}</>
+                ) : null}
+                {wasSetByStaff && context?.pinned ? <> and pinned it there</> : null}
+                {!wasSetByStaff && context?.reason ? <> (reason: {context.reason})</> : null}
+            </>
+        ),
+    }
+}
+
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.TEAM) {
         console.error('team describer received a non-Team activity')
@@ -828,6 +861,10 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
         return describeWorkflowEmailSuspension(logItem)
+    }
+
+    if (logItem.activity === 'email_sending_tier_set' || logItem.activity === 'email_sending_tier_recomputed') {
+        return describeWorkflowEmailTier(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
