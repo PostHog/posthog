@@ -144,6 +144,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
+    SandboxCustomImageListQuerySerializer,
     SandboxCustomImageSerializer,
     SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
@@ -201,6 +202,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunLogsQuerySerializer,
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
@@ -484,12 +486,12 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
 class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
-    rate = "10/hour"
+    rate = "20/hour"
 
 
 class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
-    rate = "30/day"
+    rate = "50/day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
@@ -3544,7 +3546,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(TaskRunPeerMessageResponseSerializer(result).data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=TaskRunLogsQuerySerializer,
         extensions={"x-product": "logs"},
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
@@ -3559,21 +3562,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "includes the earlier runs of its task session the same way, each "
             "preceded by a pi_run_started entry that names its run. For a live "
             "presence-gated run, the request marks the stream as watched before "
-            "it reads the log, so events after the snapshot reach the live stream."
+            "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
+            "the latest turns first, add before to page back through older turns, or add start to read every "
+            "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
+            "with different origins do not match. A Pi run returns its full log without the X-Log headers."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        query = request.validated_query_data
         timer = ServerTimingsGathered()
         with timer("mark_watched"):
             tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
-        with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
-        if log_content is None:
-            raise NotFound()
+        if "tail_bytes" not in query:
+            with timer("s3_read"):
+                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
+            if log_content is None:
+                raise NotFound()
+            response = HttpResponse(log_content, content_type="application/jsonl")
+        else:
+            with timer("s3_read"):
+                log_slice = tasks_facade.read_task_run_conversation_log_slice(
+                    pk,
+                    task_id,
+                    self.team_id,
+                    tail_bytes=query["tail_bytes"],
+                    before=query.get("before"),
+                    start=query.get("start"),
+                )
+            if log_slice is None:
+                raise NotFound()
+            response = HttpResponse(log_slice.content, content_type="application/jsonl")
+            if log_slice.sliced:
+                response["X-Log-Offset"] = str(log_slice.offset)
+                response["X-Log-Count"] = str(log_slice.count)
+                response["X-Log-Preamble"] = str(log_slice.preamble)
+                response["X-Log-Turns-Before"] = str(log_slice.turns_before)
+                response["X-Log-Origin"] = log_slice.origin
+                # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
+                # headers it cannot read looks like the whole log.
+                response["Access-Control-Expose-Headers"] = (
+                    "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
+                )
 
-        response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
@@ -5271,8 +5303,18 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if not tasks_facade.sandbox_custom_images_enabled(self.team_id, request.user.id):
             raise PermissionDenied("Custom sandbox images require the Modal VM runtime, which is not enabled")
 
-    @extend_schema(responses={200: SandboxCustomImageSerializer(many=True)})
+    @extend_schema(
+        parameters=[SandboxCustomImageListQuerySerializer],
+        responses={200: SandboxCustomImageSerializer(many=True)},
+    )
     def list(self, request, **kwargs):
+        query = SandboxCustomImageListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        origin_product = query.validated_data.get("origin_product")
+        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+            self.team_id, request.user.id, origin_product=origin_product
+        ):
+            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
         images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
         page = self.paginate_queryset(images)
         if page is not None:

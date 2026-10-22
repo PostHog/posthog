@@ -69,6 +69,36 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "AccountUsersQuery": {
+            "additionalProperties": false,
+            "description": "The persons who use an account. Only valid as an `ActorsQuery` source.",
+            "properties": {
+                "accountId": {
+                    "description": "ID of the account whose users to list.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "AccountUsersQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["accountId", "kind"],
+            "type": "object"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1274,6 +1304,9 @@
                         },
                         {
                             "$ref": "#/definitions/PathsV2ActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AccountUsersQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -17694,6 +17727,14 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "cohort_deleted": {
+                    "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                    "type": "boolean"
+                },
+                "cohort_missing": {
+                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                    "type": "boolean"
+                },
                 "cohort_name": {
                     "type": "string"
                 },
@@ -21335,6 +21376,11 @@
             "properties": {
                 "connectionId": {
                     "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
+                "executionTarget": {
+                    "description": "Select the native managed Trino catalog instead of the default PostHog catalog.",
+                    "enum": ["default", "managed_trino"],
                     "type": "string"
                 },
                 "includeFields": {
@@ -25628,7 +25674,7 @@
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
-            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "enum": ["open_feature_flag", "edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
@@ -27292,6 +27338,7 @@
                 "logs",
                 "tracing",
                 "metrics",
+                "uptime_monitoring",
                 "workflows",
                 "broadcasts",
                 "notebook",
@@ -37658,9 +37705,6 @@
                 "has_active_subscription": {
                     "type": "boolean"
                 },
-                "is_deactivated": {
-                    "type": "boolean"
-                },
                 "products": {
                     "items": {
                         "$ref": "#/definitions/MaxProductInfo"
@@ -38802,7 +38846,7 @@
                     "type": "array"
                 },
                 "interval": {
-                    "description": "Bucket size; auto-picked from the range when omitted",
+                    "description": "Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range.",
                     "type": "string"
                 },
                 "kind": {
@@ -38834,7 +38878,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the filters refer to as `$name`.",
+                    "description": "Values of the dashboard variables that the filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {
@@ -38962,7 +39006,7 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable.",
                     "type": "string"
                 },
                 "kind": {
@@ -38995,7 +39039,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.",
+                    "description": "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {
@@ -39694,6 +39738,7 @@
                 "UsageMetricsQuery",
                 "AccountsQuery",
                 "AccountsTableQuery",
+                "AccountUsersQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
                 "EndpointsUsageTrendsQuery",
@@ -41226,6 +41271,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "uptime_monitoring",
                 "metrics",
                 "visual_review",
                 "web_analytics",
@@ -50349,7 +50395,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

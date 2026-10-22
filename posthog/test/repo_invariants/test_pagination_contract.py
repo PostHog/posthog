@@ -22,6 +22,7 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
@@ -220,6 +221,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
+    # Returns the requesting user's own summary as a single document, so there is nothing to paginate.
+    "products.signals.backend.presentation.activity_summary.ActivitySummaryViewSet",
     # Counts and hover details must use the same complete seven-day window.
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     # Returns one team's onboarding state as a single document, so there is nothing to paginate.

@@ -773,8 +773,8 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.OrganizationBasic>> => {
-                return this.fetchJson<Schemas.OrganizationBasic>(`${this.baseUrl}/api/organizations/${orgId}/`)
+            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.Organization>> => {
+                return this.fetchJson<Schemas.Organization>(`${this.baseUrl}/api/organizations/${orgId}/`)
             },
 
             projects: ({ orgId }: { orgId: string }) => {

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -8,21 +8,27 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
-    AUTO_REGION,
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
     text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    R2_EXAMPLE_URL,
+    parse_r2_url,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -41,6 +47,7 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
 
     api_docs_url = "https://developers.cloudflare.com/r2/api/s3/api/"
     requires_team_feature_flag = FEATURE_FLAG
+    self_managed_service = "r2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -48,22 +55,28 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The account and bucket pick where the stored key is sent, so changing either must re-require it.
-        return ["account_id", "bucket"]
+        # The URL picks the account and bucket the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: CloudflareR2SourceConfig) -> ObjectStoreConfig:
-        return ObjectStoreConfig(
-            provider=ObjectStoreProvider.R2,
-            bucket=config.bucket.strip(),
-            region=AUTO_REGION,
+        return ObjectStoreConfig.from_url(
+            ObjectStoreProvider.R2,
+            parse_r2_url(config.url_pattern),
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
-            prefix=normalize_prefix(config.path),
-            account_id=config.account_id.strip().lower(),
         )
 
     def discovery_options(self, config: CloudflareR2SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
+
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        return {
+            "url_pattern": f"https://{location.account or ''}.r2.cloudflarestorage.com/{location.bucket}/",
+            "access_key_id": credential.access_key,
+            "secret_access_key": credential.access_secret,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -79,14 +92,7 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    text_field(
-                        "account_id",
-                        "Account ID",
-                        "",
-                        caption="The 32-character ID on the R2 overview page of the Cloudflare dashboard.",
-                    ),
-                    text_field("bucket", "Bucket", "my-company-exports"),
-                    *folder_fields("bucket"),
+                    url_field(R2_EXAMPLE_URL),
                     text_field(
                         "access_key_id",
                         "Access key ID",

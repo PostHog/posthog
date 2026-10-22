@@ -349,6 +349,14 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
+export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
+
+export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax = 500
+
+export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmCampaignMax = 500
+
+export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmContentMax = 500
+
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
@@ -1149,6 +1157,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -1786,6 +1806,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -2426,6 +2458,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -2769,6 +2813,43 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
+                email_utm_tags_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                    ),
+                email_utm_params: zod
+                    .object({
+                        utm_source: zod
+                            .string()
+                            .max(organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax)
+                            .optional()
+                            .describe('Default utm_source. Supports Liquid variables.'),
+                        utm_medium: zod
+                            .string()
+                            .max(organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax)
+                            .optional()
+                            .describe('Default utm_medium. Supports Liquid variables.'),
+                        utm_campaign: zod
+                            .string()
+                            .max(organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmCampaignMax)
+                            .optional()
+                            .describe(
+                                'Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.'
+                            ),
+                        utm_content: zod
+                            .string()
+                            .max(organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmContentMax)
+                            .optional()
+                            .describe(
+                                'Default utm_content. Empty uses the email step name. Supports Liquid variables.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
                     .min(organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin)
@@ -3111,6 +3192,14 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault = `hogql`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax = 500
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmCampaignMax = 500
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmContentMax = 500
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
@@ -3926,6 +4015,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -4563,6 +4664,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -5203,6 +5316,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -5545,6 +5670,43 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
+                email_utm_tags_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                    ),
+                email_utm_params: zod
+                    .object({
+                        utm_source: zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax)
+                            .optional()
+                            .describe('Default utm_source. Supports Liquid variables.'),
+                        utm_medium: zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax)
+                            .optional()
+                            .describe('Default utm_medium. Supports Liquid variables.'),
+                        utm_campaign: zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmCampaignMax)
+                            .optional()
+                            .describe(
+                                'Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.'
+                            ),
+                        utm_content: zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmContentMax)
+                            .optional()
+                            .describe(
+                                'Default utm_content. Empty uses the email step name. Supports Liquid variables.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
