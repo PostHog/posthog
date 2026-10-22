@@ -31,6 +31,7 @@ import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter
 import {
     AllowedProperties,
     DataWarehousePopoverField,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
     SimpleOption,
@@ -81,6 +82,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     schemaColumns?: DatabaseSchemaField[]
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
+    excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
@@ -233,6 +235,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     schemaColumns,
     metadataSource,
     excludedProperties,
+    excludedOperators,
     includeHiddenEvents,
     selectedProperties,
     propertyAllowList,
@@ -327,6 +330,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             schemaColumns={schemaColumns}
             metadataSource={metadataSource}
             excludedProperties={excludedProperties}
+            excludedOperators={excludedOperators}
             includeHiddenEvents={includeHiddenEvents}
             selectedProperties={selectedProperties}
             propertyAllowList={propertyAllowList}
