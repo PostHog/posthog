@@ -104,6 +104,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Attentive": "webhook",
     "AwsAthena": "request",
     "AzureBlob": "request",
+    "AzureLogAnalytics": "request",
     "Baserow": "request",
     "BigQuery": "driver",
     "BingAds": "database",
