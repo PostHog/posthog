@@ -115,6 +115,12 @@ export const ConfigureMetricsWithChanges: Story = {
                 name: 'Hide all',
             })
         )
-        await expect(within(dialog).getByRole('button', { name: 'Apply' })).toBeEnabled()
+        const applyButton = within(dialog).getByRole('button', { name: 'Apply' })
+        await expect(applyButton).toBeEnabled()
+        const content = dialog.querySelector<HTMLElement>('.LemonModal__content')!
+        // The last interaction focuses a control below the fold and scrolls the modal.
+        ;(dialog.ownerDocument.activeElement as HTMLElement | null)?.blur()
+        content.scrollTo({ top: 0, behavior: 'instant' })
+        await waitFor(() => expect(content.scrollTop).toBe(0))
     },
 }
