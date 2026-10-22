@@ -26,8 +26,8 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 // a free source. Moving a source to billing changes its entry here, not the producer or the header.
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false },
-    // Replay console logs will be billed, but a team's sampling and drop rules must not remove them.
-    // replay_console: { billed: true, teamRules: false },
+    // Each log_entries source moves unbilled, one at a time. Add a source when its producer starts signing.
+    // hog_function: { billed: false, teamRules: false },
 }
 
 type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature' | 'unknown_source'
