@@ -46,6 +46,9 @@ def mobile_push_preference_enabled(user: User, category: MobilePushCategory) -> 
 
 
 def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
+    if not user.is_active:
+        return False
+
     # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
     payload = data or {}
     if payload.get("type") == "report":

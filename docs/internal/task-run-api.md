@@ -157,4 +157,4 @@ Ordinary task notifications do not require this flag.
 | `mobile_push_report_updates_enabled` | Report updates           |
 
 All four default to `true`.
-The delivery worker checks current preferences and access before it sends a queued notification.
+The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.

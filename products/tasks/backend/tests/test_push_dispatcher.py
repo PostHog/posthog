@@ -2,7 +2,7 @@ from contextlib import nullcontext
 from uuid import uuid4
 
 import time_machine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import InterfaceError, OperationalError, transaction
 from django.test import TestCase
@@ -11,6 +11,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
@@ -276,11 +277,23 @@ class TestPushDispatcher(TestCase):
         mock_delay.assert_not_called()
         mock_send.assert_not_called()
 
-    @parameterized.expand([("web", Task.OriginProduct.USER_CREATED), ("slack", Task.OriginProduct.SLACK)])
+    @parameterized.expand(
+        [
+            ("web_active", Task.OriginProduct.USER_CREATED, True),
+            ("web_inactive", Task.OriginProduct.USER_CREATED, False),
+            ("slack_active", Task.OriginProduct.SLACK, True),
+            ("slack_inactive", Task.OriginProduct.SLACK, False),
+        ]
+    )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    @patch("posthog.tasks.push_notifications.send_push_to_user", return_value=1)
-    def test_mobile_pickup_enables_existing_task_and_queued_delivery(self, _name, origin, mock_send, mock_delay, _flag):
+    @patch("posthog.push_notifications.requests.post")
+    def test_mobile_pickup_enables_existing_task_and_queued_delivery(
+        self, _name: str, origin: str, is_active: bool, mock_post: Mock, mock_delay: Mock, _flag: Mock
+    ) -> None:
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[mobile-pickup]", platform="ios")
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"data": [{"status": "ok"}]}
         self.task.origin_product = origin
         self.task.state = {"created_on_mobile": False}
         self.task.save(update_fields=["origin_product", "state"])
@@ -289,8 +302,12 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
         mock_delay.assert_called_once()
-        send_user_push(self.user.id, "PostHog", "Finished", mock_delay.call_args.args[3])
-        mock_send.assert_called_once()
+        User.objects.filter(id=self.user.id).update(is_active=is_active)
+        send_user_push(*mock_delay.call_args.args)
+        if is_active:
+            mock_post.assert_called_once()
+        else:
+            mock_post.assert_not_called()
         self.task.refresh_from_db()
         self.assertEqual(mobile_push_user_ids(self.task), {self.user.id})
         self.assertIs(self.task.state["created_on_mobile"], False)
