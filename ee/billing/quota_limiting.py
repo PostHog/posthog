@@ -1161,6 +1161,10 @@ def _identify_refresh_candidates(
          `quota_limiting_suspended_until` marker;
       3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
          for any resource.
+
+    A resource with a zero limit and no overage buffer never makes an org a candidate. That
+    limit blocks the resource at any usage, so the cached state gives the same decision.
+    Signals credits are the exception, because a refund offset can lift a signals block.
     """
     # Either Redis set is reason enough to refresh, so union them once up front and
     # do a single membership check per resource below.
@@ -1182,6 +1186,10 @@ def _identify_refresh_candidates(
 
         for resource in QuotaResource:
             field = resource.value
+            usage_for_resource = org.usage.get(field)
+            limit = usage_for_resource.get("limit") if usage_for_resource else None
+            if limit == 0 and OVERAGE_BUFFER[resource] == 0 and resource != QuotaResource.SIGNALS_CREDITS:
+                continue
 
             # Redis check first: an org with a stale entry in either Redis set must be
             # refreshed and re-evaluated even when its `usage[resource]` is empty or
@@ -1191,7 +1199,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            usage_for_resource = org.usage.get(field)
             if not usage_for_resource:
                 continue
 
@@ -1201,7 +1208,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            limit = usage_for_resource.get("limit")
             if limit is None:
                 continue
             usage_value = usage_for_resource.get("usage") or 0
