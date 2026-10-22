@@ -104,4 +104,11 @@ describe('layoutTileCanvas', () => {
 
         expect(tops).toEqual(tops.map(() => placeOf(outerArms[opened]).top))
     })
+
+    it('gives a path no more room for a name longer than its label shows', () => {
+        const named = (label: string): number =>
+            pathFrameSpecs([{ ...outerArms[0], label }], [outerArms[0].id], [])[0].minWidth
+
+        expect(named('Eligible and reachable, '.repeat(6))).toEqual(named('x'.repeat(40)))
+    })
 })

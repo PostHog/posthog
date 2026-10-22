@@ -699,6 +699,9 @@ export interface metricsViewerLogicActions {
         queryResults: _MetricSeriesApi[]
         payload?: any
     }
+    liveRefreshTick: () => {
+        value: true
+    }
     loadAttributeKeyOptions: (_: any) => any
     loadAttributeKeyOptionsFailure: (
         error: string,
@@ -962,6 +965,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Null means auto: the backend picks a step from the range.
         setInterval: (interval: string | null) => ({ interval }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
+        // One auto-refresh cycle. The chart and the facet rail both reload on it.
+        liveRefreshTick: true,
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
         addAttributeFilter: (key: string, value: string) => ({ key, value }),
@@ -1462,12 +1467,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
                 // pauseOnPageHidden (default) stops polling on a hidden tab and resumes on focus.
                 cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
-                        actions.fetchQueryResults({})
-                        actions.fetchAnomaly({})
-                    }, LIVE_REFRESH_MS)
+                    const intervalId = setInterval(() => actions.liveRefreshTick(), LIVE_REFRESH_MS)
                     return () => clearInterval(intervalId)
                 }, LIVE_REFRESH_KEY)
+            },
+            liveRefreshTick: () => {
+                actions.fetchQueryResults({})
+                actions.fetchAnomaly({})
             },
         }
     }),
