@@ -24,12 +24,14 @@ export interface BuiltCanvasProps extends CanvasHostCallbacks {
     commentHighlights: CanvasCommentHighlight[]
     /** Bumped to clear the viewer's text selection in the frame, for example after they comment on it. */
     clearTextSelectionKey: number
+    /** Data for `ph.onInsightData`. Set it when an insight hosts the build, so the canvas never draws its sample. */
+    insightData?: unknown
 }
 
 /** The artifact URL with the theme in its fragment, which never reaches the server. */
-export function themedArtifactUrl(artifactUrl: string, theme: CanvasTheme): string {
+export function themedArtifactUrl(artifactUrl: string, theme: CanvasTheme, insightHost = false): string {
     const url = new URL(artifactUrl)
-    url.hash = new URLSearchParams({ theme }).toString()
+    url.hash = new URLSearchParams({ theme, ...(insightHost ? { insight: '1' } : {}) }).toString()
     return url.href
 }
 
@@ -47,6 +49,7 @@ export function BuiltCanvas({
     onOpenExternal,
     commentHighlights,
     clearTextSelectionKey,
+    insightData,
     ...callbacks
 }: BuiltCanvasProps): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -54,9 +57,29 @@ export function BuiltCanvas({
     // The theme reaches the first paint through the fragment. Later changes go over the
     // port, so a theme toggle does not reload the artifact.
     const initialTheme = useRef(theme).current
-    const src = useMemo(() => themedArtifactUrl(artifactUrl, initialTheme), [artifactUrl, initialTheme])
-    const latest = useRef({ capabilities, callbacks, theme, onOpenExternal, hasUserActivation, commentHighlights })
-    latest.current = { capabilities, callbacks, theme, onOpenExternal, hasUserActivation, commentHighlights }
+    const insightHost = useRef(insightData !== undefined).current
+    const src = useMemo(
+        () => themedArtifactUrl(artifactUrl, initialTheme, insightHost),
+        [artifactUrl, initialTheme, insightHost]
+    )
+    const latest = useRef({
+        capabilities,
+        callbacks,
+        theme,
+        onOpenExternal,
+        hasUserActivation,
+        commentHighlights,
+        insightData,
+    })
+    latest.current = {
+        capabilities,
+        callbacks,
+        theme,
+        onOpenExternal,
+        hasUserActivation,
+        commentHighlights,
+        insightData,
+    }
 
     useLayoutEffect(() => {
         const iframe = iframeRef.current
@@ -114,6 +137,9 @@ export function BuiltCanvas({
                 type: 'set-comment-highlights',
                 highlights: latest.current.commentHighlights,
             })
+            if (latest.current.insightData !== undefined) {
+                post({ channel: CANVAS_CHANNEL, type: 'set-insight-data', data: latest.current.insightData })
+            }
         }
         iframe?.addEventListener('load', onLoad)
         return () => {
@@ -133,6 +159,12 @@ export function BuiltCanvas({
             highlights: commentHighlights,
         })
     }, [commentHighlights])
+
+    useEffect(() => {
+        if (insightData !== undefined) {
+            portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-insight-data', data: insightData })
+        }
+    }, [insightData])
 
     useEffect(() => {
         if (clearTextSelectionKey > 0) {

@@ -17,6 +17,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { InsightCustomChartButton } from 'products/product_analytics/frontend/insights/customChart/InsightCustomChartButton'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -172,6 +173,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <FunnelBinsPicker />
                     </ConfigFilter>
                 )}
+                <InsightCustomChartButton />
             </div>
         </div>
     )

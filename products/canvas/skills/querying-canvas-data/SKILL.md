@@ -1,7 +1,7 @@
 ---
 name: querying-canvas-data
 description: >
-  Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
+  Get PostHog data into a canvas correctly: the host-injected `ph` SDK (onInsightData, loadInsight, query,
   capture, state, connectors, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), verifiability (insight-backed metrics link their saved insight in
   PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes,
@@ -23,6 +23,16 @@ External requests and resources require a non-PostHog origin declared in
 `capabilities.network.origins`, and work only in the published canvas — the edit-mode preview
 blocks all direct network access. This includes external stylesheets; remote scripts remain
 blocked.
+
+## Insight charts — draw the data the insight pushes
+
+A custom chart canvas draws one insight's results inside that insight, on its dashboards too.
+Its generation prompt says so and gives a sample of the data.
+The data hierarchy below does not apply to it: do not call `ph.loadInsight` or `ph.query`, and declare no capabilities for data.
+Subscribe with `ph.onInsightData(listener, { sample })` and redraw on every call.
+Inside the insight, the listener gets the live data each time the viewer changes the date range or filters, and never the sample.
+In the canvas scene and drafts it gets the sample once, so put the prompt's sample in the source.
+Draw only what the data contains. Handle empty `results` with a short empty state, and fill the frame's width and height.
 
 ## Data hierarchy — back every metric with a saved insight
 

@@ -665,6 +665,61 @@ bridge.port1.close();
 """
         self._run_runtime_harness(runtime, harness)
 
+    @parameterized.expand(
+        [
+            # Inside an insight the sample must never draw, or a dashboard tile flashes made-up numbers.
+            ("insight_host", "#insight=1", ["live-1", "live-2"]),
+            ("canvas_scene", "", ["sample", "live-1", "live-2"]),
+        ]
+    )
+    def test_runtime_delivers_insight_data(self, _name: str, fragment: str, expected: list[str]) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = f"""
+import assert from "node:assert/strict";
+import {{ readFileSync }} from "node:fs";
+
+const listeners = {{ message: [] }};
+globalThis.window = globalThis;
+globalThis.parent = {{}};
+globalThis.location = {{ hash: {fragment!r} }};
+globalThis.document = {{
+    readyState: "complete",
+    body: {{}},
+    head: {{ appendChild: () => {{}} }},
+    addEventListener: () => {{}},
+    createElement: () => ({{}}),
+    documentElement: {{ classList: {{ toggle: () => {{}} }}, style: {{}} }},
+}};
+globalThis.MutationObserver = class {{
+    observe() {{}}
+}};
+globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
+
+new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
+
+const seen = [];
+const unsubscribe = window.ph.onInsightData((data) => seen.push(data.results), {{ sample: {{ results: "sample" }} }});
+const bridge = new MessageChannel();
+for (const handler of listeners.message) {{
+    handler({{ source: globalThis.parent, data: {{ channel: "posthog-canvas", type: "connect" }}, ports: [bridge.port2] }});
+}}
+const send = (results) => bridge.port1.postMessage({{ channel: "posthog-canvas", type: "set-insight-data", data: {{ results }} }});
+send("live-1");
+send("live-2");
+const deadline = Date.now() + 5000;
+while (seen.length < {len(expected)} && Date.now() < deadline) {{
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}}
+unsubscribe();
+send("after-unsubscribe");
+await new Promise((resolve) => setTimeout(resolve, 50));
+assert.deepEqual(seen, {expected!r});
+bridge.port1.close();
+"""
+        self._run_runtime_harness(runtime, harness)
+
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {

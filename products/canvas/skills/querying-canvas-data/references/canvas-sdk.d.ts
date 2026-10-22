@@ -159,7 +159,28 @@ export interface CanvasNavigate {
     toNewCanvas(): void
 }
 
+/** What an insight pushes into the custom chart canvas that draws it. */
+export interface CanvasInsightData {
+    /** The source query node, for example `{ kind: "TrendsQuery", … }` or `{ kind: "HogQLQuery", … }`. */
+    query: Record<string, unknown>
+    /** The query response's `results`: series objects for trends, steps for funnels, rows for SQL. */
+    results: unknown
+    /** Column names, for SQL and other tabular responses. */
+    columns?: string[]
+    /** Column types, in the same order as `columns`. */
+    types?: unknown[]
+}
+
 export interface CanvasSdk {
+    /**
+     * Draw an insight's results. Inside an insight, the callback runs with the
+     * insight's data and again each time it changes (date range, filters,
+     * refresh), and never with `options.sample`. Everywhere else, for example the
+     * canvas scene and drafts, it runs once with `options.sample`. Returns an
+     * unsubscribe function. Needs no capability: the canvas receives only data
+     * the viewer already sees.
+     */
+    onInsightData(listener: (data: CanvasInsightData) => void, options?: { sample?: CanvasInsightData }): () => void
     /**
      * PREFERRED data path: load a saved insight by short id and render its stored
      * result. Declare the short id in `capabilities.posthog.insights`.

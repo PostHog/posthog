@@ -56,6 +56,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    CustomChartSettings,
     DatabaseSchemaField,
     DateRange,
     FunnelsDataWarehouseNode,
@@ -65,6 +66,7 @@ import {
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
+    InsightVizNode,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -135,6 +137,10 @@ import {
     AnnotationScope,
 } from '~/types'
 
+import {
+    CustomChartData,
+    customChartDataFromResponse,
+} from 'products/product_analytics/frontend/insights/customChart/customChartData'
 import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 import { AggregationType } from 'products/product_analytics/frontend/insights/shared/InsightsTable/insightsTableDataLogic'
 import { BASE_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
@@ -231,6 +237,8 @@ export interface insightVizDataLogicValues {
     breakdownFilter: BreakdownFilter | null | undefined
     compareFilter: CompareFilter | null | undefined
     currentDataWarehouseSchemaColumns: DatabaseSchemaField[]
+    customChart: CustomChartSettings | null
+    customChartData: CustomChartData | null
     dataWarehouseSeriesTableNames: string[]
     dateRange: DateRange | null | undefined
     detailedResultsAggregationType: AggregationType | undefined
@@ -465,6 +473,9 @@ export interface insightVizDataLogicActions {
     }
     updateCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
+    }
+    updateCustomChart: (customChart: CustomChartSettings | null) => {
+        customChart: CustomChartSettings | null
     }
     updateDateRange: (
         dateRange: DateRange,
@@ -1191,6 +1202,21 @@ export interface insightVizDataLogicMeta {
                 | null
         ) => FunnelPathsFilter | null | undefined
         vizSpecificOptions: (query: Node<Record<string, any>> | null) => VizSpecificOptions | null | undefined
+        customChart: (query: Node<Record<string, any>> | null) => CustomChartSettings | null
+        customChartData: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null,
+            insightData: Record<string, any>
+        ) => CustomChartData | null
         isUsingSessionAnalysis: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
             breakdownFilter: BreakdownFilter | null | undefined,
@@ -1447,6 +1473,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             detailedResultsAggregationType,
         }),
         updateVizSpecificOptions: (vizSpecificOptions: VizSpecificOptions) => ({ vizSpecificOptions }),
+        updateCustomChart: (customChart: CustomChartSettings | null) => ({ customChart }),
     }),
 
     reducers({
@@ -2266,6 +2293,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ) => (isPathsQuery(q) ? q.funnelPathsFilter : null),
         ],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
+        customChart: [
+            (s) => [s.query],
+            (q: Node): CustomChartSettings | null => (isInsightVizNode(q) ? (q.customChart ?? null) : null),
+        ],
+        customChartData: [
+            (s) => [s.querySource, s.insightData],
+            (querySource: Node | null, insightData: Record<string, any> | null): CustomChartData | null =>
+                customChartDataFromResponse(querySource as Record<string, unknown> | null, insightData),
+        ],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -2921,6 +2957,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
 
+        updateCustomChart: ({ customChart }) => {
+            const { customChart: _previous, ...query } = values.query as InsightVizNode
+            actions.setQuery((customChart ? { ...query, customChart } : query) as Node)
+        },
         updateVizSpecificOptions: ({ vizSpecificOptions }) => {
             actions.setQuery({
                 ...values.query,

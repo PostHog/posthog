@@ -126,6 +126,11 @@
       // Run a named, server-stored query — the published tier's model. The host
       // still rejects it (Phase 3).
       run: (name, params) => call("run", { name, params: params ?? {} }),
+      // A draft never runs inside an insight, so a chart canvas draws its sample here.
+      onInsightData: (listener, options) => {
+        if (options?.sample !== undefined) listener(options.sample);
+        return () => {};
+      },
       // PREFERRED data path: load a SAVED, validated insight by its short id and
       // render its STORED result from the insights endpoint (not a fresh /query/
       // run). Pass the date picker's window to re-scope it:
