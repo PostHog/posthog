@@ -100,7 +100,7 @@ def _v2_string_values(filters: Mapping[str, Any]) -> list[str]:
     """
     try:
         config = parse_v2_config(filters)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
         return []
     if config.return_type != "string":
         return []

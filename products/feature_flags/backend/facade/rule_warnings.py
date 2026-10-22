@@ -92,22 +92,24 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
     # A terminal miss serves the config default, so when the default is edited too those
     # outcomes differ because of the edit; only served rule values stay comparable.
     default_edited = current.default_value != proposed.default_value
+    # A population's walk settles a prefix of the walk every rule applies to, so populations
+    # that reach the same rules in both configs compare the same regions.
+    current_walk, proposed_walk = _walk(current, None, split_variants=True), _walk(proposed, None, split_variants=True)
+    compared: set[tuple[int, int]] = set()
     inversions: dict[tuple[str, str], int] = {}
     for population in {rule.predicates for rule in (*current.rules, *proposed.rules)}:
-        after_by_rule: dict[str, list[tuple[_Box, _Outcome]]] = {}
-        for box, outcome in _walk(proposed, population, split_variants=True).settled:
-            after_by_rule.setdefault(proposed.rules[outcome.rule_index].id, []).append((box, outcome))
-        for box_before, outcome_before in _walk(current, population, split_variants=True).settled:
-            earlier = current.rules[outcome_before.rule_index].id
-            for later in later_by_earlier.get(earlier, ()):
-                for box_after, outcome_after in after_by_rule.get(later, ()):
-                    if (
-                        outcome_before.value != outcome_after.value
-                        and (not default_edited or (outcome_before.served and outcome_after.served))
-                        and (earlier, later) not in inversions
-                        and _intersects(box_before, box_after)
-                    ):
-                        inversions[(earlier, later)] = proposed_index[later]
+        reach = (_reach(current, population), _reach(proposed, population))
+        if reach in compared:
+            continue
+        compared.add(reach)
+        before = _regions_by_rule(current, current_walk, reach[0])
+        after = _regions_by_rule(proposed, proposed_walk, reach[1])
+        for earlier, laters in later_by_earlier.items():
+            for later in laters:
+                if (earlier, later) not in inversions and _value_changes(
+                    before.get(earlier, {}), after.get(later, {}), default_edited
+                ):
+                    inversions[(earlier, later)] = proposed_index[later]
     return tuple(
         ManagementWarning(
             code="RULE_ORDER_CHANGES_TRAFFIC",
@@ -168,7 +170,8 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
 
 
 def _served_values(rule: ValidatedRule) -> set[str | None]:
-    return {variant.value for variant in rule.variants} if rule.variants else {rule.value}
+    # A variant with weight 0 never serves its value.
+    return {variant.value for variant in rule.variants if variant.weight > 0} if rule.variants else {rule.value}
 
 
 def _continues_after_partial_miss(rule: ValidatedRule) -> bool:
@@ -202,6 +205,37 @@ class _Walk:
     closed_by: int | None  # the rule after which nothing was left to evaluate
 
 
+_Regions = dict[tuple[str | None, bool], list[_Box]]  # one rule's settled boxes by (value, served)
+
+
+def _regions_by_rule(config: ValidatedConfig, walk: _Walk, reach: int) -> dict[str, _Regions]:
+    # Grouping by outcome compares two rules' equal outcomes once instead of box by box.
+    regions: dict[str, _Regions] = {}
+    for box, outcome in walk.settled:
+        if outcome.rule_index >= reach:
+            break  # regions settle in rule order
+        rule_id = config.rules[outcome.rule_index].id
+        regions.setdefault(rule_id, {}).setdefault((outcome.value, outcome.served), []).append(box)
+    return regions
+
+
+def _value_changes(before: _Regions, after: _Regions, default_edited: bool) -> bool:
+    return any(
+        value_before != value_after
+        and (not default_edited or (served_before and served_after))
+        and any(_intersects(box_before, box_after) for box_before in boxes_before for box_after in boxes_after)
+        for (value_before, served_before), boxes_before in before.items()
+        for (value_after, served_after), boxes_after in after.items()
+    )
+
+
+def _reach(config: ValidatedConfig, population: frozenset[Predicate]) -> int:
+    """How many leading rules ``_walk`` evaluates for ``population`` before it stops."""
+    if _has_contradictory_presence_checks(population):
+        return 0
+    return next((i for i, rule in enumerate(config.rules) if not rule.predicates <= population), len(config.rules))
+
+
 def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool:
     presence: dict[str, set[bool]] = {}
     for predicate in population:
@@ -212,23 +246,25 @@ def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool
 
 def _walk(
     config: ValidatedConfig,
-    population: frozenset[Predicate],
+    population: frozenset[Predicate] | None,
     *,
     until: int | None = None,
     split_variants: bool = False,
 ) -> _Walk:
     """Evaluate ``population`` through the rules before ``until`` (all rules when None).
 
+    A ``None`` population is one every rule applies to.
+
     Stops at the first rule that does not provably apply to the population; the regions
     settled before it stay valid, the rest is unknown. Only value comparisons need an
     experiment rule's served region split by variant; without ``split_variants`` it has value None.
     """
-    if _has_contradictory_presence_checks(population):
+    if population is not None and _has_contradictory_presence_checks(population):
         return _Walk(settled=(), closed_by=None)
     open_boxes: list[_Box] = [{}]
     settled: list[tuple[_Box, _Outcome]] = []
     for index, rule in enumerate(config.rules[:until]):
-        if not rule.predicates <= population:
+        if population is not None and not rule.predicates <= population:
             # Inconclusive: who passes this rule is unknown, so nothing below it can be settled
             # and the regions that were still open must not be reported as reaching anything.
             return _Walk(settled=tuple(settled), closed_by=None)

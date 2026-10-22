@@ -194,7 +194,8 @@ def _resolve_rule(
     stored = current if current is not None and current.get("rule_type") in RANDOMIZED_RULE_TYPES else {}
     resolved["seed"] = _resolve_seed(rule, stored.get("seed"), path, errors)
     holdout = rule.get("holdout")
-    if isinstance(holdout, Mapping):
+    # Only experiment rules have a holdout; the validator reports one on any other rule as an unknown field.
+    if rule["rule_type"] == "experiment" and isinstance(holdout, Mapping):
         stored_holdout = stored.get("holdout")
         stored_seed = stored_holdout.get("seed") if isinstance(stored_holdout, Mapping) else None
         resolved["holdout"] = {**holdout, "seed": _resolve_seed(holdout, stored_seed, f"{path}.holdout", errors)}
@@ -311,18 +312,21 @@ def _rule_values(document: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
 
 def _reserved_variant_keys(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
     # A variant key does not depend on the return type, so v1's variant-key reservation applies to every flag.
-    held = {key for _, key in _variant_keys(stored)} if stored else set()
-    for attr, key in _variant_keys(document):
-        if is_reserved_variant_key(key, held=held):
-            yield ConfigError(
-                code="invalid", detail=f'The variant key "{key}" is reserved. Choose another key.', attr=attr
-            )
-
-
-def _variant_keys(document: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
+    # A held key keeps one experiment's continuity, so only the rule that holds it keeps it.
+    held_by_rule = {rule["id"]: _variant_keys(rule) for rule in stored["rules"]} if stored else {}
     for index, rule in enumerate(document["rules"]):
+        held = held_by_rule.get(rule["id"], set())
         for variant_index, variant in enumerate(rule.get("variants") or ()):
-            yield f"filters.rules[{index}].variants[{variant_index}].key", variant["key"]
+            if is_reserved_variant_key(variant["key"], held=held):
+                yield ConfigError(
+                    code="invalid",
+                    detail=f'The variant key "{variant["key"]}" is reserved. Choose another key.',
+                    attr=f"filters.rules[{index}].variants[{variant_index}].key",
+                )
+
+
+def _variant_keys(rule: Mapping[str, Any]) -> set[str]:
+    return {variant["key"] for variant in rule.get("variants") or ()}
 
 
 def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:

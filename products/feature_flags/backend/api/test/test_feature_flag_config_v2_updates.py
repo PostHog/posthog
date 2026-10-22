@@ -79,7 +79,6 @@ def rollout(rule_id: str | None = RULE_B, seed: str | None = SEED_B, **extra: An
 
 
 def experiment(rule_id: str | None = RULE_C, seed: str | None = SEED_C, **extra: Any) -> dict:
-    """An experiment rule: a weighted variant split with an optional holdout."""
     rule: dict[str, Any] = {
         "rule_type": "experiment",
         "targeting": {"properties": []},

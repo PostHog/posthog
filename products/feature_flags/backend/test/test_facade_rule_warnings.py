@@ -81,9 +81,9 @@ def split(
     miss: RolloutMissPolicy = "continue",
     paused: bool = False,
     holdout: int | None = None,
+    weights: tuple[int, ...] | None = None,
 ) -> ValidatedRule:
-    """An experiment rule, splitting its enrolled share evenly across ``values``."""
-    weight = Decimal(100) / len(values)
+    shares: tuple[Decimal | int, ...] = weights or (Decimal(100) / len(values),) * len(values)
     return ValidatedRule(
         id=rule_id,
         rule_type="experiment",
@@ -94,8 +94,8 @@ def split(
         seed=seed,
         paused=paused,
         variants=tuple(
-            ValidatedVariant(key=f"arm_{index}", weight=weight, value=canonical_value(value))
-            for index, value in enumerate(values)
+            ValidatedVariant(key=f"arm_{index}", weight=Decimal(weight), value=canonical_value(value))
+            for index, (value, weight) in enumerate(zip(values, shares))
         ),
         holdout=None
         if holdout is None
@@ -342,6 +342,11 @@ class TestExperimentRuleWarnings:
                 [(EXTENDS, "filters.rules[1]")],
             ),
             ("paused_split_has_no_rollout_to_extend", cfg(split(A, 30, PRO, paused=True), targeted(B, "green")), []),
+            (
+                "zero_weight_variant_serves_nothing",
+                cfg(split(A, 30, weights=(100, 0)), targeted(B, "green")),
+                [],
+            ),
             (
                 "partial_rollout_continues_to_a_split_serving_its_value",
                 cfg(rollout(A, 30, "green", seed=OTHER_SEED), split(B)),

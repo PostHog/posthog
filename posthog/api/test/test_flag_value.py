@@ -118,6 +118,12 @@ class TestFlagValueViewSet(APIBaseTest):
             ("v2_without_rules_key", {"version": 2, "return_type": "string", "default_value": "standard"}),
             ("v2_rules_not_a_list", {"version": 2, "return_type": "string", "default_value": None, "rules": "x"}),
             (
+                "v2_property_not_an_object",
+                v2_document(
+                    "string", "standard", {**targeted_rule(RULE_A, "wide"), "targeting": {"properties": ["x"]}}
+                ),
+            ),
+            (
                 "unsupported_version",
                 {"version": 3, "multivariate": {"variants": [{"key": "variant1", "rollout_percentage": 100}]}},
             ),

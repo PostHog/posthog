@@ -91,7 +91,6 @@ def variants(*values: Any, weights: tuple[float, ...] = (50, 50)) -> list[dict[s
 
 
 def experiment(**overrides: Any) -> dict[str, Any]:
-    """An experiment rule: a weighted variant split."""
     return {
         "id": EXPERIMENT_ID,
         "rule_type": "experiment",
@@ -297,6 +296,11 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("missing_return_type", without(config(), "return_type"), [("required", "filters.return_type")]),
     ("return_type_unknown", config(return_type="json"), [("invalid", "filters.return_type")]),
     ("return_type_null", config(return_type=None), [("invalid", "filters.return_type")]),
+    (
+        "experiment_with_unknown_return_type",
+        config(experiment(), return_type="json"),
+        [("invalid", "filters.return_type")],
+    ),
     ("string_empty_default", config(return_type="string", default_value=""), [("invalid", "filters.default_value")]),
     ("string_bool_default", config(return_type="string", default_value=True), [("invalid", "filters.default_value")]),
     (
