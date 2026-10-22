@@ -21,6 +21,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { emailStatusMissingRecipientHash } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -581,19 +582,27 @@ describe('EmailService', () => {
                         ),
                     [],
                 ],
-                [
-                    'nothing for a run queued before it carried the recipient hash',
-                    () => {
-                        delete invocation.state.emailRecipientHash
-                    },
-                    [],
-                ],
             ])('records %s', async (_name, arrange, expected) => {
                 arrange()
 
                 await statusService.executeSendEmail(invocation)
 
                 expect(recordedStatuses()).toEqual(expected)
+            })
+
+            it('sends a run queued before it carried the recipient hash once, writes no status, and counts it', async () => {
+                const missingHashCount = async (): Promise<number> =>
+                    (await emailStatusMissingRecipientHash.get()).values.find((v) => v.labels.source === 'worker')
+                        ?.value ?? 0
+                const missingBefore = await missingHashCount()
+                delete invocation.state.emailRecipientHash
+
+                const result = await statusService.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(statusSendSpy).toHaveBeenCalledTimes(1)
+                expect(record).not.toHaveBeenCalled()
+                expect(await missingHashCount()).toEqual(missingBefore + 1)
             })
 
             it('sends the email once when the status write fails', async () => {
