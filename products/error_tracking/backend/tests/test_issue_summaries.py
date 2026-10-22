@@ -240,12 +240,13 @@ class TestIssueSummaryGeneration(BaseTest):
                     side_effect=None, return_value=IssueSummaryOutcome.NO_EXCEPTION
                 ),
                 IssueSummaryOutcome.NO_EXCEPTION,
+                1,
             ),
-            ("rate_limited", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
+            ("rate_limited", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED, 0),
         ]
     )
     def test_outcome_holds_the_issue_past_the_lock(
-        self, _name: str, arrange: Any, expected: IssueSummaryOutcome
+        self, _name: str, arrange: Any, expected: IssueSummaryOutcome, input_builds: int
     ) -> None:
         arrange(self)
         with time_machine.travel(NOW, tick=False):
@@ -255,7 +256,7 @@ class TestIssueSummaryGeneration(BaseTest):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert result.outcome == expected
-        assert self.build_inputs.call_count == 1
+        assert self.build_inputs.call_count == input_builds
 
     def test_concurrent_first_read_does_not_generate_again(self) -> None:
         concurrent_outcomes: list[IssueSummaryOutcome] = []

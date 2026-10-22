@@ -37,7 +37,7 @@ from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_c
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models import Team
 from posthog.redis import get_client
-from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, refund
+from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, peek, refund
 
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
 from products.error_tracking.backend.facade.queries import run_error_tracking_query
@@ -235,6 +235,13 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     if not regeneration_due(stored, timezone.now()):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
+    budget_key = f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}"
+    # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
+    # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
+    if _budget_exhausted(budget_key):
+        _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
+
     team = Team.objects.get(id=team_id)
     try:
         inputs = build_issue_summary_inputs(team, issue_id)
@@ -251,7 +258,6 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         ErrorTrackingIssueSummary.objects.for_team(team_id).filter(id=stored.id).update(checked_at=stored.checked_at)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.UNCHANGED, summary=stored)
 
-    budget_key = f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}"
     decision = consume(budget_key, ISSUE_SUMMARY_BUDGET)
     match decision:
         case BucketDecision(allowed=False):
@@ -296,6 +302,11 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         # The issue was merged away or deleted while the model ran.
         return IssueSummaryResult(outcome=IssueSummaryOutcome.ISSUE_MISSING, summary=None)
     return IssueSummaryResult(outcome=IssueSummaryOutcome.GENERATED, summary=summary)
+
+
+def _budget_exhausted(budget_key: str) -> bool:
+    decision = peek(budget_key, ISSUE_SUMMARY_BUDGET)
+    return isinstance(decision, BucketDecision) and not decision.allowed
 
 
 def _lock_key(team_id: int, issue_id: UUID | str) -> str:
