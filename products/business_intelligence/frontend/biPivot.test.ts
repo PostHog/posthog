@@ -38,7 +38,7 @@ it('keeps reaggregated multi-measure hierarchy cells and their drill-down dimens
         ]
     )
     const collapsed = visibleBIPivotMembers(model.rows, new Set(['["Europe"]']), true)
-    expect(collapsed.map((row) => row.label)).toEqual(['Europe', 'Total (category)', '(empty)', 'Total'])
+    expect(collapsed.map((row) => row.label)).toEqual(['Europe', 'Total (category)', '(no value)', 'Total'])
     expect(visibleBIPivotMembers(model.columns, new Set(['["2026"]']), false).map((row) => row.label)).toEqual([
         '2026',
         'Total',

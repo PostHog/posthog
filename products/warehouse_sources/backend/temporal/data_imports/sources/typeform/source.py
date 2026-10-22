@@ -50,7 +50,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
             "typeform-elements",
         ),
         pypi=("typeform",),
-        competes_with=(ProductKey.SURVEYS,),
+        alternative_to=(ProductKey.SURVEYS,),
     )
 
     api_docs_url = "https://www.typeform.com/developers/"

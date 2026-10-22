@@ -181,9 +181,11 @@ function SubjectLink({ observation }: { observation: ReplayObservationApi }): JS
     )
 }
 
+const THUMBNAIL_TAG_CLASSES = 'shadow-sm bg-surface-primary!'
+
 function TopMatchTag(): JSX.Element {
     return (
-        <LemonTag type="success" size="small">
+        <LemonTag type="success" size="small" className={THUMBNAIL_TAG_CLASSES}>
             Top match
         </LemonTag>
     )
@@ -204,7 +206,13 @@ function MomentCard({
             <div className="relative">
                 <WatchLink observation={observation} expired={expired} onOpen={onOpen} />
                 <span className="absolute top-2 left-2 flex items-center gap-1">
-                    {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
+                    {snapshot && (
+                        <ScannerOutputBadge
+                            scannerType={snapshot.scanner_type}
+                            size="small"
+                            className={THUMBNAIL_TAG_CLASSES}
+                        />
+                    )}
                     {tier === 'top' && <TopMatchTag />}
                 </span>
             </div>

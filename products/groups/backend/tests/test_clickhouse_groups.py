@@ -1,5 +1,6 @@
 import json
 import base64
+import contextlib
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -20,6 +21,7 @@ from django.db import IntegrityError
 from django.utils.timezone import now
 
 import orjson
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
@@ -355,7 +357,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         initial_notebook_count = Notebook.objects.filter(team=self.team).count()
         self.assertEqual(initial_notebook_count, 0)
 
-        with self.assertLogs(level="ERROR") as logs:
+        with self.assertLogs(PATH, level="ERROR") as logs:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}"
             )
@@ -531,39 +533,40 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("found_by_pre_check", False, 0),
+            ("created_after_pre_check", True, 1),
+        ]
+    )
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
-    def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
-        """Personhog upserts on duplicate so the pre-check must catch it."""
-
-        group_type_mapping = create_group_type_mapping_without_created_at(
+    def test_create_group_duplicated_group_key_via_personhog(
+        self, _name, raced_past_pre_check, expected_create_calls, mock_capture
+    ):
+        create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
             group_type="organization",
         )
-        group_key = "dup-key-ph"
+        pre_check = (
+            mock.patch("products.groups.backend.presentation.views.get_group_by_key", return_value=None)
+            if raced_past_pre_check
+            else contextlib.nullcontext()
+        )
 
-        with fake_personhog_client() as fake:
-            fake.add_group(
-                team_id=self.team.pk,
-                group_type_index=group_type_mapping.group_type_index,
-                group_key=group_key,
-                id=1,
-            )
+        with fake_personhog_client() as fake, pre_check:
+            fake.add_group(team_id=self.team.pk, group_type_index=0, group_key="dup-key-ph", id=1)
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/groups",
-                {
-                    "group_key": group_key,
-                    "group_type_index": 0,
-                    "group_properties": {},
-                },
+                {"group_key": "dup-key-ph", "group_type_index": 0, "group_properties": {}},
             )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "A group with this key already exists")
         create_calls = [c for c in fake.calls if c.method == "create_group"]
-        self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
+        self.assertEqual(len(create_calls), expected_create_calls)
         mock_capture.assert_not_called()
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")

@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of the `check_incremental` action: a query and an optional config to check it against.",
+    "properties": {
+        "incremental_key": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Output column whose advancing value marks rows as new. Omit to only list candidates."
+        },
+        "lookback_seconds": {
+            "description": "How far back before the watermark to re-read each run, to pick up late-arriving data.",
+            "maximum": 2592000,
+            "minimum": 0,
+            "type": "number"
+        },
+        "query": {
+            "description": "The HogQL query to check.",
+            "maxLength": 262144,
+            "type": "string"
+        },
+        "unique_key": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Output columns that identify a row. Must include every GROUP BY column."
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

@@ -182,9 +182,6 @@ const DESKTOP = 'desktop'
 // from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
 const CLI_ARTIFACTS = 'cli-artifacts'
 
-// The hogbox preview-environment workflows, which read the hogbox tooling.
-const HOGBOX_PREVIEW = 'hogbox-preview'
-
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -321,10 +318,6 @@ const TRIPWIRE_RULES = [
     // the rust lanes on top of deploy: those PR checks parse it, even though
     // only the image builds act on what it maps.
     ['.github/rust-images.yml', [RUST, DEPLOY]],
-    // The hogbox preview environment gates no check, and its deploys read the
-    // hogbox tooling, which owns a lane already.
-    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
-    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
@@ -364,11 +357,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
     // More single-suite workflows, held to the trees their suites read:
-    // replay-vision evals and ClickHouse HCL checks are Python; the
+    // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
@@ -497,6 +489,7 @@ const TRIPWIRE_RULES = [
     // The vendored paths-filter action and its CI (see CI_TOOLING). The
     // .depot/ shadow of the action follows through canonicalPath.
     ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/actions/shared-image-releases/**', CI_TOOLING],
     ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
     // Feed turbo-discover's backend product selection, so they take the
     // python lanes the same way the snob selector does.
@@ -621,7 +614,7 @@ const TRIPWIRE_RULES = [
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
-    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // loads at runtime and starred_products.py keys off the `path` values of.
     // So both sides of the fe/py split can hold a reference to what one manifest
     // renames, and both claim their full lane family here.
     //
@@ -1737,11 +1730,6 @@ function addHobbyLane(targets) {
     return true
 }
 
-function addHogboxPreviewLane(targets) {
-    targets.add('tools:hogbox-preview')
-    return true
-}
-
 function addCliArtifactLanes(targets) {
     targets.add('cli')
     targets.add('svc:mcp')
@@ -1871,7 +1859,6 @@ const DOMAIN_LANES = new Map([
     [FULLSTACK, addFullstackLanes],
     [DEPLOY, addDeployLane],
     [HOBBY, addHobbyLane],
-    [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
@@ -2994,7 +2981,6 @@ module.exports = {
     DESKTOP,
     FULLSTACK,
     HOBBY,
-    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

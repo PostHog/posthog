@@ -16,7 +16,7 @@ export interface TraceLinkParams {
 
 // The trace API returns hex ids in uppercase, and the viewer matches the URL ids against them exactly.
 // Other ids, such as the drawer's `ai:<uuid>` rows, keep their case.
-function inApiCase(id: string): string {
+export function inApiCase(id: string): string {
     return usableId(id) ? id.toUpperCase() : id
 }
 

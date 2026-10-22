@@ -24,7 +24,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -62,6 +62,7 @@ from products.customer_analytics.backend.facade.temporal import stage_warehouse_
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    clear_node_suspension,
     compute_enrichment_hash,
     definition_fingerprint,
     get_incremental_config,
@@ -245,9 +246,6 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         with (
             unittest.mock.patch(
-                "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
-            ),
-            unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
             ),
             unittest.mock.patch(
@@ -341,6 +339,8 @@ class TestFailMaterializationActivity:
     ):
         if node_deleted:
             await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
+        ajob.run_mode = DataModelingJob.RunMode.INCREMENTAL
+        await database_sync_to_async(ajob.save)(update_fields=["run_mode"])
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -349,7 +349,8 @@ class TestFailMaterializationActivity:
             error="Test error message",
             cancelled=cancelled,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        run_mode = await activity_environment.run(fail_materialization_activity, inputs)
+        assert run_mode == "incremental"
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == expected_status
         assert ajob.rows_materialized == 0
@@ -419,10 +420,50 @@ class TestFailMaterializationActivity:
             job_id=str(current_job.id),
             error=error,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
+            # The first attempt saves the marker, but the in-app notice never lands.
+            mock_create.side_effect = RuntimeError("notifications unavailable")
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+            await database_sync_to_async(anode.refresh_from_db)()
+            assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+            suspended_email = unittest.mock.call(ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True)
+            assert mock_email.delay.call_args_list == [suspended_email]
+
+            # The retry no longer sees the transition but still owes the notice. It resends with the
+            # same job, so the email's campaign key and the in-app idempotency key both dedupe.
+            mock_create.side_effect = None
+            await activity_environment.run(fail_materialization_activity, inputs)
+            assert mock_email.delay.call_args_list == [suspended_email, suspended_email]
+            data = mock_create.call_args.args[0]
+            assert "suspended" in data.title
+            assert "Last error: " + error in data.body
+            assert data.target_type == TargetType.TEAM
+            assert {call.args[0].idempotency_key for call in mock_create.call_args_list} == {data.idempotency_key}
+
+            # Resuming and failing the full streak again is a new suspension, so it notifies again.
+            await database_sync_to_async(clear_node_suspension)(
+                anode, engine=DataModelingJobEngine.CLICKHOUSE, by="api"
+            )
+            await database_sync_to_async(anode.save)()
+            for _ in range(4):
+                await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=previous_error)
+            next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+            await activity_environment.run(fail_materialization_activity, replace(inputs, job_id=str(next_job.id)))
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        assert mock_email.delay.call_args_list[-1] == unittest.mock.call(
+            ateam.pk, str(asaved_query.id), str(next_job.id), suspended=True
+        )
+        assert mock_email.delay.call_count == 3
 
     @pytest.mark.parametrize(
         "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",
@@ -805,6 +846,8 @@ class TestNodeSuspension:
         "aborted_error",
         [
             "Code: 202. DB::Exception: Too many simultaneous queries",
+            "ClickHouseError: Code: 32. DB::Exception: Attempt to read after eof: while receiving packet from "
+            "ch-offline.example.com:9440: While executing Remote. (ATTEMPT_TO_READ_AFTER_EOF)",
             "Cannot connect to host ch-offline.example.com:8443",
             'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
             "Abandoned: the materialization workflow is no longer running",
@@ -815,6 +858,7 @@ class TestNodeSuspension:
             "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
             "This model has been suspended after 5 consecutive failed materializations. "
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -891,14 +935,16 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     @pytest.mark.parametrize(
-        "memory_error",
+        "query_error",
         [
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: (total) memory limit exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
+            "ClickHouseError: Code: 32. DB::Exception: Cannot parse Int64 from String, because value is too short. "
+            "(ATTEMPT_TO_READ_AFTER_EOF)",
         ],
     )
-    async def test_suspends_when_the_query_exhausts_memory(self, ateam, anode, asaved_query, adag, memory_error):
+    async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -906,7 +952,7 @@ class TestNodeSuspension:
         )
 
         jobs = [
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=memory_error)
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=query_error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
         ]
 
@@ -916,7 +962,7 @@ class TestNodeSuspension:
             dag_id=str(adag.id),
             saved_query_id=asaved_query.id,
             engine=DataModelingJobEngine.CLICKHOUSE,
-            reason=memory_error,
+            reason=query_error,
             job_id=str(jobs[-1].id),
         )
 
@@ -1787,17 +1833,29 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
-        "clickhouse_message,expects_delayed_retry",
+        "clickhouse_error,expects_delayed_retry",
         [
             (
-                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
-                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                ClickHouseError(
+                    "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                    "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)"
+                ),
                 True,
             ),
-            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+            (
+                ClickHouseTooManySimultaneousQueriesError(
+                    "Code: 202. DB::Exception: Too many simultaneous queries. Maximum: 100. "
+                    "(TOO_MANY_SIMULTANEOUS_QUERIES)"
+                ),
+                True,
+            ),
+            (
+                ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
+                False,
+            ),
         ],
     )
-    async def test_delta_kernel_read_error_retries_after_a_delay(
+    async def test_transient_clickhouse_errors_retry_after_a_delay(
         self,
         activity_environment,
         ateam,
@@ -1805,11 +1863,11 @@ class TestMaterializeViewActivity:
         ajob,
         bucket_name,
         adag,
-        clickhouse_message,
+        clickhouse_error,
         expects_delayed_retry,
     ):
         def mock_hogql_table(*args, **kwargs):
-            raise ClickHouseError(clickhouse_message)
+            raise clickhouse_error
 
         with (
             override_settings(
@@ -1832,15 +1890,15 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
         error = raised.value
-        assert clickhouse_message in str(error)
+        assert str(clickhouse_error) in str(error)
         if expects_delayed_retry:
             assert isinstance(error, ApplicationError)
-            assert error.type == "ClickHouseError"
+            assert error.type == type(clickhouse_error).__name__
             assert not error.non_retryable
             assert error.next_retry_delay is not None
             assert error.next_retry_delay >= dt.timedelta(minutes=1)
         else:
-            assert type(error) is ClickHouseError
+            assert type(error) is type(clickhouse_error)
 
 
 class _EmptyArrowClient:
@@ -1908,6 +1966,40 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "clickhouse_type,expected_conversion",
+        [
+            ("Array(UUID)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv4)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
+            ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(String)", None),
+            ("Array(Tuple(uuid String))", None),
+            ("Array(Array(UUID))", None),
+        ],
+    )
+    async def test_applies_arrow_conversions_to_array_elements(
+        self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
+        client.describe_body = f"person_ids\t{clickhouse_type}\n".encode()
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table("SELECT [] AS person_ids", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_conversion is None:
+            assert "arrayMap(" not in client.arrow_query
+        else:
+            assert expected_conversion in client.arrow_query
+
     @pytest.mark.parametrize(
         "query,team_modifiers,expected_sql,expected_sql_new_events_schema",
         [
@@ -2068,7 +2160,6 @@ class TestMaterializeViewPromptJev:
                 AI_GATEWAY_URL="https://gateway.example.com/v1",
                 AI_GATEWAY_API_KEY="test-key",
             ),
-            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
             unittest.mock.patch("httpx.AsyncClient.post", side_effect=_jev_gateway_response),
         ):
             inputs = MaterializeViewInputs(
@@ -2100,7 +2191,6 @@ class TestMaterializeViewPromptJev:
 
         with (
             override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
             pytest.raises(ResolutionCycleError),
         ):
             [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]

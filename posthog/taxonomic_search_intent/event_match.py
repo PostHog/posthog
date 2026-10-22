@@ -235,6 +235,6 @@ def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> 
     matches = [match for match in likely if match.name in ingested]
     if matches:
         return EventMatchAnswer(matches=matches, outcome=EventMatchOutcome.MATCHED)
-    return EventMatchAnswer(
-        matches=[], outcome=EventMatchOutcome.NOT_INGESTED if complete else EventMatchOutcome.PARTIAL
-    )
+    if not complete:
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.PARTIAL)
+    return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.NOT_INGESTED, unsent=likely)

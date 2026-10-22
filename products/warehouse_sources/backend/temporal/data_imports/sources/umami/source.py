@@ -59,7 +59,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
         ),
         pypi=("umami-analytics",),
         rubygems=("umami-ruby",),
-        competes_with=(ProductKey.WEB_ANALYTICS,),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True
@@ -77,7 +77,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
             label="Umami",
             iconPath="/static/services/umami.png",
             docsUrl="https://posthog.com/docs/cdp/sources/umami",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Connect Umami Cloud with an API key. For self-hosted Umami, use an API key or username and password.",
             fields=[
                 SourceFieldInputConfig(

@@ -11,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { productEmptyStateGateActivation } from './gateRender'
 import { ProductEmptyStateGate } from './ProductEmptyStateGate'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import type { ProductEmptyStateConfig, ProductSetupStatus, SceneProductEmptyState } from './types'
@@ -55,6 +56,27 @@ describe('ProductEmptyStateGate', () => {
     })
 
     afterEach(() => cleanup())
+
+    it.each([
+        ['metrics', 'on'],
+        ['relationships', 'off'],
+        ['certifications', 'off'],
+    ])('scopes catalog setup to the %s search tab (%s)', (tab, expected) => {
+        expect(
+            productEmptyStateGateActivation({
+                emptyState: {
+                    ...emptyState,
+                    scenes: [{ scene: 'DataCatalog', tabs: [undefined, 'metrics'], tabSource: 'search' }],
+                },
+                activeSceneId: 'DataCatalog',
+                params: {},
+                searchParams: { tab },
+                featureFlags: {},
+                receivedFeatureFlags: true,
+                forcedMode: null,
+            })
+        ).toBe(expected)
+    })
 
     it.each<ProductSetupStatus>(['loading', 'needs-setup', 'waiting-for-data'])(
         'bypasses %s only while the configured flag is enabled',

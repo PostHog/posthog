@@ -12,6 +12,8 @@ from django.conf import settings
 import httpx
 import structlog
 from anthropic import Anthropic, AsyncAnthropic
+from google import genai
+from google.genai import types as genai_types
 from openai import AsyncOpenAI, OpenAI
 
 from posthog.clickhouse.query_tagging import private_capture_context
@@ -396,12 +398,18 @@ def trace_id_from_seed(seed: str) -> str:
 def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
-    guarantees the ``/v1`` suffix, so this is the inverse of that validation.
+    guarantees the ``/v1`` suffix, so this is the inverse of that validation. The Gemini SDK
+    appends ``/v1beta/models/...`` and needs the same root.
     """
     trimmed = openai_base_url.rstrip("/")
     if trimmed.endswith("/v1"):
         trimmed = trimmed[: -len("/v1")]
     return trimmed
+
+
+def openai_gateway_configured() -> bool:
+    """Whether :func:`build_openai_client` can build a client, without building one."""
+    return resolve_ai_gateway_config() is not None or bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
 
 
 def build_openai_client(
@@ -592,4 +600,77 @@ def build_anthropic_client(
         team_id=team_id,
         use_bedrock_fallback=use_bedrock_fallback,
         default_headers=fallback_headers,
+    )
+
+
+class AIGatewayHostError(RuntimeError):
+    """A gateway client was about to send its key to a host other than the gateway."""
+
+
+def _origin(url: httpx.URL) -> str:
+    # httpx lowercases the host and drops a scheme's default port, so equal origins compare equal.
+    return f"{url.scheme}://{url.netloc.decode('ascii')}"
+
+
+def build_gemini_client(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    privacy_mode: bool = False,
+    timeout_ms: int | None = None,
+) -> genai.Client | None:
+    """Return a plain ``google.genai.Client`` routed through the Go ai-gateway, or None when the gateway is unset.
+
+    It skips the posthoganalytics wrapper because the gateway captures the generation.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    headers = (
+        ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            session_id=session_id,
+            properties=properties,
+            distinct_id=distinct_id,
+        )
+        or {}
+    )
+    if privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
+    base_url = anthropic_gateway_base_url(gateway.url)
+    # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
+    transport_headers = {**headers, "x-goog-api-key": gateway.api_key}
+    # Chunks go to whatever URL the upload start returned, so pin every request to the gateway host.
+    expected_origin = _origin(httpx.URL(base_url))
+
+    def pin_to_gateway(request: httpx.Request) -> None:
+        if (origin := _origin(request.url)) != expected_origin:
+            raise AIGatewayHostError(f"request origin must be the AI gateway {expected_origin}, got {origin}")
+
+    async def apin_to_gateway(request: httpx.Request) -> None:
+        pin_to_gateway(request)
+
+    return genai.Client(
+        api_key=gateway.api_key,
+        http_options=genai_types.HttpOptions(
+            base_url=base_url,
+            headers=headers,
+            timeout=timeout_ms,
+            client_args={
+                "trust_env": False,
+                "headers": transport_headers,
+                "event_hooks": {"request": [pin_to_gateway]},
+            },
+            # The SDK uses aiohttp for async whenever it is installed, and that session always trusts
+            # proxy env vars. An explicit httpx transport switches async to httpx, which honours trust_env.
+            async_client_args={
+                "trust_env": False,
+                "transport": httpx.AsyncHTTPTransport(),
+                "headers": transport_headers,
+                "event_hooks": {"request": [apin_to_gateway]},
+            },
+        ),
     )

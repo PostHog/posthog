@@ -3,8 +3,6 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
@@ -37,7 +35,6 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
 
 describe('nodeDetailSceneLogic', () => {
     let logic: ReturnType<typeof nodeDetailSceneLogic.build>
-    let flagsLogic: ReturnType<typeof featureFlagLogic.build>
     let node: DataModelingNode
     let savedQuery: Partial<DataWarehouseSavedQuery>
 
@@ -59,17 +56,11 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
         initKeaTests()
-        flagsLogic = featureFlagLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
         logic?.unmount()
-        flagsLogic.unmount()
     })
 
     it.each([undefined, {}])(
@@ -208,46 +199,6 @@ describe('nodeDetailSceneLogic', () => {
         }
     )
 
-    it('loads the PostHog subject when the data quality flag arrives after the node', async () => {
-        node = buildNode('table', { name: 'events', origin: 'posthog' })
-        flagsLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: false })
-        useMocks({
-            get: {
-                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
-                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
-                '/api/projects/:team_id/data_quality_checks/subjects/': () => [
-                    200,
-                    [
-                        {
-                            subject_type: 'posthog_table',
-                            id: 'events-subject',
-                            name: 'events',
-                            display_name: '',
-                            time_column: 'timestamp',
-                            columns: {},
-                            editable: true,
-                        },
-                    ],
-                ],
-            },
-        })
-
-        await mountScene(urls.nodeDetail(NODE_ID))
-        expect(logic.values.availableTabs).toEqual(['lineage'])
-
-        await expectLogic(logic, () => {
-            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-                [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-            })
-        }).toFinishAllListeners()
-
-        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
-        expect(logic.values.dataQualitySubject).toMatchObject({
-            subjectType: 'posthog_table',
-            subjectId: 'events-subject',
-        })
-    })
-
     it('keeps the data quality tab for an unsupported PostHog table', async () => {
         node = buildNode('table', { name: 'unsupported_table', origin: 'posthog' })
         useMocks({
@@ -342,6 +293,10 @@ describe('nodeDetailSceneLogic', () => {
 
         render(createElement(NodeDetailQuery, { id: NODE_ID }))
 
+        // The columns panel is collapsed by default.
+        expect(screen.queryByText('column_1')).toBeNull()
+        fireEvent.click(screen.getByText('Columns (11)'))
+
         expect(screen.getByText('column_10')).toBeTruthy()
         expect(screen.queryByText('column_11')).toBeNull()
         expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()
@@ -377,6 +332,24 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
+    it('marks the saved query deleted instead of failing when it returns 404', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['loadSavedQueryFailure'])
+        expect(logic.values.savedQueryDeleted).toBe(true)
+        expect(logic.values.savedQueryError).toBe(false)
+    })
+
     // A failed saved-query request leaves the scene rendering with nothing to read is_materialized
     // from. Reading that absence as "not materialized" would open a matview on Query and print
     // "Materialization: Off" under its own Materialized view tag.
@@ -397,14 +370,13 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
-    // Deep links from the data quality overview outlive the flag that created them.
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
-        flagsLogic.actions.setFeatureFlags([], {})
+        node = buildNode('table')
 
         await mountScene(urls.nodeDetail(NODE_ID, 'data-quality'))
 
-        expect(logic.values.effectiveTab).toEqual('query')
-        expect(logic.values.currentTab).toEqual('query')
+        expect(logic.values.effectiveTab).toEqual('lineage')
+        expect(logic.values.currentTab).toEqual('lineage')
     })
 
     // Clicking through the lineage graph navigates model to model. The outgoing model's logic is

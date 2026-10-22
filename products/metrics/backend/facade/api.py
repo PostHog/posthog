@@ -8,10 +8,14 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import structlog
+
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -24,6 +28,7 @@ from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
@@ -63,6 +68,9 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
+from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -477,6 +485,7 @@ def list_metric_attribute_values(
     *,
     team: Team,
     key: str,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
@@ -485,15 +494,71 @@ def list_metric_attribute_values(
     """List observed values for one metric attribute key, most frequent first,
     for the filter bar's value autocomplete.
 
-    `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 24 hours. Returns
+    When a metric name is provided, only values seen on that metric supply
+    choices. `service_name`/`service.name` read the first-class column,
+    matching how filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
     runner = MetricAttributeValuesQueryRunner(
-        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        team=team,
+        key=key,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
     return runner.run()
+
+
+def check_metric_variable_regex(regex: str | None) -> None:
+    """Raises `ValueError` for a variable regex that the options cannot use."""
+    compile_regex(regex)
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    regex: str | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    """`variables` are the selections of the other variables, which the query can refer to as `$name`.
+
+    `date_from` and `date_to` are a dashboard date filter, such as `-7d`, and resolve as they do for tiles.
+    Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
+    runs too many queries.
+    """
+    # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+    lookup = query_concurrency_slots(team) if date_from == "all" else nullcontext()
+    try:
+        with lookup:
+            window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+            resolved_from, resolved_to = window.date_from(), window.date_to()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("The window of the variable options is not a valid date range.") from exc
+    check_options_window(resolved_from, resolved_to)
+    # The caller sends the options that All stands for, so an empty list is a known empty set.
+    selections = {
+        name: with_values(variable, variable.values) if variable.is_all else variable
+        for name, variable in from_dashboard(variables).items()
+    }
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        regex=regex,
+        variables=selections,
+        date_from=resolved_from,
+        date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
+    )
 
 
 def list_metric_event_samples(
@@ -816,6 +881,14 @@ def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTempl
     )
 
     return service.reject(user, template_id)
+
+
+def regenerate_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.regenerate(user, template_id)
 
 
 def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:
