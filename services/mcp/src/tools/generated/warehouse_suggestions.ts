@@ -78,6 +78,18 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
         if (params.refresh_interval_seconds !== undefined) {
             body['refresh_interval_seconds'] = params.refresh_interval_seconds
         }
+        if (params.refresh_mode !== undefined) {
+            body['refresh_mode'] = params.refresh_mode
+        }
+        if (params.incremental_key !== undefined) {
+            body['incremental_key'] = params.incremental_key
+        }
+        if (params.unique_key !== undefined) {
+            body['unique_key'] = params.unique_key
+        }
+        if (params.lookback_seconds !== undefined) {
+            body['lookback_seconds'] = params.lookback_seconds
+        }
         const result = await context.api.request<Schemas.WarehouseSuggestion>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/${encodeURIComponent(String(params.id))}/accept/`,

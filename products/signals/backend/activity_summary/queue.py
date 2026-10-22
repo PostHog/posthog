@@ -15,20 +15,16 @@ from posthog.models import ActivityLog, Team
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
-from products.signals.backend.activity_summary.prompt import SYSTEM_PROMPT
+from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
+from products.signals.backend.activity_summary.prompt import system_prompt
 from products.signals.backend.activity_summary.render import (
+    DEFAULT_LIMITS,
+    MAX_LIMITS,
     MAX_SUMMARY_CHARS,
     SCOUT_CLIENT_PREFIX,
-    SECTIONS_MAX_CHARS,
-    WINDOW_DAYS,
+    RenderLimits,
 )
-from products.signals.backend.activity_summary.summaries import (
-    DEFAULT_MODEL,
-    MAX_ATTEMPTS,
-    MAX_COMPLETION_TOKENS,
-    MODEL_PRICES,
-    cost_usd,
-)
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
 from products.signals.backend.models import UserActivitySummary
 from products.tasks.backend.facade.user_task_summaries import list_user_task_times
 
@@ -59,12 +55,18 @@ class DailyUsage:
     cost_usd: float
 
 
-def max_update_cost_usd(model: str = DEFAULT_MODEL) -> float:
+def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
     """The most one update can cost: every attempt with the largest input and output."""
-    input_chars = SECTIONS_MAX_CHARS + MAX_SUMMARY_CHARS + len(SYSTEM_PROMPT)
+    # The previous summary is a profile, cut to `limits.profile_max_chars`, plus fields that `MAX_SUMMARY_CHARS` covers.
+    input_chars = (
+        limits.sections_max_chars
+        + limits.profile_max_chars
+        + MAX_SUMMARY_CHARS
+        + len(system_prompt(limits.profile_max_chars))
+    )
     bound = cost_usd(
         MAX_ATTEMPTS * input_chars // _BOUND_CHARS_PER_TOKEN,
-        MAX_ATTEMPTS * MAX_COMPLETION_TOKENS,
+        MAX_ATTEMPTS * limits.max_completion_tokens,
         MODEL_PRICES.get(model),
     )
     return _UNPRICED_UPDATE_COST_USD if bound is None else bound
@@ -75,17 +77,23 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
-    A row without a cost counts as the most one update can cost, so missing usage cannot pass the cap.
+    A row without a cost counts as the most one update can cost under the largest limits the flag allows,
+    because the row can come from a tick with larger limits than now. So missing usage cannot pass the cap.
+    An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
-    # nosemgrep: idor-lookup-without-team (the daily caps are global over all teams, with no user input)
-    rows = UserActivitySummary.all_teams.filter(status__in=_CALLED_MODEL, updated_at__gte=now - DAY).aggregate(
-        updates=Count("id"),
-        unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
-        cost=Sum("cost_usd"),
+    rows = (
+        # nosemgrep: idor-lookup-without-team (the daily caps are global over all teams, with no user input)
+        UserActivitySummary.all_teams.filter(status__in=_CALLED_MODEL, updated_at__gte=now - DAY)
+        .exclude(error__startswith=EXCEPTION_ERROR_PREFIX, cost_usd=0)
+        .aggregate(
+            updates=Count("id"),
+            unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
+            cost=Sum("cost_usd"),
+        )
     )
     return DailyUsage(
         updates=rows["updates"],
-        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(),
+        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(MAX_LIMITS),
     )
 
 
@@ -165,13 +173,13 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
     A pair is due when it has a task or an activity log row after its watermark, or in the last
-    `WINDOW_DAYS` with no watermark, and its `next_eligible_at` is empty or past. Pairs with no
+    `window_days` with no watermark, and its `next_eligible_at` is empty or past. Pairs with no
     summary come first, then the pairs with the most new rows, then the oldest summaries.
     """
     team_ids = _enrolled_team_ids(config)
     if not team_ids or limit <= 0:
         return []
-    window_start = now - datetime.timedelta(days=WINDOW_DAYS)
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
     stored = _stored_rows(team_ids)
     new_rows = Counter(_new_activity_rows(team_ids, window_start, now)) + _new_tasks(
         team_ids, window_start, now, stored

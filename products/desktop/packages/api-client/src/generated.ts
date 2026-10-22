@@ -852,6 +852,8 @@ export namespace Schemas {
             | undefined;
     };
     export type CohortPropertyFilter = {
+        cohort_deleted?: (boolean | null) | undefined;
+        cohort_missing?: (boolean | null) | undefined;
         cohort_name?: (string | null) | undefined;
         key?: string | undefined;
         label?: (string | null) | undefined;
@@ -6380,18 +6382,18 @@ export namespace Schemas {
      */
     export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
      */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum =
+    export type DashboardWidgetTypeEnum =
         | "activity_events_list"
         | "canvas_app"
         | "conversations_recent_tickets"
@@ -6550,7 +6552,7 @@ export namespace Schemas {
         | CanvasAppWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
-        widget_type: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+        widget_type: DashboardWidgetTypeEnum;
         config: DashboardWidgetConfig;
         name: string | null;
         description: string;
@@ -9450,6 +9452,8 @@ export namespace Schemas {
          * Cohort comparison value (single or list, depending on usage).
          */
         value: unknown;
+        cohort_deleted?: boolean | undefined;
+        cohort_missing?: boolean | undefined;
     };
     /**
      * * `flag` - flag
@@ -9733,6 +9737,8 @@ export namespace Schemas {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9750,6 +9756,8 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "no_metric"
+        | "metric_event_not_ingested"
+        | "exposure_criteria_cannot_match"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
@@ -9797,6 +9805,8 @@ export namespace Schemas {
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9850,6 +9860,8 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -9865,6 +9877,8 @@ export namespace Schemas {
         | "forced_variant_release_condition"
         | "new_flag_no_traffic"
         | "no_metric"
+        | "metric_event_not_ingested"
+        | "exposure_criteria_cannot_match"
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
@@ -9893,6 +9907,8 @@ export namespace Schemas {
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -11302,6 +11318,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -12241,6 +12258,7 @@ export namespace Schemas {
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12706,6 +12724,7 @@ export namespace Schemas {
         | "ReplyIo"
         | "RetailExpress"
         | "Retently"
+        | "Retreaver"
         | "RevolutMerchant"
         | "RocketChat"
         | "Rocketlane"
@@ -13644,7 +13663,8 @@ export namespace Schemas {
         | "GoogleAdMob"
         | "Klar"
         | "ConectoCRM"
-        | "CloudflareR2";
+        | "CloudflareR2"
+        | "Particle";
     /**
      * * `web` - web
      * * `api` - api
@@ -14118,6 +14138,7 @@ export namespace Schemas {
          * * `ReplyIo` - ReplyIo
          * * `RetailExpress` - RetailExpress
          * * `Retently` - Retently
+         * * `Retreaver` - Retreaver
          * * `RevolutMerchant` - RevolutMerchant
          * * `RocketChat` - RocketChat
          * * `Rocketlane` - Rocketlane
@@ -15057,6 +15078,7 @@ export namespace Schemas {
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

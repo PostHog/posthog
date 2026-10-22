@@ -339,6 +339,7 @@ pub fn process_event_gated(
 ///
 /// Sequential awaits only: the batched read must observe the prior event's committed writes, so the
 /// read and commit are never joined or reordered.
+#[hotpath::measure]
 pub(crate) async fn process_event_offloaded(
     partition_id: u16,
     handle: &StoreHandle,
@@ -389,6 +390,7 @@ fn record_snapshot_keys(snapshot: &EventSnapshotRaw) {
 
 /// Resolve everything up to the pre-event read: gating, behavioral evaluation and applies, and the
 /// person plan (fingerprints only — the person record read and evaluation happen in the fold).
+#[hotpath::measure]
 pub(crate) fn plan_event(
     partition_id: u16,
     filters: &TeamFilters,
@@ -446,6 +448,7 @@ pub(crate) fn plan_event(
 /// Fold the pre-event `snapshot` into the behavioral rows and the person record, staging the writes
 /// into a [`StagedBatch`] for the caller to commit. Pure w.r.t. the store. Returns
 /// [`FoldResult::Skip`] on a person-props parse failure.
+#[hotpath::measure]
 pub(crate) fn fold_event(
     filters: &TeamFilters,
     read: ReadPlan,

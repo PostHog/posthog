@@ -55,6 +55,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -124,6 +129,7 @@ from products.cdp.backend.presentation.serializers import (
     require_viewer_access_to_added_actions,
 )
 from products.cohorts.backend.facade.api import get_cohort_ref
+from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -295,21 +301,26 @@ from products.workflows.backend.facade.validation import (
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    ALL_MARKETING_CATEGORY_ID,
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
+    exit_condition_that_runs,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    literal_opt_out_category_id,
     literal_static_cohort_id,
+    opt_out_category_ids,
     static_cohort_ids,
     workflow_from_fields,
     workflow_publish_impact,
@@ -1708,6 +1719,48 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
             )
 
+    def _validate_opt_out_of_messages_action(self, inputs: dict, *, strict: bool) -> None:
+        """The step edits the team-wide opt-out list as a service, so whoever saves it needs the access that list needs.
+
+        Runs on lenient draft saves too, because the callback endpoint accepts only the categories the saved
+        workflow names. A draft save may keep a category that no longer exists, but never a transactional one."""
+        category_id = literal_opt_out_category_id(inputs)
+        if category_id is None:
+            if strict:
+                raise serializers.ValidationError({"inputs": {"category_id": "Choose a message category."}})
+            return
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        team = get_team()
+        user = getattr(self.context.get("request"), "user", None)
+        # Same resource-level check as the opt-out list API: access to one workflow isn't access to the team's list.
+        # Someone already passed it for a category the saved workflow names, so other editors can keep saving.
+        if (
+            category_id not in (self.context.get("stored_opt_out_category_ids") or set())
+            and user is not None
+            and user.is_authenticated
+            and not isinstance(user, SyntheticUser)
+            and not UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+        ):
+            raise serializers.ValidationError(
+                {"inputs": {"category_id": "You need edit access to all workflows to change the opt-out list."}}
+            )
+        if category_id == ALL_MARKETING_CATEGORY_ID:
+            return
+        try:
+            category = get_category(team.id, category_id)
+        except MessageCategoryMissing:
+            if strict:
+                raise serializers.ValidationError(
+                    {"inputs": {"category_id": "This message category doesn't exist. Choose another category."}}
+                )
+            return
+        if category.category_type != "marketing":
+            raise serializers.ValidationError(
+                {"inputs": {"category_id": "Transactional messages ignore opt-outs. Choose a marketing category."}}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1948,6 +2001,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             # validation but still stores the cohort ID that the callback later trusts.
             if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
                 self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
+            if data.get("type") == "function" and template_id == OPT_OUT_OF_MESSAGES_TEMPLATE_ID:
+                self._validate_opt_out_of_messages_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
@@ -3020,6 +3075,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "last_run",
             "pending_suggestions",
             "suggestions_enabled",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -3164,7 +3220,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_only_at_end: only at exit node (default). "
             "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
             "exit_on_trigger_not_matched: also when trigger filter stops matching. "
-            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
+            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). "
+            "Only event and cohort triggers are re-checked, so on any other trigger these two are stored as "
+            "exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person "
+            "leaves the cohort (or rejoins it, for a 'left' trigger)."
         ),
     )
     email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
@@ -3328,6 +3387,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         }
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
+        self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -3441,10 +3501,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
             "last_run",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "version",
+            "tags",
             "created_at",
             "created_by",
             "updated_at",
@@ -3542,6 +3604,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Store the exit condition that actually runs rather than reject one that never fires. The builder
+        # shows the exit options only for event triggers, so a value kept from before a trigger change has
+        # no control the author could use to clear it, and a rejection would block every save.
+        exit_condition = data.get("exit_condition", instance.exit_condition if instance else None)
+        runs = exit_condition_that_runs(data["trigger"].get("type"), exit_condition)
+        if runs != exit_condition:
+            data["exit_condition"] = runs
 
         # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
         # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
@@ -4780,9 +4850,19 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             ),
         ]
     ),
+    # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4827,8 +4907,11 @@ class HogFlowViewSet(
         "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
+        "bulk_update_tags",
     ]
     queryset = HogFlow.objects.all()
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
+    bulk_tag_activity_scope = "HogFlow"
     pagination_class = HogFlowPagination
     log_source = "hog_flow"
     app_source = "hog_flow"
@@ -5404,6 +5487,7 @@ class HogFlowViewSet(
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
+                requested_exit_condition=serializer.initial_data.get("exit_condition"),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()

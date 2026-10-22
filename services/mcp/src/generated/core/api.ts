@@ -1157,6 +1157,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -1794,6 +1806,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -2434,6 +2458,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -3979,6 +4015,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -4616,6 +4664,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -5256,6 +5316,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
