@@ -99,6 +99,8 @@ describe('EmailDomainScene', () => {
         click('email-domain-use-custom-domain')
         expect(screen.getByText('hello@mail.acme.com')).toBeInTheDocument()
 
+        // Tests run as a local stack, which starts on Maildev.
+        click('email-domain-local-provider-ses')
         click('email-domain-continue')
         await flush()
         expect(backend.requestsTo('integration_create')[0].body).toEqual({
