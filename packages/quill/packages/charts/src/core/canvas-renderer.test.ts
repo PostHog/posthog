@@ -965,6 +965,20 @@ describe('hog-charts canvas-renderer', () => {
                 }
             )
         })
+
+        it('draws value lines at valueTicks for a plain value-to-pixel yScale, as a custom chart passes', () => {
+            const ctx = mockCanvasContext()
+            const plotBottom = dimensions.plotTop + dimensions.plotHeight
+            const y = (value: number): number => plotBottom - value
+            const snap = (coord: number): number => Math.round(coord) + 0.5
+
+            drawGrid({ ctx, dimensions, yScale: y }, { frame: false, valueTicks: [0, 50, 100] })
+
+            expect(ctx.moveTo.mock.calls).toEqual([
+                [dimensions.plotLeft, snap(y(50))],
+                [dimensions.plotLeft, snap(y(100))],
+            ])
+        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {
