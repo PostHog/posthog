@@ -306,7 +306,11 @@ def authorize_cli(user: User, code_challenge: str) -> str:
 
 
 def exchange_cli_code(code: str, code_verifier: str) -> MintedDevToken:
-    raw = get_client().getdel(_code_key(code))
+    # GET and DEL in one MULTI, so a replayed code reads nothing. GETDEL would need Redis 6.2.
+    pipe = get_client().pipeline(transaction=True)
+    pipe.get(_code_key(code))
+    pipe.delete(_code_key(code))
+    raw, _ = pipe.execute()
     grant = json.loads(raw) if raw else None
     if not isinstance(grant, dict):
         raise DevTokenRefused("invalid_code", "code is unknown, expired or already used", 400)
