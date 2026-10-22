@@ -3,6 +3,8 @@ import datetime
 from dataclasses import dataclass
 from functools import partial
 
+from django.utils import timezone
+
 import dagster
 import pydantic
 from clickhouse_driver import Client
@@ -171,23 +173,34 @@ def create_snapshot_table(
     return table
 
 
+# Overrides newer than this may not have reached every host yet, so the squash leaves them for the next run.
+SQUASH_CUTOFF_MARGIN = datetime.timedelta(days=2)
+
+
 class PopulateSnapshotTableConfig(dagster.Config):
     """
     Configuration for creating and populating the initial snapshot table.
     """
 
-    timestamp: str = pydantic.Field(
+    timestamp: str | None = pydantic.Field(
         description="The upper bound (non-inclusive) timestamp used when selecting person overrides to be squashed. The "
         "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
-        "written to the database and replicated to all hosts in the cluster.",
-        default=(datetime.datetime.now() - datetime.timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        "written to the database and replicated to all hosts in the cluster. If not set, the run uses the time it "
+        "populates the snapshot minus two days.",
+        default=None,
     )
     limit: int | None = pydantic.Field(
         description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
         "amount of memory consumed by the squash process during execution.",
         default=None,
     )
+
+    def cutoff(self) -> str:
+        # Computed per run: a default in the field would be fixed when the code server imports this module.
+        if self.timestamp:
+            return self.timestamp
+        return (timezone.now() - SQUASH_CUTOFF_MARGIN).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_cutoff(timestamp: str) -> datetime.datetime | None:
@@ -207,13 +220,16 @@ def populate_snapshot_table(
     config: PopulateSnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
     """Fill the snapshot data with the selected overrides based on the configuration timestamp."""
+    cutoff = config.cutoff()
+    context.log.info(f"Squashing person overrides with _timestamp before {cutoff}")
+    context.add_output_metadata({"cutoff": dagster.MetadataValue.text(cutoff)})
     record_run(
         context,
         DeletionRunJob.SQUASH_PERSON_OVERRIDES,
-        squash_cutoff=_parse_cutoff(config.timestamp),
+        squash_cutoff=_parse_cutoff(cutoff),
         squash_limit=config.limit,
     )
-    cluster.any_host(partial(table.populate, timestamp=config.timestamp, limit=config.limit)).result()
+    cluster.any_host(partial(table.populate, timestamp=cutoff, limit=config.limit)).result()
     return table
 
 
