@@ -1346,6 +1346,9 @@ HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogfere
 # Each decision is a billed gateway call, so these bound the cost of one query.
 HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
 HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
+# Gateway requests one `jev` column keeps in flight. The model servers refuse prompt tokens past a
+# per-pod limit, so raise this only together with model capacity.
+HOGQL_JEV_CONCURRENCY = get_from_env("HOGQL_JEV_CONCURRENCY", 4, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.

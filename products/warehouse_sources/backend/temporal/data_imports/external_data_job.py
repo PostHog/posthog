@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_ERROR,
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -391,11 +392,6 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
-)
-
-WORKER_RESTART_ERROR_MESSAGE = (
-    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
-    "It will run again automatically. No action is needed."
 )
 
 TRANSIENT_SOURCE_ERROR_MESSAGE = (

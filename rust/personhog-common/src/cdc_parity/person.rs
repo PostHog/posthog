@@ -2,10 +2,12 @@
 //! the changelog relay produce: folded to the newest version per person, as
 //! a ReplacingMergeTree keeps it, and compared by content.
 
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hasher;
 
+use serde::Deserialize;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -70,9 +72,31 @@ impl PersonRow {
         })
     }
 
+    /// Reads the key alone. The properties document stays an unparsed
+    /// string, so a row outside a sample costs a fraction of `decode`.
+    pub fn decode_key(payload: &[u8]) -> Result<PersonKey, DecodeError> {
+        let fields: KeyFields<'_> =
+            serde_json::from_slice(payload).map_err(|source| DecodeError::Json {
+                what: PERSON_ROW,
+                source,
+            })?;
+        let uuid = Uuid::parse_str(&fields.id).map_err(|_| DecodeError::MissingField {
+            what: PERSON_ROW,
+            field: "a person uuid",
+        })?;
+        Ok(PersonKey::new(fields.team_id, uuid))
+    }
+
     pub fn key(&self) -> PersonKey {
         PersonKey::new(self.team_id, self.uuid)
     }
+}
+
+#[derive(Deserialize)]
+struct KeyFields<'a> {
+    team_id: i64,
+    #[serde(borrow)]
+    id: Cow<'a, str>,
 }
 
 /// What a feed holds for one person. Properties are kept as a hash per top
@@ -268,12 +292,15 @@ mod tests {
 
     const UUID: &str = "00000000-0000-0000-0000-000000000001";
 
-    fn row(properties: &str, extra: &str) -> PersonRow {
-        let payload = format!(
+    fn payload(properties: &str, extra: &str) -> String {
+        format!(
             r#"{{"id":"{UUID}","created_at":"2023-11-14 22:13:20","properties":{properties},"team_id":5,"is_identified":1,"is_deleted":0,"version":3,"last_seen_at":null{extra}}}"#,
             properties = serde_json::to_string(properties).unwrap(),
-        );
-        PersonRow::decode(payload.as_bytes()).unwrap()
+        )
+    }
+
+    fn row(properties: &str, extra: &str) -> PersonRow {
+        PersonRow::decode(payload(properties, extra).as_bytes()).unwrap()
     }
 
     fn snapshot(properties: &str) -> PersonSnapshot {
@@ -284,6 +311,11 @@ mod tests {
     fn a_node_shaped_row_decodes() {
         let row = row(r#"{"email":"a@example.com"}"#, "");
         assert_eq!(row.key(), PersonKey::new(5, Uuid::parse_str(UUID).unwrap()));
+        let payload = payload(r#"{"email":"a@example.com"}"#, "");
+        assert_eq!(
+            PersonRow::decode_key(payload.as_bytes()).unwrap(),
+            row.key()
+        );
         assert_eq!(row.version, 3);
         assert!(row.is_identified && !row.is_deleted);
         assert_eq!(row.created_at, "2023-11-14 22:13:20");

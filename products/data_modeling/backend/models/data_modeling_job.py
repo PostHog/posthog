@@ -55,6 +55,11 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+    bytes_read = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Bytes the engine read to build the model. Null when the run was not measured.",
+    )
 
     class Meta:
         db_table = "posthog_datamodelingjob"
