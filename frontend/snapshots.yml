@@ -8823,9 +8823,9 @@ snapshots:
     scenes-app-ai-observability-dataset--items--light:
         hash: v1.k794b7964.1c015595c8578810412d647be5d2024cc10f89550afcad9b5718eb03034d1694.KdlzqK5EDz_RBcSlVhL_3dh0Qw6Q41cWdOqnAeG9U28
     scenes-app-ai-observability-dataset--new-dataset--dark:
-        hash: v1.k794b7964.146fd5ea2c3d3a6d6d463977d917febb13201ba0493cb6632d84973552790175.hEz22QlSACHxX-gVUMeLq1wtlqLS0yb6nr4GAJ_2U-w
+        hash: v1.k794b7964.7e1118fe1a3df1cbcce546cd7abe512a0263df5554566ed4828d68a5a7a8b474.wXttiynU_OFB8vlU5bXmyrHZIelPEw07Q0Fp61UCa0U
     scenes-app-ai-observability-dataset--new-dataset--light:
-        hash: v1.k794b7964.379c78b3f23d87de0cb580f38f2fb651db8bb882a65e27bc10317a8a04473766.G3K23YBeVZAlNhbdCjRqjLlYaCz8NfJwA5M1ywROk0A
+        hash: v1.k794b7964.224de55acdf166af1f369d618e308efe3a3aa46ae965737dc05a6204b2e5b375.7U2SsbfISxaMVddaKRLuHiWNt9Qj-6eLotsB6JKtaAM
     scenes-app-ai-observability-dataset--read-only--dark:
         hash: v1.k794b7964.682c3453692dd77c305690f91a7a77ddbe2de1b323aadea84174cdee39b97239.7UWvSw1xUNRBYr2VWzbKN22wfuhShLBrsxvpywsjbSs
     scenes-app-ai-observability-dataset--read-only--light:
@@ -8902,6 +8902,10 @@ snapshots:
         hash: v1.k794b7964.cfe60d1bb96149e5c07f38be4ff3c70dbb41b7e70c230a9ef127b121618326af.f7b7gNJVtuTFiIiGUMpXsbhB9uCrtd_OpC_--TfrTrs
     scenes-app-ai-observability-offline-experiments-navigation--datasets-only--light:
         hash: v1.k794b7964.35b96b7629c48614494653876b9e6f09df4d8a94a6857e7bb1542af21c73fd01.DmMuGfWJT-L59Z5Zy_Xl-GFe7Yn0C2w7H2biCvSBmp0
+    scenes-app-ai-observability-offline-experiments-navigation--datasets-unavailable--dark:
+        hash: v1.k794b7964.2a9db18dd5a878696f7b1af18c6a3608da26907d0f5eb65f278b9860d0a29a56.LqQr1nb1bEcpIIvExJLIuIgSGs4Aua4QFigCFIlT-ig
+    scenes-app-ai-observability-offline-experiments-navigation--datasets-unavailable--light:
+        hash: v1.k794b7964.dcfb6dc4d1b0290142c394df9165c1d1bac1972fa1179ebf1d4e1221f5f59354.biHIGb-srQvpY-WtpRgH3alC-AFxpd-J3cJOcgegL5o
     scenes-app-ai-observability-offline-experiments-overview--all-time-synchronized-hover--dark:
         hash: v1.k794b7964.d592fa62f27081449d44b3c03494292be8a043e255da1d70a02b9581221d41a6.hVExLS77L3Jez2RZ2180Yes9ksKzGjOGfoMXsP2mO1w
     scenes-app-ai-observability-offline-experiments-overview--all-time-synchronized-hover--light:
