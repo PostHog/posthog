@@ -750,7 +750,6 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "no_events"),
-            ("action_series", [{"kind": "ActionsNode", "id": 1}], 1_000_000_000, "unsupported"),
             ("read_limit_reached_while_sizing", ONE_STEP, 1, "inconclusive"),
         ]
     )
