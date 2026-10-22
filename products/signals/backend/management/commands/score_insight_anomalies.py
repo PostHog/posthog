@@ -1,6 +1,6 @@
 """Score a trends insight's series for anomalies and print the result. Writes nothing.
 
-python manage.py score_insight_anomalies --insight 123
+python manage.py score_insight_anomalies --team 1 --insight 123
 """
 
 from typing import Any
@@ -8,7 +8,9 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
-from products.product_analytics.backend.facade.models import Insight
+from posthog.models import Team
+
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.anomaly_scores.scoring import InsightScores, UnsupportedInsightError, score_insight
 
 
@@ -16,16 +18,19 @@ class Command(BaseCommand):
     help = "Score a trends insight's series for anomalies and print value, score, flag and details per bucket"
 
     def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("--team", type=int, required=True, help="Team id")
         parser.add_argument("--insight", type=int, required=True, help="Insight id")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        insight = (
-            Insight.objects.select_related("team", "created_by").filter(pk=options["insight"], deleted=False).first()
-        )
+        team = Team.objects.filter(pk=options["team"]).first()
+        if team is None:
+            raise CommandError(f"Team {options['team']} not found")
+        insights = insights_including_soft_deleted_for_team(team_id=team.pk, insight_ids=[options["insight"]])
+        insight = next((insight for insight in insights if not insight.deleted), None)
         if insight is None:
-            raise CommandError(f"Insight {options['insight']} not found")
+            raise CommandError(f"Insight {options['insight']} not found in team {team.pk}")
         try:
-            scores = score_insight(insight, insight.team, now=timezone.now())
+            scores = score_insight(insight, team, now=timezone.now())
         except UnsupportedInsightError as err:
             raise CommandError(f"Not scored: {err}")
         self._print(scores)
