@@ -1227,6 +1227,24 @@ class AutoLogoutImpersonateMiddleware:
         return self.get_response(request)
 
 
+class UnversionedStaticPathMiddleware:
+    """Serves /static/<version>/<file> as /static/<file>.
+
+    A posthog-js client with `strict_script_versioning` asks for its extension scripts under
+    a version folder. Cloud serves those from a versioned CDN bucket. An instance holds one
+    build of each script, so any version gets that build, as an unversioned request does.
+    """
+
+    VERSIONED_STATIC_PATH = re.compile(r"^/static/\d+\.\d+\.\d+(?:-[\w.]+)?/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
 class Fix204Middleware:
     """
     Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
