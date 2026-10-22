@@ -315,16 +315,16 @@ fi
 rm -f /var/run/docker.pid /var/run/docker.sock
 
 log "cleaning up"
-cd /
 rm -rf "$BAKE_ROOT"
-git -C "$REPO_DIR" reset -q --hard
-git -C "$REPO_DIR" clean -ffdxq
-git -C "$REPO_DIR" update-ref refs/remotes/origin/master "$BAKED_SHA"
-git -C "$REPO_DIR" config core.checkStat minimal
-git -C "$REPO_DIR" config core.trustctime false
+cd "$REPO_DIR"
+git reset -q --hard
+git clean -ffdxq
+git update-ref "$(git symbolic-ref refs/remotes/origin/HEAD)" "$BAKED_SHA"
+git config core.checkStat minimal
+git config core.trustctime false
 sleep 1
-git -C "$REPO_DIR" update-index -q --really-refresh
-git -C "$REPO_DIR" update-index --force-write-index --refresh > /dev/null
+git update-index -q --really-refresh --force-write-index
+cd /
 
 log "installing task-time bootstrap helper"
 # A restored sandbox is not self-starting: the sandbox runtime rewrites /etc/hosts at
