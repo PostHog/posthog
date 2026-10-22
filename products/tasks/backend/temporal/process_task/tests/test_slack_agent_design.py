@@ -12,6 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
@@ -289,3 +290,58 @@ class TestSlackAgentDesignStream(TestCase):
         else:
             assert client.chat_postMessage.call_args.kwargs["text"] == "Signups grew."
             mock_deliver.assert_called_once_with(self.task_run)
+
+    @parameterized.expand([("private", True), ("shared_other_participant", False)])
+    @patch.object(SlackThreadHandler, "stop_status_stream")
+    @patch.object(SlackThreadHandler, "append_status_chunks", return_value=True)
+    def test_pickup_closes_only_the_sole_recipients_stream(
+        self, _name: str, private: bool, append: MagicMock, stop: MagicMock
+    ) -> None:
+        user = User.objects.create_and_join(self.org, "mobile@example.com", None)
+        task = Task.objects.create(
+            team=self.team,
+            title="Picked up task",
+            description="desc",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=user,
+            state={"mobile_push_user_ids": [user.id]},
+        )
+        task_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"slack_actor_user_id": user.id, "slack_actor_slack_user_id": "U123"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="123.456",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id="U123",
+            conversation_type=(
+                SlackThreadTaskMapping.ConversationType.IM
+                if private
+                else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
+            ),
+        )
+        result = append_slack_agent_design_steps(
+            AppendSlackAgentDesignStepsInput(
+                slack_thread_context={
+                    "integration_id": self.integration.id,
+                    "channel": "C123",
+                    "thread_ts": "123.456",
+                    "mentioning_slack_user_id": "U123",
+                },
+                ts="stream-ts",
+            )
+        )
+        if private:
+            assert result is False
+            append.assert_not_called()
+            stop.assert_called_once_with(ts="stream-ts", mention_sent=True)
+        else:
+            assert result is True
+            append.assert_called_once()
+            stop.assert_not_called()

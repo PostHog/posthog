@@ -361,6 +361,12 @@ __all__ = [
     "record_comment_activity",
     "record_task_mobile_pickup",
     "task_mobile_push_taken_over",
+    "task_mobile_push_delivery_allowed",
+    "task_mobile_push_user_ids",
+    "task_mobile_push_suppressed_token_ids",
+    "enqueue_task_mobile_pr_outcome",
+    "claim_mobile_push_cooldown",
+    "release_mobile_push_cooldown",
     "record_run_failure_cause",
     "signal_task_run_client_activity",
     "redispatch_task_run",
@@ -12485,3 +12491,53 @@ def task_mobile_push_taken_over(*, task_id: str, team_id: int, user_id: int) -> 
 
     task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
     return task is not None and user_id in mobile_push_user_ids(task)
+
+
+def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        task_mobile_push_eligible,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id, deleted=False).filter(task_visibility_q(user_id)).first()
+    return task is not None and task_mobile_push_eligible(task, user_id)
+
+
+def task_mobile_push_user_ids(*, task_id: str, team_id: int) -> set[int]:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return mobile_push_user_ids(task) if task is not None else set()
+
+
+def task_mobile_push_suppressed_token_ids(*, user_id: int, task_id: str, team_id: int) -> list[str]:
+    from products.tasks.backend.mobile_push import (
+        suppressed_push_token_ids_for_task,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return suppressed_push_token_ids_for_task(user_id=user_id, task_id=task_id, team_id=team_id)
+
+
+def enqueue_task_mobile_pr_outcome(
+    *, task_id: str, team_id: int, user_id: int, pr_url: str, kind: str, enqueue: Callable[[], None]
+) -> bool:
+    from products.tasks.backend.mobile_push import (
+        enqueue_mobile_pr_outcome,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return enqueue_mobile_pr_outcome(
+        task_id=task_id, team_id=team_id, user_id=user_id, pr_url=pr_url, kind=kind, enqueue=enqueue
+    )
+
+
+def claim_mobile_push_cooldown(key: str, *, timeout_seconds: int) -> bool:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    return bool(get_tasks_cache().add(key, True, timeout=timeout_seconds))
+
+
+def release_mobile_push_cooldown(key: str) -> None:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    get_tasks_cache().delete(key)

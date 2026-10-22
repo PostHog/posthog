@@ -34,18 +34,19 @@ from products.signals.backend.pull_requests import (
 )
 from products.signals.backend.report_assignments import PullRequestDetails, create_claim
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
-
-# Task ORM model needed for a task-claim fixture; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task, TaskPresence, TaskRun
-from products.tasks.backend.push_dispatcher import (
+from products.tasks.backend.facade.testing import (
+    create_task_presence,
     notify_task_pull_request_outcome,
     notify_task_run_awaiting_input,
     notify_task_run_cancelled,
     notify_task_run_completed,
     notify_task_run_failed,
     notify_task_run_turn_completed,
+    tasks_cache,
 )
-from products.tasks.backend.redis import get_tasks_cache
+
+# Task ORM model needed for a task-claim fixture; the tasks facade exposes DTOs only.
+from products.tasks.backend.models import Task, TaskRun
 
 PR_URL = "https://github.com/posthog/posthog/pull/123"
 VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -54,7 +55,7 @@ VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
 class TestInboxPushNotifications(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        get_tasks_cache().clear()
+        tasks_cache().clear()
         self.reviewer = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
         send_patch = patch("products.signals.backend.inbox_push_notifications.send_user_push.delay")
         flag_patch = patch(
@@ -236,7 +237,7 @@ class TestInboxPushNotifications(BaseTest):
         expected_users = sorted([self.user.id, self.reviewer.id, login_reviewer.id]) if has_project_access else []
         assert first_pushed == expected_users
         self.send_push.reset_mock()
-        get_tasks_cache().clear()
+        tasks_cache().clear()
 
         for index in range(1, 5):
             add_linked_report(index)
@@ -302,8 +303,8 @@ class TestInboxPushNotifications(BaseTest):
             self.captureOnCommitCallbacks(execute=True),
             patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
         ):
-            notify(run)
-            notify(run)
+            notify(task_run_id=str(run.id), team_id=run.team_id)
+            notify(task_run_id=str(run.id), team_id=run.team_id)
         self.assertEqual(self.send_push.call_count, 2 if name == "picked_up_implementation" else int(expect_push))
         if expect_push and relationship != "discussion":
             self.assertEqual(self.send_push.call_args.args[3]["type"], "report")
@@ -336,15 +337,15 @@ class TestInboxPushNotifications(BaseTest):
             for index in range(2)
         ]
         watched_task = Task.objects.create(team=self.team, created_by=self.user) if presence == "other_task" else task
-        TaskPresence.objects.for_team(self.team.id).create(
-            team=self.team,
-            task=watched_task,
-            user=self.user,
-            push_token=tokens[0],
+        create_task_presence(
+            team_id=self.team.id,
+            task_id=watched_task.id,
+            user_id=self.user.id,
+            push_token_id=tokens[0].id,
             expires_at=timezone.now() + timedelta(minutes=-1 if presence == "expired" else 1),
         )
         with self.captureOnCommitCallbacks(execute=True):
-            notify(run)
+            notify(task_run_id=str(run.id), team_id=run.team_id)
         pushes = {push.args[0]: push.args for push in self.send_push.call_args_list}
         self.assertEqual(set(pushes), {self.user.id, self.reviewer.id})
         self.assertEqual(pushes[self.user.id][3]["type"], "report")
@@ -398,7 +399,7 @@ class TestInboxPushNotifications(BaseTest):
                         raise RuntimeError("rollback")
             else:
                 boundary = (
-                    patch.object(get_tasks_cache(), "add", side_effect=RuntimeError("redis unavailable"))
+                    patch.object(tasks_cache(), "add", side_effect=RuntimeError("redis unavailable"))
                     if failure == "redis"
                     else patch.object(self.send_push, "side_effect", RuntimeError("broker unavailable"))
                 )
@@ -409,7 +410,7 @@ class TestInboxPushNotifications(BaseTest):
             self.send_push.reset_mock(side_effect=True)
         for number in (1, 1, 2):
             if number == 2 or self.send_push.call_count:
-                get_tasks_cache().clear()
+                tasks_cache().clear()
             with self.captureOnCommitCallbacks(execute=True):
                 notify_task_pull_request_outcome(
                     task_id=str(task.id),
@@ -454,7 +455,7 @@ class TestInboxPushNotifications(BaseTest):
         if reason == "lost_access":
             self.organization.members.remove(self.user)
         with self.captureOnCommitCallbacks(execute=True):
-            notify_task_run_completed(run)
+            notify_task_run_completed(task_run_id=str(run.id), team_id=run.team_id)
         self.send_push.assert_not_called()
 
     @parameterized.expand(
@@ -528,7 +529,7 @@ class TestInboxPushNotifications(BaseTest):
                 run_id=str(run.id),
             )
             with self.captureOnCommitCallbacks(execute=True):
-                notify_task_run_completed(run)
+                notify_task_run_completed(task_run_id=str(run.id), team_id=run.team_id)
             self.send_push.assert_not_called()
         send_user_push(
             self.user.id,

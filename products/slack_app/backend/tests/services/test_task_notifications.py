@@ -1,8 +1,4 @@
-from unittest.mock import MagicMock, patch
-
 from django.test import TestCase
-
-from parameterized import parameterized
 
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
@@ -10,12 +6,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
-from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
-    AppendSlackAgentDesignStepsInput,
-    append_slack_agent_design_steps,
-)
 
 
 class TestTaskNotificationTakeover(TestCase):
@@ -83,35 +74,3 @@ class TestTaskNotificationTakeover(TestCase):
         assert not self.muted("UPICKUP")
         UserIntegration.objects.filter(user=self.user).update(config={"slack_team_id": "T123"})
         assert self.muted("UPICKUP")
-
-    @parameterized.expand([("private", True), ("shared_other_participant", False)])
-    @patch.object(SlackThreadHandler, "stop_status_stream")
-    @patch.object(SlackThreadHandler, "append_status_chunks", return_value=True)
-    def test_pickup_closes_only_the_sole_recipients_stream(
-        self, _name: str, private: bool, append: MagicMock, stop: MagicMock
-    ) -> None:
-        self.mapping.conversation_type = (
-            SlackThreadTaskMapping.ConversationType.IM
-            if private
-            else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
-        )
-        self.mapping.save(update_fields=["conversation_type"])
-        result = append_slack_agent_design_steps(
-            AppendSlackAgentDesignStepsInput(
-                slack_thread_context={
-                    "integration_id": self.integration.id,
-                    "channel": "C123",
-                    "thread_ts": "123.456",
-                    "mentioning_slack_user_id": "U123",
-                },
-                ts="stream-ts",
-            )
-        )
-        if private:
-            assert result is False
-            append.assert_not_called()
-            stop.assert_called_once_with(ts="stream-ts", mention_sent=True)
-        else:
-            assert result is True
-            append.assert_called_once()
-            stop.assert_not_called()

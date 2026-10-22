@@ -37,12 +37,13 @@ from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_claims import get_active_claims, responsible_user
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_inbox_notifications import resolve_org_suggested_reviewer_user_ids
-from products.tasks.backend.mobile_push import (
-    enqueue_mobile_pr_outcome,
-    mobile_push_user_ids,
-    suppressed_push_token_ids_for_task,
+from products.tasks.backend.facade.api import (
+    claim_mobile_push_cooldown,
+    enqueue_task_mobile_pr_outcome,
+    release_mobile_push_cooldown,
+    task_mobile_push_suppressed_token_ids,
+    task_mobile_push_user_ids,
 )
-from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -208,11 +209,12 @@ def notify_report_task_update(*, task_run: TaskRun, kind: str, pull_request_url:
     report_ids = [str(report.id) for report in reports]
     reviewers = resolve_org_suggested_reviewer_user_ids(team_id=task.team_id, report_ids=report_ids)
     claims = get_active_claims(team_id=task.team_id, report_ids=report_ids)
+    mobile_recipient_ids = task_mobile_push_user_ids(task_id=str(task.id), team_id=task.team_id)
     pushed: set[int] = set()
     for report in reports:
         if report.status in _HIDDEN_STATUSES or report.first_visible_at is None:
             continue
-        recipient_ids = reviewers.get(str(report.id), set()) | mobile_push_user_ids(task)
+        recipient_ids = reviewers.get(str(report.id), set()) | mobile_recipient_ids
         claim = claims.get(str(report.id))
         claimant = responsible_user(claim) if claim is not None else None
         if claimant is not None:
@@ -292,13 +294,13 @@ def _push_report(
 
             def dispatch(user: User = user, cooldown_key: str = cooldown_key) -> bool:
                 try:
-                    if not get_tasks_cache().add(cooldown_key, True, timeout=cooldown_seconds):
+                    if not claim_mobile_push_cooldown(cooldown_key, timeout_seconds=cooldown_seconds):
                         return False
                     try:
 
                         def enqueue() -> None:
                             if task_id is not None:
-                                suppressed = suppressed_push_token_ids_for_task(
+                                suppressed = task_mobile_push_suppressed_token_ids(
                                     user_id=user.id, task_id=task_id, team_id=report.team_id
                                 )
                                 send_user_push.delay(user.id, title, body, data, suppressed)
@@ -306,7 +308,7 @@ def _push_report(
                                 send_user_push.delay(user.id, title, body, data)
 
                         if pull_request_url is not None and task_id is not None:
-                            return enqueue_mobile_pr_outcome(
+                            return enqueue_task_mobile_pr_outcome(
                                 task_id=task_id,
                                 team_id=report.team_id,
                                 user_id=user.id,
@@ -318,7 +320,7 @@ def _push_report(
                             enqueue()
                             return True
                     except Exception:
-                        get_tasks_cache().delete(cooldown_key)
+                        release_mobile_push_cooldown(cooldown_key)
                         raise
                 except Exception:
                     logger.warning(

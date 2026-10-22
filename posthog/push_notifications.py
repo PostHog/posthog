@@ -47,12 +47,6 @@ def mobile_push_preference_enabled(user: User, category: MobilePushCategory) -> 
 
 def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
     # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
-    from products.tasks.backend.mobile_push import (
-        task_mobile_push_eligible,  # noqa: PLC0415 — keep product imports lazy
-    )
-    from products.tasks.backend.models import Task  # noqa: PLC0415 — avoid loading product models at startup
-    from products.tasks.backend.visibility import task_visibility_q  # noqa: PLC0415 — avoid a product import cycle
-
     payload = data or {}
     if payload.get("type") == "report":
         if not posthoganalytics.feature_enabled(
@@ -98,12 +92,11 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
     project_id = payload.get("projectId")
     if not isinstance(project_id, int) or not user.teams.filter(id=project_id).exists():
         return False
-    task = (
-        Task.objects.filter(id=payload["taskId"], team_id=project_id, deleted=False)
-        .filter(task_visibility_q(user.id))
-        .first()
+    from products.tasks.backend.facade.api import (
+        task_mobile_push_delivery_allowed,  # noqa: PLC0415 — keep product imports lazy
     )
-    return bool(task and task_mobile_push_eligible(task, user.id))
+
+    return task_mobile_push_delivery_allowed(task_id=str(payload["taskId"]), team_id=project_id, user_id=user.id)
 
 
 def send_push_to_user(
