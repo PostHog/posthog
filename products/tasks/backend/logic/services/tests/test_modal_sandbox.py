@@ -22,6 +22,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from parameterized import parameterized
 from python_socks import ProxyError as SocksProxyError
 from requests.exceptions import (
@@ -100,6 +101,7 @@ from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
+    SandboxWorkload,
     health_check_timeout_seconds,
 )
 
@@ -1606,6 +1608,25 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox._sandbox = MagicMock()
         return sandbox
 
+    @pytest.mark.parametrize(
+        "poll_result,status,expected",
+        [
+            (None, api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "running"),
+            (RuntimeError("provider unavailable"), api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "unknown"),
+            (137, api_pb2.GenericResult.GENERIC_STATUS_MEMORY_MANAGER_EVICTION, "memory_manager_eviction"),
+            (0, api_pb2.GenericResult.GENERIC_STATUS_IDLE_TIMEOUT, "idle_timeout"),
+        ],
+    )
+    def test_exit_status_reads_modal_generic_status(self, poll_result, status, expected):
+        sandbox = self._make_sandbox()
+        if isinstance(poll_result, Exception):
+            sandbox._sandbox.poll.side_effect = poll_result
+        else:
+            sandbox._sandbox.poll.return_value = poll_result
+        sandbox._sandbox._result.status = status
+
+        assert sandbox.exit_status() == expected
+
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()
         sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
@@ -2016,7 +2037,7 @@ class TestModalSandboxCreateImageFallback:
         ):
             sandbox = ModalSandbox.create(config)
 
-        assert cpu_requests == [(4.0, 8.0), (0.5, 8.0)]
+        assert cpu_requests == [(2.0, 8.0), (0.5, 8.0)]
         assert sandbox.config.image_fallback is not None
         assert sandbox.config.effective_cpu_request_cores == 0.5
 
@@ -2716,7 +2737,16 @@ class TestResourceCreateKwargs:
     @pytest.mark.parametrize(
         "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (65536, 65536)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (2.0, 8.0), (65536, 65536)),
+            (
+                {
+                    "vm_runtime": True,
+                    "custom_image_name": "posthog-dev-stack",
+                    "workload": SandboxWorkload.SELF_DRIVING,
+                },
+                (0.5, 8.0),
+                (16384, 16384),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
@@ -2731,17 +2761,17 @@ class TestResourceCreateKwargs:
             ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
             (
                 {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 80},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (81920, 81920),
             ),
             (

@@ -54,7 +54,7 @@ def load_experiment_health_inputs(
 def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
     return (
         Experiment.objects.select_related("team", "feature_flag")
-        .prefetch_related("experimenttosavedmetric_set")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
         .get(id=experiment_id, team_id=team_id)
     )
 

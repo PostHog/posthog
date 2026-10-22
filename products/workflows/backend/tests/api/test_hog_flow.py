@@ -117,6 +117,14 @@ def _secret_input_template() -> dict:
         {"key": "url", "type": "string", "label": "URL", "secret": False, "hidden": False, "required": True},
         {"key": "api_key", "type": "string", "label": "API key", "secret": True, "hidden": False, "required": False},
         {
+            "key": "headers",
+            "type": "dictionary",
+            "label": "Headers",
+            "secret": False,
+            "hidden": False,
+            "required": False,
+        },
+        {
             "key": "secret_headers",
             "type": "dictionary",
             "label": "Secret headers",
@@ -412,6 +420,22 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+
+    def test_bulk_update_tags_sets_tags_and_the_list_filters_on_them(self):
+        tagged = HogFlow.objects.create(team=self.team, name="Tagged", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Untagged", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_update_tags",
+            {"ids": [str(tagged.id)], "action": "set", "tags": ["Launch", "q4"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["updated"] == [{"id": str(tagged.id), "tags": ["launch", "q4"]}]
+
+        # The filter takes a JSON list of stored names.
+        response = self.client.get(f'/api/projects/{self.team.id}/hog_flows?tags=["launch"]')
+        assert response.status_code == 200, response.json()
+        assert [(flow["name"], flow["tags"]) for flow in response.json()["results"]] == [("Tagged", ["launch", "q4"])]
 
     @parameterized.expand(
         [
@@ -2117,11 +2141,16 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
-            self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": transition}),
+            {
+                **self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": transition}),
+                "exit_condition": "exit_on_trigger_not_matched",
+            },
         )
 
         assert response.status_code == 201, response.json()
         assert response.json()["trigger"] == {"type": "cohort", "cohort_id": cohort.id, "transition": transition}
+        # The executor re-checks cohort membership, so the exit condition is kept rather than rewritten.
+        assert response.json()["exit_condition"] == "exit_on_trigger_not_matched"
 
     @parameterized.expand(
         [
@@ -5133,6 +5162,28 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("schedule_trigger_not_matched", "schedule", "exit_on_trigger_not_matched", "exit_only_at_end"),
+            (
+                "schedule_trigger_not_matched_or_conversion",
+                "schedule",
+                "exit_on_trigger_not_matched_or_conversion",
+                "exit_on_conversion",
+            ),
+            ("schedule_conversion", "schedule", "exit_on_conversion", "exit_on_conversion"),
+            ("event_trigger_not_matched", "event", "exit_on_trigger_not_matched", "exit_on_trigger_not_matched"),
+        ]
+    )
+    def test_hog_flow_stores_the_exit_condition_its_trigger_can_run(self, _name, trigger_type, sent, stored):
+        flow = self._make_delay_flow({"delay_duration": "5m"}, status="draft")
+        if trigger_type == "schedule":
+            flow["actions"][0]["config"] = {"type": "schedule"}
+        flow["exit_condition"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == stored
+
+    @parameterized.expand(
+        [
             (
                 "locked_trigger_becomes_row_scoped",
                 "event",
@@ -5149,10 +5200,50 @@ class TestHogFlowAPI(APIBaseTest):
                 {"name": "Renamed"},
                 "exit_on_conversion",
             ),
+            (
+                "locked_trigger_stops_being_an_event_trigger",
+                "event",
+                "schedule",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_only_at_end",
+            ),
+            (
+                "explicit_exit_condition_survives_the_locked_trigger_becoming_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_only_at_end"},
+                "exit_only_at_end",
+            ),
+            (
+                "explicit_trigger_exit_the_read_trigger_rewrote_runs_on_the_locked_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_conversion",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_on_trigger_not_matched",
+            ),
+            (
+                "locked_trigger_becomes_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"name": "Renamed"},
+                "exit_on_trigger_not_matched",
+                "exit_on_trigger_not_matched",
+            ),
         ]
     )
     def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
-        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+        self,
+        _name,
+        initial_trigger_type,
+        concurrent_trigger_type,
+        concurrent_exit_condition,
+        payload,
+        expected,
+        stored_exit_condition=None,
     ):
         trigger_configs = {
             "event": {
@@ -5164,6 +5255,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "table_name": "postgres.table_1",
                 "filters": {"properties": []},
             },
+            "schedule": {"type": "schedule"},
         }
         trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
         response = self.client.post(
@@ -5175,6 +5267,9 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
+        if stored_exit_condition:
+            # A row saved before non-event triggers stored the exit condition they can run.
+            HogFlow.objects.filter(pk=flow_id).update(exit_condition=stored_exit_condition)
 
         def update_after_concurrent_trigger_change(**kwargs):
             HogFlow.objects.filter(pk=flow_id).update(
@@ -6800,16 +6895,19 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("string", {}, "api_key", "SUPER-SECRET"),
+            ("string", {}, "api_key", "SUPER-SECRET", {"secret": True}),
             (
                 "dictionary_without_templating",
                 {"secret_headers": {"value": {"Authorization": "Bearer SUPER-SECRET"}}},
                 "secret_headers",
                 {"Authorization": "Bearer SUPER-SECRET"},
+                {"secret": True, "value": {"Authorization": "********"}},
             ),
         ]
     )
-    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self, _name, extra_inputs, key, stored_value):
+    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(
+        self, _name, extra_inputs, key, stored_value, masked
+    ):
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows", self._flow_payload(extra_inputs=extra_inputs)
         )
@@ -6820,7 +6918,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         retrieve = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
         for body in (create.json(), retrieve.json()):
             inputs = self._function_inputs(body)
-            assert inputs[key] == {"secret": True}
+            assert inputs[key] == masked
             assert inputs["url"]["value"] == "https://example.com"
 
         # The plaintext never reaches a project member, including through the list the web app reads.
@@ -6858,6 +6956,45 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == expected_stored
+
+    @parameterized.expand(
+        [
+            (
+                "add_entry",
+                {"A": "********", "B": "********", "C": "c-new"},
+                False,
+                {"A": "a-old", "B": "b-old", "C": "c-new"},
+            ),
+            ("rotate_entry", {"A": "a-new", "B": "********"}, False, {"A": "a-new", "B": "b-old"}),
+            ("remove_entry", {"A": "********"}, False, {"A": "a-old"}),
+            # A failed validation keeps the raw inputs, so the masks must still turn back into stored values.
+            ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, True, {"A": "a-old", "C": "c-new"}),
+        ]
+    )
+    def test_secret_header_edit_keeps_the_entries_it_does_not_change(
+        self, _name, edited_entries, invalid_url, expected_stored
+    ):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._flow_payload(extra_inputs={"secret_headers": {"value": {"A": "a-old", "B": "b-old"}}}),
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        inputs = self._function_inputs(body)
+        assert inputs["secret_headers"] == {"secret": True, "value": {"A": "********", "B": "********"}}
+        inputs["secret_headers"] = {"secret": True, "value": edited_entries}
+        if invalid_url:
+            inputs["url"] = {"value": "{event.properties.url", "templating": "hog"}
+
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": body["actions"], "edges": body["edges"]}
+        )
+        assert patch_res.status_code == 200, patch_res.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
 
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.

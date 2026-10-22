@@ -183,6 +183,9 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 
+# Shown when the alerts platform owns an insight alert and refuses a snooze from Slack.
+NOT_SNOOZABLE_FROM_SLACK = "This alert couldn't be snoozed from Slack. Snooze it in PostHog instead."
+
 EDITED_MENTION_WINDOW_SECONDS = 60 * 60
 # Outlives the window, because an expired marker would let an edit start a second run.
 MESSAGE_HANDLED_MARKER_TTL_SECONDS = 2 * EDITED_MENTION_WINDOW_SECONDS
@@ -5782,6 +5785,15 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
         _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
         return HttpResponse(status=200)
+    if outcome == "not_snoozable":
+        logger.warning("insight_alert_snooze_refused_by_platform", alert_id=str(alert_uuid))
+        response_url = payload.get("response_url")
+        if response_url:
+            inbox_interactivity.post_response_url(
+                response_url,
+                {"response_type": "ephemeral", "replace_original": False, "text": NOT_SNOOZABLE_FROM_SLACK},
+            )
+        return HttpResponse(status=200)
     if outcome == "invalid_until":
         logger.info("insight_alert_snooze_invalid_until", alert_id=str(alert_uuid))
         response_url = payload.get("response_url")
@@ -5907,6 +5919,8 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
     outcome = snooze_alert_from_slack(alert_uuid, until=until, user=org_member)
     if outcome == "invalid_until":
         return _snooze_modal_error(f"Pick a time in the next {SLACK_SNOOZE_MAX_DAYS} days.")
+    if outcome == "not_snoozable":
+        return _snooze_modal_error(NOT_SNOOZABLE_FROM_SLACK)
     if outcome in ("no_access", "not_found", "disabled"):
         logger.info("insight_alert_snooze_modal_submit_rejected", alert_id=str(alert_uuid), outcome=outcome)
         return HttpResponse(status=200)
