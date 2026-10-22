@@ -6024,10 +6024,10 @@ Today (10): `attempts`, `bookmarks`, `connections`, `destinations`, `events`, `i
 
 Diffed against: <https://hookdeck.com/docs/api/inspect.md>
 
-- [ ] `Request ignored events (GET /requests/{id}/ignored_events)` — explain filtered or deduplicated deliveries that never appear in the events table (high)
-- [ ] `Queue depth metrics (GET /metrics/queue-depth)` — track historical delivery backlogs and identify overloaded destinations (high)
-- [ ] `Events pending timeseries (GET /metrics/events-pending-timeseries)` — measure how pending deliveries accumulate and recover over time (medium)
-- [ ] `Transformation executions (GET /transformations/{id}/executions)` — analyze transformation failures, execution times, and their impact on event delivery (medium)
+- [x] `Request ignored events (GET /requests/{id}/ignored_events)` — explain filtered or deduplicated deliveries that never appear in the events table (high)
+- [x] `Queue depth metrics (GET /metrics/queue-depth)` — track historical delivery backlogs and identify overloaded destinations (high)
+- [x] `Events pending timeseries (GET /metrics/events-pending-timeseries)` — measure how pending deliveries accumulate and recover over time (medium)
+- [x] `Transformation executions (GET /transformations/{id}/executions)` — analyze transformation failures, execution times, and their impact on event delivery (medium)
 - [ ] `Request, event, and attempt metrics (GET /metrics/requests; GET /metrics/events; GET /metrics/attempts)` — compare vendor aggregates for throughput, delivery outcomes, and response times across reporting windows (medium)
 - [ ] `Bulk operation history (GET /bulk/events/retry; GET /bulk/events/cancel; GET /bulk/ignored-events/retry; GET /bulk/requests/retry; GET /bulk/requests/replay)` — audit retry, replay, and cancellation operations with their progress and affected delivery counts (medium)
 
@@ -6763,10 +6763,10 @@ Diffed against: <https://docs.kalshi.com/openapi.yaml>
 - [x] `Market candlesticks (GET /trade-api/v2/markets/candlesticks)` — analyze price, volume, and liquidity trends using historical time buckets (high)
 - [x] `Historical markets (GET /trade-api/v2/historical/markets)` — retain archived contracts needed to interpret older trades and long-term market outcomes (high)
 - [x] `Historical trades (GET /trade-api/v2/historical/trades)` — recover trades before the historical cutoff for complete volume and price history (high)
-- [ ] `Positions (GET /trade-api/v2/portfolio/positions; GET /trade-api/v2/historical/positions)` — measure account exposure, realized profit, and trading fees for current and archived positions (high)
-- [ ] `Fills (GET /trade-api/v2/portfolio/fills; GET /trade-api/v2/historical/fills)` — analyze account execution prices, fees, and trading volume across current and archived fills (high)
-- [ ] `Settlements (GET /trade-api/v2/portfolio/settlements)` — reconcile settled contracts with payouts and account trading results (high)
-- [ ] `Orders (GET /trade-api/v2/portfolio/orders; GET /trade-api/v2/historical/orders)` — compare submitted, executed, and canceled orders across current and archived history (medium)
+- [x] `Positions (GET /trade-api/v2/portfolio/positions; GET /trade-api/v2/historical/positions)` — measure account exposure, realized profit, and trading fees for current and archived positions (high)
+- [x] `Fills (GET /trade-api/v2/portfolio/fills; GET /trade-api/v2/historical/fills)` — analyze account execution prices, fees, and trading volume across current and archived fills (high)
+- [x] `Settlements (GET /trade-api/v2/portfolio/settlements)` — reconcile settled contracts with payouts and account trading results (high)
+- [x] `Orders (GET /trade-api/v2/portfolio/orders; GET /trade-api/v2/historical/orders)` — compare submitted, executed, and canceled orders across current and archived history (medium)
 - [ ] `Market orderbook (GET /trade-api/v2/markets/{ticker}/orderbook)` — measure market depth and available liquidity at each price level (medium)
 - [ ] `Series fee changes (GET /trade-api/v2/series/fee_changes)` — explain trading cost changes across series and time (medium)
 - [x] `Weather index (GET /trade-api/v2/live_data/weather/{city})` — analyze the minute-resolution city temperature index behind hourly temperature markets (medium)

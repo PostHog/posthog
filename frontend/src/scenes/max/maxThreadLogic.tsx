@@ -317,6 +317,7 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
+        pagedHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
@@ -324,6 +325,7 @@ export interface maxThreadLogicActions {
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
