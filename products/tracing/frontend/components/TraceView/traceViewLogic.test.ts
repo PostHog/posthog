@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { initKeaTests } from '~/test/init'
 
 import { makeSpan } from '../../__mocks__/span'
@@ -21,9 +23,11 @@ const CACHE_GET = compareRowKey({ service_name: 'checkout-api', name: 'cache GET
 
 describe('traceViewLogic', () => {
     let logic: ReturnType<typeof traceViewLogic.build>
+    let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         logic = traceViewLogic({ id: 'trace-view-test' })
         logic.mount()
         logic.actions.showTrace(null, 'operations')
@@ -31,28 +35,54 @@ describe('traceViewLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        captureSpy.mockRestore()
     })
 
     // A stale key dims the next trace's tree. Another inspector tab, or the missing-parent notice that
     // replaces the inspector, would leave dimmed rows with nothing on screen to explain them. A switch to
     // the Operations tab itself must keep the pick, or a caller that selects the tab after a highlight drops it.
+    // The tab event must count only the person's own switches: a trace that opens on a tab, or a click on the
+    // tab already shown, would inflate it.
     it.each([
-        { action: 'opening a trace', act: () => logic.actions.showTrace(null, null), keeps: false },
-        { action: 'selecting the Logs tab', act: () => logic.actions.setInspectorTab('logs'), keeps: false },
-        { action: 'selecting the missing parent', act: () => logic.actions.selectSpan('gone'), keeps: false },
+        { action: 'opening a trace', act: () => logic.actions.showTrace(null, null), keeps: false, tabEvent: null },
+        {
+            action: 'selecting the Logs tab',
+            act: () => logic.actions.setInspectorTab('logs', 'drawer'),
+            keeps: false,
+            tabEvent: { tab: 'logs', surface: 'drawer' },
+        },
+        {
+            action: 'another logic setting the Logs tab',
+            act: () => logic.actions.setInspectorTab('logs'),
+            keeps: false,
+            tabEvent: null,
+        },
+        {
+            action: 'selecting the missing parent',
+            act: () => logic.actions.selectSpan('gone'),
+            keeps: false,
+            tabEvent: null,
+        },
         {
             action: 'selecting the Operations tab',
-            act: () => logic.actions.setInspectorTab('operations'),
+            act: () => logic.actions.setInspectorTab('operations', 'trace_dialog'),
             keeps: true,
+            tabEvent: null,
         },
-    ])('after $action, keeps the highlighted operation: $keeps', ({ act, keeps }) => {
-        logic.actions.setSpans([root, child('orphan', 'gone', 'cache GET', 1)])
-        logic.actions.highlightOperation(CACHE_GET)
+    ])(
+        'after $action, keeps the highlighted operation: $keeps, and sends a tab event only for a tab change',
+        ({ act, keeps, tabEvent }) => {
+            logic.actions.setSpans([root, child('orphan', 'gone', 'cache GET', 1)])
+            logic.actions.highlightOperation(CACHE_GET)
 
-        act()
+            act()
 
-        expect(logic.values.highlightedOperationKey).toBe(keeps ? CACHE_GET : null)
-    })
+            expect(logic.values.highlightedOperationKey).toBe(keeps ? CACHE_GET : null)
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace inspector tab changed')).toEqual(
+                tabEvent ? [['tracing trace inspector tab changed', tabEvent]] : []
+            )
+        }
+    )
 
     // Fails when the highlight stops opening the child list that hides the operation's first span, which
     // leaves the tree nothing to scroll to, or when it moves the selection off the span the person inspects.

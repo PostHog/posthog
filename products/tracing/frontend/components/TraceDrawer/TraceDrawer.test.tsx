@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
@@ -153,8 +153,14 @@ describe('TraceDrawer', () => {
     })
 
     // Fails when the view stops passing the trace's spans to the inspector: the Operations tab then
-    // disappears and the inspector falls back to Attributes.
-    it('shows the operations of the trace in an inspector tab', () => {
+    // disappears and the inspector falls back to Attributes. Also fails when the tab shows with its flag off,
+    // or when the flag empties the operation spans, which other views of the trace build on.
+    it.each([
+        { flagOn: true, shows: true },
+        { flagOn: false, shows: false },
+    ])('with the Operations tab flag on: $flagOn, shows the operations of the trace: $shows', ({ flagOn, shows }) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_OPERATIONS_TAB]: flagOn })
         renderDrawer(
             {
                 spans: [
@@ -171,8 +177,28 @@ describe('TraceDrawer', () => {
             'operations'
         )
 
-        expect(screen.getByText('Operations')).toBeInTheDocument()
-        expect(screen.getByText('2 operations · 2 spans')).toBeInTheDocument()
+        expect(screen.queryByText('Operations') !== null).toBe(shows)
+        expect(screen.queryByText('2 operations · 2 spans') !== null).toBe(shows)
+        expect(traceViewLogic({ id: 'trace-drawer-test' }).values.operationSpans).toHaveLength(2)
+    })
+
+    // Fails when a click on the tab already on screen sends the tab event. The span has no query, so the chosen
+    // Query tab falls back to Attributes, and a click on Attributes changes nothing the person sees. The click on
+    // Raw keeps the first check from passing on a tab bar that sends nothing at all.
+    it('sends the tab event only for a click that changes the tab on screen', () => {
+        renderDrawer({ spans: [makeSpan({ trace_id: 'abc123', span_id: 'span-1', is_root_span: true })] }, 'query')
+        const tabEvents = (): unknown[][] =>
+            captureSpy.mock.calls.filter(([event]) => event === 'tracing trace inspector tab changed')
+        // The tab content repeats some labels, so the clicks stay inside the tab bar.
+        const tabBar = within(
+            document.querySelector('[data-attr="tracing-inspector-tabs"] [role="tablist"]') as HTMLElement
+        )
+
+        tabBar.getByText('Attributes').click()
+        expect(tabEvents()).toEqual([])
+
+        tabBar.getByText('Raw').click()
+        expect(tabEvents()).toEqual([['tracing trace inspector tab changed', { tab: 'raw', surface: 'drawer' }]])
     })
 
     it('shows a retryable error when the AI events fetch fails and there are no spans', async () => {

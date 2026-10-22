@@ -5,6 +5,8 @@ import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -80,6 +82,8 @@ describe('TraceDialogSpanTree', () => {
     // Fails when the highlight dims by the wrong key, or dims a folded chain that hides a span of the
     // operation, which would tell the person the operation is not in there.
     it('dims the rows outside the highlighted operation', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_OPERATIONS_TAB]: true })
         const view = traceViewLogic({ id: 'span-tree-test' })
         view.mount()
         view.actions.showTrace(null, 'operations')
