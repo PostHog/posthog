@@ -5,6 +5,21 @@ import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import { analyzeTimeline, classify, evaluate, fetchResults, fetchTimelines, main } from './merge-queue-watch.mjs'
 
+const WEBHOOK = 'https://hooks.example.com/investigate'
+const SAVED_ENV = { ...process.env }
+
+beforeEach(() => {
+    Object.assign(process.env, {
+        TRUNK_API_TOKEN: 'trunk-token',
+        SLACK_BOT_TOKEN: 'slack-token',
+        SLACK_CHANNEL: 'C1',
+        INVESTIGATION_WEBHOOK_URL: WEBHOOK,
+    })
+})
+afterEach(() => {
+    process.env = { ...SAVED_ENV }
+})
+
 const NOW = new Date('2026-10-21T22:00:00Z')
 const minutesAgo = (n) => new Date(NOW.getTime() - n * 60000).toISOString()
 
@@ -63,15 +78,12 @@ describe('count rules', () => {
 const event = (state, ago, extra = {}) => ({ state, timestamp: minutesAgo(ago), ...extra })
 const passedAlone = (ago) => event('pending', ago, { pending: { reason: 'bisection_test_run_passed' } })
 const failedInBatch = (ago) => event('pending_failure', ago, { testRun: { testedPullRequests: [{}, {}, {}] } })
+const twoCycles = () => [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90)]
 const failedAlone = (ago) => event('pending_failure', ago, { testRun: { testedPullRequests: [{}] } })
 
 describe('analyzeTimeline', () => {
     for (const [name, timeline, expected] of [
-        [
-            'a pass then a batch failure, twice',
-            [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90)],
-            2,
-        ],
+        ['a pass then a batch failure, twice', twoCycles(), 2],
         ['two passes before one batch failure', [passedAlone(150), passedAlone(140), failedInBatch(130)], 1],
         ['a pass that no later failure follows', [failedInBatch(150), passedAlone(100)], 0],
         ['a failure when tested alone after a pass', [passedAlone(100), failedAlone(90)], 0],
@@ -83,14 +95,7 @@ describe('analyzeTimeline', () => {
     }
 
     it('reports a merged PR so the rules can skip it', () => {
-        const timeline = [
-            passedAlone(150),
-            failedInBatch(140),
-            passedAlone(100),
-            failedInBatch(90),
-            event('merged', 10),
-        ]
-        assert.equal(analyzeTimeline(timeline, NOW).merged, true)
+        assert.equal(analyzeTimeline([...twoCycles(), event('merged', 10)], NOW).merged, true)
     })
 })
 
@@ -107,7 +112,6 @@ describe('cycle rule', () => {
     })
 })
 
-const WEBHOOK = 'https://hooks.example.com/investigate'
 const noSleep = async () => {}
 
 // A fake Trunk, Slack and webhook behind `fetch`. `calls` records every request body by endpoint.
@@ -151,6 +155,13 @@ function fakeWorld({
     return { handler, to }
 }
 
+// A quiet tick posts nothing, starts nothing, and skips the metrics read that only an alert needs.
+const assertQuiet = (world) => {
+    for (const needle of ['chat.postMessage', WEBHOOK, 'getMergeQueueMetrics']) {
+        assert.equal(world.to(needle).length, 0, `unexpected call to ${needle}`)
+    }
+}
+
 const alertMessage = (ts, keys, investigation) => ({
     ts,
     text: 'old alert',
@@ -159,19 +170,6 @@ const alertMessage = (ts, keys, investigation) => ({
 })
 
 describe('main', () => {
-    const saved = { ...process.env }
-    beforeEach(() => {
-        Object.assign(process.env, {
-            TRUNK_API_TOKEN: 'trunk-token',
-            SLACK_BOT_TOKEN: 'slack-token',
-            SLACK_CHANNEL: 'C1',
-            INVESTIGATION_WEBHOOK_URL: WEBHOOK,
-        })
-    })
-    afterEach(() => {
-        process.env = { ...saved }
-    })
-
     const run = (t, world) => {
         t.mock.method(globalThis, 'fetch', world.handler)
         t.mock.method(console, 'log', () => {})
@@ -199,24 +197,20 @@ describe('main', () => {
     it('posts nothing and starts nothing for an alert that already started', async (t) => {
         const world = fakeWorld({ alerts: [alertMessage('9.9', 'recent:100', 'started')] })
         await run(t, world)
-        assert.equal(world.to('chat.postMessage').length, 0)
-        assert.equal(world.to(WEBHOOK).length, 0)
+        assertQuiet(world)
     })
 
     it('stays quiet when a recent alert named other PRs and no new culprit label appeared', async (t) => {
         const world = fakeWorld({ alerts: [alertMessage('9.9', 'victim:200', 'started')] })
         await run(t, world)
-        assert.equal(world.to('chat.postMessage').length, 0)
-        assert.equal(world.to(WEBHOOK).length, 0)
+        assertQuiet(world)
     })
 
     it('alerts again inside the cooldown when a new PR is labeled a hidden culprit', async (t) => {
         const world = fakeWorld({
             alerts: [alertMessage('9.9', 'victim:200', 'started')],
             resultRows: failures(100, [160, 120, 80, 40]),
-            timelines: {
-                100: [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90)],
-            },
+            timelines: { 100: twoCycles() },
         })
         await run(t, world)
         assert.equal(world.to('chat.postMessage').length, 1)
@@ -228,7 +222,7 @@ describe('main', () => {
             alerts: [alertMessage('8.8', 'victim:200', 'pending'), alertMessage('9.9', 'recent:100', 'started')],
         })
         await run(t, world)
-        assert.equal(world.to(WEBHOOK).length, 0)
+        assertQuiet(world)
     })
 
     it('still posts the alert when every timeline read fails', async (t) => {
@@ -251,13 +245,7 @@ describe('main', () => {
 })
 
 describe('fetchResults', () => {
-    const saved = { ...process.env }
-    afterEach(() => {
-        process.env = { ...saved }
-    })
-
     it('reads past the first 100 row page', async (t) => {
-        process.env.TRUNK_API_TOKEN = 'trunk-token'
         const all = Array.from({ length: 130 }, (_, n) => ({ testRunId: `run-${n}`, prNumber: n }))
         t.mock.method(globalThis, 'fetch', async (url, init) => {
             const { offset } = JSON.parse(init.body)
@@ -270,13 +258,7 @@ describe('fetchResults', () => {
 })
 
 describe('fetchTimelines', () => {
-    const saved = { ...process.env }
-    afterEach(() => {
-        process.env = { ...saved }
-    })
-
     it('stops starting reads once the time budget is spent', async (t) => {
-        process.env.TRUNK_API_TOKEN = 'trunk-token'
         t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ timeline: [] })))
         t.mock.method(console, 'warn', () => {})
         const clock = [0, 0, 120000]

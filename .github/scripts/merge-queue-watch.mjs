@@ -45,7 +45,7 @@ const WEBHOOK_ATTEMPTS = 3
 const WEBHOOK_RETRY_DELAY_MS = 2000
 const WEBHOOK_TIMEOUT_MS = 10000
 
-export const LABELS = {
+const LABELS = {
     hidden: 'culprit hidden by bisection',
     likely: 'likely culprit, fails alone',
     recent: 'repeated in the last hour',
@@ -143,9 +143,9 @@ export function evaluate(rows, until) {
     }
     const endMs = until.getTime()
     const failed = [...runs.values()].filter((r) => r.outcome === 'failed')
-    const countIn = (minutes) => {
+    const countIn = (minutes, source = failed) => {
         const counts = new Map()
-        for (const run of failed) {
+        for (const run of source) {
             const t = run.endedAt.getTime()
             if (t > endMs || t <= endMs - minutes * MINUTE) {
                 continue
@@ -159,14 +159,10 @@ export function evaluate(rows, until) {
     const short = countIn(SHORT_WINDOW_MINUTES)
     const long = countIn(WINDOW_MINUTES)
     // Failed runs that held a single PR, which is the only direct evidence that a PR fails alone.
-    const solo = new Map()
-    for (const run of failed) {
-        const t = run.endedAt.getTime()
-        if (run.prs.size === 1 && t <= endMs && t > endMs - WINDOW_MINUTES * MINUTE) {
-            const [pr] = run.prs
-            solo.set(pr, (solo.get(pr) ?? 0) + 1)
-        }
-    }
+    const solo = countIn(
+        WINDOW_MINUTES,
+        failed.filter((r) => r.prs.size === 1)
+    )
     const sorted = [...long.entries()].sort((a, b) => b[1] - a[1])
     const failedLast30m = failed.filter((r) => r.endedAt.getTime() >= endMs - 30 * MINUTE).length
     return {
@@ -215,41 +211,28 @@ export function analyzeTimeline(timeline, until) {
 // Pure: counts and cycles -> labeled PRs, most useful first. "Fails alone" needs a failed run that
 // held only that PR. Batch failures alone leave a PR a possible victim.
 export function classify(counts, cyclesByPr) {
-    const prs = new Set()
-    for (const [pr, n] of counts.short) {
-        if (n >= PR_SHORT_THRESHOLD) {
-            prs.add(pr)
-        }
-    }
-    for (const [pr, n] of counts.long) {
-        if (n >= PR_LONG_THRESHOLD) {
-            prs.add(pr)
-        }
-    }
-    for (const [pr, cycles] of cyclesByPr) {
-        if (cycles >= CYCLE_THRESHOLD && (counts.long.get(pr) ?? 0) >= CYCLE_MIN_FAILED_RUNS) {
-            prs.add(pr)
-        }
-    }
-    const findings = [...prs].map((pr) => {
-        const failed60 = counts.short.get(pr) ?? 0
-        const failed180 = counts.long.get(pr) ?? 0
-        const cycles = cyclesByPr.get(pr) ?? 0
-        const inShort = failed60 >= PR_SHORT_THRESHOLD
-        const inLong = failed180 >= PR_LONG_THRESHOLD
-        let label = 'recent'
-        if (cycles >= CYCLE_THRESHOLD && failed180 >= CYCLE_MIN_FAILED_RUNS) {
-            label = 'hidden'
-        } else if (inShort && inLong && (counts.solo?.get(pr) ?? 0) > 0) {
-            label = 'likely'
-        } else if (inLong) {
-            label = 'victim'
-        }
-        return { pr, label, failed60, failed180, cycles }
-    })
-    return findings.sort(
-        (a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || b.failed180 - a.failed180
-    )
+    const prs = new Set([...counts.short.keys(), ...counts.long.keys(), ...cyclesByPr.keys()])
+    return [...prs]
+        .map((pr) => {
+            const failed60 = counts.short.get(pr) ?? 0
+            const failed180 = counts.long.get(pr) ?? 0
+            const cycles = cyclesByPr.get(pr) ?? 0
+            const inShort = failed60 >= PR_SHORT_THRESHOLD
+            const inLong = failed180 >= PR_LONG_THRESHOLD
+            const isHidden = cycles >= CYCLE_THRESHOLD && failed180 >= CYCLE_MIN_FAILED_RUNS
+            let label = 'recent'
+            if (isHidden) {
+                label = 'hidden'
+            } else if (inShort && inLong && (counts.solo.get(pr) ?? 0) > 0) {
+                label = 'likely'
+            } else if (inLong) {
+                label = 'victim'
+            }
+            return { pr, label, failed60, failed180, cycles, flagged: isHidden || inShort || inLong }
+        })
+        .filter((f) => f.flagged)
+        .map(({ flagged, ...finding }) => finding)
+        .sort((a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || b.failed180 - a.failed180)
 }
 
 function alertKeys(findings, rateFires) {
@@ -257,15 +240,14 @@ function alertKeys(findings, rateFires) {
     return keys.length === 0 && rateFires ? ['rate'] : keys
 }
 
+const stats = (f) => `${f.failed60} failed runs in 60 min, ${f.failed180} in ${WINDOW_MINUTES} min, ${f.cycles} cycles`
+const rateLine = (verdict) => `${verdict.failedLast30m} failed runs in the last 30 minutes`
+// The message and the payload both stay bounded, so only the first findings go out.
+const shownFindings = (findings) => findings.slice(0, MAX_FINDINGS_SHOWN)
+
 function describe(findings, verdict) {
-    const lines = findings.map(
-        (f) =>
-            `#${f.pr}: ${LABELS[f.label]} (${f.failed60} failed runs in 60 min, ${f.failed180} in ${WINDOW_MINUTES} min, ${f.cycles} cycles)`
-    )
-    if (verdict.rateFires) {
-        lines.push(`${verdict.failedLast30m} failed runs in the last 30 minutes`)
-    }
-    return lines
+    const lines = shownFindings(findings).map((f) => `#${f.pr}: ${LABELS[f.label]} (${stats(f)})`)
+    return verdict.rateFires ? [...lines, rateLine(verdict)] : lines
 }
 
 function parseMetrics(text) {
@@ -274,7 +256,7 @@ function parseMetrics(text) {
             .split('\n')
             .filter((l) => l.startsWith(name) && !l.includes('} 0'))
             .map((l) => l.replace(/repo=".*?",branch="master",/, ''))
-    return { restarts: pick('mq_pr_restarts_1h_total') }
+    return pick('mq_pr_restarts_1h_total')
 }
 
 function restartSummary(series) {
@@ -285,20 +267,16 @@ function restartSummary(series) {
     return series.length > MAX_METRIC_SERIES ? `${shown} (+${series.length - MAX_METRIC_SERIES} more)` : shown
 }
 
-function slackMessage(findings, verdict, metrics, investigation) {
+function slackMessage(findings, verdict, restarts, investigation, keys) {
     const owner = process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
     const hidden = findings.length - MAX_FINDINGS_SHOWN
-    const bullets = findings
-        .slice(0, MAX_FINDINGS_SHOWN)
-        .map(
-            (f) =>
-                `• <https://github.com/PostHog/posthog/pull/${f.pr}|#${f.pr}> ${LABELS[f.label]}: ${f.failed60} failed runs in 60 min, ${f.failed180} in ${WINDOW_MINUTES} min, ${f.cycles} cycles`
-        )
+    const bullets = shownFindings(findings)
+        .map((f) => `• <https://github.com/PostHog/posthog/pull/${f.pr}|#${f.pr}> ${LABELS[f.label]}: ${stats(f)}`)
         .concat(hidden > 0 ? [`• +${hidden} more PRs`] : [])
-        .concat(verdict.rateFires ? [`• ${verdict.failedLast30m} failed runs in the last 30 minutes`] : [])
+        .concat(verdict.rateFires ? [`• ${rateLine(verdict)}`] : [])
         .join('\n')
     return {
-        text: `${owner}Merge queue loop suspected: ${describe(findings.slice(0, MAX_FINDINGS_SHOWN), verdict).join('; ')}`,
+        text: `${owner}Merge queue loop suspected: ${describe(findings, verdict).join('; ')}`,
         blocks: [
             {
                 type: 'section',
@@ -307,13 +285,13 @@ function slackMessage(findings, verdict, metrics, investigation) {
                     text:
                         `${owner}*Merge queue loop suspected* (prototype, may be wrong)\n${bullets}\n` +
                         `Failed ${verdict.failedRuns} of ${verdict.totalRuns} runs in the last ${WINDOW_MINUTES} minutes. ` +
-                        `Restarts (1h): ${restartSummary(metrics.restarts)}`,
+                        `Restarts (1h): ${restartSummary(restarts)}`,
                 },
             },
         ],
         metadata: {
             event_type: ALERT_EVENT_TYPE,
-            event_payload: { keys: alertKeys(findings, verdict.rateFires).join('|'), investigation },
+            event_payload: { keys: keys.join('|'), investigation },
         },
     }
 }
@@ -396,9 +374,9 @@ function investigationPayload(findings, verdict, ts) {
             // Stable per alert, so the receiver can drop a repeat start for the same message.
             alert_id: `${process.env.SLACK_CHANNEL}:${ts}`,
             window_minutes: WINDOW_MINUTES,
-            reasons: describe(findings.slice(0, MAX_FINDINGS_SHOWN), verdict).join('; '),
+            reasons: describe(findings, verdict).join('; '),
             top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
-            verdicts: findings.slice(0, MAX_FINDINGS_SHOWN).map((f) => ({
+            verdicts: shownFindings(findings).map((f) => ({
                 pr: f.pr,
                 label: LABELS[f.label],
                 failed_runs_60m: f.failed60,
@@ -438,7 +416,7 @@ async function fetchRestartMetrics() {
         return parseMetrics(await trunk('/getMergeQueueMetrics'))
     } catch (err) {
         console.warn(`metrics unavailable: ${err.message}`)
-        return { restarts: [] }
+        return []
     }
 }
 
@@ -488,13 +466,18 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
         return
     }
     const webhook = process.env.INVESTIGATION_WEBHOOK_URL
-    const metrics = await fetchRestartMetrics()
-    const message = slackMessage(findings, verdict, metrics, webhook ? 'pending' : 'off')
+    const keys = alertKeys(findings, verdict.rateFires)
+    // Metrics are read after the cooldown check, so a quiet tick costs no extra Trunk call.
+    const buildMessage = async () =>
+        slackMessage(findings, verdict, await fetchRestartMetrics(), webhook ? 'pending' : 'off', keys)
+    const investigate = async (ts, message) => {
+        await startInvestigation(webhook, investigationPayload(findings, verdict, ts), sleep)
+        await markInvestigationStarted(ts, message)
+    }
     if (dry || !process.env.SLACK_BOT_TOKEN || !process.env.SLACK_CHANNEL) {
-        console.log('would post:\n' + message.blocks[0].text.text)
+        console.log('would post:\n' + (await buildMessage()).blocks[0].text.text)
         return
     }
-    const keys = alertKeys(findings, verdict.rateFires)
     const recent = await recentAlerts(now)
     const keysOf = (m) => (m.metadata.event_payload?.keys ?? '').split('|')
     const alerted = new Set(recent.flatMap(keysOf))
@@ -511,25 +494,20 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
                 keysOf(m).some((k) => keys.includes(k))
         )
         if (pending) {
-            await startInvestigation(webhook, investigationPayload(findings, verdict, pending.ts), sleep)
-            await markInvestigationStarted(pending.ts, {
-                text: pending.text,
-                blocks: pending.blocks,
-                metadata: pending.metadata,
-            })
+            await investigate(pending.ts, pending)
             return
         }
         console.log('cooldown: a recent alert covers this, and no new culprit label appeared')
         return
     }
+    const message = await buildMessage()
     const posted = await slack('chat.postMessage', {
         channel: process.env.SLACK_CHANNEL,
         unfurl_links: false,
         ...message,
     })
     if (webhook) {
-        await startInvestigation(webhook, investigationPayload(findings, verdict, posted.ts), sleep)
-        await markInvestigationStarted(posted.ts, message)
+        await investigate(posted.ts, message)
     }
 }
 
