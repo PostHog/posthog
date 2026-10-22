@@ -116069,6 +116069,34 @@ export namespace Schemas {
       nodeIdsByAlias: TraceNodeIdsByAlias;
     }
 
+    export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
+
+
+    export const TraceEvaluationResultOutcomeEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Inconclusive: 'inconclusive',
+      Unrated: 'unrated',
+    } as const;
+
+    export interface TraceEvaluationResult {
+      id: string;
+      evaluationId: string | null;
+      evaluationName: string;
+      /** The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result. */
+      targetNodeId: string;
+      outcome: TraceEvaluationResultOutcomeEnum;
+      /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+      label: string;
+      reasoning: string | null;
+      timestamp: string;
+      isBackfill: boolean;
+    }
+
+    export interface TraceEvaluationResults {
+      results: TraceEvaluationResult[];
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
