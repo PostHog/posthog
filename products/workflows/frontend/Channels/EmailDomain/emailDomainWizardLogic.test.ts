@@ -100,11 +100,15 @@ describe('emailDomainWizardLogic', () => {
     })
 
     it.each([
-        [true, 'maildev'],
-        [false, 'ses'],
-    ])('creates the sender with the right provider when debug is %s', async (isDebug, provider) => {
+        ['a local stack by default', true, null, 'maildev'],
+        ['a local stack set to SES', true, 'ses' as const, 'ses'],
+        ['a hosted stack, whatever was picked', false, 'maildev' as const, 'ses'],
+    ])('creates the sender through the right provider on %s', async (_name, isDebug, picked, provider) => {
         const logic = mountWizard()
         preflightLogic.actions.loadPreflightSuccess({ is_debug: isDebug } as PreflightStatus)
+        if (picked) {
+            logic.actions.setLocalProvider(picked)
+        }
 
         logic.actions.setCustomDomainInput('acme.com')
         logic.actions.useCustomDomain()
