@@ -12,6 +12,7 @@ from hogli_commands.telemetry_props import (
     _AGENT_ENV_MARKERS,
     _DEVBOX_ENV_MARKERS,
     _STANDARD_AGENT_ENV_VARS,
+    RecordedRun,
     _detect_actor,
     _detect_agent,
     _detect_environment,
@@ -19,6 +20,9 @@ from hogli_commands.telemetry_props import (
     _is_posthog_dev,
     _repo_commit,
     _repo_commit_properties,
+    _session_properties,
+    classify_command,
+    is_rerun,
 )
 
 
@@ -201,3 +205,91 @@ class TestIsPosthogDev:
         assert _is_posthog_dev() is True
         mock_email.assert_called_once()
         assert json.loads(_config_dir.read_text())["is_posthog_org_member"] is True
+
+
+class TestClassifyCommand:
+    @pytest.mark.parametrize(
+        ("command", "argv", "expected"),
+        [
+            ("ci:preflight", [], "verify-preflight"),
+            ("test:e2e", [], "verify-e2e"),
+            ("test", ["playwright/e2e/insights.spec.ts"], "verify-e2e"),
+            ("test", ["posthog/api/test/test_team.py"], "verify-test"),
+            ("test:python", [], "verify-test"),
+            ("desktop:test", [], "verify-test"),
+            ("test:quarantine", [], "other"),
+            ("desktop:typecheck", [], "verify-typecheck"),
+            ("lint", [], "verify-lint"),
+            ("lint:workflows", [], "verify-lint"),
+            ("format:python", [], "verify-lint"),
+            ("product:lint", [], "verify-lint"),
+            ("tool:ruff", [], "verify-lint"),
+            ("build:openapi", [], "build"),
+            ("phrocs:build", [], "build"),
+            ("start", [], "run-stack"),
+            ("start:backend", [], "run-stack"),
+            ("up", ["-d"], "run-stack"),
+            ("docker:services:up", [], "run-stack"),
+            ("devbox:start", [], "devbox"),
+            ("metabase:query", [], "other"),
+            (None, [], "other"),
+        ],
+    )
+    def test_classification(self, command, argv, expected) -> None:
+        assert classify_command(command, argv) == expected
+
+
+class TestIsRerun:
+    NOW = 1_000_000.0
+
+    @pytest.mark.parametrize(
+        ("runs", "expected"),
+        [
+            ([], False),
+            ([RecordedRun(session_id="s1", kind="verify-test", at=NOW - 60)], True),
+            ([RecordedRun(session_id="s1", kind="verify-test", at=NOW - 30 * 60)], True),
+            ([RecordedRun(session_id="s1", kind="verify-test", at=NOW - 30 * 60 - 1)], False),
+            ([RecordedRun(session_id="s2", kind="verify-test", at=NOW - 60)], False),
+            ([RecordedRun(session_id="s1", kind="verify-lint", at=NOW - 60)], False),
+            ([RecordedRun(session_id="s1", kind="verify-test", at=NOW + 60)], False),
+        ],
+        ids=[
+            "first_run",
+            "same_session_same_kind",
+            "window_edge_inclusive",
+            "outside_window",
+            "other_session",
+            "other_kind",
+            "clock_skew_future_entry",
+        ],
+    )
+    def test_decision(self, runs, expected) -> None:
+        assert is_rerun(runs, "s1", "verify-test", self.NOW) is expected
+
+
+class TestSessionProperties:
+    @pytest.fixture(autouse=True)
+    def _isolated_state(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("hogli_commands.telemetry_props._TELEMETRY_STATE_PATH", tmp_path / "state.json")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+        for var in ("HOGLI_SESSION_ID", "POSTHOG_TASK_RUN_ID"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr("sys.argv", ["hogli", "lint"])
+        _session_properties.cache_clear()
+        yield
+        _session_properties.cache_clear()
+
+    def test_next_process_in_session_is_a_rerun_but_repeated_hook_calls_are_not(self) -> None:
+        assert _session_properties("lint")["is_rerun"] is False
+        assert _session_properties("lint")["is_rerun"] is False
+        _session_properties.cache_clear()
+        assert _session_properties("lint") == {
+            "command_kind": "verify-lint",
+            "session_id": "sess-1",
+            "session_id_source": "agent",
+            "is_rerun": True,
+        }
+
+    def test_corrupt_state_file_does_not_raise(self, tmp_path) -> None:
+        (tmp_path / "state.json").write_text('{"runs": [["only-two", 1], "junk"], "terminal_sessions": 3}')
+        assert _session_properties("lint")["is_rerun"] is False
