@@ -1,6 +1,6 @@
 import os
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any, Optional
 
@@ -420,6 +420,12 @@ class TestCSVExporter(APIBaseTest):
         personal_api_key.scopes = ["export:write", "query:read"]
         personal_api_key.scoped_teams = [self.team.id + 1]
         personal_api_key.save(update_fields=["scopes", "scoped_teams"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scoped_teams = [self.team.id]
+        personal_api_key.expires_at = now() - timedelta(minutes=1)
+        personal_api_key.save(update_fields=["scoped_teams", "expires_at"])
         with pytest.raises(ValueError, match="could not verify its original authorization"):
             assert_export_authorization(exported_asset)
 
