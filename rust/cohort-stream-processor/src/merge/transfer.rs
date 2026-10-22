@@ -292,7 +292,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::stage1::state::{AppliedOffsets, SourcePartition, Stage1State};
+    use crate::stage1::state::{AppliedOffsets, Stage1State};
 
     fn uuid(n: u128) -> Uuid {
         Uuid::from_u128(n)
@@ -491,10 +491,7 @@ mod tests {
         let mut redirect_dedup = BTreeMap::new();
         redirect_dedup.insert(
             uuid(0xCCCC),
-            AppliedOffsets::from_sorted_entries(vec![(
-                SourcePartition::clickhouse_events_json(3),
-                300,
-            )]),
+            AppliedOffsets::from_sorted_entries(vec![(3, 300)]),
         );
         let transfer = MergeStateTransfer {
             team_id: 7,
@@ -507,11 +504,7 @@ mod tests {
             membership_registers: vec![],
             forward_hops: 0,
             person_dedup: Some(PersonDedup {
-                applied_offsets: AppliedOffsets::from_sorted_entries(vec![
-                    (SourcePartition::clickhouse_events_json(1), 100),
-                    (SourcePartition::clickhouse_events_json(2), 200),
-                    (SourcePartition::new(1, 2), 50),
-                ]),
+                applied_offsets: AppliedOffsets::from_sorted_entries(vec![(1, 100), (2, 200)]),
                 redirect_dedup,
             }),
         };

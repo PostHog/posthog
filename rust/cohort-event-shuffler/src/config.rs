@@ -9,7 +9,7 @@ use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
 
 use crate::consumer::ShufflerSettings;
-use crate::event::source_topic_id;
+use crate::event::SourcePartitionRange;
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -121,17 +121,16 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    /// Refuses an input topic without a `source_topic_id`. Under another topic's id, the processor
-    /// would drop most of its events as replays.
     pub fn shuffler_settings(&self) -> anyhow::Result<ShufflerSettings> {
-        let source_topic_id = source_topic_id(&self.input_topic).with_context(|| {
-            format!(
-                "INPUT_TOPIC {:?} has no source_topic_id in the shuffler's topic table",
-                self.input_topic
-            )
-        })?;
+        let source_partitions = SourcePartitionRange::for_input_topic(&self.input_topic)
+            .with_context(|| {
+                format!(
+                    "INPUT_TOPIC {:?} has no slot in the shuffler's input topic table",
+                    self.input_topic
+                )
+            })?;
         Ok(ShufflerSettings {
-            source_topic_id,
+            source_partitions,
             max_inflight_forwards: self.max_inflight_forwards,
             commit_interval: Duration::from_millis(self.commit_interval_ms),
             queue_full_backoff: Duration::from_millis(self.queue_full_backoff_ms),
@@ -274,23 +273,10 @@ mod tests {
     }
 
     #[test]
-    fn shuffler_settings_stamp_the_input_topic_id_and_refuse_an_unknown_topic() {
+    fn shuffler_settings_refuse_an_input_topic_without_a_slot() {
         let mut config = test_config();
-        for (topic, expected) in [
-            ("clickhouse_events_json", Some(0)),
-            ("realtime_only_events_json", Some(1)),
-            ("clickhouse_events_json_v2", None),
-        ] {
-            config.input_topic = topic.to_string();
-            assert_eq!(
-                config
-                    .shuffler_settings()
-                    .ok()
-                    .map(|settings| settings.source_topic_id),
-                expected,
-                "{topic}"
-            );
-        }
+        config.input_topic = "clickhouse_events_json_v2".to_string();
+        assert!(config.shuffler_settings().is_err());
     }
 
     #[test]

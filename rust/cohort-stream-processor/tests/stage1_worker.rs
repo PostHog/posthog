@@ -28,8 +28,8 @@ use cohort_stream_processor::producer::{
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::person_record::{MatchedSet, PersonRecord};
 use cohort_stream_processor::stage1::{
-    clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, SourcePartition, Stage1State,
-    StateVariant, StatefulRecord, TransitionKind,
+    clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
+    StatefulRecord, TransitionKind,
 };
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
@@ -51,6 +51,7 @@ const PARTITION_ID: u16 = 0;
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+const SECOND_TOPIC_PARTITION_10: i32 = 1_000_010;
 /// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
 const COMPRESSED_WINDOW_DAYS: i64 = 365;
 
@@ -207,7 +208,6 @@ fn event(person: Uuid, source_partition: i32, source_offset: i64) -> CohortStrea
         elements_chain: None,
         source_offset,
         source_partition,
-        source_topic_id: 0,
         redirected_from: None,
         redirect_hops: 0,
     }
@@ -322,20 +322,16 @@ fn write_person_record(
         .unwrap();
 }
 
-fn events_json(partition: i32) -> SourcePartition {
-    SourcePartition::clickhouse_events_json(partition)
-}
-
-/// Assert `offset` is the recorded high-water mark for `source`, probed through the public
-/// `is_replay` because the inner map is private: `offset` is a replay, `offset + 1` is new.
-fn assert_high_water(applied: &AppliedOffsets, source: SourcePartition, offset: i64) {
+/// Assert `offset` is the recorded high-water mark for `partition` — probed via the public
+/// `is_replay` (the inner map is intentionally private): `offset` is a replay, `offset + 1` is new.
+fn assert_high_water(applied: &AppliedOffsets, partition: i32, offset: i64) {
     assert!(
-        applied.is_replay(source, offset),
-        "offset {offset} on {source} should be ≤ the high-water mark",
+        applied.is_replay(partition, offset),
+        "offset {offset} on partition {partition} should be ≤ the high-water mark",
     );
     assert!(
-        !applied.is_replay(source, offset + 1),
-        "offset {} on {source} should be above the high-water mark",
+        !applied.is_replay(partition, offset + 1),
+        "offset {} on partition {partition} should be above the high-water mark",
         offset + 1,
     );
 }
@@ -570,7 +566,7 @@ fn mixed_present_corrupt_absent_read_set_stays_aligned() {
         }
         other => panic!("expected BehavioralSingle, got {other:?}"),
     }
-    assert_high_water(&record.applied_offsets, events_json(1), 10);
+    assert_high_water(&record.applied_offsets, 1, 10);
 
     // The corrupt slot is skipped, not written: the garbage stays in place.
     assert_eq!(
@@ -784,71 +780,35 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
 }
 
 #[test]
-fn low_offset_on_another_source_partition_is_not_masked_by_a_high_offset() {
-    for leave_source in [events_json(20), SourcePartition::new(1, 10)] {
-        let (_dir, store) = temp_store();
-        let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-        let p = person(1);
+fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let p = person(1);
 
-        // Enter from source partition 10 at a high offset.
-        let enter = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 100);
-        let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
-        assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    // Enter from source partition 10 at a high offset.
+    let enter = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 100);
+    let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
 
-        // Leave at a low offset, with a newer event time so argMax applies it.
-        let leave = CohortStreamEvent {
-            source_topic_id: leave_source.topic_id,
-            ..person_event(
-                p,
-                "nope@x.com",
-                "2026-05-26 13:00:00.000000",
-                leave_source.partition,
-                3,
-            )
-        };
-        let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
-        assert_eq!(
-            out.transitions.len(),
-            1,
-            "the low-offset event from {leave_source} must apply"
-        );
-        assert_eq!(out.transitions[0].kind, TransitionKind::Left);
+    // Leave from the second topic at a low offset, with a newer event time so argMax applies it.
+    let leave = person_event(
+        p,
+        "nope@x.com",
+        "2026-05-26 13:00:00.000000",
+        SECOND_TOPIC_PARTITION_10,
+        3,
+    );
+    let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
+    assert_eq!(
+        out.transitions.len(),
+        1,
+        "the low-offset event on a new partition must apply"
+    );
+    assert_eq!(out.transitions[0].kind, TransitionKind::Left);
 
-        let applied = person_record_at(&store, p).unwrap().applied_offsets;
-        assert_high_water(&applied, events_json(10), 100);
-        assert_high_water(&applied, leave_source, 3);
-    }
-}
-
-#[test]
-fn second_topic_low_offset_on_the_same_partition_folds_into_every_behavioral_variant() {
-    for leaf in [
-        behavioral_leaf(7),
-        behavioral_leaf_multiple(7, "gte", 2),
-        behavioral_leaf_multiple(COMPRESSED_WINDOW_DAYS, "gte", 2),
-    ] {
-        let (_dir, store) = temp_store();
-        let filters = build_team_filters(vec![(CohortId(1), cohort(vec![leaf]))]);
-        let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
-        let alice = person(1);
-
-        process_event(PARTITION_ID, &store, &filters, &event(alice, 10, 100)).unwrap();
-        let second_topic = CohortStreamEvent {
-            source_topic_id: 1,
-            ..event(alice, 10, 3)
-        };
-        process_event(PARTITION_ID, &store, &filters, &second_topic).unwrap();
-
-        let mut expected = AppliedOffsets::default();
-        expected.record(events_json(10), 100);
-        expected.record(SourcePartition::new(1, 10), 3);
-        assert_eq!(
-            record_at(&store, lsk, alice).unwrap().applied_offsets,
-            expected,
-            "{:?}",
-            filters.by_lsk[&lsk].variant,
-        );
-    }
+    let applied = person_record_at(&store, p).unwrap().applied_offsets;
+    assert_high_water(&applied, 10, 100);
+    assert_high_water(&applied, SECOND_TOPIC_PARTITION_10, 3);
 }
 
 #[test]
@@ -867,8 +827,8 @@ fn cross_partition_replay_does_not_double_apply_or_disturb_other_partitions() {
     process_event(PARTITION_ID, &store, &filters, &later_b).unwrap();
 
     let before = record_at(&store, lsk, p).unwrap();
-    assert_high_water(&before.applied_offsets, events_json(10), 5);
-    assert_high_water(&before.applied_offsets, events_json(20), 10);
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
 
     // Replay partition 10's original event: is_replay(10, 5) is true (5 ≤ 5) even though the most
     // recent activity is on partition 20.
@@ -894,8 +854,8 @@ fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
     process_event(PARTITION_ID, &store, &filters, &later_b).unwrap();
 
     let before = person_record_at(&store, p).unwrap();
-    assert_high_water(&before.applied_offsets, events_json(10), 5);
-    assert_high_water(&before.applied_offsets, events_json(20), 10);
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
 
     let out = process_event(PARTITION_ID, &store, &filters, &from_a).unwrap();
     assert!(
@@ -934,8 +894,8 @@ fn argmax_stale_event_still_advances_applied_offsets_across_partitions() {
         "the stale event kept the newer match",
     );
     assert_eq!(record.stamp.offset, 5, "argMax kept partition 10's offset");
-    assert_high_water(&record.applied_offsets, events_json(10), 5);
-    assert_high_water(&record.applied_offsets, events_json(20), 0);
+    assert_high_water(&record.applied_offsets, 10, 5);
+    assert_high_water(&record.applied_offsets, 20, 0);
 }
 
 #[test]
@@ -1752,8 +1712,8 @@ fn daily_multiple_cross_partition_replay_after_slide_is_byte_identical() {
     .unwrap();
 
     let before = record_at(&store, lsk, p).unwrap();
-    assert_high_water(&before.applied_offsets, events_json(10), 5);
-    assert_high_water(&before.applied_offsets, events_json(20), 10);
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
 
     // Replay partition 10's original event (offset 5 ≤ 5): is_replay fires regardless of the slide.
     let out = process_event(
@@ -1812,7 +1772,7 @@ fn daily_multiple_late_behind_event_records_offset_without_counting() {
         after.state, before.state,
         "the behind-window event left the buckets, window, deadline, and newest-event all unchanged",
     );
-    assert_high_water(&after.applied_offsets, events_json(1), 11);
+    assert_high_water(&after.applied_offsets, 1, 11);
 }
 
 #[test]
@@ -2264,7 +2224,7 @@ fn compressed_multiple_late_behind_event_records_offset_without_counting() {
         after.state, before.state,
         "the behind-window event left the entries, window, deadline, and newest-event all unchanged",
     );
-    assert_high_water(&after.applied_offsets, events_json(1), 11);
+    assert_high_water(&after.applied_offsets, 1, 11);
 }
 
 #[test]
@@ -2300,8 +2260,8 @@ fn compressed_multiple_cross_partition_replay_after_slide_is_byte_identical() {
     .unwrap();
 
     let before = record_at(&store, lsk, p).unwrap();
-    assert_high_water(&before.applied_offsets, events_json(10), 5);
-    assert_high_water(&before.applied_offsets, events_json(20), 10);
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
     assert_eq!(
         compressed_count(&before.state),
         2,
@@ -2397,7 +2357,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
 fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
     let mut applied = AppliedOffsets::default();
     for &(partition, offset) in entries {
-        applied.record(events_json(partition), offset);
+        applied.record(partition, offset);
     }
     applied
 }
@@ -2439,12 +2399,12 @@ fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative(
         "the person leaf is now a member"
     );
     assert!(
-        after.applied_offsets.is_replay(events_json(5), 60),
+        after.applied_offsets.is_replay(5, 60),
         "the main map advanced to the fresh event's offset",
     );
     assert!(
-        after.redirect_dedup[&ancestor].is_replay(events_json(5), 100)
-            && !after.redirect_dedup[&ancestor].is_replay(events_json(5), 101),
+        after.redirect_dedup[&ancestor].is_replay(5, 100)
+            && !after.redirect_dedup[&ancestor].is_replay(5, 101),
         "the ancestor entry is untouched by a normal event",
     );
 }
@@ -2494,12 +2454,11 @@ fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
     assert_eq!(folded.transitions[0].kind, TransitionKind::Left);
     let after = person_record_at(&store, p_new).unwrap();
     assert!(
-        after.redirect_dedup[&p_old].is_replay(events_json(5), 101),
+        after.redirect_dedup[&p_old].is_replay(5, 101),
         "the ancestor entry advanced to the folded offset",
     );
     assert!(
-        after.applied_offsets.is_replay(events_json(5), 50)
-            && !after.applied_offsets.is_replay(events_json(5), 51),
+        after.applied_offsets.is_replay(5, 50) && !after.applied_offsets.is_replay(5, 51),
         "the redirected fold did not touch the main map",
     );
 }

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 /// envelope exactly.
 ///
 /// `properties` / `person_properties` are raw JSON strings parsed lazily in globals construction.
-/// `source_topic_id` / `source_partition` / `source_offset` are the upstream coordinates for
-/// replay-safe counter increments.
+/// `source_partition` / `source_offset` are the upstream coordinates for replay-safe counter
+/// increments.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
@@ -19,11 +19,10 @@ pub struct CohortStreamEvent {
     pub person_properties: Option<String>,
     pub elements_chain: Option<String>,
     pub source_offset: i64,
+    /// Not always a Kafka partition. Each shuffler input topic writes its partitions into its own
+    /// range (`SourcePartitionRange` in the shuffler), so a reader must treat the value as an opaque
+    /// `i32` key and must not bound or narrow it.
     pub source_partition: i32,
-    /// The shuffler's id for the topic it read the event from. A message without the field came
-    /// from `clickhouse_events_json`, whose id is 0.
-    #[serde(default)]
-    pub source_topic_id: u8,
     /// The merge origin person, set when a post-merge straggler is redirected to the merged-into
     /// person. `None` for a normal event. Stage 1 routes replay-dedup through
     /// `redirect_dedup[origin]` when set, preventing double-fold.

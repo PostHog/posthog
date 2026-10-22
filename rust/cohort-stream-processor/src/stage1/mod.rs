@@ -23,8 +23,6 @@ pub use pick_state::{
     pick_state_variant, EvictionWindow, PredicateOp, TimeInterval, UnsupportedVariant,
 };
 pub use predicate::{compressed_predicate, daily_predicate, predicate};
-pub use state::{
-    AppliedOffsets, SourcePartition, Stage1State, StateCodecError, StateVariant, StatefulRecord,
-};
+pub use state::{AppliedOffsets, Stage1State, StateCodecError, StateVariant, StatefulRecord};
 pub use time::clickhouse_timestamp_to_millis;
 pub use transition::{LeafTransition, TransitionKind};

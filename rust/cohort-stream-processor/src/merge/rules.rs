@@ -250,7 +250,6 @@ mod tests {
 
     use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
     use crate::stage1::predicate::compressed_predicate;
-    use crate::stage1::state::SourcePartition;
 
     const TZ: Tz = UTC;
 
@@ -325,7 +324,7 @@ mod tests {
     fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
         let mut applied = AppliedOffsets::default();
         for &(partition, offset) in entries {
-            applied.record(SourcePartition::clickhouse_events_json(partition), offset);
+            applied.record(partition, offset);
         }
         applied
     }
@@ -534,18 +533,11 @@ mod tests {
         let merged = merge_records(uuid(0xA11CE), &old, Some(&new), &single_meta(), TZ)
             .record
             .unwrap();
-        assert!(merged
-            .applied_offsets
-            .is_replay(SourcePartition::clickhouse_events_json(5), 50));
-        assert!(!merged
-            .applied_offsets
-            .is_replay(SourcePartition::clickhouse_events_json(5), 51));
+        assert!(merged.applied_offsets.is_replay(5, 50));
+        assert!(!merged.applied_offsets.is_replay(5, 51));
         let ancestor = &merged.redirect_dedup[&uuid(0xA11CE)];
-        assert!(
-            ancestor.is_replay(SourcePartition::clickhouse_events_json(5), 100)
-                && ancestor.is_replay(SourcePartition::clickhouse_events_json(6), 7)
-        );
-        assert!(!ancestor.is_replay(SourcePartition::clickhouse_events_json(5), 101));
+        assert!(ancestor.is_replay(5, 100) && ancestor.is_replay(6, 7));
+        assert!(!ancestor.is_replay(5, 101));
     }
 
     #[test]
@@ -561,13 +553,11 @@ mod tests {
             .record
             .unwrap();
         assert!(
-            merged.redirect_dedup[&p_old]
-                .is_replay(SourcePartition::clickhouse_events_json(5), 100),
+            merged.redirect_dedup[&p_old].is_replay(5, 100),
             "P_old is an ancestor under its own uuid",
         );
         assert!(
-            merged.redirect_dedup[&grandparent]
-                .is_replay(SourcePartition::clickhouse_events_json(9), 42),
+            merged.redirect_dedup[&grandparent].is_replay(9, 42),
             "P_old's own ancestor carries forward under the grandparent's origin",
         );
     }

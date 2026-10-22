@@ -7,6 +7,8 @@
 use common_types::{ClickHouseEvent, PersonMode};
 use serde::{Deserialize, Serialize};
 
+use crate::ledger::SourcePartition;
+
 /// Single source of truth for the re-key string. Every producer targeting a topic co-partitioned
 /// with `cohort_stream_events` must use this so a given `(team_id, person_id)` lands on the same
 /// partition — and downstream worker — across topics and runtimes (Rust here, Node for
@@ -16,23 +18,42 @@ pub fn partition_key(team_id: i32, person_id: &str) -> String {
     format!("{team_id}:{person_id}")
 }
 
-/// The `source_topic_id` each input topic stamps on its envelopes. The processor keys replay dedup by
-/// `(source_topic_id, source_partition)`, so two topics must never share an id. The processor reads a
-/// message without the field as id 0, so 0 must stay `clickhouse_events_json`.
-const SOURCE_TOPIC_IDS: [(&str, u8); 2] = [
+/// Each input topic's slot in the `source_partition` numbers of `cohort_stream_events`. Kafka
+/// numbers every topic's partitions from 0. The processor keys its replay marks by
+/// `source_partition` alone, so two topics that shared numbers would mask each other's lower offsets
+/// as replays. A slot must never pass to another topic, because stored replay marks keep the numbers
+/// that the first topic wrote.
+const INPUT_TOPIC_SLOTS: [(&str, u8); 2] = [
     ("clickhouse_events_json", 0),
     ("realtime_only_events_json", 1),
 ];
 
-pub fn source_topic_id(input_topic: &str) -> Option<u8> {
-    SOURCE_TOPIC_IDS
-        .iter()
-        .find(|(topic, _)| *topic == input_topic)
-        .map(|&(_, id)| id)
+#[derive(Debug, Clone, Copy)]
+pub struct SourcePartitionRange {
+    slot: u8,
 }
 
-/// `source_topic_id` / `source_partition` / `source_offset` carry the upstream coordinates so the
-/// downstream processor can make counter increments replay-safe via per-key offset tracking.
+impl SourcePartitionRange {
+    const STRIDE: i32 = 1_000_000;
+
+    pub fn for_input_topic(input_topic: &str) -> Option<Self> {
+        INPUT_TOPIC_SLOTS
+            .iter()
+            .find(|(topic, _)| *topic == input_topic)
+            .map(|&(_, slot)| Self { slot })
+    }
+
+    /// `None` for a partition outside `0..1_000_000`, whose number would fall in another slot's
+    /// range.
+    pub fn source_partition(self, partition: SourcePartition) -> Option<i32> {
+        (0..Self::STRIDE)
+            .contains(&partition.0)
+            .then(|| i32::from(self.slot) * Self::STRIDE + partition.0)
+    }
+}
+
+/// `source_partition` / `source_offset` carry the upstream coordinates, numbered by
+/// [`SourcePartitionRange`], so the downstream processor can make counter increments replay-safe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
@@ -46,7 +67,6 @@ pub struct CohortStreamEvent {
     pub elements_chain: Option<String>,
     pub source_offset: i64,
     pub source_partition: i32,
-    pub source_topic_id: u8,
 }
 
 /// The label of a `person_mode` under which ingestion processed the event without a person profile.
@@ -69,7 +89,6 @@ impl CohortStreamEvent {
     pub fn from_clickhouse(
         event: ClickHouseEvent,
         person_id: String,
-        source_topic_id: u8,
         source_partition: i32,
         source_offset: i64,
     ) -> Self {
@@ -87,7 +106,6 @@ impl CohortStreamEvent {
             elements_chain: event.elements_chain,
             source_offset,
             source_partition,
-            source_topic_id,
         }
     }
 
@@ -151,13 +169,37 @@ mod tests {
     }
 
     #[test]
-    fn no_two_input_topics_share_a_source_topic_id() {
-        let ids: std::collections::BTreeSet<u8> =
-            SOURCE_TOPIC_IDS.iter().map(|&(_, id)| id).collect();
+    fn each_input_topic_writes_its_partitions_into_its_own_range() {
+        for (topic, partition, expected) in [
+            ("clickhouse_events_json", 5, Some(5)),
+            ("clickhouse_events_json", 1_000_005, None),
+            ("realtime_only_events_json", 5, Some(1_000_005)),
+            ("realtime_only_events_json", 1_000_000, None),
+        ] {
+            let range = SourcePartitionRange::for_input_topic(topic).unwrap();
+            assert_eq!(
+                range.source_partition(SourcePartition(partition)),
+                expected,
+                "{topic} partition {partition}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_two_input_topics_share_a_slot_and_no_topic_has_two() {
+        let slots: std::collections::BTreeSet<u8> =
+            INPUT_TOPIC_SLOTS.iter().map(|&(_, slot)| slot).collect();
         assert_eq!(
-            ids.len(),
-            SOURCE_TOPIC_IDS.len(),
-            "two topics share a source_topic_id, so the processor would drop one topic's events as replays"
+            slots.len(),
+            INPUT_TOPIC_SLOTS.len(),
+            "two topics share a slot, so the processor would drop one topic's events as replays"
+        );
+        let topics: std::collections::BTreeSet<&str> =
+            INPUT_TOPIC_SLOTS.iter().map(|&(topic, _)| topic).collect();
+        assert_eq!(
+            topics.len(),
+            INPUT_TOPIC_SLOTS.len(),
+            "a topic has two rows, and the shuffler uses only the first"
         );
     }
 
@@ -169,7 +211,6 @@ mod tests {
         let envelope = CohortStreamEvent::from_clickhouse(
             event,
             "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
-            1,
             17,
             12345,
         );
@@ -189,7 +230,6 @@ mod tests {
             Some(r#"{"email":"u@p.com"}"#)
         );
         assert_eq!(envelope.elements_chain.as_deref(), Some("a:href=\"/x\""));
-        assert_eq!(envelope.source_topic_id, 1);
         assert_eq!(envelope.source_partition, 17);
         assert_eq!(envelope.source_offset, 12345);
     }
@@ -201,7 +241,7 @@ mod tests {
         event.person_properties = None;
         event.elements_chain = None;
 
-        let envelope = CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0, 0);
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0);
         assert!(envelope.properties.is_none());
         assert!(envelope.person_properties.is_none());
         assert!(envelope.elements_chain.is_none());
@@ -215,7 +255,7 @@ mod tests {
                 person_properties: Some("{}".to_string()),
                 ..sample_event(2, Some("p"))
             };
-            CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0, 0)
+            CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0)
         };
 
         let full = envelope(PersonMode::Full);
@@ -239,7 +279,7 @@ mod tests {
     #[test]
     fn envelope_partition_key_matches_free_function() {
         let event = sample_event(99, Some("xyz"));
-        let envelope = CohortStreamEvent::from_clickhouse(event, "xyz".to_string(), 0, 3, 9);
+        let envelope = CohortStreamEvent::from_clickhouse(event, "xyz".to_string(), 3, 9);
         assert_eq!(envelope.partition_key(), "99:xyz");
         assert_eq!(envelope.partition_key(), partition_key(99, "xyz"));
     }
@@ -247,7 +287,7 @@ mod tests {
     #[test]
     fn serialized_envelope_has_tdd_4_3_keys() {
         let event = sample_event(42, Some("p1"));
-        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 1, 17, 12345);
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 17, 12345);
         let value: serde_json::Value = serde_json::to_value(&envelope).unwrap();
         let obj = value.as_object().unwrap();
 
@@ -263,20 +303,18 @@ mod tests {
             "elements_chain",
             "source_offset",
             "source_partition",
-            "source_topic_id",
         ] {
             assert!(obj.contains_key(key), "envelope is missing key `{key}`");
         }
         // Replay coordinates must serialize numeric, not as strings.
         assert_eq!(obj["source_offset"], serde_json::json!(12345));
         assert_eq!(obj["source_partition"], serde_json::json!(17));
-        assert_eq!(obj["source_topic_id"], serde_json::json!(1));
     }
 
     #[test]
     fn envelope_round_trips_through_json() {
         let event = sample_event(42, Some("p1"));
-        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 1, 17, 12345);
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 17, 12345);
         let json = serde_json::to_string(&envelope).unwrap();
         let decoded: CohortStreamEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(envelope, decoded);

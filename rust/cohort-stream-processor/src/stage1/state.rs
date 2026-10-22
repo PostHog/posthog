@@ -1,12 +1,8 @@
 //! Per-leaf Stage 1 state, its persisted wrapper, and the value codec.
 
 use std::collections::BTreeMap;
-use std::fmt;
-use std::str::FromStr;
 
-use cohort_core::events::CohortStreamEvent;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub use cohort_core::leaf_state::StateVariant;
@@ -92,143 +88,45 @@ impl Stage1State {
     }
 }
 
-/// The upstream Kafka partition an event came from: the shuffler's input topic, by the
-/// `source_topic_id` the shuffler stamps, and the partition in that topic. Offsets compare only
-/// within one source partition.
-///
-/// As a JSON map key, a `clickhouse_events_json` partition is `"<partition>"`, the form a binary
-/// without topic ids writes and reads. A partition of another topic is `"<topic_id>:<partition>"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SourcePartition {
-    pub topic_id: u8,
-    pub partition: i32,
-}
-
-impl SourcePartition {
-    /// The `source_topic_id` of `clickhouse_events_json`. A message without the field came from it.
-    pub const CLICKHOUSE_EVENTS_JSON_TOPIC_ID: u8 = 0;
-
-    pub const fn new(topic_id: u8, partition: i32) -> Self {
-        Self {
-            topic_id,
-            partition,
-        }
-    }
-
-    pub const fn clickhouse_events_json(partition: i32) -> Self {
-        Self::new(Self::CLICKHOUSE_EVENTS_JSON_TOPIC_ID, partition)
-    }
-
-    fn is_clickhouse_events_json(self) -> bool {
-        self.topic_id == Self::CLICKHOUSE_EVENTS_JSON_TOPIC_ID
-    }
-}
-
-impl From<&CohortStreamEvent> for SourcePartition {
-    fn from(event: &CohortStreamEvent) -> Self {
-        Self::new(event.source_topic_id, event.source_partition)
-    }
-}
-
-impl fmt::Display for SourcePartition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_clickhouse_events_json() {
-            write!(f, "{}", self.partition)
-        } else {
-            write!(f, "{}:{}", self.topic_id, self.partition)
-        }
-    }
-}
-
-impl FromStr for SourcePartition {
-    type Err = String;
-
-    fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let invalid = || format!("invalid source partition key {key:?}");
-        let Some((topic_id, partition)) = key.split_once(':') else {
-            return key
-                .parse()
-                .map(Self::clickhouse_events_json)
-                .map_err(|_| invalid());
-        };
-        Ok(Self::new(
-            topic_id.parse().map_err(|_| invalid())?,
-            partition.parse().map_err(|_| invalid())?,
-        ))
-    }
-}
-
-impl Serialize for SourcePartition {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for SourcePartition {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct KeyVisitor;
-
-        impl Visitor<'_> for KeyVisitor {
-            type Value = SourcePartition;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(r#"a "<partition>" or "<topic_id>:<partition>" key"#)
-            }
-
-            fn visit_str<E: de::Error>(self, key: &str) -> Result<Self::Value, E> {
-                key.parse().map_err(E::custom)
-            }
-        }
-
-        deserializer.deserialize_str(KeyVisitor)
-    }
-}
-
 /// Per-source-partition last-applied offsets for replay dedup. `BTreeMap` for deterministic
 /// serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct AppliedOffsets(BTreeMap<SourcePartition, i64>);
+pub struct AppliedOffsets(BTreeMap<i32, i64>);
 
 impl AppliedOffsets {
-    /// `true` if `source_offset` on `source` was already applied.
-    pub fn is_replay(&self, source: SourcePartition, source_offset: i64) -> bool {
+    /// `true` if this `(source_partition, source_offset)` was already applied.
+    pub fn is_replay(&self, source_partition: i32, source_offset: i64) -> bool {
         self.0
-            .get(&source)
+            .get(&source_partition)
             .is_some_and(|&last| source_offset <= last)
     }
 
-    /// Advance the high-water mark for `source`. Monotonic per source partition.
-    pub fn record(&mut self, source: SourcePartition, source_offset: i64) {
+    /// Advance the high-water mark for `source_partition`. Monotonic per partition.
+    pub fn record(&mut self, source_partition: i32, source_offset: i64) {
         self.0
-            .entry(source)
+            .entry(source_partition)
             .and_modify(|last| *last = (*last).max(source_offset))
             .or_insert(source_offset);
     }
 
-    /// Fold another map's high-water marks into this one, per-source-partition max.
+    /// Fold another map's high-water marks into this one, per-partition max.
     pub fn merge_max(&mut self, other: &Self) {
-        for (&source, &offset) in &other.0 {
-            self.record(source, offset);
+        for (&partition, &offset) in &other.0 {
+            self.record(partition, offset);
         }
     }
 
-    pub(crate) fn has_other_topics(&self) -> bool {
-        self.0
-            .keys()
-            .any(|source| !source.is_clickhouse_events_json())
-    }
-
-    /// The `(source_partition, high_water_offset)` pairs in ascending `(topic_id, partition)` order,
-    /// the canonical order a binary codec serializes them in.
-    pub fn entries(&self) -> Vec<(SourcePartition, i64)> {
+    /// The `(source_partition, high_water_offset)` pairs in ascending partition order — the canonical
+    /// order a binary codec serializes them in.
+    pub fn entries(&self) -> Vec<(i32, i64)> {
         self.0.iter().map(|(&p, &o)| (p, o)).collect()
     }
 
-    /// Rebuild from entries already known to be sorted-distinct by source partition (a codec
-    /// verifies this before calling). The `BTreeMap` re-imposes the ordering regardless, so a caller
-    /// that violates the precondition loses only canonicality, not correctness.
-    pub fn from_sorted_entries(entries: Vec<(SourcePartition, i64)>) -> Self {
+    /// Rebuild from entries already known to be sorted-distinct by partition (a codec verifies this
+    /// before calling). The `BTreeMap` re-imposes the ordering regardless, so a caller that violates
+    /// the precondition loses only canonicality, not correctness.
+    pub fn from_sorted_entries(entries: Vec<(i32, i64)>) -> Self {
         Self(entries.into_iter().collect())
     }
 }
@@ -262,7 +160,7 @@ impl StatefulRecord {
     pub fn is_replay_for(
         &self,
         origin: Option<&Uuid>,
-        source_partition: SourcePartition,
+        source_partition: i32,
         source_offset: i64,
     ) -> bool {
         dedup_is_replay(
@@ -275,12 +173,7 @@ impl StatefulRecord {
     }
 
     /// Origin-aware offset advance.
-    pub fn record_for(
-        &mut self,
-        origin: Option<&Uuid>,
-        source_partition: SourcePartition,
-        source_offset: i64,
-    ) {
+    pub fn record_for(&mut self, origin: Option<&Uuid>, source_partition: i32, source_offset: i64) {
         dedup_record(
             &mut self.applied_offsets,
             &mut self.redirect_dedup,
@@ -304,7 +197,7 @@ pub(crate) fn dedup_is_replay(
     main: &AppliedOffsets,
     redirect: &BTreeMap<Uuid, AppliedOffsets>,
     origin: Option<&Uuid>,
-    source_partition: SourcePartition,
+    source_partition: i32,
     source_offset: i64,
 ) -> bool {
     match origin {
@@ -320,7 +213,7 @@ pub(crate) fn dedup_record(
     main: &mut AppliedOffsets,
     redirect: &mut BTreeMap<Uuid, AppliedOffsets>,
     origin: Option<&Uuid>,
-    source_partition: SourcePartition,
+    source_partition: i32,
     source_offset: i64,
 ) {
     match origin {
@@ -336,14 +229,10 @@ pub(crate) fn dedup_record(
 mod tests {
     use super::*;
 
-    fn events_json(partition: i32) -> SourcePartition {
-        SourcePartition::clickhouse_events_json(partition)
-    }
-
     fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
         let mut applied = AppliedOffsets::default();
         for &(partition, offset) in entries {
-            applied.record(events_json(partition), offset);
+            applied.record(partition, offset);
         }
         applied
     }
@@ -479,59 +368,43 @@ mod tests {
         let applied = applied(&[(5, 100), (6, 50)]);
         let cases = [
             (
-                events_json(5),
+                5,
                 100,
                 true,
                 "exact offset on a seen partition is a replay → skip",
             ),
             (
-                events_json(5),
+                5,
                 99,
                 true,
                 "lower offset on a seen partition is a replay → skip",
             ),
             (
-                events_json(5),
+                5,
                 101,
                 false,
                 "higher offset on a seen partition is new → apply",
             ),
             (
-                events_json(6),
+                6,
                 50,
                 true,
                 "exact offset on the other seen partition → skip",
             ),
+            (6, 51, false, "higher offset on the other partition → apply"),
+            (7, 0, false, "an unseen partition is never a replay → apply"),
             (
-                events_json(6),
-                51,
-                false,
-                "higher offset on the other partition → apply",
-            ),
-            (
-                events_json(7),
-                0,
-                false,
-                "an unseen partition is never a replay → apply",
-            ),
-            (
-                events_json(7),
+                7,
                 i64::MAX,
                 false,
                 "an unseen partition is never a replay, any offset → apply",
             ),
-            (
-                SourcePartition::new(1, 5),
-                99,
-                false,
-                "a lower offset on another topic's partition 5 is new → apply",
-            ),
         ];
-        for (source, offset, expected, why) in cases {
+        for (partition, offset, expected, why) in cases {
             assert_eq!(
-                applied.is_replay(source, offset),
+                applied.is_replay(partition, offset),
                 expected,
-                "is_replay({source}, {offset}): {why}",
+                "is_replay({partition}, {offset}): {why}",
             );
         }
     }
@@ -539,72 +412,49 @@ mod tests {
     #[test]
     fn applied_offsets_empty_is_never_a_replay() {
         let applied = AppliedOffsets::default();
-        assert!(
-            !applied.is_replay(events_json(0), 0),
-            "empty map: nothing seen yet"
-        );
-        assert!(!applied.is_replay(events_json(3), 100));
+        assert!(!applied.is_replay(0, 0), "empty map: nothing seen yet");
+        assert!(!applied.is_replay(3, 100));
     }
 
     #[test]
     fn applied_offsets_offset_zero_is_a_valid_first_offset() {
         let mut applied = AppliedOffsets::default();
         assert!(
-            !applied.is_replay(events_json(5), 0),
+            !applied.is_replay(5, 0),
             "0 before recording is not a replay"
         );
-        applied.record(events_json(5), 0);
-        assert!(
-            applied.is_replay(events_json(5), 0),
-            "0 after recording is a replay"
-        );
-        assert!(!applied.is_replay(events_json(5), 1), "1 is still new");
+        applied.record(5, 0);
+        assert!(applied.is_replay(5, 0), "0 after recording is a replay");
+        assert!(!applied.is_replay(5, 1), "1 is still new");
     }
 
     #[test]
     fn applied_offsets_record_is_monotonic_per_partition() {
         let mut applied = AppliedOffsets::default();
-        applied.record(events_json(5), 100);
-        applied.record(events_json(5), 50); // lower → ignored
-        assert!(applied.is_replay(events_json(5), 100));
-        assert!(
-            !applied.is_replay(events_json(5), 101),
-            "high-water mark stayed at 100"
-        );
-        applied.record(events_json(5), 150); // higher → advances
-        assert!(applied.is_replay(events_json(5), 150));
-        assert!(!applied.is_replay(events_json(5), 151));
+        applied.record(5, 100);
+        applied.record(5, 50); // lower → ignored
+        assert!(applied.is_replay(5, 100));
+        assert!(!applied.is_replay(5, 101), "high-water mark stayed at 100");
+        applied.record(5, 150); // higher → advances
+        assert!(applied.is_replay(5, 150));
+        assert!(!applied.is_replay(5, 151));
     }
 
     #[test]
     fn applied_offsets_tracks_partitions_independently() {
         let applied = applied(&[(5, 100), (6, 10)]);
-        assert!(applied.is_replay(events_json(5), 100));
-        assert!(!applied.is_replay(events_json(6), 11));
-        assert!(applied.is_replay(events_json(6), 10));
+        assert!(applied.is_replay(5, 100));
+        assert!(!applied.is_replay(6, 11));
+        assert!(applied.is_replay(6, 10));
     }
 
     #[test]
     fn applied_offsets_serializes_with_sorted_partition_keys() {
-        let mut applied = applied(&[(17, 1), (2, 2), (5, 3)]);
-        applied.record(SourcePartition::new(1, 5), 4);
-        let text = serde_json::to_string(&applied).unwrap();
-        assert_eq!(text, r#"{"2":2,"5":3,"17":1,"1:5":4}"#);
+        let applied = applied(&[(17, 1), (2, 2), (5, 3)]);
         assert_eq!(
-            serde_json::from_str::<AppliedOffsets>(&text).unwrap(),
-            applied
+            serde_json::to_string(&applied).unwrap(),
+            r#"{"2":2,"5":3,"17":1}"#,
         );
-    }
-
-    #[test]
-    fn malformed_source_partition_keys_do_not_decode() {
-        for key in ["x", "1:", ":3", "256:3", "1:2:3"] {
-            let text = format!(r#"{{"{key}":1}}"#);
-            assert!(
-                serde_json::from_str::<AppliedOffsets>(&text).is_err(),
-                "{key:?} must not decode",
-            );
-        }
     }
 
     #[test]
@@ -694,11 +544,11 @@ mod tests {
     fn merge_max_unions_per_partition_high_water_marks() {
         let mut into = applied(&[(5, 100), (6, 10)]);
         into.merge_max(&applied(&[(5, 50), (6, 20), (7, 1)]));
-        assert!(into.is_replay(events_json(5), 100));
-        assert!(!into.is_replay(events_json(5), 101));
-        assert!(into.is_replay(events_json(6), 20));
-        assert!(!into.is_replay(events_json(6), 21));
-        assert!(into.is_replay(events_json(7), 1));
+        assert!(into.is_replay(5, 100));
+        assert!(!into.is_replay(5, 101));
+        assert!(into.is_replay(6, 20));
+        assert!(!into.is_replay(6, 21));
+        assert!(into.is_replay(7, 1));
     }
 
     #[test]
@@ -715,16 +565,16 @@ mod tests {
         record.redirect_dedup.insert(ancestor, applied(&[(5, 200)]));
 
         // origin = None → main map: offset 100 is a replay, 101 is new.
-        assert!(record.is_replay_for(None, events_json(5), 100));
-        assert!(!record.is_replay_for(None, events_json(5), 101));
+        assert!(record.is_replay_for(None, 5, 100));
+        assert!(!record.is_replay_for(None, 5, 101));
         // A fresh main-map event at offset 150 (above main's 100, below the ancestor's 200) still
         // folds — the ancestor entry does not gate normal events (hazard A).
-        assert!(!record.is_replay_for(None, events_json(5), 150));
+        assert!(!record.is_replay_for(None, 5, 150));
         // origin = Some(ancestor) → redirect_dedup[ancestor]: 200 is a replay, 201 is new (hazard B).
-        assert!(record.is_replay_for(Some(&ancestor), events_json(5), 200));
-        assert!(!record.is_replay_for(Some(&ancestor), events_json(5), 201));
+        assert!(record.is_replay_for(Some(&ancestor), 5, 200));
+        assert!(!record.is_replay_for(Some(&ancestor), 5, 201));
         // origin = an unknown ancestor → never a replay (no entry yet).
-        assert!(!record.is_replay_for(Some(&uuid(0xBEEF)), events_json(5), 0));
+        assert!(!record.is_replay_for(Some(&uuid(0xBEEF)), 5, 0));
     }
 
     #[test]
@@ -739,17 +589,17 @@ mod tests {
         );
         let ancestor = uuid(0xA11CE);
 
-        record.record_for(None, events_json(5), 100);
-        assert!(record.is_replay_for(None, events_json(5), 100));
+        record.record_for(None, 5, 100);
+        assert!(record.is_replay_for(None, 5, 100));
         assert!(
             record.redirect_dedup.is_empty(),
             "a normal event touches only the main map"
         );
 
-        record.record_for(Some(&ancestor), events_json(5), 200);
-        assert!(record.is_replay_for(Some(&ancestor), events_json(5), 200));
+        record.record_for(Some(&ancestor), 5, 200);
+        assert!(record.is_replay_for(Some(&ancestor), 5, 200));
         assert!(
-            !record.is_replay_for(None, events_json(5), 150),
+            !record.is_replay_for(None, 5, 150),
             "recording into the ancestor map must not advance the main map",
         );
     }

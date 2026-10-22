@@ -162,8 +162,8 @@ Reconcile and backfill clean up membership for cohorts whose definitions changed
 Events arrive at least once.
 A crash, a rebalance or a shuffler retry can deliver the same event twice.
 Counting it twice would corrupt a daily counter, so every behavioral row and every person record keeps **replay marks**: for each source partition, the highest offset folded into this row.
-A source partition is one partition of a topic a shuffler reads, named by the envelope's `source_topic_id` and `source_partition` ([event routing](event-routing.md#the-envelope)).
-Two topics number their partitions and offsets independently, so a mark from one topic never decides a replay on another.
+A source partition is one partition of a topic a shuffler reads, named by the envelope's `source_partition`.
+Each topic writes its partitions into its own range of numbers ([event routing](event-routing.md#running-a-shuffler-on-another-topic)), so a mark from one topic never decides a replay on another.
 An event whose offset is at or below the mark for its source partition is a replay and changes nothing.
 
 The marks are per row, not global.

@@ -301,7 +301,6 @@ mod tests {
             elements_chain: None,
             source_offset: 0,
             source_partition: 0,
-            source_topic_id: 0,
             redirected_from: Some(Uuid::from_u128(1).to_string()),
             redirect_hops: 1,
         };

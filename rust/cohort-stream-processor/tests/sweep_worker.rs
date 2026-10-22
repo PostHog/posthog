@@ -193,7 +193,6 @@ fn event_at(person: Uuid, timestamp: &str, source_offset: i64) -> CohortStreamEv
         elements_chain: None,
         source_offset,
         source_partition: 1,
-        source_topic_id: 0,
         redirected_from: None,
         redirect_hops: 0,
     }

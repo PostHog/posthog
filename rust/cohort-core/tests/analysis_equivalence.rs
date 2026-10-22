@@ -308,7 +308,6 @@ impl TestEvent {
             elements_chain: (!self.elements_chain.is_empty()).then(|| self.elements_chain.clone()),
             source_offset: 0,
             source_partition: -1,
-            source_topic_id: 0,
             redirected_from: None,
             redirect_hops: 0,
         }

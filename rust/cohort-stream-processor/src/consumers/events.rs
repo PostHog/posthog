@@ -1617,7 +1617,7 @@ mod tests {
     }
 
     #[test]
-    fn shuffler_envelope_without_later_fields_decodes_to_their_defaults() {
+    fn shuffler_envelope_without_redirected_from_deserializes_to_none() {
         let value = json!({
             "team_id": 7,
             "person_id": "p",
@@ -1632,21 +1632,16 @@ mod tests {
             "source_partition": 0,
         });
         let event: CohortStreamEvent = serde_json::from_slice(&serde_json::to_vec(&value).unwrap())
-            .expect("an envelope without redirected_from or source_topic_id deserializes");
+            .expect("an envelope without redirected_from deserializes");
         assert!(event.redirected_from.is_none());
         assert_eq!(event.redirect_hops, 0);
-        assert_eq!(
-            event.source_topic_id, 0,
-            "an envelope without source_topic_id came from clickhouse_events_json"
-        );
     }
 
     #[test]
-    fn redirected_from_and_source_topic_id_round_trip_for_the_c2_re_produce() {
+    fn redirected_from_round_trips_for_the_c2_re_produce() {
         let event = matching_event(Uuid::from_u128(1), 3, 9);
         let with_origin = CohortStreamEvent {
             redirected_from: Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()),
-            source_topic_id: 1,
             ..event
         };
         let bytes = serde_json::to_vec(&with_origin).unwrap();
@@ -1655,7 +1650,6 @@ mod tests {
             decoded.redirected_from.as_deref(),
             Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
         );
-        assert_eq!(decoded.source_topic_id, 1);
     }
 
     #[test]
@@ -1808,7 +1802,6 @@ mod tests {
             elements_chain: None,
             source_offset,
             source_partition,
-            source_topic_id: 0,
             redirected_from: None,
             redirect_hops: 0,
         }
