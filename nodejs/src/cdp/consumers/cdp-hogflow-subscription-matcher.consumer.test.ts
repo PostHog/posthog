@@ -1,7 +1,5 @@
 import '../../../tests/helpers/mocks/consumer.mock'
 
-import { register } from 'prom-client'
-
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
@@ -12,7 +10,10 @@ import * as posthogUtils from '~/common/utils/posthog'
 
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
-import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
+import {
+    CdpHogflowSubscriptionMatcherConsumer,
+    counterHogflowMatcherEventSkipped,
+} from './cdp-hogflow-subscription-matcher.consumer'
 import { counterParseError } from './metrics'
 
 jest.mock('./cdp-base.consumer', () => {
@@ -1288,9 +1289,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         const invalidTeamIdParseErrors = async (): Promise<number> =>
             (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
         const invalidTeamIdSkips = async (): Promise<number> =>
-            (await register.getSingleMetric('cdp_hogflow_matcher_event_skipped')!.get()).values.find(
-                (v) => v.labels.reason === 'invalid_team_id'
-            )?.value ?? 0
+            (await counterHogflowMatcherEventSkipped.get()).values.find((v) => v.labels.reason === 'invalid_team_id')
+                ?.value ?? 0
 
         beforeEach(() => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })

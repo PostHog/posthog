@@ -138,7 +138,7 @@ const histogramHogflowMatcherFindParkedJobs = new Histogram({
 // internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
 type WakeSource = 'events' | 'person' | 'internal_events'
 
-const counterHogflowMatcherEventSkipped = new Counter({
+export const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
     help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, or unknown team.',
     labelNames: ['reason'],
