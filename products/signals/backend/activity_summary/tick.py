@@ -27,6 +27,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    MAX_VERSIONS,
     ActivitySummaryUpdate,
     UpdateAfterModelCallError,
     UpdateStatus,
@@ -37,8 +38,10 @@ from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     daily_usage,
+    feed_queue,
     max_update_cost_usd,
     select_pairs,
+    sync_pair_state,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
@@ -89,6 +92,7 @@ class ActivitySummaryTickPlan:
     # A default, so a plan that a workflow history recorded before this field existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
     rebuild_before: datetime.datetime | None = None
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -102,6 +106,8 @@ class ActivitySummaryPairInput:
     # A default, so a pair input that a tick queued before this field existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
     rebuild_before: datetime.datetime | None = None
+    # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -129,6 +135,9 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
+    if config.enabled:
+        # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
+        feed_queue(config, now)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
@@ -160,6 +169,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         limits=config.limits,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
+        max_versions=config.max_versions,
     )
 
 
@@ -224,6 +234,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
             limits=input.limits,
             rebuild_before=input.rebuild_before,
+            max_versions=input.max_versions,
         )
         called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
     except Exception as error:
@@ -233,6 +244,11 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         # Without a failed row and a backoff, the queue picks the same pair again on the next tick.
         update = record_update_exception(input.team_id, input.user_id, error)
         called_model = isinstance(error, UpdateAfterModelCallError)
+    try:
+        sync_pair_state(input.team_id, input.user_id)
+    except Exception:
+        # The pair stays due, so the next tick picks it, skips it as not eligible yet, and syncs it then.
+        logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id)
@@ -339,6 +355,7 @@ class ActivitySummaryTickWorkflow:
                             capture_events=plan.capture_events,
                             limits=plan.limits,
                             rebuild_before=plan.rebuild_before,
+                            max_versions=plan.max_versions,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,

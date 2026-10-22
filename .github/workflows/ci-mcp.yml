@@ -798,7 +798,8 @@ jobs:
         # A status function is required to commit regenerated snapshots even when unit-tests
         # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
         # superseded run does not push a stale snapshot commit to the branch.
-        if: ${{ !cancelled() && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        # The commit App is installed on PostHog/posthog only; the gate reads a skipped job as a pass.
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write

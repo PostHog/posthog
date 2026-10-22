@@ -1,5 +1,7 @@
+from contextlib import nullcontext
 from uuid import uuid4
 
+import time_machine
 from unittest.mock import patch
 
 from django.db import InterfaceError, OperationalError, transaction
@@ -11,6 +13,7 @@ from prometheus_client import REGISTRY
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.tasks.push_notifications import send_user_push
 
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.mobile_push import mobile_push_user_ids, record_mobile_pickup
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
@@ -104,6 +107,63 @@ class TestPushDispatcher(TestCase):
             notify_task_run_awaiting_input(self.task_run)
             notify_task_run_turn_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 3)
+
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_awaiting_cooldown_is_shared_by_permission_requests_and_turn_end(self, mock_delay) -> None:
+        self.task_run.state = {"mode": "interactive"}
+        with time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock:
+            with self.captureOnCommitCallbacks(execute=True):
+                dispatch_awaiting_input(self.task_run, request_id="request-1")
+                dispatch_awaiting_input(self.task_run, request_id="request-2")
+                notify_task_run_awaiting_input(self.task_run)
+            self.assertEqual(mock_delay.call_count, 1)
+
+            clock.shift(31)
+            with self.captureOnCommitCallbacks(execute=True):
+                dispatch_awaiting_input(self.task_run, request_id="request-1")
+                dispatch_awaiting_input(self.task_run, request_id="request-3")
+            self.assertEqual(mock_delay.call_count, 2)
+
+    @parameterized.expand(["prepare", "immediate", "deferred", "rollback"])
+    def test_awaiting_request_can_retry_after_failed_enqueue(self, failure: str) -> None:
+        self.task_run.state = {"mode": "interactive"}
+        with (
+            time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock,
+            patch("products.tasks.backend.push_dispatcher._project_awaiting_input_activity"),
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
+        ):
+            send_push.side_effect = RuntimeError("broker unavailable")
+            with (
+                patch(
+                    "products.tasks.backend.push_dispatcher.suppressed_push_token_ids_for_task",
+                    side_effect=OperationalError("connection unavailable"),
+                )
+                if failure == "prepare"
+                else nullcontext(),
+                patch("products.tasks.backend.push_dispatcher.transaction.on_commit", side_effect=lambda fn: fn())
+                if failure == "immediate"
+                else nullcontext(),
+                self.captureOnCommitCallbacks(execute=True),
+                transaction.atomic(),
+            ):
+                scheduled = dispatch_awaiting_input(self.task_run, request_id="retry-request")
+                self.assertEqual(scheduled, failure in ("deferred", "rollback"))
+                if failure == "rollback":
+                    transaction.set_rollback(True)
+            self.assertEqual(send_push.call_count, int(failure in ("immediate", "deferred")))
+
+            clock.shift(31)
+            send_push.reset_mock()
+            send_push.side_effect = None
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertTrue(dispatch_awaiting_input(self.task_run, request_id="retry-request"))
+                send_push.assert_not_called()
+            send_push.assert_called_once()
+
+            clock.shift(31)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertFalse(dispatch_awaiting_input(self.task_run, request_id="retry-request"))
+            send_push.assert_called_once()
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_handoff_cooldown_distinguishes_announcements(self, mock_delay):
