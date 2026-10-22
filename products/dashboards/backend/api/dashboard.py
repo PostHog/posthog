@@ -4,7 +4,7 @@ import re
 import json
 import uuid
 import builtins
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
@@ -227,15 +227,24 @@ def _normalized_group_key(group_key: str) -> str:
     return group_key
 
 
+_NO_DEFAULT = object()
+
+
+def _is_stored_group_setting(field: str, setting: Any) -> bool:
+    if field == "title":
+        return bool(setting)
+    return setting != DASHBOARD_TILE_GROUP_DEFAULTS.get(field, _NO_DEFAULT)
+
+
+def _without_default_settings(group: Mapping[str, Any]) -> dict[str, Any]:
+    return {field: setting for field, setting in group.items() if _is_stored_group_setting(field, setting)}
+
+
 def _sparse_group(group_settings: Any) -> dict[str, Any] | None:
     group = DashboardTileGroupSerializer(data=group_settings)
     if not group.is_valid():
         return None
-    return {
-        key: value
-        for key, value in group.validated_data.items()
-        if (value if key == "title" else value != DASHBOARD_TILE_GROUP_DEFAULTS[key])
-    }
+    return _without_default_settings(group.validated_data)
 
 
 def _stored_groups(customization: Any) -> dict[str, dict[str, Any]]:
@@ -1511,10 +1520,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     def validate_groups(self, value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]] | None:
         if value is None:
             return None
-        return {
-            key: {field: setting for field, setting in group.items() if field != "title" or setting}
-            for key, group in _validated_group_keys(value).items()
-        }
+        return {key: _without_default_settings(group) for key, group in _validated_group_keys(value).items()}
 
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
         return None if value is None else _validated_group_keys(value)
