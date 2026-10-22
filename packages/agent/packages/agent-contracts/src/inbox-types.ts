@@ -119,6 +119,15 @@ export const EXTERNAL_INBOX_SOURCES = [
     setup: "dynamic",
   },
   {
+    product: "checkly",
+    label: "Checkly",
+    description: ERROR,
+    dwSourceType: "Checkly",
+    requiredTables: ["error_groups"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
     product: "datadog",
     label: "Datadog",
     description:
@@ -147,6 +156,15 @@ export const EXTERNAL_INBOX_SOURCES = [
     setup: "dynamic",
   },
   {
+    product: "roark",
+    label: "Roark",
+    description: ERROR,
+    dwSourceType: "Roark",
+    requiredTables: ["issue"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
     product: "rollbar",
     label: "Rollbar",
     description: ERROR,
@@ -161,6 +179,15 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: ERROR,
     dwSourceType: "Sentry",
     requiredTables: ["issues"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "trigger_dev",
+    label: "Trigger.dev",
+    description: ERROR,
+    dwSourceType: "TriggerDev",
+    requiredTables: ["errors"],
     recordKind: "issue",
     setup: "dynamic",
   },
