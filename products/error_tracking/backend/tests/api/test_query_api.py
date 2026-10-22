@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
@@ -906,11 +907,21 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stored", STORED_SUMMARY, False, None, None, "ready", STORED_SUMMARY_PAYLOAD),
-            ("generated_within_the_wait", None, True, STORED_SUMMARY, None, "ready", STORED_SUMMARY_PAYLOAD),
-            ("wait_times_out", None, True, None, None, "generating", None),
-            ("gates_off", None, False, None, None, "unavailable", None),
-            ("facade_fails", None, None, None, RuntimeError("broker down"), "unavailable", None),
+            ("stored", STORED_SUMMARY, True, None, None, False, "ready", STORED_SUMMARY_PAYLOAD),
+            (
+                "stored_without_category",
+                replace(STORED_SUMMARY, category=None),
+                False,
+                None,
+                None,
+                False,
+                "ready",
+                {key: value for key, value in STORED_SUMMARY_PAYLOAD.items() if key != "category"},
+            ),
+            ("generated_within_the_wait", None, True, STORED_SUMMARY, None, True, "ready", STORED_SUMMARY_PAYLOAD),
+            ("wait_times_out", None, True, None, None, True, "generating", None),
+            ("gates_off", None, False, None, None, False, "unavailable", None),
+            ("facade_fails", None, None, None, RuntimeError("broker down"), False, "unavailable", None),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -921,6 +932,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         started: bool | None,
         waited: ErrorTrackingIssueSummary | None,
         start_error: Exception | None,
+        expect_wait: bool,
         expected_status: str,
         expected_summary: dict[str, object] | None,
     ) -> None:
@@ -930,7 +942,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(f"{SUMMARIES_FACADE}.get_issue_summary", return_value=stored),
-            patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error),
+            patch(
+                f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error
+            ) as start_generation,
             patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", return_value=waited) as wait_for_summary,
         ):
             response = self.client.post(
@@ -943,8 +957,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["summary_status"] == expected_status
         assert response.json().get("summary") == expected_summary
         assert response.json()["impact"]["occurrences"] == 1
-        if stored is not None or not started:
-            wait_for_summary.assert_not_called()
+        start_generation.assert_called_once_with(self.team.id, self.issue_id)
+        assert wait_for_summary.called == expect_wait
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()

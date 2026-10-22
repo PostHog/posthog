@@ -1409,7 +1409,7 @@ export interface ErrorTrackingIssueDetailApi {
     breakdown?: ErrorTrackingIssueBreakdownApi
     /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
-    /** 'ready' means summary is present. 'generating' means a summary is being written: call again in a few seconds to get it. 'unavailable' means no summary exists for this issue and none is being written.
+    /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
      *
      * * `ready` - Ready
      * * `generating` - Generating

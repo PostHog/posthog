@@ -476,8 +476,9 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     summary_status = serializers.ChoiceField(
         choices=IssueSummaryStatus.choices,
         help_text=(
-            "'ready' means summary is present. 'generating' means a summary is being written: call again in a few "
-            "seconds to get it. 'unavailable' means no summary exists for this issue and none is being written."
+            "'ready' means summary is present. 'generating' means a summary may still be written: call once more "
+            "after a few seconds, and continue without it if the status does not change. 'unavailable' means no "
+            "summary exists for this issue and none is being written."
         ),
     )
 

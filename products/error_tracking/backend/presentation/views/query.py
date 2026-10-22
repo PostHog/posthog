@@ -257,7 +257,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload["impact"] = {}
             if include_sparkline:
                 payload["sparkline"] = []
-            return self._issue_response(request, issue_id, payload, include_breakdown, include_sparkline)
+            return self._issue_response(
+                request, issue_id, payload, include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            )
         issue = cast(dict[str, object], raw_results[0])
         event_properties = self._issue_event_properties(
             request,
@@ -293,13 +295,16 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if include_breakdown:
             payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
-        return self._issue_response(request, issue_id, payload, include_breakdown, include_sparkline)
+        return self._issue_response(
+            request, issue_id, payload, include_breakdown=include_breakdown, include_sparkline=include_sparkline
+        )
 
     def _issue_response(
         self,
         request: ValidatedRequest,
         issue_id: str,
         payload: dict[str, object],
+        *,
         include_breakdown: bool,
         include_sparkline: bool,
     ) -> Response:
