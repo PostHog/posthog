@@ -187,11 +187,15 @@ describe('buildSections', () => {
     })
 
     test.each<[string, Partial<Record<'events' | 'persons', SearchItem[]>>, string[]]>([
-        ['nothing below Results while an earlier source loads', { persons: [dashboard('p', '9')] }, ['results']],
+        [
+            'only a loading row below Results while an earlier source loads',
+            { persons: [dashboard('p', '9')] },
+            ['results', 'loading-more'],
+        ],
         [
             'PostHog AI without waiting for slow person searches',
             { events: [dashboard('e', '8')] },
-            ['results', 'events', 'ask-ai'],
+            ['results', 'events', 'ask-ai', 'loading-more'],
         ],
         [
             'persons last, below PostHog AI, once they load',

@@ -27,6 +27,7 @@ export type CommandKSectionKey =
     | RemoteSource
     | 'ask-ai'
     | 'notice'
+    | 'loading-more'
     | 'best-matches'
     | `group-${string}`
 
@@ -49,6 +50,7 @@ export type CommandKRow =
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
     | { kind: 'notice'; key: string; reason: 'partial' | 'typos'; missing: string[]; shown: string[] }
+    | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
     key: CommandKSectionKey
@@ -98,10 +100,11 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     'ask-ai': 'PostHog AI',
     'best-matches': 'Best matches',
     notice: '',
+    'loading-more': '',
 }
 
 export const isSelectable = (row: CommandKRow): boolean =>
-    row.kind !== 'message' && row.kind !== 'skeleton' && row.kind !== 'notice'
+    row.kind !== 'message' && row.kind !== 'skeleton' && row.kind !== 'notice' && row.kind !== 'loading-more'
 
 const itemIdentity = (item: SearchItem): string => {
     const type = item.record?.type
@@ -294,6 +297,10 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
         }
     }
     const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
+    const loadingMore = (): CommandKSection[] =>
+        state === 'stale'
+            ? loaded()
+            : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
     const appendInOrder = (sources: RemoteSource[]): boolean => {
         for (const source of sources) {
             const query = remoteQueries[source]
@@ -305,7 +312,7 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
         return true
     }
     if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
-        return loaded()
+        return loadingMore()
     }
     if (input.askAiQuestion) {
         sections.push({
@@ -313,8 +320,7 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             state,
         })
     }
-    appendInOrder(TRAILING_SOURCES)
-    return loaded()
+    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
