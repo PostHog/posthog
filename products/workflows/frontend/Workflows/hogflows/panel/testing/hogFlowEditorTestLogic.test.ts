@@ -553,22 +553,28 @@ describe('hogFlowEditorTestLogic', () => {
                 FlagEvaluationsModeEnumApi.Number0,
                 'No events match these filters in the last 7 days. Using an example $pageview event instead.',
                 true,
+                '$pageview',
             ],
             [
                 'flag evaluations only',
                 FlagEvaluationsModeEnumApi.Number2,
-                `${FLAG_CALLS_NOT_LOADABLE} Using an example $pageview event instead.`,
+                `${FLAG_CALLS_NOT_LOADABLE} Using an example $feature_flag_called event instead.`,
                 false,
+                '$feature_flag_called',
             ],
-        ])('explains a missing test event on the %s mode', async (_name, mode, message, canTryExtendedSearch) => {
-            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': FLAG_CALLED_WORKFLOW } })
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
-            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
-            logic.mount()
+        ])(
+            'explains a missing test event on the %s mode',
+            async (_name, mode, message, canTryExtendedSearch, exampleEvent) => {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': FLAG_CALLED_WORKFLOW } })
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+                logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
-            await expectLogic(logic).toMatchValues({ sampleGlobalsError: message, canTryExtendedSearch })
-        })
+                await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+                await expectLogic(logic).toMatchValues({ sampleGlobalsError: message, canTryExtendedSearch })
+                expect(logic.values.sampleGlobals?.event?.event).toEqual(exampleEvent)
+            }
+        )
     })
 
     describe('showTestEvent', () => {

@@ -61,6 +61,9 @@ export function withFlagCallCounts(
     if (!series) {
         return { data: [], count: 0 }
     }
+    if (!rows) {
+        return { data: series.data, count: series.count }
+    }
     const flagCallsByDay = new Map(rows)
     const added = series.days.map((day) => flagCallsByDay.get(day) ?? 0)
     return {
@@ -70,8 +73,8 @@ export function withFlagCallCounts(
 }
 
 /**
- * Runs a trends query over the last `days` days. When `flagCallFilters` is set, it also counts the flag calls
- * those filters match and adds them to the first series.
+ * Runs `trendsQuery` as given. When `flagCallFilters` is set, it also counts the flag calls those filters match
+ * over the last `days` days and adds them to the first series. `days` must cover the range of `trendsQuery`.
  */
 export async function performTrendsQueryWithFlagCalls(
     trendsQuery: TrendsQuery,

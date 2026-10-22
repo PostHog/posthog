@@ -32,6 +32,7 @@ describe('flagCallsMatching', () => {
             { properties: [GLOBAL_PROPERTY] },
         ],
         ['is null when no matcher can match a flag call', { events: [PAGEVIEW], actions: [ACTION] }, null],
+        ['is null when only actions match', { actions: [ACTION] }, null],
     ])('%s', (_name, input, expected) => {
         expect(flagCallsOutsideEventsFilters(FLAG_EVALUATIONS_ONLY_TEAM, input)).toEqual(
             expected ? matchingFiltersToPropertyGroup(expected) : null

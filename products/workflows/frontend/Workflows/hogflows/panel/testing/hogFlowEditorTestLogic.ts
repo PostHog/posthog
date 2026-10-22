@@ -23,6 +23,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { FLAG_CALLS_NOT_LOADABLE, flagCallsOutsideEventsFilters } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1224,13 +1225,19 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         if (!response?.results?.[0]) {
                             // No matching events found
-                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            const flagCallsNotLoadable = values.triggerMatchesFlagCallsOutsideEvents
+                            // A test run applies the trigger filters, so a flag call trigger needs a flag call example.
+                            const exampleGlobals = createExampleEvent(
+                                values.workflow.team_id,
+                                values.workflow.name,
+                                flagCallsNotLoadable ? FEATURE_FLAG_CALLED_EVENT : '$pageview'
+                            )
                             actions.setNoMatchingEvents(true)
 
-                            if (values.triggerMatchesFlagCallsOutsideEvents) {
+                            if (flagCallsNotLoadable) {
                                 // A longer search cannot find a flag call that the events table does not hold.
                                 actions.setSampleGlobalsError(
-                                    `${FLAG_CALLS_NOT_LOADABLE} Using an example $pageview event instead.`
+                                    `${FLAG_CALLS_NOT_LOADABLE} Using an example ${FEATURE_FLAG_CALLED_EVENT} event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(false)
                             } else if (extendedSearch) {
