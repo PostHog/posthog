@@ -159,6 +159,18 @@ class TestFileSystemRankedSearch(APIBaseTest):
         self.assertEqual([item["entry"]["type"] for item in data["results"]], ["dashboard"])
         self.assertEqual(data["type_counts"], [{"type": "dashboard", "count": 1}])
 
+    def test_typo_search_covers_every_environment_of_the_project_only(self) -> None:
+        self._create("Unfiled/Insights/Retention", type="insight")
+        environment = Team.objects.create(organization=self.organization, project=self.project, name="Env-2")
+        FileSystem.objects.create(team=environment, path="Unfiled/Dashboards/Retention", type="dashboard")
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        FileSystem.objects.create(team=other_team, path="Unfiled/Notebooks/Retention", type="notebook")
+
+        data = self._search("retension")
+
+        self.assertTrue(data["matched_with_typos"])
+        self.assertCountEqual([item["entry"]["type"] for item in data["results"]], ["insight", "dashboard"])
+
     def test_per_type_previews_include_lower_ranked_types(self) -> None:
         for index in range(5):
             self._create(f"Unfiled/Insights/Revenue {index}", type="insight")

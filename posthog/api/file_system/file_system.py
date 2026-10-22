@@ -1367,8 +1367,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             field, has_colon, _ = bare.partition(":")
             is_filter = bare != token or (has_colon and field.lower() in SEARCH_FILTER_FIELDS)
             (filter_tokens if is_filter else free_tokens).append(token)
+        project_team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
         queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
-        queryset = queryset.exclude(type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"])
+        queryset = queryset.filter(team_id__in=project_team_ids).exclude(
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"]
+        )
         if filter_tokens:
             queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
         queryset = self._filter_by_access_control(queryset)
