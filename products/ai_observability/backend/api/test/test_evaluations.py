@@ -575,13 +575,15 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("openai", "gpt-5-mini", None),
-            ("openai", "gpt-5-mini", "llm"),
-            ("system_one", "example-judge-v1", None),
-            ("system_one", "example-judge-v1", "decision"),
+            ("openai", "gpt-5-mini", None, None),
+            ("openai", "gpt-5-mini", "llm", None),
+            ("system_one", "example-judge-v1", None, 0.35),
+            ("system_one", "example-judge-v1", "decision", 0.8),
         ]
     )
-    def test_can_create_evaluation_config(self, provider: str, model: str, judge_method: str | None) -> None:
+    def test_can_create_evaluation_config(
+        self, provider: str, model: str, judge_method: str | None, threshold: float | None
+    ) -> None:
         config = {"prompt": "Test prompt"}
         if judge_method:
             config["judge_method"] = judge_method
@@ -607,7 +609,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 else _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": config,
                 "output_type": "boolean",
-                "output_config": {},
+                "output_config": {"decision_threshold": threshold} if threshold is not None else {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
             },
         )
@@ -646,7 +648,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
             self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(malformed.data["attr"], "evaluation_config")
         self.assertEqual(evaluation_config.output_type, "boolean")
-        self.assertEqual(evaluation_config.output_config, {"allows_na": False, "true_is_failure": False})
+        expected_output_config: dict[str, bool | float] = {"allows_na": False, "true_is_failure": False}
+        if threshold is not None:
+            expected_output_config["decision_threshold"] = threshold
+        self.assertEqual(evaluation_config.output_config, expected_output_config)
         self.assertEqual(len(evaluation_config.conditions), 1)
         self.assertEqual(evaluation_config.conditions[0]["id"], "test-condition")
         self.assertEqual(evaluation_config.team, self.team)
@@ -670,17 +675,27 @@ class TestEvaluationConfigsApi(APIBaseTest):
             (
                 "allows_na",
                 {"allows_na": False},
-                {"allows_na": False, "true_is_failure": True},
+                {"allows_na": False, "true_is_failure": True, "decision_threshold": 0.35},
             ),
             (
                 "true_is_failure",
                 {"true_is_failure": False},
-                {"allows_na": True, "true_is_failure": False},
+                {"allows_na": True, "true_is_failure": False, "decision_threshold": 0.35},
+            ),
+            (
+                "decision_threshold",
+                {"decision_threshold": 0.8},
+                {"allows_na": True, "true_is_failure": True, "decision_threshold": 0.8},
+            ),
+            (
+                "reset_decision_threshold",
+                {"decision_threshold": None},
+                {"allows_na": True, "true_is_failure": True},
             ),
         ]
     )
     def test_partial_update_preserves_other_output_config_fields(
-        self, _field_name: str, output_config: dict[str, bool], expected: dict[str, bool]
+        self, _field_name: str, output_config: dict[str, bool | float | None], expected: dict[str, bool | float]
     ) -> None:
         evaluation = Evaluation.objects.create(
             team=self.team,
@@ -688,7 +703,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             evaluation_type="hog",
             evaluation_config={"source": "return true"},
             output_type="boolean",
-            output_config={"allows_na": True, "true_is_failure": True},
+            output_config={"allows_na": True, "true_is_failure": True, "decision_threshold": 0.35},
             created_by=self.user,
         )
 
@@ -700,6 +715,22 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["output_config"], expected)
+
+    def test_rejects_invalid_boolean_decision_threshold(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Invalid threshold",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return true"},
+                "output_type": "boolean",
+                "output_config": {"decision_threshold": 1.1},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 100, "properties": []}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "config")
+        self.assertIn("decision_threshold", response.data["detail"])
 
     def test_target_defaults_to_generation(self):
         response = self.client.post(
