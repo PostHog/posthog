@@ -3835,7 +3835,6 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False)
-    billing_amounts = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -3843,7 +3842,6 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         db_table = "signals_ownerspend"
         indexes = [
             GinIndex(fields=["task_run_ids"], name="signals_owner_spend_runs"),
-            GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_owner_spend_signal"),

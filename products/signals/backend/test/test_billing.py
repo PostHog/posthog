@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -561,6 +562,12 @@ class TestSpendBasedBilling(BaseTest):
         assert self._day(11) == {self.team.id: 5}
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 15}
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
+        assert dict(get_signals_billing_credits_by_team(_at(10, 0), _at(10))) == {}
+        assert dict(get_signals_billing_credits_by_team(_at(10), _at(10) + timedelta(microseconds=1))) == {
+            self.team.id: 10
+        }
+        assert dict(get_signals_billing_credits_by_team(_at(10) + timedelta(microseconds=1), _at(11))) == {}
+        assert dict(get_signals_billing_credits_by_team(_at(10), _at(10))) == {}
 
     def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self) -> None:
         self.organization.usage = {
@@ -674,25 +681,30 @@ class TestSpendBasedBilling(BaseTest):
     def test_rounding_is_per_team_day_and_period_recounts_match_daily_reports(self) -> None:
         other_org = Organization.objects.create(name="Synthetic billing organization")
         other_team = Team.objects.create(organization=other_org)
-        with time_machine.travel(_at(10), tick=False):
+        with time_machine.travel(_at(10, 0), tick=False):
             for team in (self.team, other_team):
                 for _ in range(2):
                     signal_id = str(uuid4())
                     self._generation(signal_id, 6_000, request_id=signal_id, team=team)
                     complete_signal_pipeline(team_id=team.id, signal_id=signal_id)
-        with time_machine.travel(_at(11), tick=False):
+        with time_machine.travel(_at(10, 23), tick=False):
             signal_id = str(uuid4())
             self._generation(signal_id, 6_000, request_id=signal_id)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-        assert self._day(10) == {self.team.id: 1, other_team.id: 1}
-        assert self._day(10, organization_id=str(self.organization.id)) == {self.team.id: 1}
-        assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, self.organization.id)) == {
-            self.team.id: 2
-        }
+        with time_machine.travel(_at(11, 0), tick=False):
+            signal_id = str(uuid4())
+            self._generation(signal_id, 6_000, request_id=signal_id)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+        with timezone.override("Pacific/Kiritimati"):
+            assert self._day(10) == {self.team.id: 2, other_team.id: 1}
+            assert self._day(10, organization_id=str(self.organization.id)) == {self.team.id: 2}
+            assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, self.organization.id)) == {
+                self.team.id: 3
+            }
         self.flag_mock.side_effect = lambda key, org_id, **kwargs: (
             "2026-06-11" if org_id == str(other_org.id) else "2026-06-10"
         )
-        assert self._day(10) == {self.team.id: 1}
+        assert self._day(10) == {self.team.id: 2}
         assert self._day(10, organization_id=str(other_org.id)) == {}
 
     @parameterized.expand([("source",), ("report",)])
@@ -736,7 +748,7 @@ class TestSpendBasedBilling(BaseTest):
             team=self.team, task_run=run, skill_name="synthetic-scout", skill_version=1
         )
         SignalSpend.objects.for_team(self.team.id).create(
-            team=self.team, scout_run=scout, finalized_at=_at(10), billing_amounts={"2026-06-10": 40_000}
+            team=self.team, scout_run=scout, finalized_at=_at(10), task_count=1
         )
         scout.delete()
         assert self._day(10) == {self.team.id: 4}

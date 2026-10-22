@@ -171,7 +171,6 @@ def test_direct_steering_drop_finalizes_its_known_cost() -> None:
     spend = SignalSpend.objects.for_team(team.id).get(signal_id=driver)
     assert spend.finalized_at is not None
     assert spend.token_cost_microusd == 100
-    assert sum(spend.billing_amounts.values()) > 0
     connect.assert_not_called()
 
 
@@ -849,9 +848,7 @@ class TestSignalSpend(BaseTest):
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         run = self._run(report=report)
         self._set_task_cost(run, 10_000)
-        SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(
-            finalized_at=timezone.now(), billing_amounts={"2026-10-01": 50_000}
-        )
+        SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(finalized_at=timezone.now())
         before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
         run.state = {"ai_stage": "research", "token_cost": {"model": {"provider": {"cost_microusd": 20_000}}}}
         run.save(update_fields=["state"])
@@ -961,7 +958,6 @@ class TestSignalSpend(BaseTest):
             )
             assert owner.accounting_failed
             assert owner.finalized_at is None
-            assert owner.billing_amounts == {}
             self.temporal.execute_update_with_start_workflow.assert_not_called()
             fetch.reset_mock()
             fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)
@@ -1063,7 +1059,6 @@ class TestSignalSpend(BaseTest):
                 settle_scout_spend(team_id=self.team.id, run_id=str(run.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         assert spend.finalized_at is None
-        assert spend.billing_amounts == {}
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
@@ -1072,7 +1067,6 @@ class TestSignalSpend(BaseTest):
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         assert spend.finalized_at is not None
         assert spend.token_cost_microusd == 123_456
-        assert sum(spend.billing_amounts.values()) > 0
 
     @parameterized.expand(
         [

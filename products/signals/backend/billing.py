@@ -47,7 +47,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import F, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -65,7 +65,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.signals.backend.spend_billing import (
-    billing_days,
     spend_billing_credits_by_team,
     usage_billed_reports,
     usage_billing_cutoff,
@@ -188,8 +187,13 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     cutoff = usage_billing_cutoff(report.team.organization_id)
     if cutoff is not None and (
         SignalSpend.objects.for_team(report.team_id)
-        .filter(report_id=report.id, created_at__gte=cutoff, billing_exempt=False)
-        .exclude(billing_amounts={})
+        .filter(
+            Q(token_cost_microusd__gt=0) | Q(task_count__gt=0),
+            report_id=report.id,
+            created_at__gte=cutoff,
+            finalized_at__isnull=False,
+            billing_exempt=False,
+        )
         .exists()
     ):
         raise BillingExemptionError(f"Report {report.id} already has recognized usage; use a billing credit instead.")
@@ -437,8 +441,7 @@ def get_signals_billing_credits_by_team(
     begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
 ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
     """Shared by daily reporting and the 15-minute quota refresh, including today's settled spend."""
-    days = billing_days(begin, end)
-    if not days:
+    if end <= begin:
         return []
     if organization_id is not None:
         organizations = {uuid.UUID(str(organization_id))}
@@ -451,7 +454,7 @@ def get_signals_billing_credits_by_team(
         )
         organizations.update(
             SignalSpend.objects.unscoped()
-            .filter(billing_amounts__has_any_keys=days)
+            .filter(finalized_at__gte=begin, finalized_at__lt=end, billing_exempt=False)
             .values_list("team__organization_id", flat=True)
             .distinct()
         )

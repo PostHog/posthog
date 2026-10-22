@@ -41,7 +41,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("billing_exempt", models.BooleanField(default=False)),
-                ("billing_amounts", models.JSONField(default=dict)),
                 ("token_cost_microusd", models.BigIntegerField(default=0)),
                 ("task_count", models.PositiveIntegerField(default=0)),
                 ("accounting_failed", models.BooleanField(default=False)),
@@ -76,9 +75,6 @@ class Migration(migrations.Migration):
                 "db_table": "signals_ownerspend",
                 "indexes": [
                     django.contrib.postgres.indexes.GinIndex(fields=["task_run_ids"], name="signals_owner_spend_runs"),
-                    django.contrib.postgres.indexes.GinIndex(
-                        fields=["billing_amounts"], name="signals_spend_billing_days"
-                    ),
                 ],
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "signal_id"), name="signals_owner_spend_signal"),

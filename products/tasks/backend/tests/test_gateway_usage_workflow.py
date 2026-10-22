@@ -255,7 +255,6 @@ class TestScoutSpendSettlement(BaseTest):
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         self.assertIsNone(spend.finalized_at)
         self.assertTrue(spend.accounting_failed)
-        assert spend.billing_amounts == {}
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),
@@ -266,7 +265,6 @@ class TestScoutSpendSettlement(BaseTest):
             )
         spend.refresh_from_db()
         self.assertIsNone(spend.finalized_at)
-        assert spend.billing_amounts == {}
         complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         spend.refresh_from_db()
         scout.refresh_from_db()
@@ -275,4 +273,3 @@ class TestScoutSpendSettlement(BaseTest):
         assert spend.token_cost_microusd == 150
         assert spend.task_count == 1
         assert scout.total_spend == Decimal("4.0150")
-        assert sum(spend.billing_amounts.values()) == 40_150

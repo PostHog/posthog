@@ -25,7 +25,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.spend_billing import apply_report_billing, recognize_spend, scout_spend_exempt
+from products.signals.backend.spend_billing import apply_report_billing, scout_spend_exempt
 
 logger = structlog.get_logger(__name__)
 
@@ -212,7 +212,6 @@ def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSum
         spend.finalized_at = None
     elif finalize:
         spend.finalized_at = spend.finalized_at or timezone.now()
-    recognize_spend(spend, now=timezone.now())
     spend.save()
     summary = totals.summary
     if spend.scout_run_id:

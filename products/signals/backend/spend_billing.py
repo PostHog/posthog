@@ -1,10 +1,10 @@
-"""Billing decisions and daily recognition for finalized owner spend."""
+"""Billing decisions and reporting queries for finalized owner spend."""
 
-from datetime import UTC, date, datetime, time, timedelta
-from decimal import Decimal
+from datetime import UTC, date, datetime, time
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Sum
+from django.db.models.functions import TruncDate
 
 import structlog
 import posthoganalytics
@@ -74,46 +74,26 @@ def usage_billed_reports(cutoffs: dict[UUID, datetime]) -> QuerySet[SignalReport
     return SignalReport.objects.filter(eligible)
 
 
-def recognize_spend(spend: SignalSpend, *, now: datetime) -> None:
-    if spend.billing_exempt or not spend.finalized_at:
-        return
-    total = int(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count) * 10_000)
-    day = now.astimezone(UTC).date().isoformat()
-    spend.billing_amounts = {day: total} if total else {}
-
-
-def billing_days(begin: datetime, end: datetime) -> list[str]:
-    if end <= begin:
-        return []
-    days = []
-    day = begin.astimezone(UTC).date()
-    last_day = (end.astimezone(UTC) - timedelta(microseconds=1)).date()
-    while day <= last_day:
-        days.append(day.isoformat())
-        day += timedelta(days=1)
-    return days
-
-
 def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime]) -> dict[int, int]:
-    days = billing_days(begin, end)
-    if not days or not cutoffs:
+    if end <= begin or not cutoffs:
         return {}
     eligible = Q(pk__in=[])
     for organization_id, cutoff in cutoffs.items():
         eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
     # Deliberately cross-team: both usage reporting and organization quota use this meter.
-    spends = SignalSpend.objects.unscoped().filter(
-        eligible, finalized_at__isnull=False, billing_exempt=False, billing_amounts__has_any_keys=days
+    totals = (
+        SignalSpend.objects.unscoped()
+        .filter(eligible, finalized_at__gte=begin, finalized_at__lt=end, billing_exempt=False)
+        .values("team_id", day=TruncDate("finalized_at", tzinfo=UTC))
+        .annotate(token_cost=Sum("token_cost_microusd"), total_task_count=Sum("task_count"))
     )
-    totals: dict[tuple[int, str], int] = {}
-    for team_id, amounts in spends.values_list("team_id", "billing_amounts").iterator(chunk_size=1000):
-        for day in days:
-            if day in amounts:
-                totals[team_id, day] = totals.get((team_id, day), 0) + amounts[day]
     credits: dict[int, int] = {}
     # Round once per team/day, so a period recount equals the daily reports billing sums.
-    for (team_id, _), amount in totals.items():
-        credits[team_id] = credits.get(team_id, 0) + round(Decimal(amount) / 10_000)
+    for total in totals.iterator(chunk_size=1000):
+        team_id = total["team_id"]
+        credits[team_id] = credits.get(team_id, 0) + round(
+            cost_to_spend(total["token_cost"], task_count=total["total_task_count"])
+        )
     return {team_id: amount for team_id, amount in credits.items() if amount}
 
 
