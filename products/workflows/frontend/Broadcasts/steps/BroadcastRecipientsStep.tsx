@@ -25,7 +25,7 @@ import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListMod
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
-    const { blastRadius, blastRadiusLoading } = useValues(broadcastWizardLogic)
+    const { blastRadius, blastRadiusLoading, channel } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -48,11 +48,18 @@ function AudienceSizePreview(): JSX.Element | null {
             <span className={exceeded ? 'text-danger font-semibold' : undefined}>
                 approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} people.
             </span>
+            {channel === 'push' ? (
+                <div className="text-xs" data-attr="broadcast-audience-push-reach">
+                    This counts everyone who matches. Only people with push turned on in your app get the notification.
+                </div>
+            ) : null}
             {exceeded && (
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
-                    This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now. The limit
-                    can rise as the project keeps sending with low bounce and spam complaint rates. Add filters to
-                    narrow the audience, or{' '}
+                    This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now.
+                    {channel === 'email'
+                        ? ' The limit can rise as the project keeps sending with low bounce and spam complaint rates.'
+                        : ''}{' '}
+                    Add filters to narrow the audience, or{' '}
                     <Link
                         to={urls.workflows('reputation')}
                         target="_blank"
@@ -146,7 +153,7 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
-    const { audienceProperties, linkAudienceRejected, blastRadius } = useValues(broadcastWizardLogic)
+    const { audienceProperties, linkAudienceRejected, blastRadius, channel } = useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
@@ -157,7 +164,9 @@ export function BroadcastRecipientsStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div>
-                <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
+                <h2 className="m-0 text-xl font-semibold">
+                    Who should receive this {channel === 'push' ? 'notification' : 'email'}?
+                </h2>
                 <p className="m-0 text-secondary">
                     Filter by person properties or cohorts, or upload a list. Without filters, the broadcast goes to
                     everyone.

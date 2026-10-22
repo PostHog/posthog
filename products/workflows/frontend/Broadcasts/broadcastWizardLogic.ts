@@ -43,6 +43,7 @@ import {
 } from 'products/workflows/frontend/generated/api'
 import type {
     BlastRadiusApi,
+    BlastRadiusRequestApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowConversionApi,
@@ -107,10 +108,13 @@ import {
     restoreBroadcast,
 } from './broadcastLifecycle'
 import {
+    BROADCAST_MESSAGE_ACTION_TYPES,
+    BroadcastChannel,
     BroadcastStatus,
     StoppableBroadcast,
     canEditInWizard,
     canMoveToDraft,
+    getBroadcastChannel,
     getBroadcastStatus,
 } from './broadcastsLogic'
 import {
@@ -191,8 +195,62 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     utmParams: {},
 }
 
+/** The push step's inputs the wizard edits, mirroring the `template-native-push` template. */
+export interface BroadcastPushValue {
+    /** Firebase and Apple push integrations to send through. */
+    channels: number[]
+    title: string
+    body: string
+    /** Sent as `data.url`, for the app to open when the notification is tapped. */
+    link: string
+}
+
+export const DEFAULT_BROADCAST_PUSH: BroadcastPushValue = { channels: [], title: '', body: '', link: '' }
+
+export const PUSH_INTEGRATION_KINDS = ['firebase', 'apns']
+
+function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
+    const inputs = findAction(broadcast, BROADCAST_MESSAGE_ACTION_TYPES.push)?.config?.inputs
+    if (!inputs) {
+        return null
+    }
+    return {
+        channels: inputs.channels?.value ?? [],
+        title: inputs.title?.value ?? '',
+        body: inputs.body?.value ?? '',
+        link: inputs.data?.value?.url ?? '',
+    }
+}
+
+function pushInputs(push: BroadcastPushValue): Record<string, any> {
+    return {
+        // A batch run's person is the recipient, as in the template's default.
+        distinctId: { value: '{event.distinct_id}' },
+        channels: { value: push.channels },
+        title: { value: push.title, templating: 'liquid' },
+        body: { value: push.body, templating: 'liquid' },
+        data: { value: push.link ? { url: push.link } : {} },
+    }
+}
+
+export function hasMessageContent(
+    channel: BroadcastChannel,
+    email: BroadcastEmailValue,
+    push: BroadcastPushValue
+): boolean {
+    return channel === 'push'
+        ? !!(push.title || push.body || push.link)
+        : !!(email.subject || email.html || email.text || email.design)
+}
+
+function readChannel(broadcast: HogFlowApi): BroadcastChannel {
+    return getBroadcastChannel(broadcast.actions as any)
+}
+
 function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null {
-    const config = findAction(broadcast, 'function_email')?.config
+    const config =
+        findAction(broadcast, 'function_email')?.config ??
+        findAction(broadcast, BROADCAST_MESSAGE_ACTION_TYPES.push)?.config
     if (!config) {
         return null
     }
@@ -227,6 +285,7 @@ export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
 // pinned: action node ids referenced by saved broadcasts — renaming breaks resume of existing drafts
 const TRIGGER_ACTION_ID = 'trigger_node'
 export const EMAIL_ACTION_ID = 'email_node'
+const PUSH_ACTION_ID = 'push_node'
 const EXIT_ACTION_ID = 'exit_node'
 
 function findAction(broadcast: HogFlowApi, type: string): Record<string, any> | undefined {
@@ -276,6 +335,7 @@ export interface broadcastWizardLogicValues {
     broadcastLoading: boolean
     canEditContent: boolean
     canMoveToDraft: boolean
+    channel: BroadcastChannel
     conversion: HogFlowConversionApi
     currentStep: BroadcastWizardStep
     currentStepHasErrors: boolean
@@ -291,12 +351,14 @@ export interface broadcastWizardLogicValues {
     goalEnabled: boolean
     hasHydrated: boolean
     hasLoadedBatchJobs: boolean
+    hasPushChannels: boolean
     isReadOnly: boolean
     launching: boolean
     linkAudienceRejected: boolean
     missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
+    push: BroadcastPushValue
     rateLimitedSendDuration: string
     recipientEmailProperty: string | null
     recipientsWithoutEmail: number | null
@@ -504,6 +566,9 @@ export interface broadcastWizardLogicActions {
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
+    setChannel: (channel: BroadcastChannel) => {
+        channel: BroadcastChannel
+    }
     setConversion: (conversion: HogFlowConversionApi) => {
         conversion: HogFlowConversionApi
     }
@@ -524,6 +589,9 @@ export interface broadcastWizardLogicActions {
     }
     setName: (name: string) => {
         name: string
+    }
+    setPush: (push: BroadcastPushValue) => {
+        push: BroadcastPushValue
     }
     setRecurringRepeating: (repeating: boolean) => {
         repeating: boolean
@@ -585,7 +653,9 @@ export interface broadcastWizardLogicMeta {
             conversion: HogFlowConversionApi,
             email: BroadcastEmailValue,
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-            emailSettings: BroadcastEmailSettings
+            emailSettings: BroadcastEmailSettings,
+            channel: BroadcastChannel,
+            push: BroadcastPushValue
         ) => HogFlowApi | null
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
         expandedRunIds: (expandedRunOverride: string[] | null, batchJobs: HogFlowBatchJobApi[]) => string[]
@@ -602,7 +672,8 @@ export interface broadcastWizardLogicMeta {
         ) => BroadcastStatus
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
-        recipientEmailProperty: (email: BroadcastEmailValue) => string | null
+        recipientEmailProperty: (email: BroadcastEmailValue, channel: BroadcastChannel) => string | null
+        hasPushChannels: (integrations: IntegrationType[] | null) => boolean
         missingRecipientEmail: (
             recipientEmailProperty: string | null,
             recipientsWithoutEmail: number | null,
@@ -621,7 +692,9 @@ export interface broadcastWizardLogicMeta {
             linkAudienceRejected: boolean,
             audienceProperties: AnyPropertyFilter[],
             audienceCohortLaunchErrors: AudienceCohortLaunchError[],
-            blastRadius: BlastRadiusApi | null
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel,
+            push: BroadcastPushValue
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -638,7 +711,8 @@ export interface broadcastWizardLogicMeta {
         ) => string
         rateLimitedSendDuration: (
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-            blastRadius: BlastRadiusApi | null
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel
         ) => string
         breadcrumbs: (name: string) => Breadcrumb[]
     }
@@ -690,6 +764,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
+        setChannel: (channel: BroadcastChannel) => ({ channel }),
+        setPush: (push: BroadcastPushValue) => ({ push }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
         applyDefaultSender: true,
         defaultSenderApplied: (integrationId: number) => ({ integrationId }),
@@ -748,10 +824,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     if (!values.currentProjectId) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
-                        filters: { properties: values.audienceProperties },
-                        dedupe_key: 'email',
-                    })
+                    return await hogFlowsUserBlastRadiusCreate(
+                        String(values.currentProjectId),
+                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                    )
                 },
             },
         ],
@@ -956,6 +1032,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL,
             {
                 setEmail: (_, { email }) => email,
+                setChannel: (state, { channel }) =>
+                    channel === 'email' ? state : { ...DEFAULT_BROADCAST_EMAIL, from: state.from },
                 prefillFromLink: (state, { prefill }) =>
                     prefill.email ? { ...state, ...messageDraftEmail(prefill.email) } : state,
                 applyAiEmailDraft: (state, { draft }) => ({ ...state, ...messageDraftEmail(draft) }),
@@ -970,6 +1048,27 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     const value = emailAction?.config?.inputs?.email?.value
                     return value ? { ...DEFAULT_BROADCAST_EMAIL, ...value } : state
                 },
+            },
+        ],
+        channel: [
+            'email' as BroadcastChannel,
+            {
+                setChannel: (_, { channel }) => channel,
+                hydrateFromBroadcast: (_, { broadcast }) => readChannel(broadcast),
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readChannel) ? readChannel(broadcast) : state,
+            },
+        ],
+        push: [
+            DEFAULT_BROADCAST_PUSH,
+            {
+                setPush: (_, { push }) => push,
+                // Switching away drops the content, as the switch dialog says. The chosen apps stay.
+                setChannel: (state, { channel }) =>
+                    channel === 'push' ? state : { ...DEFAULT_BROADCAST_PUSH, channels: state.channels },
+                hydrateFromBroadcast: (state, { broadcast }) => readPush(broadcast) ?? state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readPush) ? (readPush(broadcast) ?? state) : state,
             },
         ],
         scheduleMode: [
@@ -1099,6 +1198,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.email,
                 s.emailRateLimit,
                 s.emailSettings,
+                s.channel,
+                s.push,
             ],
             (
                 broadcast: HogFlowApi | null,
@@ -1108,7 +1209,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 conversion: HogFlowConversionApi,
                 email: BroadcastEmailValue,
                 emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-                emailSettings: BroadcastEmailSettings
+                emailSettings: BroadcastEmailSettings,
+                channel: BroadcastChannel,
+                push: BroadcastPushValue
             ): HogFlowApi | null =>
                 broadcast
                     ? ({
@@ -1121,6 +1224,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                               email,
                               emailRateLimit,
                               emailSettings,
+                              channel,
+                              push,
                               // A workflow shaped like a broadcast keeps its own step ids in the agent's view.
                               broadcast,
                           }),
@@ -1180,8 +1285,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 scheduleTimezone ?? currentTeam?.timezone ?? dayjs.tz.guess(),
         ],
         recipientEmailProperty: [
-            (s) => [s.email],
-            (email: BroadcastEmailValue): string | null => recipientEmailProperty(email.to?.email),
+            (s) => [s.email, s.channel],
+            (email: BroadcastEmailValue, channel: BroadcastChannel): string | null =>
+                channel === 'email' ? recipientEmailProperty(email.to?.email) : null,
+        ],
+        hasPushChannels: [
+            (s) => [s.integrations],
+            (integrations: IntegrationType[] | null): boolean =>
+                !!integrations?.some((integration) => PUSH_INTEGRATION_KINDS.includes(integration.kind)),
         ],
         missingRecipientEmail: [
             (s) => [s.recipientEmailProperty, s.recipientsWithoutEmail, s.blastRadius],
@@ -1213,6 +1324,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.audienceProperties,
                 s.audienceCohortLaunchErrors,
                 s.blastRadius,
+                s.channel,
+                s.push,
             ],
             (
                 goalEnabled: boolean,
@@ -1226,7 +1339,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 linkAudienceRejected: boolean,
                 audienceProperties: AnyPropertyFilter[],
                 audienceCohortLaunchErrors: AudienceCohortLaunchError[],
-                blastRadius: BlastRadiusApi | null
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel,
+                push: BroadcastPushValue
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1248,17 +1363,31 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                 }
 
-                if (!email.from?.integrationId) {
-                    errors.content.push('Choose an email sender')
-                } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
-                    // Shown on the content step, where the sender is picked, rather than first at launch.
-                    errors.content.push(DELETED_SENDER_ERROR)
-                }
-                if (!email.subject) {
-                    errors.content.push('Add a subject line')
-                }
-                if (!email.html && !email.text && !email.design) {
-                    errors.content.push('Add email content')
+                if (channel === 'push') {
+                    if (push.channels.length === 0) {
+                        errors.content.push('Choose a push channel')
+                    } else if (
+                        integrations &&
+                        push.channels.some((id) => !integrations.some((integration) => integration.id === id))
+                    ) {
+                        errors.content.push(DELETED_PUSH_CHANNEL_ERROR)
+                    }
+                    if (!push.title.trim()) {
+                        errors.content.push('Add a notification title')
+                    }
+                } else {
+                    if (!email.from?.integrationId) {
+                        errors.content.push('Choose an email sender')
+                    } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
+                        // Shown on the content step, where the sender is picked, rather than first at launch.
+                        errors.content.push(DELETED_SENDER_ERROR)
+                    }
+                    if (!email.subject) {
+                        errors.content.push('Add a subject line')
+                    }
+                    if (!email.html && !email.text && !email.design) {
+                        errors.content.push('Add email content')
+                    }
                 }
 
                 if (scheduleMode === 'later') {
@@ -1273,7 +1402,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
-                const senderError = getSenderLaunchError(email.from, integrations, integrationsLoading)
+                const senderError =
+                    channel === 'email' ? getSenderLaunchError(email.from, integrations, integrationsLoading) : null
                 if (senderError && !errors.review.includes(senderError)) {
                     errors.review.push(senderError)
                 }
@@ -1330,10 +1460,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         rateLimitedSendDuration: [
-            (s) => [s.emailRateLimit, s.blastRadius],
-            (emailRateLimit: HogFlowEmailSendingRateLimitApi | null, blastRadius: BlastRadiusApi | null): string => {
+            (s) => [s.emailRateLimit, s.blastRadius, s.channel],
+            (
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel
+            ): string => {
                 const recipients = blastRadius?.affected
-                if (!emailRateLimit || !recipients) {
+                if (!emailRateLimit || !recipients || channel !== 'email') {
                     return ''
                 }
                 // An estimate: the worker holds sends under the limit by rescheduling them, and it
@@ -1567,6 +1701,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         setEmailSettings: () => {
             // Tracking and category live on the email step, so they share its autosave and pending flag.
+            actions.setEmail(values.email)
+        },
+        setPush: () => {
+            // The push step saves through the same autosave as the email.
+            actions.setEmail(values.email)
+        },
+        setChannel: () => {
+            // The audience limit and its count depend on the channel.
+            actions.loadBlastRadius()
             actions.setEmail(values.email)
         },
         setEmail: async (_, breakpoint) => {
@@ -1831,10 +1974,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.saveBroadcastFinished(saved)
 
                 // A fresh audience preview mints the confirm token the batch dispatch expects.
-                const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
-                    filters: { properties: values.audienceProperties },
-                    dedupe_key: 'email',
-                })
+                const blastRadius = await hogFlowsUserBlastRadiusCreate(
+                    projectId,
+                    audiencePreviewRequest(values.audienceProperties, values.channel)
+                )
 
                 // The resolver silently caps the batch at this limit, so dispatching an audience over
                 // it would confirm N recipients and deliver to the first slice. Stop at the step that
@@ -2149,10 +2292,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
                 let refreshed: BlastRadiusApi | null = null
                 try {
-                    refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
-                        filters: { properties: values.audienceProperties },
-                        dedupe_key: 'email',
-                    })
+                    refreshed = await hogFlowsUserBlastRadiusCreate(
+                        String(values.currentProjectId),
+                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                    )
                 } catch {
                     // A failed check tries again on the next interval.
                 }
@@ -2354,6 +2497,17 @@ async function patchWithoutClobbering(
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
 export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
+export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Choose another channel.'
+
+/** The email channel counts each address once and is held to the email sending limit. Push is not. */
+function audiencePreviewRequest(
+    audienceProperties: AnyPropertyFilter[],
+    channel: BroadcastChannel
+): BlastRadiusRequestApi {
+    return channel === 'push'
+        ? { filters: { properties: audienceProperties }, sends_email: false }
+        : { filters: { properties: audienceProperties }, dedupe_key: 'email', sends_email: true }
+}
 
 /**
  * Why the chosen sender can't send yet, if it can't. A draft can be written with any sender, but a
@@ -2398,8 +2552,68 @@ export function getMissingSenderIds(
     )
 }
 
+function messageAction(
+    channel: BroadcastChannel,
+    values: { email: BroadcastEmailValue; emailSettings?: BroadcastEmailSettings; push?: BroadcastPushValue },
+    existing?: Record<string, any>
+): Record<string, any> {
+    if (channel === 'push') {
+        const settings = values.emailSettings
+        const config = existing?.type === BROADCAST_MESSAGE_ACTION_TYPES.push ? existing.config : {}
+        return {
+            ...(existing?.type === BROADCAST_MESSAGE_ACTION_TYPES.push
+                ? existing
+                : {
+                      id: existing?.id ?? PUSH_ACTION_ID,
+                      name: 'Send push',
+                      description: 'The broadcast push notification.',
+                      created_at: 0,
+                      updated_at: 0,
+                  }),
+            type: BROADCAST_MESSAGE_ACTION_TYPES.push,
+            config: {
+                ...config,
+                template_id: 'template-native-push',
+                message_category_id: settings?.messageCategoryId ?? undefined,
+                message_category_type: settings?.messageCategoryType ?? undefined,
+                inputs: { ...config?.inputs, ...pushInputs(values.push ?? DEFAULT_BROADCAST_PUSH) },
+            },
+        }
+    }
+    if (existing?.type === 'function_email') {
+        return {
+            ...existing,
+            config: {
+                ...existing.config,
+                ...emailSettingsConfig(values.emailSettings),
+                inputs: {
+                    ...existing.config?.inputs,
+                    email: { ...existing.config?.inputs?.email, value: values.email },
+                },
+            },
+        }
+    }
+    return {
+        id: existing?.id ?? EMAIL_ACTION_ID,
+        type: 'function_email',
+        name: 'Send email',
+        description: 'The broadcast email.',
+        created_at: 0,
+        updated_at: 0,
+        config: {
+            template_id: 'template-email',
+            ...emailSettingsConfig(values.emailSettings),
+            inputs: {
+                email: { value: values.email },
+            },
+        },
+    }
+}
+
+const MESSAGE_ACTION_TYPES = Object.values(BROADCAST_MESSAGE_ACTION_TYPES)
+
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
-// (the audience), one email action, and an exit node.
+// (the audience), one email or push action, and an exit node.
 export function buildBroadcastPayload(values: {
     name: string
     audienceProperties: AnyPropertyFilter[]
@@ -2408,17 +2622,23 @@ export function buildBroadcastPayload(values: {
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings?: BroadcastEmailSettings
+    channel?: BroadcastChannel
+    push?: BroadcastPushValue
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
+    const channel = values.channel ?? 'email'
+    // The email sending limit means nothing to a push send.
+    const emailRateLimit = channel === 'email' ? values.emailRateLimit : null
     if (existing) {
         // A saved broadcast keeps its own steps: its ids, names and any setting the wizard does not manage
         // survive, such as step conditions or a test-account exclusion on a workflow moved to broadcasts.
-        // origin_product and the exit condition stay as they were.
+        // origin_product and the exit condition stay as they were. A channel switch replaces the message
+        // step under the same id, so the edges still hold.
         return {
             name: values.name,
             conversion: values.goalEnabled ? values.conversion : null,
-            email_sending_rate_limit: values.emailRateLimit,
+            email_sending_rate_limit: emailRateLimit,
             actions: (existing.actions as Record<string, any>[]).map((action) =>
                 action.type === 'trigger'
                     ? {
@@ -2428,30 +2648,21 @@ export function buildBroadcastPayload(values: {
                               filters: { ...action.config?.filters, properties: values.audienceProperties },
                           },
                       }
-                    : action.type === 'function_email'
-                      ? {
-                            ...action,
-                            config: {
-                                ...action.config,
-                                ...emailSettingsConfig(values.emailSettings),
-                                inputs: {
-                                    ...action.config?.inputs,
-                                    email: { ...action.config?.inputs?.email, value: values.email },
-                                },
-                            },
-                        }
+                    : MESSAGE_ACTION_TYPES.includes(action.type)
+                      ? messageAction(channel, values, action)
                       : action
             ),
             edges: existing.edges,
         }
     }
+    const message = messageAction(channel, values)
     return {
         origin_product: 'broadcasts',
         status: 'draft',
         name: values.name,
         exit_condition: 'exit_only_at_end',
         conversion: values.goalEnabled ? values.conversion : null,
-        email_sending_rate_limit: values.emailRateLimit,
+        email_sending_rate_limit: emailRateLimit,
         actions: [
             {
                 id: TRIGGER_ACTION_ID,
@@ -2465,21 +2676,7 @@ export function buildBroadcastPayload(values: {
                     filters: { properties: values.audienceProperties },
                 },
             },
-            {
-                id: EMAIL_ACTION_ID,
-                type: 'function_email',
-                name: 'Send email',
-                description: 'The broadcast email.',
-                created_at: 0,
-                updated_at: 0,
-                config: {
-                    template_id: 'template-email',
-                    ...emailSettingsConfig(values.emailSettings),
-                    inputs: {
-                        email: { value: values.email },
-                    },
-                },
-            },
+            message,
             {
                 id: EXIT_ACTION_ID,
                 type: 'exit',
@@ -2491,8 +2688,8 @@ export function buildBroadcastPayload(values: {
             },
         ],
         edges: [
-            { from: TRIGGER_ACTION_ID, to: EMAIL_ACTION_ID, type: 'continue' },
-            { from: EMAIL_ACTION_ID, to: EXIT_ACTION_ID, type: 'continue' },
+            { from: TRIGGER_ACTION_ID, to: message.id, type: 'continue' },
+            { from: message.id, to: EXIT_ACTION_ID, type: 'continue' },
         ],
     }
 }

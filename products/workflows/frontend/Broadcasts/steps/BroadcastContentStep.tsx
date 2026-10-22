@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email-templater/types'
@@ -20,10 +21,13 @@ import {
     getMissingSenderIds,
     getSenderIds,
 } from '../broadcastWizardLogic'
+import { BroadcastChannelPicker } from './BroadcastChannelPicker'
+import { BroadcastPushComposer } from './BroadcastPushComposer'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus, channel } =
         useValues(broadcastWizardLogic)
+    const pushChannelEnabled = useFeatureFlag('BROADCASTS_PUSH_CHANNEL')
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -71,8 +75,24 @@ export function BroadcastContentStep(): JSX.Element {
         body: errors.find((error) => error.includes('content')),
     }
 
+    // A push broadcast keeps its composer even with the flag off, so it can still be read and fixed.
+    const channelPicker = pushChannelEnabled || channel === 'push' ? <BroadcastChannelPicker /> : null
+
+    if (channel === 'push') {
+        return (
+            <div className="flex flex-col gap-4 min-h-[36rem] @container">
+                <div>
+                    <h2 className="m-0 text-xl font-semibold">Write your push notification</h2>
+                    <p className="m-0 text-secondary">Pick the apps to send through, then add a title and message.</p>
+                </div>
+                {channelPicker}
+                <BroadcastPushComposer />
+            </div>
+        )
+    }
+
     return (
-        <div className="flex flex-col gap-2 min-h-[36rem]">
+        <div className="flex flex-col gap-2 min-h-[36rem] @container">
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <h2 className="m-0 text-xl font-semibold">Write your email</h2>
@@ -87,6 +107,7 @@ export function BroadcastContentStep(): JSX.Element {
                     Start from template
                 </LemonButton>
             </div>
+            {channelPicker}
             <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
             {!integrationsLoading && integrations && !hasSenders ? (
                 <LemonBanner

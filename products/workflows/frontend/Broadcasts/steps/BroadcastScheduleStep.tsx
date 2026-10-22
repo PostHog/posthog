@@ -14,10 +14,13 @@ import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/comp
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
-function SendingRateLimit(): JSX.Element {
-    const { emailRateLimit } = useValues(broadcastWizardLogic)
+function SendingRateLimit(): JSX.Element | null {
+    const { emailRateLimit, channel } = useValues(broadcastWizardLogic)
     const { setEmailRateLimit } = useActions(broadcastWizardLogic)
 
+    if (channel !== 'email') {
+        return null
+    }
     return (
         <div className="max-w-160">
             <EmailSendingRateLimitPicker value={emailRateLimit} onChange={setEmailRateLimit} />
