@@ -106,7 +106,7 @@ export function AnalyticsListFilters(): JSX.Element {
                     data-attr="analytics-list-hide-insights"
                 >
                     {insightsHidden ? <IconEye /> : <IconHide />}
-                    {insightsHidden ? 'Show insights' : 'Hide insights'}
+                    <span>{insightsHidden ? 'Show insights' : 'Hide insights'}</span>
                 </Button>
             )}
             {filtersActive && (
