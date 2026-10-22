@@ -107,6 +107,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # need their toolchains.
 apt-get update
 apt-get install -y --no-install-recommends brotli make unzip build-essential libssl-dev pkg-config cmake libclang-dev
+apt-get install -y --no-install-recommends ffmpeg
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
