@@ -1138,19 +1138,23 @@ def get_default_workspace_prefix() -> str:
 
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
     try:
         result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1193,8 +1197,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1744,11 +1756,15 @@ def get_preview_app(workspace: dict[str, Any]) -> tuple[str, str] | None:
         for app in agent.get("apps") or []:
             if app.get("slug") != PREVIEW_APP_SLUG:
                 continue
+            health = str(app.get("health") or "unknown")
+            if app.get("subdomain") is False:
+                path = f"@{workspace.get('owner_name')}/{workspace.get('name')}.{agent.get('name')}"
+                return f"{get_coder_url().rstrip('/')}/{path}/apps/{PREVIEW_APP_SLUG}/", health
             host = urllib.parse.urlparse(get_coder_url()).hostname
             subdomain = app.get("subdomain_name") or (
                 f"{PREVIEW_APP_SLUG}--{workspace.get('name')}--{workspace.get('owner_name')}"
             )
-            return f"https://{subdomain}.{host}", str(app.get("health") or "unknown")
+            return f"https://{subdomain}.{host}", health
     return None
 
 

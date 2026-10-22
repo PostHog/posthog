@@ -928,6 +928,79 @@ class TestWorktreeLabel:
             devbox_worktree.derive_label("feat/x", 3)
 
 
+class TestDevboxWorktreeCommand:
+    @pytest.fixture
+    def worktree_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        root = tmp_path / "wt"
+        root.mkdir()
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None: [])
+        return root
+
+    @pytest.mark.parametrize(
+        "label, existing, expected_exit, expected_box",
+        [
+            pytest.param(
+                None,
+                ["devbox-test-user-feat-eu", "devbox-test-user-feat"],
+                0,
+                "devbox-test-user-feat-eu",
+                id="registered-box-wins-over-same-label-in-preferred-region",
+            ),
+            pytest.param(
+                "feat",
+                ["devbox-test-user-feat-eu", "devbox-test-user-feat"],
+                0,
+                "devbox-test-user-feat-eu",
+                id="registered-label-passed-explicitly",
+            ),
+            pytest.param(
+                "other",
+                ["devbox-test-user-feat-eu"],
+                1,
+                "devbox-test-user-feat-eu",
+                id="new-label-refused-while-registered-box-exists",
+            ),
+            pytest.param("other", [], 0, "devbox-test-user-other", id="new-label-allowed-once-registered-box-is-gone"),
+        ],
+    )
+    def test_keeps_the_registered_box_through_start_and_sync(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        label: str | None,
+        existing: list[str],
+        expected_exit: int,
+        expected_box: str,
+    ) -> None:
+        workspaces = [{"name": name, "latest_build": {"status": "running"}} for name in existing]
+        monkeypatch.setattr(devbox_worktree, "list_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_config.record_worktree_box(worktree_root, "devbox-test-user-feat-eu")
+        started: list[str] = []
+        synced: list[str] = []
+
+        def fake_start(workspace: str, region: str, verbose: bool, start_app: bool | None = None) -> None:
+            started.append(devbox_cli.resolve_workspace_name(workspace, region=region)[0])
+
+        monkeypatch.setattr(devbox_worktree, "devbox_start", fake_start)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+
+        result = runner.invoke(cli, ["devbox:worktree", *(["--label", label] if label else [])])
+
+        assert result.exit_code == expected_exit, result.output
+        expected_calls = [expected_box] if expected_exit == 0 else []
+        assert (started, synced) == (expected_calls, expected_calls)
+        assert devbox_config.load_worktree_boxes() == {str(worktree_root): expected_box}
+
+
 class TestWorkspaceRegion:
     """Reading the region back from the workspace `region` metadata item."""
 
@@ -996,6 +1069,34 @@ class TestWorkspaceRegion:
     )
     def test_get_workspace_region(self, workspace: dict[str, object], expected: str | None) -> None:
         assert coder.get_workspace_region(workspace) == expected
+
+
+class TestPreviewApp:
+    @pytest.mark.parametrize(
+        "app, expected_url",
+        [
+            (
+                {"slug": "app", "subdomain": True, "subdomain_name": "app--box--alice", "health": "healthy"},
+                "https://app--box--alice.coder.example.com",
+            ),
+            (
+                {"slug": "app", "subdomain": False, "health": "healthy"},
+                "https://coder.example.com/@alice/box.dev/apps/app/",
+            ),
+        ],
+        ids=["subdomain", "path"],
+    )
+    def test_url_follows_the_app_routing_mode(
+        self, monkeypatch: pytest.MonkeyPatch, app: dict[str, object], expected_url: str
+    ) -> None:
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        workspace = {
+            "name": "box",
+            "owner_name": "alice",
+            "latest_build": {"resources": [{"agents": [{"name": "dev", "apps": [app]}]}]},
+        }
+
+        assert coder.get_preview_app(workspace) == (expected_url, "healthy")
 
 
 def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
@@ -4208,6 +4309,26 @@ class TestDevboxSyncCommand:
         monkeypatch.chdir(checkout / "subdir")
         assert devbox_sync._detect_local_posthog_checkout() == checkout.resolve()
 
+    @pytest.mark.parametrize("detach, expected_branch", [(False, "feat/x"), (True, "HEAD")], ids=["branch", "detached"])
+    def test_read_local_head_returns_branch_and_full_sha(
+        self, tmp_path: Path, detach: bool, expected_branch: str
+    ) -> None:
+        def git(*args: str) -> str:
+            return subprocess.run(
+                ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        git("init", "--quiet", "--initial-branch=feat/x")
+        git("-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "init")
+        sha = git("rev-parse", "HEAD")
+        if detach:
+            git("checkout", "--quiet", "--detach")
+
+        assert devbox_sync._read_local_head(tmp_path) == devbox_sync.GitHead(branch=expected_branch, sha=sha)
+
     def test_detect_local_checkout_fails_outside_repo(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit):
@@ -4256,6 +4377,61 @@ class TestDevboxAgentCommand:
         assert expected_sync_step in result.output
         assert "Launch Claude Code in ~/posthog" in result.output
         assert "Prompt: Fix the flaky test" in result.output
+
+    @pytest.mark.parametrize(
+        "extra_args, mirror_source, expected_exit, expected_sync_calls",
+        [
+            pytest.param([], "/work/posthog-wt", 0, ["flush", "terminate"], id="reuses-mirror-of-this-checkout"),
+            pytest.param([], "/work/posthog-main", 1, [], id="refuses-mirror-of-another-checkout"),
+            pytest.param(["--no-sync"], "/work/posthog-main", 0, ["terminate"], id="no-sync-stops-running-mirror"),
+        ],
+    )
+    def test_existing_mirror_handling(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        extra_args: list[str],
+        mirror_source: str,
+        expected_exit: int,
+        expected_sync_calls: list[str],
+    ) -> None:
+        sync_calls: list[str] = []
+        launched: list[str] = []
+        monkeypatch.setattr(devbox_agent, "find_local_posthog_checkout", lambda: Path("/work/posthog-wt"))
+        monkeypatch.setattr(devbox_agent, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_agent, "start_or_create_workspace", lambda *a, **kw: "devbox-test-user-api")
+        monkeypatch.setattr(
+            devbox_agent,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user-api", "latest_build": {"status": "running"}}],
+        )
+        monkeypatch.setattr(devbox_agent, "_workspace_arg_suffix", lambda name: " api")
+        monkeypatch.setattr(devbox_agent, "sync_session_exists", lambda name, verbose=False: True)
+        monkeypatch.setattr(
+            devbox_agent,
+            "list_sync_sessions",
+            lambda name: [{"alpha": mirror_source, "conflicts": 0, "conflictPaths": []}],
+        )
+        monkeypatch.setattr(
+            devbox_agent,
+            "flush_sync_sessions",
+            lambda name: sync_calls.append("flush") or [{"alpha": mirror_source, "conflicts": 0, "conflictPaths": []}],
+        )
+        monkeypatch.setattr(devbox_agent, "terminate_sync_sessions", lambda name: sync_calls.append("terminate"))
+        monkeypatch.setattr(devbox_agent, "create_sync_session", _forbid("create_sync_session"))
+        monkeypatch.setattr(devbox_agent, "server_supports_user_secrets", lambda: False)
+        monkeypatch.setattr(devbox_agent, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(
+            devbox_agent,
+            "run_remote_script",
+            lambda name, script, timeout: launched.append(name) or subprocess.CompletedProcess([], 0, "mode=tmux", ""),
+        )
+        monkeypatch.setattr(devbox_agent, "get_preview_app", lambda ws: None)
+
+        result = runner.invoke(cli, ["devbox:agent", "-n", "api", *extra_args, "Fix the flaky test"])
+
+        assert result.exit_code == expected_exit, result.output
+        assert sync_calls == expected_sync_calls
+        assert launched == (["devbox-test-user-api"] if expected_exit == 0 else [])
 
     def test_unreachable_box_fails_with_doctor_hint_before_starting(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def unreachable() -> None:

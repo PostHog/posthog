@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import json
+import fcntl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TypedDict
 
@@ -161,20 +165,32 @@ def load_worktree_boxes() -> dict[str, str]:
     return {path: name for path, name in data.items() if isinstance(path, str) and isinstance(name, str) and name}
 
 
-def _save_worktree_boxes(boxes: dict[str, str]) -> None:
+@contextmanager
+def _locked_worktree_boxes() -> Iterator[None]:
     path = get_worktree_boxes_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(dict(sorted(boxes.items())), indent=2) + "\n")
+    with path.with_name(f"{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _save_worktree_boxes(boxes: dict[str, str]) -> None:
+    path = get_worktree_boxes_path()
+    staging = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    staging.write_text(json.dumps(dict(sorted(boxes.items())), indent=2) + "\n")
+    staging.replace(path)
 
 
 def record_worktree_box(worktree_path: Path, workspace_name: str) -> None:
-    boxes = load_worktree_boxes()
-    boxes[str(worktree_path)] = workspace_name
-    _save_worktree_boxes(boxes)
+    with _locked_worktree_boxes():
+        boxes = load_worktree_boxes()
+        boxes[str(worktree_path)] = workspace_name
+        _save_worktree_boxes(boxes)
 
 
 def forget_worktree_boxes(worktree_paths: list[Path]) -> None:
-    boxes = load_worktree_boxes()
-    remaining = {path: name for path, name in boxes.items() if path not in {str(p) for p in worktree_paths}}
-    if remaining != boxes:
-        _save_worktree_boxes(remaining)
+    with _locked_worktree_boxes():
+        boxes = load_worktree_boxes()
+        remaining = {path: name for path, name in boxes.items() if path not in {str(p) for p in worktree_paths}}
+        if remaining != boxes:
+            _save_worktree_boxes(remaining)

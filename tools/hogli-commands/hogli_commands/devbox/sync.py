@@ -127,14 +127,14 @@ def _detect_local_posthog_checkout() -> Path:
 
 def _read_local_head(local_path: Path) -> GitHead | None:
     result = subprocess.run(
-        ["git", "-C", str(local_path), "rev-parse", "--abbrev-ref", "HEAD", "HEAD"],
+        ["git", "-C", str(local_path), "rev-parse", "HEAD", "--abbrev-ref", "HEAD"],
         capture_output=True,
         text=True,
     )
     lines = result.stdout.split()
     if result.returncode != 0 or len(lines) != 2:
         return None
-    return GitHead(branch=lines[0], sha=lines[1])
+    return GitHead(branch=lines[1], sha=lines[0])
 
 
 def _run_box_script(workspace: str, script: str, *args: str) -> subprocess.CompletedProcess[str] | None:
@@ -373,6 +373,17 @@ def cmd_sync(
     # first so the existing-session check sees sessions persisted across daemon
     # restarts; a re-run then short-circuits before the heavier coder/SSH
     # preflight below. (ensure_runtime_ready covers the coder install check.)
+    ensure_sync_session(name, workspaces, None, checkout_branch=checkout_branch, verbose=verbose)
+
+
+def ensure_sync_session(
+    name: str,
+    workspaces: list[dict[str, Any]] | None,
+    local_path: Path | None,
+    *,
+    checkout_branch: bool | None = None,
+    verbose: bool = False,
+) -> None:
     if sync_session_exists(name, verbose=verbose):
         click.echo(
             f"Sync already running for {name}. Use `hogli devbox:sync{_workspace_arg_suffix(name)} --status` to inspect."
@@ -380,7 +391,7 @@ def cmd_sync(
         return
 
     ensure_runtime_ready()
-    create_sync_session(name, workspaces, _detect_local_posthog_checkout(), checkout_branch)
+    create_sync_session(name, workspaces, local_path or _detect_local_posthog_checkout(), checkout_branch)
     click.echo("Sync created. Initial scan and copy may take a few minutes for large checkouts.")
     click.echo(f"Inspect: hogli devbox:sync{_workspace_arg_suffix(name)} --status")
 
@@ -409,10 +420,16 @@ def create_sync_session(
     )
 
 
+def list_sync_sessions(name: str) -> list[dict[str, Any]]:
+    return [
+        _session_summary(session)
+        for session in mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name))
+    ]
+
+
 def flush_sync_sessions(name: str) -> list[dict[str, Any]]:
-    label = mutagen.workspace_label_selector(name)
-    mutagen.sync_flush(label)
-    return [_session_summary(session) for session in mutagen.sync_list(label_selector=label)]
+    mutagen.sync_flush(mutagen.workspace_label_selector(name))
+    return list_sync_sessions(name)
 
 
 def terminate_sync_sessions(name: str) -> None:

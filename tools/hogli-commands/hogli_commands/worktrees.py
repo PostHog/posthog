@@ -42,9 +42,9 @@ from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
     extract_workspace_label,
+    fetch_user_workspaces,
     get_workspace,
     get_workspace_status,
-    list_user_workspaces,
     stop_workspace,
 )
 from .devbox.config import forget_worktree_boxes, load_worktree_boxes, saved_worktree_box_cleanup
@@ -239,6 +239,8 @@ def worktrees_clean(
 
     mode = mode.lower()
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
+    if box_action:
+        _clean_boxes_of_removed_worktrees(load_worktree_boxes(), box_action, dry_run, yes)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
     repo_common = _git_common_dir(repo_root)
@@ -378,6 +380,29 @@ def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, 
     return saved_worktree_box_cleanup()
 
 
+def _boxes_of_removed_worktrees(registry: dict[str, str]) -> list[WorktreeBox]:
+    return [
+        WorktreeBox(worktree_path=Path(path), workspace=workspace)
+        for path, workspace in registry.items()
+        if not Path(path).exists()
+    ]
+
+
+def _clean_boxes_of_removed_worktrees(registry: dict[str, str], box_action: str, dry_run: bool, yes: bool) -> None:
+    boxes = _boxes_of_removed_worktrees(registry)
+    if not boxes:
+        return
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.\n")
+        return
+    if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
+        _clean_worktree_boxes(boxes, box_action)
+    click.echo()
+
+
 def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, str]) -> list[WorktreeBox]:
     registry_by_path = {_resolve(Path(path)): workspace for path, workspace in registry.items()}
     boxes: list[WorktreeBox] = []
@@ -397,7 +422,11 @@ def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:
         click.echo(f"  ⚠️  could not reach Coder, so these devboxes were left as they are: {names}")
         return
 
-    workspaces = list_user_workspaces()
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        names = " ".join(box.workspace for box in boxes)
+        click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
+        return
     handled: list[Path] = []
     for box in boxes:
         workspace = get_workspace(box.workspace, workspaces)

@@ -28,6 +28,7 @@ from .sync import (
     create_sync_session,
     find_local_posthog_checkout,
     flush_sync_sessions,
+    list_sync_sessions,
     sync_session_exists,
     terminate_sync_sessions,
 )
@@ -90,9 +91,11 @@ def _print_plan(
     if region and not workspace:
         target = f"your default devbox in {region}"
     if no_sync:
-        sync_step = "Skip the mirror (--no-sync)."
+        sync_step = "Skip the mirror (--no-sync), and stop a mirror that is already running."
     elif checkout is None:
         sync_step = "Skip the mirror: the current directory is not in a PostHog checkout."
+        if not live_sync:
+            sync_step += " Stop a mirror that is already running."
     else:
         sync_step = f"Mirror {checkout} to ~/posthog on the box, reusing an existing mirror, and report conflicts."
         if live_sync:
@@ -126,6 +129,13 @@ def _mirror_checkout(
 ) -> None:
     suffix = _workspace_arg_suffix(name)
     if sync_session_exists(name, verbose=verbose):
+        other_sources = sorted({str(s["alpha"]) for s in list_sync_sessions(name) if s["alpha"] != str(checkout)})
+        if other_sources:
+            _fail(
+                f"'{name}' already mirrors {other_sources[0]}, not {checkout}. "
+                f"Run `hogli devbox:agent` from that checkout, pass --no-sync, "
+                f"or stop that mirror with `hogli devbox:sync{suffix} --terminate`."
+            )
         click.echo(f"Reusing the sync for {name}.")
     else:
         create_sync_session(name, workspaces, checkout)
@@ -145,10 +155,14 @@ def _mirror_checkout(
     if live_sync:
         click.echo("The sync keeps running and only copies local changes to the box. Edits the agent makes stay there.")
         return
+    _stop_mirror(name)
+
+
+def _stop_mirror(name: str) -> None:
     terminate_sync_sessions(name)
     click.echo(
         f"Stopped the sync, so the box is now the source of truth for the agent. "
-        f"Run `hogli devbox:sync{suffix}` to start it again."
+        f"Run `hogli devbox:sync{_workspace_arg_suffix(name)}` to start it again."
     )
 
 
@@ -255,6 +269,8 @@ def devbox_agent(
 
     if checkout is not None:
         _mirror_checkout(name, workspaces, checkout, live_sync=live_sync, verbose=verbose)
+    elif not live_sync and list_sync_sessions(name):
+        _stop_mirror(name)
 
     _warn_if_no_claude_token()
     session = _session_name()

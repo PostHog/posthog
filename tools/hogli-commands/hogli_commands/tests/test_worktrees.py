@@ -13,6 +13,7 @@ from hogli_commands.worktrees import (
     Worktree,
     WorktreeBox,
     _belongs_to_repo,
+    _boxes_of_removed_worktrees,
     _clean_worktree_boxes,
     _collect_deps_items,
     _compute_git_state,
@@ -324,12 +325,14 @@ class TestWorktreeBoxes:
         unregistered = tmp_path / "other"
         unregistered.mkdir()
 
-        boxes = _match_worktree_boxes(
-            [_make_worktree(linked / "feature"), _make_worktree(unregistered)],
-            {str(real): "devbox-test-user-feature", str(tmp_path / "gone"): "devbox-test-user-gone"},
-        )
+        registry = {str(real): "devbox-test-user-feature", str(tmp_path / "gone"): "devbox-test-user-gone"}
+
+        boxes = _match_worktree_boxes([_make_worktree(linked / "feature"), _make_worktree(unregistered)], registry)
 
         assert boxes == [WorktreeBox(worktree_path=real.resolve(), workspace="devbox-test-user-feature")]
+        assert _boxes_of_removed_worktrees(registry) == [
+            WorktreeBox(worktree_path=tmp_path / "gone", workspace="devbox-test-user-gone")
+        ]
 
     @pytest.mark.parametrize(
         ("action", "status", "expected_calls"),
@@ -347,7 +350,7 @@ class TestWorktreeBoxes:
         terminated: list[str] = []
         monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(
-            worktrees, "list_user_workspaces", lambda: [{"name": "devbox-test-user-a", "status": status}]
+            worktrees, "fetch_user_workspaces", lambda: [{"name": "devbox-test-user-a", "status": status}]
         )
         monkeypatch.setattr(worktrees, "get_workspace_status", lambda ws: ws["status"])
         monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
@@ -368,12 +371,17 @@ class TestWorktreeBoxes:
         assert terminated == [worktrees.mutagen.workspace_label_selector("devbox-test-user-a")]
         assert devbox_config.load_worktree_boxes() == {}
 
-    def test_failed_box_action_keeps_registry_entry(self, tmp_path, monkeypatch, registry_path) -> None:
+    @pytest.mark.parametrize(
+        "listed",
+        [[{"name": "devbox-test-user-a"}], None],
+        ids=["delete-fails", "listing-fails"],
+    )
+    def test_failed_box_action_keeps_registry_entry(self, tmp_path, monkeypatch, registry_path, listed) -> None:
         def fail(name: str) -> None:
             raise SystemExit(1)
 
         monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(worktrees, "list_user_workspaces", lambda: [{"name": "devbox-test-user-a"}])
+        monkeypatch.setattr(worktrees, "fetch_user_workspaces", lambda: listed)
         monkeypatch.setattr(worktrees, "delete_workspace", fail)
         monkeypatch.setattr(worktrees, "extract_workspace_label", lambda name: "a")
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)

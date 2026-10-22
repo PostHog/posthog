@@ -33,7 +33,7 @@ from .config import (
     record_worktree_box,
     save_worktree_box_cleanup,
 )
-from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, cmd_sync
+from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_sync_session
 
 CODER_NAME_MAX_LENGTH = 32
 _HASH_LENGTH = 4
@@ -101,10 +101,9 @@ def _resolve_target(
     rename, so a re-run never creates a second box.
     """
     registered = load_worktree_boxes().get(str(root))
-    if label is None and registered is not None:
-        registered_label = extract_workspace_label(registered)
-        if registered_label is not None:
-            return registered, registered_label
+    registered_label = extract_workspace_label(registered) if registered is not None else None
+    if registered is not None and registered_label is not None and label in (None, registered_label):
+        return registered, registered_label
 
     if cloning:
         region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
@@ -116,6 +115,11 @@ def _resolve_target(
     if len(name) > CODER_NAME_MAX_LENGTH:
         _fail(f"'{name}' is longer than Coder's {CODER_NAME_MAX_LENGTH}-character limit. Pick a shorter `--label`.")
 
+    if registered is not None and registered != name and get_workspace(registered, workspaces) is not None:
+        _fail(
+            f"This worktree already has devbox '{registered}'. Remove it with "
+            f"`hogli devbox:destroy {registered_label or ''}` before you pick another label."
+        )
     if label is None and registered != name and get_workspace(name, workspaces) is not None:
         _fail(
             f"A devbox named '{name}' already exists and is not tied to this worktree. "
@@ -196,13 +200,14 @@ def devbox_worktree(
     elif on_clean is not None:
         save_worktree_box_cleanup(on_clean)
 
+    region = region_from_workspace_name(name)
     if existing is None and cloning:
         ctx.invoke(devbox_clone, workspace=clone_source, new_label=resolved_label, yes=yes, verbose=verbose)
     elif existing is None:
-        ctx.invoke(devbox_start, workspace=resolved_label, start_app=start_app, verbose=verbose)
+        ctx.invoke(devbox_start, workspace=resolved_label, region=region, start_app=start_app, verbose=verbose)
     else:
-        ctx.invoke(devbox_start, workspace=resolved_label, verbose=verbose)
+        ctx.invoke(devbox_start, workspace=resolved_label, region=region, verbose=verbose)
 
-    ctx.invoke(cmd_sync, workspace=resolved_label, verbose=verbose)
+    ensure_sync_session(name, list_user_workspaces(), root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(name)}")
