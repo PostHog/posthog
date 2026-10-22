@@ -86,8 +86,15 @@ if (not empty(inputs.testEventCode)) {
     body.test_event_code := inputs.testEventCode
 }
 
+// Hog's trim() strips only a literal ASCII space, so a tab or line break survives it and reaches
+// hash detection or normalization unstripped. This strips every POSIX whitespace character from
+// both ends instead, and every normalization below uses it in trim()'s place.
+fn trimSpace(value) {
+    return extractRegex(toString(value), '(?s:[^[:space:]](?:.*[^[:space:]])?)')
+}
+
 // Meta expects the full address of the page the event happened on, so anything else is left out
-let sourceUrl := typeof(inputs.eventSourceUrl) == 'string' ? trim(inputs.eventSourceUrl) : ''
+let sourceUrl := typeof(inputs.eventSourceUrl) == 'string' ? trimSpace(inputs.eventSourceUrl) : ''
 if (match(sourceUrl, '^(?i:https?)://[^/?#[:space:]]+([/?#][^[:space:]]*)?\$')) {
     body.data.1.event_source_url := sourceUrl
 }
@@ -95,7 +102,7 @@ if (match(sourceUrl, '^(?i:https?)://[^/?#[:space:]]+([/?#][^[:space:]]*)?\$')) 
 // Helper function to parse JSON arrays from string values
 fn parseValueIfArray(value) {
     if (typeof(value) == 'string') {
-        let trimmed := trim(value)
+        let trimmed := trimSpace(value)
         if (startsWith(trimmed, '[')) {
             try {
                 return jsonParse(trimmed)
@@ -114,7 +121,7 @@ fn freshClickId(value) {
     if (typeof(value) != 'string') {
         return null
     }
-    let trimmed := trim(value)
+    let trimmed := trimSpace(value)
     if (not match(trimmed, '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?\$')) {
         return null
     }
@@ -149,7 +156,7 @@ fn newestClickId(value) {
 fn firstBrowserId(value) {
     for (let candidate in (typeof(value) == 'array' ? value : [value])) {
         if (typeof(candidate) == 'string') {
-            let trimmed := trim(candidate)
+            let trimmed := trimSpace(candidate)
             if (match(trimmed, '^fb[.][0-9]+[.][0-9]+[.][0-9]+([.][A-Za-z0-9_-]+)?\$')) {
                 return trimmed
             }
@@ -194,7 +201,7 @@ fn keepMatching(value, pattern) {
 }
 
 fn normalizeCountry(value) {
-    let normalized := lower(trim(toString(value)))
+    let normalized := lower(trimSpace(value))
     return match(normalized, '^[a-z]{2}\$') ? normalized : ''
 }
 
@@ -206,7 +213,7 @@ fn isUnitedStates(value) {
     if (typeof(candidate) == 'array') {
         candidate := candidate[1]
     }
-    let normalized := lower(trim(toString(candidate)))
+    let normalized := lower(trimSpace(candidate))
     return normalized == 'us' or normalized == sha256Hex('us')
 }
 
@@ -245,7 +252,7 @@ fn normalizeDateOfBirth(value) {
 // that cannot match after normalization is dropped rather than hashed. The rules per field:
 // https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
 fn normalizeUserValue(key, value) {
-    let normalized := lower(trim(toString(value)))
+    let normalized := lower(trimSpace(value))
     if (key == 'em') {
         return match(normalized, '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+\$') ? normalized : ''
     } else if (key == 'ph') {
@@ -282,15 +289,27 @@ fn normalizeUserValue(key, value) {
     return normalized
 }
 
-// A value that is already a SHA-256 hash is sent as is, so a mapping that hashes before sending does
-// not get hashed twice.
+// Meta's own ParamBuilder libraries hash a value into <64-character digest>[.<appendix>], the
+// same optional-appendix shape freshClickId above already expects from a ParamBuilder-stamped
+// fbc. The digest is case-insensitive; the appendix is not, so only the digest is lowercased.
+// A value in this shape is sent through unchanged instead of being hashed again.
+fn preHashedValue(value) {
+    let trimmed := trimSpace(value)
+    if (not match(trimmed, '^[A-Fa-f0-9]{64}([.][A-Za-z0-9_-]+)?\$')) {
+        return null
+    }
+    let digest := lower(substring(trimmed, 1, 64))
+    let tailLength := length(trimmed) - 64
+    return tailLength > 0 ? concat(digest, substring(trimmed, 65, tailLength)) : digest
+}
+
 fn hashUserValue(key, value) {
     if (empty(value)) {
         return null
     }
-    let raw := lower(trim(toString(value)))
-    if (match(raw, '^[a-f0-9]{64}\$')) {
-        return raw
+    let preHashed := preHashedValue(value)
+    if (preHashed != null) {
+        return preHashed
     }
     let normalized := normalizeUserValue(key, value)
     return empty(normalized) ? null : sha256Hex(normalized)

@@ -452,6 +452,12 @@ describe('meta ads template', () => {
                 key: 'ph',
                 expected: undefined,
             },
+            {
+                name: 'trims tabs and line breaks from an email before hashing',
+                person: { email: '\tAlice@example.com\n' },
+                key: 'em',
+                expected: sha256('alice@example.com'),
+            },
         ])('$name', async ({ person, key, expected }) => {
             const response = await tester.invokeMapping(
                 'Page Viewed',
@@ -472,6 +478,21 @@ describe('meta ads template', () => {
                 name: 'does not hash an already hashed value twice',
                 userData: { em: sha256('example@posthog.com'), ph: sha256('1234567890').toUpperCase() },
                 expected: { em: sha256('example@posthog.com'), ph: sha256('1234567890') },
+            },
+            {
+                name: 'recognizes an already hashed email with a trailing line break',
+                userData: { em: `${sha256('example@posthog.com')}\n` },
+                expected: { em: sha256('example@posthog.com') },
+            },
+            {
+                name: 'preserves a ParamBuilder hash and its case-sensitive appendix unchanged',
+                userData: { em: `${sha256('example@posthog.com')}.AQQCAQMC`, fn: `${sha256('mary')}.AQQCAQMC` },
+                expected: { em: `${sha256('example@posthog.com')}.AQQCAQMC`, fn: `${sha256('mary')}.AQQCAQMC` },
+            },
+            {
+                name: 'lowercases only the digest of a ParamBuilder hash, keeping its appendix as is',
+                userData: { em: `${sha256('example@posthog.com').toUpperCase()}.AQQCAQMC` },
+                expected: { em: `${sha256('example@posthog.com')}.AQQCAQMC` },
             },
             {
                 name: 'normalizes and hashes each value of a list',
