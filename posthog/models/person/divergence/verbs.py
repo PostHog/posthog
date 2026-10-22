@@ -163,7 +163,7 @@ def run_verb(
     if verb not in VERBS:
         raise VerbError(f"unknown verb {verb}; choose one of {', '.join(sorted(VERBS))}")
     if actions_path.exists() and not resume:
-        raise VerbError(f"{actions_path} exists; pass resume to continue it")
+        raise VerbError(f"{actions_path} exists; pass --resume to continue it")
     plan = team_scan.load_plan(scan_dir)
     if not plan.team_exists:
         raise VerbError(f"team {plan.team_id} does not exist; there is nothing to repair")
@@ -216,7 +216,7 @@ def run_verb(
                         }
                         context.action(row, "undelivered")
                     counts["undelivered"] += undelivered - len(context.deliveries.undelivered_keys())
-                    log(f"{verb}: {undelivered} ClickHouse messages were not delivered; rerun with resume")
+                    log(f"{verb}: {undelivered} ClickHouse messages were not delivered; rerun with --resume")
     return counts
 
 
