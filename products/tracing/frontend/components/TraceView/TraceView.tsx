@@ -1,20 +1,86 @@
 import { useActions, useValues } from 'kea'
-import { type CSSProperties, useCallback, useMemo, useRef } from 'react'
+import { type CSSProperties, memo, useCallback, useMemo, useRef } from 'react'
+
+import { LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 
+import type { SpanTreeNode } from '~/queries/schema/schema-general'
+
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
 import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
-import type { SpanInspectorTab } from 'products/tracing/frontend/types'
+import { TraceCompareFlame } from 'products/tracing/frontend/TraceCompareFlame'
+import type { SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
 import type { TraceDialogSource } from '../TraceDialog/traceDialogLogic'
 import { TraceDialogSpanTree } from '../TraceDialog/TraceDialogSpanTree'
+import { TraceLoadMoreFooter } from './TraceLoadMoreFooter'
 import { type TraceOperationsScope, traceViewLogic, type TraceViewSurface } from './traceViewLogic'
 
 // Below this the attribute tables stop being readable, so a drag can't crush the inspector.
 const MIN_INSPECTOR_WIDTH = 320
+
+const VIEW_MODE_OPTIONS: LemonSegmentedButtonOption<TraceViewMode>[] = [
+    // pinned: autocapture selects on these values, so renaming them breaks saved actions.
+    // LemonSegmentedButton puts no data-attr on its root, so each option carries one.
+    { value: 'waterfall', label: 'Waterfall', 'data-attr': 'tracing-trace-view-waterfall' },
+    { value: 'calltree', label: 'Call tree', 'data-attr': 'tracing-trace-view-calltree' },
+]
+
+// The call tree draws a tree of its own, so the flame gets no rows to build one from.
+const NO_FLAME_ROWS: SpanTreeNode[] = []
+
+interface TraceViewCallTreeProps {
+    surface: TraceViewSurface
+    /** Spans are still loading, so an empty tree is not yet a verdict. */
+    resolving: boolean
+    hasMoreSpans: boolean
+    loadingMoreSpans: boolean
+    onLoadMoreSpans?: () => void
+}
+
+/**
+ * The left pane in call tree mode. Only this pane reads the call tree, so the logic builds it only in this mode.
+ * Memoized because the view re-renders on every mousemove of an inspector resize drag, and on changes the pane does
+ * not show, such as another inspector tab. The props stay the same then, so the flame, with a tooltip on every bar,
+ * does not render again. The pane's own `useValues` renders it when the tree, the colors or the highlight change.
+ */
+const TraceViewCallTree = memo(function TraceViewCallTree({
+    surface,
+    resolving,
+    hasMoreSpans,
+    loadingMoreSpans,
+    onLoadMoreSpans,
+}: TraceViewCallTreeProps): JSX.Element {
+    const { callTree, serviceColorMap, highlightedOperationKey } = useValues(traceViewLogic)
+    return (
+        <>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {callTree.children.length === 0 ? (
+                    // The surface shows its own spinner while spans load.
+                    resolving ? null : (
+                        <div className="text-muted text-center py-8">No spans to show in the call tree.</div>
+                    )
+                ) : (
+                    <TraceCompareFlame
+                        tree={callTree}
+                        current={NO_FLAME_ROWS}
+                        previous={null}
+                        loading={false}
+                        sizeBy="total"
+                        initialFocusKey={highlightedOperationKey}
+                        serviceColorMap={serviceColorMap}
+                        surface={surface}
+                    />
+                )}
+            </div>
+            {/* The call tree has no scroll trigger, so this button is the only way to load the rest of a large trace. */}
+            {hasMoreSpans && <TraceLoadMoreFooter loadingMore={loadingMoreSpans} onLoadMore={onLoadMoreSpans} />}
+        </>
+    )
+})
 
 export interface TraceViewProps {
     traceId: string
@@ -37,7 +103,10 @@ export interface TraceViewProps {
     onLoadMoreSpans?: () => void
 }
 
-/** The span tree beside the inspector for the selected span. Mount it inside a `BindLogic` for `traceViewLogic`. */
+/**
+ * The span tree, or the call tree of its operations, beside the inspector for the selected span. Mount it inside a
+ * `BindLogic` for `traceViewLogic`.
+ */
 export function TraceView({
     traceId,
     surface,
@@ -72,8 +141,10 @@ export function TraceView({
         operationSpans,
         highlightedOperationKey,
         operationsTabEnabled,
+        traceViewMode,
+        callTreeEnabled,
     } = useValues(traceViewLogic)
-    const { setInspectorTab, highlightOperation } = useActions(traceViewLogic)
+    const { setInspectorTab, highlightOperation, setTraceViewMode } = useActions(traceViewLogic)
     // A click on the tab already shown still records the person's pick. Nothing on screen changes, so it passes
     // no surface and sends no event.
     const onSelectTab = useCallback(
@@ -112,15 +183,37 @@ export function TraceView({
     return (
         <div className="@container/trace-dialog flex flex-1 min-h-0">
             <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
-                <div className="flex-1 min-w-0 min-h-0">
-                    <TraceDialogSpanTree
-                        openedFrom={openedFrom}
-                        openedAtUs={openedAtUs}
-                        hasMore={hasMoreSpans}
-                        loadingMore={loadingMoreSpans}
-                        onLoadMore={onLoadMoreSpans}
-                        showOperationHighlight={inspectorOpen}
-                    />
+                <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
+                    {callTreeEnabled && (
+                        <div>
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={traceViewMode}
+                                onChange={(mode) => setTraceViewMode(mode, surface)}
+                                options={VIEW_MODE_OPTIONS}
+                            />
+                        </div>
+                    )}
+                    <div className="flex flex-col flex-1 min-h-0">
+                        {traceViewMode === 'calltree' ? (
+                            <TraceViewCallTree
+                                surface={surface}
+                                resolving={resolving}
+                                hasMoreSpans={!!hasMoreSpans}
+                                loadingMoreSpans={!!loadingMoreSpans}
+                                onLoadMoreSpans={onLoadMoreSpans}
+                            />
+                        ) : (
+                            <TraceDialogSpanTree
+                                openedFrom={openedFrom}
+                                openedAtUs={openedAtUs}
+                                hasMore={hasMoreSpans}
+                                loadingMore={loadingMoreSpans}
+                                onLoadMore={onLoadMoreSpans}
+                                showOperationHighlight={inspectorOpen}
+                            />
+                        )}
+                    </div>
                 </div>
                 {inspectorOpen && (missingParentSpanId || selectedSpan) && (
                     <div

@@ -2,14 +2,13 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
-
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 
 import { getTimelineTicks } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
+import { TraceLoadMoreFooter } from '../TraceView/TraceLoadMoreFooter'
 import { traceViewLogic, type TraceViewTimeline } from '../TraceView/traceViewLogic'
 import type { TraceDialogSource } from './traceDialogLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
@@ -337,25 +336,7 @@ export function TraceDialogSpanTree({
                     )}
                 />
             </div>
-            {hasMore && (
-                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted border-t">
-                    {loadingMore ? (
-                        <>
-                            <Spinner />
-                            <span>Loading more spans…</span>
-                        </>
-                    ) : (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => onLoadMore?.()}
-                            data-attr="trace-view-load-more-spans"
-                        >
-                            Load more spans
-                        </LemonButton>
-                    )}
-                </div>
-            )}
+            {hasMore && <TraceLoadMoreFooter loadingMore={loadingMore} onLoadMore={onLoadMore} />}
         </div>
     )
 }
