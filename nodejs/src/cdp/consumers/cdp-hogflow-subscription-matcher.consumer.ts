@@ -805,8 +805,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    // A lookup error fails the batch. Skipping the message instead would lose the event. The wait or
-    // conversion goal that the event should satisfy would then time out.
     private async parseMatcherBatch(
         messages: Message[],
         errorLog: string,
@@ -816,6 +814,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             errorLog,
             parse,
             onInvalidTeamId: () => counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc(),
+            // Do not catch a lookup error here. A skipped event leaves the wait or conversion goal that it
+            // should satisfy to time out.
             loadTeam: async (teamId) => {
                 // The vast majority of messages belong to teams with no wait_until_condition step and
                 // no conversion goal. Bail on those via the in-memory hogflow cache before paying for

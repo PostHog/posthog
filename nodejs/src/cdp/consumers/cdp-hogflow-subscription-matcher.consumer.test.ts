@@ -11,6 +11,7 @@ import * as posthogUtils from '~/common/utils/posthog'
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
+import { counterParseError } from './metrics'
 
 jest.mock('./cdp-base.consumer', () => {
     return {
@@ -1342,9 +1343,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 good: rawInternalEvent(),
             },
         ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good }) => {
+            const invalidTeamIdParseErrors = async (): Promise<number> =>
+                (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+            const parseErrorsBefore = await invalidTeamIdParseErrors()
+
             const result = await (matcher as any)[parse]([bad, good])
 
             expect(result).toHaveLength(1)
+            // The matcher counts an invalid team id under its own skip counter. Alerts read cdp_function_parse_error.
+            expect(await invalidTeamIdParseErrors()).toBe(parseErrorsBefore)
         })
 
         const streams = [

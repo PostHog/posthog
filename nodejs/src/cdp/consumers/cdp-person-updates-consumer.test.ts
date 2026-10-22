@@ -74,6 +74,14 @@ describe('CDP Person Updates Consumer', () => {
             expect(events).toHaveLength(0)
         })
 
+        it('should ignore a message for a team with no person-updates destination', async () => {
+            jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam').mockResolvedValue([
+                { ...hogFunction, filters: { ...hogFunction.filters, source: 'events' } },
+            ])
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(team.id, {}))])
+            expect(events).toHaveLength(0)
+        })
+
         const lookupError = new Error('canceling statement due to conflict with recovery')
 
         it.each([
