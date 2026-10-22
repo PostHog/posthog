@@ -201,7 +201,7 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
     }),
 
     // Before selectors, because selectedImpact reads scopeImpacts.
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         scopeImpacts: [
             null as ScopeImpacts | null,
             {
@@ -225,13 +225,18 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
                         return null
                     }
                     const projectId = String(teamLogic.values.currentProjectId)
-                    const created: ErrorTrackingSuppressionRuleApi[] = []
+                    // When a request fails part way, a retry must not create the earlier rules a second time.
+                    const created: Map<string, ErrorTrackingSuppressionRuleApi> = (cache.createdRules ??= new Map())
                     for (const filters of values.selectedOption.rules) {
-                        created.push(
-                            await errorTrackingSuppressionRulesCreate(projectId, { filters, sampling_rate: 1 })
-                        )
+                        const key = JSON.stringify(filters)
+                        if (!created.has(key)) {
+                            created.set(
+                                key,
+                                await errorTrackingSuppressionRulesCreate(projectId, { filters, sampling_rate: 1 })
+                            )
+                        }
                     }
-                    return created
+                    return values.selectedOption.rules.map((filters) => created.get(JSON.stringify(filters))!)
                 },
             },
         ],
@@ -295,6 +300,7 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
                 }
             },
             openSuggestion: ({ snapshots, scope }) => {
+                cache.createdRules = undefined
                 posthog.capture('error_tracking_suppress_similar_shown', {
                     issue_count: snapshots.length,
                     recommended_scope: scope,

@@ -54,12 +54,17 @@ const VARIABLE_PART_REGEX: Record<Exclude<MessageSegmentKind, 'literal'>, string
     id: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
     hex: '(?:0[xX])?[0-9a-fA-F]+',
     // Not `\d`, because the Rust regex crate in cymbal reads it as any Unicode digit.
-    number: '[0-9]+(?:\\.[0-9]+)?',
+    number: '[0-9]+(?:\\.[0-9]+)*',
 }
 
+// hogvm in cymbal caches compiled patterns up to this many bytes and recompiles longer ones on every event.
+const MAX_CACHED_PATTERN_LENGTH = 1024
+
 // A number may run into a unit ("3000ms"), so it has no trailing word boundary. The leading one keeps "utf8" intact.
+// A dotted run such as "1.2.3" is one number. Two number patterns next to each other would make
+// posthog-js backtrack exponentially on a long run that does not match.
 const VARIABLE_PART =
-    /(?<id>\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)|(?<hex>\b0x[0-9a-f]+\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{16,}\b)|(?<number>\b\d+(?:\.\d+)?)/gi
+    /(?<id>\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)|(?<hex>\b0x[0-9a-f]+\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{16,}\b)|(?<number>\b\d+(?:\.\d+)*)/gi
 
 function escapeRegexLiteral(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -117,25 +122,75 @@ export function generalizeExceptionMessage(message: string): GeneralizedMessage 
     return { regex, segments }
 }
 
-function messagePatterns(messages: string[]): GeneralizedMessage[] {
-    // A message with no variable parts still joins the pattern as an escaped literal.
-    return Array.from(
-        new Map(
-            messages.map((message): [string, GeneralizedMessage] => {
-                const resolved = generalizeExceptionMessage(message) ?? {
-                    regex: escapeRegexLiteral(message),
-                    segments: literal(message),
-                }
-                return [resolved.regex, resolved]
-            })
-        ).values()
-    )
+interface PatternWithSources {
+    pattern: GeneralizedMessage
+    messages: string[]
+}
+
+function messagePatterns(messages: string[]): PatternWithSources[] {
+    const byRegex = new Map<string, PatternWithSources>()
+    for (const message of messages) {
+        // A message with no variable parts still joins the pattern as an escaped literal.
+        const pattern = generalizeExceptionMessage(message) ?? {
+            regex: escapeRegexLiteral(message),
+            segments: literal(message),
+        }
+        const existing = byRegex.get(pattern.regex)
+        byRegex.set(pattern.regex, { pattern, messages: [...(existing?.messages ?? []), message] })
+    }
+    return Array.from(byRegex.values())
+}
+
+function byteLength(text: string): number {
+    return new TextEncoder().encode(text).length
 }
 
 function anchoredAlternation(patterns: GeneralizedMessage[]): string {
     return patterns.length === 1
         ? `^${patterns[0].regex}$`
         : `^(?:${patterns.map((pattern) => pattern.regex).join('|')})$`
+}
+
+interface SimilarRules {
+    rules: SuppressionFilterGroup[]
+    messages: MessageSegment[][]
+}
+
+function similarRules(typeFilters: SuppressionEventFilter[], messages: string[]): SimilarRules {
+    const rules: SuppressionFilterGroup[] = []
+    const shown: MessageSegment[][] = []
+    const exactMessages: string[] = []
+    let chunk: GeneralizedMessage[] = []
+    const flush = (): void => {
+        if (chunk.length > 0) {
+            rules.push(
+                filterGroup([
+                    ...typeFilters,
+                    eventFilter('$exception_values', PropertyOperator.Regex, anchoredAlternation(chunk)),
+                ])
+            )
+            chunk = []
+        }
+    }
+    for (const { pattern, messages: sources } of messagePatterns(messages)) {
+        if (byteLength(anchoredAlternation([pattern])) > MAX_CACHED_PATTERN_LENGTH) {
+            exactMessages.push(...sources)
+            shown.push(...sources.map(literal))
+            continue
+        }
+        if (byteLength(anchoredAlternation([...chunk, pattern])) > MAX_CACHED_PATTERN_LENGTH) {
+            flush()
+        }
+        chunk.push(pattern)
+        shown.push(pattern.segments)
+    }
+    flush()
+    if (exactMessages.length > 0) {
+        rules.push(
+            filterGroup([...typeFilters, eventFilter('$exception_values', PropertyOperator.Exact, exactMessages)])
+        )
+    }
+    return { rules, messages: shown }
 }
 
 export function buildScopeOptions(snapshots: SuppressedIssueSnapshot[]): SuppressScopeOption[] {
@@ -151,6 +206,7 @@ export function buildScopeOptions(snapshots: SuppressedIssueSnapshot[]): Suppres
     const typeFilters = (type: string | null): SuppressionEventFilter[] =>
         type ? [eventFilter('$exception_types', PropertyOperator.Exact, [type])] : []
     const messages = distinctNonEmpty(groups.flatMap(([, groupMessages]) => groupMessages))
+    const similar = groups.map(([type, groupMessages]) => similarRules(typeFilters(type), groupMessages))
     const noMessageReason = snapshots.length === 1 ? 'This issue has no message' : 'These issues have no message'
 
     return [
@@ -167,17 +223,8 @@ export function buildScopeOptions(snapshots: SuppressedIssueSnapshot[]): Suppres
         },
         {
             key: 'similar',
-            rules: groups.map(([type, groupMessages]) =>
-                filterGroup([
-                    ...typeFilters(type),
-                    eventFilter(
-                        '$exception_values',
-                        PropertyOperator.Regex,
-                        anchoredAlternation(messagePatterns(groupMessages))
-                    ),
-                ])
-            ),
-            messages: messagePatterns(messages).map((pattern) => pattern.segments),
+            rules: similar.flatMap((group) => group.rules),
+            messages: similar.flatMap((group) => group.messages),
             unavailableReason:
                 messages.length === 0
                     ? noMessageReason

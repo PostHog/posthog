@@ -1,3 +1,5 @@
+import { PropertyOperator } from '~/types'
+
 import {
     SuppressedIssueSnapshot,
     buildScopeOptions,
@@ -127,5 +129,50 @@ describe('suppressSimilarScopes', () => {
             exceptionType: expected,
             exceptionMessage: expected,
         })
+    })
+
+    it('reads a dotted run of numbers as one placeholder', () => {
+        const generalized = generalizeExceptionMessage('Upgrade to 1.2.3.4 failed')!
+        expect(generalized.segments.filter((segment) => segment.kind === 'number')).toEqual([
+            { kind: 'number', text: '1.2.3.4' },
+        ])
+        expect(new RegExp(`^${generalized.regex}$`).test('Upgrade to 10.0 failed')).toBe(true)
+    })
+
+    test.each([
+        {
+            name: 'many messages split across rules',
+            messages: Array.from(
+                { length: 40 },
+                (_, index) => `Worker ${'w'.repeat(30)}${index} stopped after 5 retries`
+            ),
+            exactRules: 0,
+        },
+        {
+            name: 'a message too long for any pattern falls back to an exact match',
+            messages: [`Payload ${'x'.repeat(1100)} rejected with code 413`],
+            exactRules: 1,
+        },
+    ])('keeps every similar pattern within the regex cache limit: $name', ({ messages, exactRules }) => {
+        const similar = buildScopeOptions(
+            messages.map((exceptionMessage, index) => snapshot({ id: `issue-${index}`, exceptionMessage }))
+        ).find((option) => option.key === 'similar')!
+        const messageFilters = similar.rules.map(
+            (rule) => rule.values.find((filter) => filter.key === '$exception_values')!
+        )
+        const regexes = messageFilters
+            .filter((filter) => filter.operator === PropertyOperator.Regex)
+            .map((filter) => String(filter.value))
+        expect(regexes.every((regex) => new TextEncoder().encode(regex).length <= 1024)).toBe(true)
+        expect(messageFilters.filter((filter) => filter.operator === PropertyOperator.Exact)).toHaveLength(exactRules)
+        expect(
+            messages.every(
+                (message) =>
+                    regexes.some((regex) => new RegExp(regex).test(message)) ||
+                    messageFilters.some(
+                        (filter) => filter.operator === PropertyOperator.Exact && filter.value.includes(message)
+                    )
+            )
+        ).toBe(true)
     })
 })
