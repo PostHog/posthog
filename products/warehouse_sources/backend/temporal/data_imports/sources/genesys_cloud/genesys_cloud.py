@@ -163,7 +163,8 @@ def _query_user_window(
         total_hits = int(data.get("totalHits") or 0)
         user_details = data.get("userDetails") or []
         rows = [row for detail in user_details for row in _status_rows(detail, start, end, include_earlier)]
-        is_last_page = len(user_details) < ANALYTICS_PAGE_SIZE or page_number * ANALYTICS_PAGE_SIZE >= total_hits
+        # Genesys Cloud can return short pages before the last one, so only totalHits ends the window.
+        is_last_page = not user_details or page_number * ANALYTICS_PAGE_SIZE >= total_hits
         yield rows, (end if is_last_page else None)
         if is_last_page:
             return
@@ -231,7 +232,8 @@ def _iter_analytics_rows(
         start = now - INITIAL_HISTORY
 
     url = f"{base_url}{config.path}"
-    first_window = True
+    # A resumed run already emitted the records that started before its checkpoint.
+    first_window = resume is None or not resume.window_start
     while start < now:
         window_end = min(start + ANALYTICS_WINDOW, now)
         pages = (

@@ -165,42 +165,60 @@ class TestAnalyticsEndpoints:
         ]
         assert all(row["conversationStart"] == "2026-03-10T11:00:00.000Z" for row in result.rows)
 
-    def test_user_status_records_are_emitted_once_per_run(self):
-        start = NOW - timedelta(hours=30)
+    @pytest.mark.parametrize("resumed", [False, True])
+    def test_user_status_records_are_emitted_once_per_run(self, resumed):
+        watermark = NOW - timedelta(hours=1)
+        start = watermark - genesys_cloud.INCREMENTAL_LOOKBACK
         second_window = start + genesys_cloud.ANALYTICS_WINDOW
 
         def record(at: datetime, **fields: Any) -> dict[str, Any]:
             return {"startTime": at.strftime("%Y-%m-%dT%H:%M:%S.000Z"), **fields}
 
-        long_offline = record(start - timedelta(days=3), systemPresence="OFFLINE")
+        def page(total_hits: int, *details: dict[str, Any]) -> ScriptedResponse:
+            return ScriptedResponse(json={"totalHits": total_hits, "userDetails": list(details)})
+
         spans_windows = record(second_window - timedelta(hours=1), routingStatus="IDLE")
-        windows = [
-            {
-                "userId": "u1",
-                "primaryPresence": [long_offline, record(start + timedelta(hours=1), systemPresence="AVAILABLE")],
-                "routingStatus": [spans_windows, record(second_window + timedelta(hours=1), routingStatus="IDLE")],
-            },
-            {
-                "userId": "u1",
-                "primaryPresence": [record(second_window + timedelta(hours=2), systemPresence="BUSY")],
-                "routingStatus": [spans_windows, {"routingStatus": "OFF_QUEUE"}],
-            },
-        ]
+        first_window_users = {
+            "userId": "u1",
+            "primaryPresence": [
+                record(start - timedelta(days=3), systemPresence="OFFLINE"),
+                record(start + timedelta(hours=1), systemPresence="AVAILABLE"),
+            ],
+            "routingStatus": [spans_windows, record(second_window + timedelta(hours=1), routingStatus="IDLE")],
+        }
+        second_window_users = {
+            "userId": "u1",
+            "primaryPresence": [record(second_window + timedelta(hours=2), systemPresence="BUSY")],
+            "routingStatus": [spans_windows, {"routingStatus": "OFF_QUEUE"}],
+        }
 
         result = _driver().run(
             "user_status_history",
-            [TOKEN, *[ScriptedResponse(json={"totalHits": 1, "userDetails": [detail]}) for detail in windows]],
-            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()),
+            [
+                TOKEN,
+                page(101, first_window_users),
+                page(
+                    101, {"userId": "u2", "routingStatus": [record(start + timedelta(hours=2), routingStatus="IDLE")]}
+                ),
+                page(1, second_window_users),
+                page(0),
+            ],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()) if resumed else None,
+            incremental_field="startTime",
+            db_incremental_field_last_value=watermark,
         )
 
         assert result.raised is None
         assert result.response is not None and result.response.sort_mode is None
-        assert [request.path for request in result.requests[1:]] == ["/api/v2/analytics/users/details/query"] * 2
+        assert [request.path for request in result.requests[1:]] == ["/api/v2/analytics/users/details/query"] * 4
+        assert [request.json()["paging"]["pageNumber"] for request in result.requests[1:]] == [1, 2, 1, 1]
+        carried_over = [] if resumed else [("u1", "presence", "2026-03-05T11:00:00.000Z")]
         assert [(row["userId"], row["recordType"], row["startTime"]) for row in result.rows] == [
-            ("u1", "presence", "2026-03-06T06:00:00.000Z"),
-            ("u1", "presence", "2026-03-09T07:00:00.000Z"),
-            ("u1", "routing_status", "2026-03-10T05:00:00.000Z"),
-            ("u1", "presence", "2026-03-10T08:00:00.000Z"),
+            *carried_over,
+            ("u1", "presence", "2026-03-08T12:00:00.000Z"),
+            ("u1", "routing_status", "2026-03-09T10:00:00.000Z"),
+            ("u2", "routing_status", "2026-03-08T13:00:00.000Z"),
+            ("u1", "presence", "2026-03-09T13:00:00.000Z"),
         ]
 
 
