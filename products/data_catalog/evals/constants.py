@@ -453,7 +453,57 @@ INJECTION_LEDGER_STATUS_DESCRIPTION = (
 # Status 2 is number % 3 == 1 over numbers(31): 1, 4, ..., 28.
 INJECTION_LEDGER_REFUNDED_COUNT = 10
 
-ANNOTATION_WRITE_TABLE_NAME = "eval_catalog_crm_deals"
-ANNOTATION_WRITE_COLUMN = "stage_code"
+# Connected-source arms. A sync writes canonical annotations for every column its source documents, so these
+# descriptions are copied from that source's canonical_descriptions.py and seeded as canonical, not user-edited.
+SYNCED_INVOICES_SCHEMA_NAME = "invoices"
+SYNCED_INVOICES_TABLE_NAME = "adobecommerce_invoices"
+SYNCED_INVOICES_DESCRIPTIONS = {
+    "": "Invoices issued against orders, recording the amounts captured for a set of order line items.",
+    "entity_id": "Internal numeric identifier of the invoice.",
+    "increment_id": "Human-readable invoice number.",
+    "order_id": "Identifier of the order the invoice belongs to.",
+    "state": "Invoice state (1 = pending, 2 = paid, 3 = canceled).",
+    "base_grand_total": "Invoice grand total in the store's base currency.",
+}
+# (entity_id, increment_id, order_id, state, base_grand_total). State 1 sums to 645.00 and state 3 to 200.50, so an
+# agent that guesses "1 = paid" or sums every invoice gives a different answer from the paid total.
+SYNCED_INVOICES_ROWS = (
+    (101, "000000101", 5001, 2, 120.00),
+    (102, "000000102", 5002, 1, 60.00),
+    (103, "000000103", 5003, 3, 150.00),
+    (104, "000000104", 5004, 2, 89.50),
+    (105, "000000105", 5005, 1, 410.50),
+    (106, "000000106", 5006, 2, 252.50),
+    (107, "000000107", 5007, 3, 32.50),
+    (108, "000000108", 5008, 1, 75.00),
+    (109, "000000109", 5009, 2, 45.50),
+    (110, "000000110", 5010, 1, 99.50),
+    (111, "000000111", 5011, 3, 18.00),
+    (112, "000000112", 5012, 2, 305.00),
+)
+SYNCED_INVOICES_PAID_TOTAL = "812.50"
+
+ANNOTATION_WRITE_SCHEMA_NAME = "deals"
+ANNOTATION_WRITE_TABLE_NAME = "hubspot_deals"
+ANNOTATION_WRITE_COLUMN = "dealstage"
+ANNOTATION_WRITE_DESCRIPTIONS = {
+    "": "A sales opportunity or transaction tracked through a pipeline in HubSpot CRM.",
+    "hs_object_id": "HubSpot's unique internal identifier for the deal.",
+    "dealname": "The name of the deal.",
+    "amount": "The total monetary value of the deal.",
+    "dealstage": "The deal's current stage within its pipeline.",
+    "pipeline": "The pipeline the deal belongs to.",
+}
+# HubSpot gives the stages of a custom pipeline numeric IDs, and the canonical description cannot say what they mean.
+ANNOTATION_WRITE_WON_STAGE = "1129847"
+ANNOTATION_WRITE_LOST_STAGE = "1129848"
+# (hs_object_id, dealname, amount, dealstage, pipeline)
+ANNOTATION_WRITE_ROWS = (
+    ("9001", "Acme renewal", 12000, ANNOTATION_WRITE_WON_STAGE, "88214503"),
+    ("9002", "Globex expansion", 8500, ANNOTATION_WRITE_LOST_STAGE, "88214503"),
+    ("9003", "Initech pilot", 4000, "appointmentscheduled", "88214503"),
+    ("9004", "Umbrella upgrade", 15000, ANNOTATION_WRITE_WON_STAGE, "88214503"),
+    ("9005", "Hooli onboarding", 6200, "qualifiedtobuy", "88214503"),
+)
 # Terms the saved description must carry, so a write that drops either stage meaning fails the case.
-ANNOTATION_WRITE_REQUIRED_TERMS = ("7", "won", "8", "lost")
+ANNOTATION_WRITE_REQUIRED_TERMS = (ANNOTATION_WRITE_WON_STAGE, "won", ANNOTATION_WRITE_LOST_STAGE, "lost")

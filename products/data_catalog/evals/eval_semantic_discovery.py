@@ -11,8 +11,8 @@ from products.data_catalog.evals.constants import (
     ACCEPTED_RELATIONSHIP_TARGET_NAME,
     ANNOTATED_LEDGER_COLLECTED_USD,
     ANNOTATED_LEDGER_VIEW_NAME,
-    ANNOTATION_WRITE_COLUMN,
-    ANNOTATION_WRITE_TABLE_NAME,
+    ANNOTATION_WRITE_LOST_STAGE,
+    ANNOTATION_WRITE_WON_STAGE,
     CERTIFIED_SOURCE_NAME,
     DEPRECATED_SOURCE_NAME,
     DEPRECATION_CANONICAL_SOURCE_NAME,
@@ -26,6 +26,7 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
+    SYNCED_INVOICES_PAID_TOTAL,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
@@ -43,6 +44,7 @@ from products.data_catalog.evals.seeders import (
     seed_deprecation_candidate_sources,
     seed_instruction_like_column_annotation,
     seed_instruction_like_relationship_context,
+    seed_synced_invoices_table,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -129,7 +131,13 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
         SandboxedEvalCase(
             name="column_annotation_shapes_query",
             prompt=f"How much revenue did we actually collect, in dollars, according to {ANNOTATED_LEDGER_VIEW_NAME}?",
-            expected={"answer_value_stated": {"value": ANNOTATED_LEDGER_COLLECTED_USD}},
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.columns",
+                    "required_columns": ["description"],
+                },
+                "answer_value_stated": {"value": ANNOTATED_LEDGER_COLLECTED_USD},
+            },
             setup=seed_annotated_ledger_view,
         ),
         SandboxedEvalCase(
@@ -147,11 +155,25 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             setup=seed_instruction_like_column_annotation,
         ),
         SandboxedEvalCase(
+            name="canonical_annotation_shapes_query",
+            prompt="How much revenue have we collected from paid invoices in our Adobe Commerce store?",
+            # The model may know Adobe Commerce state codes already, so a correct answer alone does not show that the
+            # agent read the canonical description. The metadata check grades the read itself.
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.columns",
+                    "required_columns": ["description"],
+                },
+                "answer_value_stated": {"value": SYNCED_INVOICES_PAID_TOTAL},
+            },
+            setup=seed_synced_invoices_table,
+        ),
+        SandboxedEvalCase(
             name="save_column_annotation",
             prompt=(
-                f"Heads up: in our {ANNOTATION_WRITE_TABLE_NAME} warehouse table, {ANNOTATION_WRITE_COLUMN} 7 means "
-                "closed-won and 8 means closed-lost. Save that as the column's description in the data catalog so "
-                "future analyses read it correctly."
+                f"Heads up: in our HubSpot deals, deal stage {ANNOTATION_WRITE_WON_STAGE} means closed-won and "
+                f"{ANNOTATION_WRITE_LOST_STAGE} means closed-lost in our custom sales pipeline. Save that in the "
+                "column's description in the data catalog so future analyses read it correctly."
             ),
             expected={"column_annotation_written": {}},
             setup=seed_annotation_write_target,

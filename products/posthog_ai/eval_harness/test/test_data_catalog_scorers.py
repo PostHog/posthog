@@ -7,8 +7,10 @@ from parameterized import parameterized
 
 from products.data_catalog.evals.constants import (
     ANNOTATION_WRITE_COLUMN,
+    ANNOTATION_WRITE_LOST_STAGE,
     ANNOTATION_WRITE_REQUIRED_TERMS,
     ANNOTATION_WRITE_TABLE_NAME,
+    ANNOTATION_WRITE_WON_STAGE,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
@@ -34,11 +36,13 @@ CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.
 METRIC_NAME = "top_customers_mrr_by_business_model"
 PROPOSE_TOOL = "data-catalog-certification-propose"
 ANNOTATION_CREATE_TOOL = "warehouse-column-annotations-create"
+ANNOTATION_UPDATE_TOOL = "warehouse-column-annotations-partial-update"
 ANNOTATION_SEED = {
     "annotation_target": {
         "table_id": "deals-uuid",
         "table_name": ANNOTATION_WRITE_TABLE_NAME,
         "column_name": ANNOTATION_WRITE_COLUMN,
+        "annotation_id": "dealstage-annotation-uuid",
         "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
     }
 }
@@ -462,6 +466,8 @@ def test_deprecation_proposed(
         ("different_cents", "437.50", "Revenue was $437.55.", 0.0),
         ("integer_inside_a_larger_integer", "10", "There are 100 refunded lines.", 0.0),
         ("integer", "10", "10 lines were refunded.", 1.0),
+        ("round_value_without_decimals", "800.00", "Paid invoices total $800.", 1.0),
+        ("round_value_inside_a_larger_integer", "800.00", "Paid invoices total 8000.", 0.0),
     ]
 )
 def test_answer_value_stated(_name: str, value: str, answer: str, expected_score: float) -> None:
@@ -470,7 +476,9 @@ def test_answer_value_stated(_name: str, value: str, answer: str, expected_score
     assert score.score == expected_score
 
 
-_FULL_STAGE_DESCRIPTION = "Deal stage code: 7 = closed-won, 8 = closed-lost."
+_FULL_STAGE_DESCRIPTION = (
+    f"Deal stage: {ANNOTATION_WRITE_WON_STAGE} = closed-won, {ANNOTATION_WRITE_LOST_STAGE} = closed-lost."
+)
 
 
 @parameterized.expand(
@@ -495,7 +503,7 @@ _FULL_STAGE_DESCRIPTION = "Deal stage code: 7 = closed-won, 8 = closed-lost."
             [
                 (
                     ANNOTATION_CREATE_TOOL,
-                    {"table": "deals-uuid", "column_name": "amount_usd", "description": _FULL_STAGE_DESCRIPTION},
+                    {"table": "deals-uuid", "column_name": "amount", "description": _FULL_STAGE_DESCRIPTION},
                     "completed",
                 )
             ],
@@ -506,7 +514,11 @@ _FULL_STAGE_DESCRIPTION = "Deal stage code: 7 = closed-won, 8 = closed-lost."
             [
                 (
                     ANNOTATION_CREATE_TOOL,
-                    {"table": "deals-uuid", "column_name": ANNOTATION_WRITE_COLUMN, "description": "7 = closed-won."},
+                    {
+                        "table": "deals-uuid",
+                        "column_name": ANNOTATION_WRITE_COLUMN,
+                        "description": f"{ANNOTATION_WRITE_WON_STAGE} = closed-won.",
+                    },
                     "completed",
                 )
             ],
@@ -529,6 +541,28 @@ _FULL_STAGE_DESCRIPTION = "Deal stage code: 7 = closed-won, 8 = closed-lost."
                     {"table": "deals-uuid", "column_name": ANNOTATION_WRITE_COLUMN, "description": "Deal stage code."},
                     "completed",
                 ),
+            ],
+            0.0,
+        ),
+        (
+            "updates_the_canonical_annotation",
+            [
+                (
+                    ANNOTATION_UPDATE_TOOL,
+                    {"id": "dealstage-annotation-uuid", "description": _FULL_STAGE_DESCRIPTION},
+                    "completed",
+                )
+            ],
+            1.0,
+        ),
+        (
+            "updates_another_annotation",
+            [
+                (
+                    ANNOTATION_UPDATE_TOOL,
+                    {"id": "amount-annotation-uuid", "description": _FULL_STAGE_DESCRIPTION},
+                    "completed",
+                )
             ],
             0.0,
         ),

@@ -58,6 +58,7 @@ METRIC_RUN_TOOL = "data-catalog-metric-run"
 QUESTION_TOOL = "askuserquestion"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 COLUMN_ANNOTATION_CREATE_TOOL = "warehouse-column-annotations-create"
+COLUMN_ANNOTATION_UPDATE_TOOL = "warehouse-column-annotations-partial-update"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
 # Matches the PostHog MCP namespace across regional server names —
@@ -811,16 +812,21 @@ class AnswerValueStated(Scorer):
 
         normalized = answer.replace(",", "").replace("$", "")
         # Trailing decimal zeros are optional so that "437.5" matches "437.50". The digit guards stop "1437.50"
-        # or "437.55" from matching.
-        number = re.escape(value.rstrip("0").rstrip(".") if "." in value else value)
-        trailing_zeros = "0*" if "." in value else ""
-        pattern = rf"(?<![\d.]){number}{trailing_zeros}(?!\d)"
+        # or "437.55" from matching. The zeros may only follow the decimal point, so "800.00" does not match "8000".
+        whole, _, fraction = value.partition(".")
+        fraction = fraction.rstrip("0")
+        decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
+        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\d)"
         found = re.search(pattern, normalized) is not None
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
 
 
 class ColumnAnnotationWritten(Scorer):
-    """Binary: did the agent save a description on the seeded column that carries every required term?"""
+    """Binary: did the agent save a description on the seeded column that carries every required term?
+
+    A synced column already has a canonical annotation, so the agent can write through a create, which upserts on
+    (table, column_name), or through a partial update of that annotation by id. Either way the last write wins.
+    """
 
     def _name(self) -> str:
         return "column_annotation_written"
@@ -840,32 +846,32 @@ class ColumnAnnotationWritten(Scorer):
         if not table_id or not column_name:
             return Score(name=self._name(), score=0.0, metadata={"reason": "seed has no annotation target"})
 
-        creates = sorted(
+        annotation_id = target.get("annotation_id")
+        writes = sorted(
             (
                 call
-                for call in parser.get_tool_calls(COLUMN_ANNOTATION_CREATE_TOOL)
-                if not call.is_error and isinstance(call.input, dict)
+                for tool in (COLUMN_ANNOTATION_CREATE_TOOL, COLUMN_ANNOTATION_UPDATE_TOOL)
+                for call in parser.get_tool_calls(tool)
+                if not call.is_error and isinstance(call.input, dict) and isinstance(call.input.get("description"), str)
             ),
             key=lambda call: call.position,
         )
-        target_creates = [
+        target_writes = [
             call
-            for call in creates
-            if str(call.input.get("table")) == str(table_id) and call.input.get("column_name") == column_name
+            for call in writes
+            if (str(call.input.get("table")) == str(table_id) and call.input.get("column_name") == column_name)
+            or (annotation_id is not None and str(call.input.get("id")) == str(annotation_id))
         ]
-        if not target_creates:
+        if not target_writes:
             return Score(
                 name=self._name(),
                 score=0.0,
                 metadata={
-                    "reason": "no annotation created on the target column",
-                    "creates": [c.input for c in creates],
+                    "reason": "no description written on the target column",
+                    "writes": [c.input for c in writes],
                 },
             )
-        # Create upserts on (table, column_name), so the last create on the column is the stored description.
-        stored = target_creates[-1].input.get("description")
-        if not isinstance(stored, str):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "create carried no description"})
+        stored = target_writes[-1].input["description"]
 
         missing = [term for term in required_terms if term not in stored.casefold()]
         return Score(
