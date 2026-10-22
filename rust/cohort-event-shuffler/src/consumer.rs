@@ -342,7 +342,10 @@ impl EventShuffler {
         let source_offset = SourceOffset(offset.get_value());
         // Returning before the ledger observes the message leaves its partition uncommitted, so a
         // fixed build reads the message again.
-        let Some(envelope_partition) = self.settings.source_partitions.source_partition(partition)
+        let Some(envelope_partition) = self
+            .settings
+            .source_partitions
+            .envelope_partition(partition)
         else {
             self.handle.signal_failure(format!(
                 "input partition {} has no source_partition in this topic's range",

@@ -504,6 +504,10 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
         expected_forwardable,
         "forwards must flow before shutdown so the ledger has observed every offset",
     );
+    assert!(
+        output.iter().all(|(_, event)| event.source_partition == 0),
+        "clickhouse_events_json has slot 0, so its envelopes must carry the real input partition",
+    );
 
     // Nothing has committed the input yet (periodic tick is an hour out); the drain must.
     shutdown.cancel();

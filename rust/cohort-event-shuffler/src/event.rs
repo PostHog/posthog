@@ -43,12 +43,12 @@ impl SourcePartitionRange {
             .map(|&(_, slot)| Self { slot })
     }
 
-    /// `None` for a partition outside `0..1_000_000`, whose number would fall in another slot's
-    /// range.
-    pub fn source_partition(self, partition: SourcePartition) -> Option<i32> {
+    /// The envelope's `source_partition` for `input_partition`. `None` for a partition outside
+    /// `0..1_000_000`, whose number would fall in another slot's range.
+    pub fn envelope_partition(self, input_partition: SourcePartition) -> Option<i32> {
         (0..Self::STRIDE)
-            .contains(&partition.0)
-            .then(|| i32::from(self.slot) * Self::STRIDE + partition.0)
+            .contains(&input_partition.0)
+            .then(|| i32::from(self.slot) * Self::STRIDE + input_partition.0)
     }
 }
 
@@ -178,7 +178,7 @@ mod tests {
         ] {
             let range = SourcePartitionRange::for_input_topic(topic).unwrap();
             assert_eq!(
-                range.source_partition(SourcePartition(partition)),
+                range.envelope_partition(SourcePartition(partition)),
                 expected,
                 "{topic} partition {partition}"
             );
