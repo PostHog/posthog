@@ -13,10 +13,14 @@ from posthog.caching.warming import (
     schedule_warming_for_teams_task,
     warm_insight_cache_task,
 )
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import PropertyDefinition, User
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.scheduling.jitter import deterministic_offset
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.api import record_insight_views
@@ -256,6 +260,35 @@ class TestWarmInsightCacheTask(APIBaseTest):
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.query_creator_access.ph_scoped_capture")
+    def test_creator_who_left_the_organization_is_reported_as_an_event_instead_of_being_captured(
+        self, mock_ph_scoped_capture, mock_capture_exception
+    ):
+        feature = AvailableFeature.PROPERTY_ACCESS_CONTROL
+        self.organization.available_product_features = [{"name": feature, "key": feature}]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="secret_prop", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=property_definition, access_level=PropertyAccessLevel.NONE.value
+        )
+        former_member = User.objects.create(email="former-member@example.com")
+        insight = Insight.objects.create(
+            team=self.team, created_by=former_member, query={"kind": "HogQLQuery", "query": "select 1"}
+        )
+        capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
+
+        warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+        capture_ph_event.assert_called_once()
+        assert capture_ph_event.call_args.kwargs["event"] == "background query creator access revoked"
+        assert capture_ph_event.call_args.kwargs["properties"]["source"] == "cache_warming"
+        assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
+        assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")

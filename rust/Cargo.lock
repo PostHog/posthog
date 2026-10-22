@@ -3986,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8932,6 +8932,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3637c05577168127568a64e9dc5a6887da720efef07b3d9472d45f63ab191166"
 
 [[package]]
+name = "personhog-changelog-relay"
+version = "0.1.0"
+dependencies = [
+ "assignment-coordination",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-util",
+ "personhog-coordination",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
@@ -9179,7 +9207,6 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
- "common-kafka",
  "common-metrics",
  "futures",
  "hdrhistogram",
