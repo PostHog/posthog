@@ -621,9 +621,11 @@ export interface signalSourcesLogicMeta {
                 | 'azure_devops'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
                 | 'checkly'
+                | 'clickup'
                 | 'dixa'
                 | 'dynamics365'
                 | 'featurebase'
@@ -670,8 +672,10 @@ export interface signalSourcesLogicMeta {
                 | 'sonarqube'
                 | 'squadcast'
                 | 'tenable_vulnerability_management'
+                | 'trello'
                 | 'trigger_dev'
                 | 'uservoice'
+                | 'wrike'
                 | 'xmatters'
                 | 'zendesk'
                 | 'zoho_crm',
@@ -699,9 +703,11 @@ export interface signalSourcesLogicMeta {
                 | 'azure_devops'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
                 | 'checkly'
+                | 'clickup'
                 | 'dixa'
                 | 'dynamics365'
                 | 'featurebase'
@@ -748,8 +754,10 @@ export interface signalSourcesLogicMeta {
                 | 'sonarqube'
                 | 'squadcast'
                 | 'tenable_vulnerability_management'
+                | 'trello'
                 | 'trigger_dev'
                 | 'uservoice'
+                | 'wrike'
                 | 'xmatters'
                 | 'zendesk'
                 | 'zoho_crm',
@@ -768,9 +776,11 @@ export interface signalSourcesLogicMeta {
                 | 'azure_devops'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
                 | 'checkly'
+                | 'clickup'
                 | 'dixa'
                 | 'dynamics365'
                 | 'featurebase'
@@ -817,8 +827,10 @@ export interface signalSourcesLogicMeta {
                 | 'sonarqube'
                 | 'squadcast'
                 | 'tenable_vulnerability_management'
+                | 'trello'
                 | 'trigger_dev'
                 | 'uservoice'
+                | 'wrike'
                 | 'xmatters'
                 | 'zendesk'
                 | 'zoho_crm',
@@ -1752,8 +1764,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             tableName: string,
             fullRefresh: boolean = false
         ): Promise<void> {
-            const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
-                schema.name === tableName || schema.name.endsWith(`.${tableName}`)
+            // Case-insensitive: some sources name tables in PascalCase (e.g. BugHerd `Tasks`).
+            const wantedTable = tableName.toLowerCase()
+            const matchesTable = (schema: ExternalDataSourceSchema): boolean => {
+                const name = schema.name.toLowerCase()
+                return name === wantedTable || name.endsWith(`.${wantedTable}`)
+            }
             const matchingSchemas = sources
                 .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
                 .flatMap((source: ExternalDataSource) => source.schemas ?? [])
