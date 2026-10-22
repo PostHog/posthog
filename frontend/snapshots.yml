@@ -8235,13 +8235,13 @@ snapshots:
     products-workflows-editor-configuration-panel--conditional-branch--light:
         hash: v1.k794b7964.3691f905593cd2084ec01847e80b3eeda4c834bd1c34a9d0f37e2d36db9c5f0c.2xvXivEkevaUXKSag8wYob1Hi2ZyfxUcr7VE46qW50w
     products-workflows-editor-configuration-panel--email--dark:
-        hash: v1.k794b7964.8aa43ec8cf9ce9be4b9127e5e9f02585751dcf7a608d721a78139b6d50f7badc.MyDzRS7aT1ol1-R42vCvfzGscOB36K6P73yVH2QlFYU
+        hash: v1.k794b7964.82956ad7b49338362f216d5648ee89813a3e18e903bc45b42c07c78f1b2a8867.byfxv4NIxretK2jzWWtxLDC8JOBfVF-tTXUPEO57PJ8
     products-workflows-editor-configuration-panel--email--light:
-        hash: v1.k794b7964.b32849126a512eded3c17f06cf3195fba34be7650656fbce62eddfda536c0e23.H6EMRSeFlrHqU3mdJSV__LWPiX1U3V99mmtcop_VDp0
+        hash: v1.k794b7964.dd2c15bc5c6a886c41f24f953cd0357978914f002f42d732b842c2349c04317b.6WUo7ta3_veXnom0KzU7BZ1lUzBWNCxugxmfTVPZwlQ
     products-workflows-editor-configuration-panel--email-in-side-panel--dark:
-        hash: v1.k794b7964.11641a90642d56a19bcb4c246b090bee8afea1cbe9e8de036d99dbe0317c66b3.XvJ_Ngs1JOs6ANfMLuuunRyPQhizz_q_xQMaIO7R62I
+        hash: v1.k794b7964.b86dd0589d4176cecbfdfec32ed5fd8d9d6b4da89571a78f3d46567b13b095a7.pmXKJhqonqv2m0izV0rqZGqzaKcC7NuPqds4ykm428Y
     products-workflows-editor-configuration-panel--email-in-side-panel--light:
-        hash: v1.k794b7964.9b09c56e592e9ffc28a819d33e623f1991a51a17968df8b9496e49e01c3fa823.5ipJ50svyohjEDKIEwZ5h3fHKIwfp9esmAIbrWORhMQ
+        hash: v1.k794b7964.5148ef83b4ffa0066217d18ab900c6c7fc93e6c7024dd16c30d3adce5be0ad95.fmtMjqlnEFw4qXHvkmJrJtAAzPGgwrBGTrPYwjoQtQY
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.beabe0c2c69154a7e7b8e5709226f710bbb707c7a2a96ea3b908e7b5348ad177.l8BzDM-8b8Z6jYzADnoiRggNuU02m3lgVa6vtNm2VOw
     products-workflows-editor-configuration-panel--logs--light:
@@ -8263,9 +8263,9 @@ snapshots:
     products-workflows-editor-configuration-panel--variables--light:
         hash: v1.k794b7964.e755c7e47cc53fab702c298414df2ab452bbe7f0182475888e8d6a6614174142.NrDxyc4ZMWe9aaXccP1uyLnJoFvt5gp5UDi4IObWHJ4
     products-workflows-editor-configuration-panel--webhook--dark:
-        hash: v1.k794b7964.7110b746becc3e42efc67b87d2e61968935a2af05d7a4e938c47e09f2d848def.5qibm9YGsfhzOIfrbdusaYZEgNh_Cf69S6CQkjStRWo
+        hash: v1.k794b7964.ae40e661ff40af560a8514c23ee903b5ed2612a89d003e30ff8c8538be817241.LZP1-ccPa8UF-2g3VkEU7FCQc74H5K4qd8y7Jvfw3fc
     products-workflows-editor-configuration-panel--webhook--light:
-        hash: v1.k794b7964.57bca0d67317055160426c969f4f9c63a850a2240cda64b141e035c87dc8198a.zdBd3SBBJtGX85QCOFUw2WFRK-SoocCeTjtu__zuhVQ
+        hash: v1.k794b7964.50f31a08c94115097306a76810343499b35294055b5f6a96d8466a77ff6dd72c.KgUwEqV9D2ROlg3pazBZGDM3-z7W6595ojBL0uvLGRc
     products-workflows-editor-graph--add-on-promotion-emails--dark:
         hash: v1.k794b7964.5d37d34ca5aa7b35f278cb1bb1bb6b8546f76cb8c7cac834bc70a503adce6808.Ey0Bf5z3N1u07UPAirdjqG1c09FJDG41oVedkWmAKDE
     products-workflows-editor-graph--add-on-promotion-emails--light:
