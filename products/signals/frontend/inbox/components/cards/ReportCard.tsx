@@ -287,7 +287,7 @@ function ReportCardRaw({
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
                 timestamp on the same two vertical lines down the list. */}
             {showImpactColumn ? (
-                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
+                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel
                         time={cardTime}
