@@ -3,6 +3,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.uptime_monitoring.backend.presentation.serializers import (
+    CREATE_NULL_MESSAGE,
+    UPDATE_NULL_MESSAGE,
     CreateUptimeMonitorInputSerializer,
     UpdateUptimeMonitorInputSerializer,
 )
@@ -31,6 +33,18 @@ class TestUptimeMonitorInputValidation(SimpleTestCase):
             serializer = serializer_class(data={**base, **override})
             assert not serializer.is_valid()
             assert field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("create", CreateUptimeMonitorInputSerializer, CREATE_NULL_MESSAGE),
+            ("update", UpdateUptimeMonitorInputSerializer, UPDATE_NULL_MESSAGE),
+        ]
+    )
+    def test_null_error_says_what_to_do_instead(self, _name: str, serializer_class: type, message: str) -> None:
+        serializer = serializer_class(data={"name": None, "url": None, "interval_seconds": None})
+        assert not serializer.is_valid()
+        for field in ("name", "url", "interval_seconds"):
+            assert serializer.errors[field] == [message]
 
     def test_create_fills_defaults(self) -> None:
         serializer = CreateUptimeMonitorInputSerializer(data={"name": "Site", "url": "https://example.com"})

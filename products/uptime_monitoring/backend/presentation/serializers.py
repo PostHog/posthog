@@ -29,34 +29,37 @@ def _validate_whole_minutes(value: int) -> None:
         raise serializers.ValidationError("Must be a whole number of minutes.")
 
 
-# Update inputs use None for "keep the stored value", so an explicit null is rejected rather than ignored.
-_INPUT_KWARGS = {
-    **{
-        field: {"help_text": help_text, "allow_null": False}
-        for field, help_text in _FIELD_HELP.items()
-        if field != "url"
-    },
-    "name": {"help_text": _FIELD_HELP["name"], "allow_null": False, "max_length": 255},
-    "interval_seconds": {
-        "help_text": _FIELD_HELP["interval_seconds"],
-        "min_value": MIN_INTERVAL_SECONDS,
-        "max_value": MAX_INTERVAL_SECONDS,
-        "validators": [_validate_whole_minutes],
-        "allow_null": False,
-    },
-    "timeout_seconds": {
-        "help_text": _FIELD_HELP["timeout_seconds"],
-        "min_value": MIN_TIMEOUT_SECONDS,
-        "max_value": MAX_TIMEOUT_SECONDS,
-        "allow_null": False,
-    },
-}
+CREATE_NULL_MESSAGE = "Can't be null. Send a value for this field."
+# Update inputs use None for "keep the stored value", so an explicit null is rejected rather than silently ignored.
+UPDATE_NULL_MESSAGE = "Can't be null. To keep the current value, leave this field out of the request."
 
 
-def _url_field(required: bool) -> serializers.CharField:
+def _input_kwargs(null_message: str) -> dict[str, dict]:
+    not_null = {"allow_null": False, "error_messages": {"null": null_message}}
+    return {
+        **{field: {"help_text": help_text, **not_null} for field, help_text in _FIELD_HELP.items() if field != "url"},
+        "name": {"help_text": _FIELD_HELP["name"], "max_length": 255, **not_null},
+        "interval_seconds": {
+            "help_text": _FIELD_HELP["interval_seconds"],
+            "min_value": MIN_INTERVAL_SECONDS,
+            "max_value": MAX_INTERVAL_SECONDS,
+            "validators": [_validate_whole_minutes],
+            **not_null,
+        },
+        "timeout_seconds": {
+            "help_text": _FIELD_HELP["timeout_seconds"],
+            "min_value": MIN_TIMEOUT_SECONDS,
+            "max_value": MAX_TIMEOUT_SECONDS,
+            **not_null,
+        },
+    }
+
+
+def _url_field(required: bool, null_message: str) -> serializers.CharField:
     return serializers.CharField(
         max_length=2048,
         required=required,
+        error_messages={"null": null_message},
         validators=[URLValidator(schemes=["http", "https"])],
         help_text=_FIELD_HELP["url"],
     )
@@ -75,16 +78,16 @@ class UptimeMonitorSerializer(DataclassSerializer):
 
 
 class CreateUptimeMonitorInputSerializer(DataclassSerializer):
-    url = _url_field(required=True)
+    url = _url_field(required=True, null_message=CREATE_NULL_MESSAGE)
 
     class Meta:
         dataclass = CreateUptimeMonitorInput
-        extra_kwargs = _INPUT_KWARGS
+        extra_kwargs = _input_kwargs(CREATE_NULL_MESSAGE)
 
 
 class UpdateUptimeMonitorInputSerializer(DataclassSerializer):
-    url = _url_field(required=False)
+    url = _url_field(required=False, null_message=UPDATE_NULL_MESSAGE)
 
     class Meta:
         dataclass = UpdateUptimeMonitorInput
-        extra_kwargs = _INPUT_KWARGS
+        extra_kwargs = _input_kwargs(UPDATE_NULL_MESSAGE)
