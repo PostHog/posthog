@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo, IconLaptop } from '@posthog/icons'
+
 import {
+    Badge,
     Button,
     Dialog,
     DialogBody,
@@ -13,8 +16,15 @@ import {
     FieldLegend,
     FieldSet,
     RadioGroup,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from 'lib/ui/quill'
 
+import {
+    CLIENT_RULE_PUBLIC_NOTE,
+    getEvalMode,
+} from '../../scenes/ErrorTrackingConfigurationScene/suppression_rules/EvaluationIndicator'
 import { errorTrackingEditAccessDisabledReason } from '../../utils'
 import { SuppressScopeChoice } from './SuppressScopeChoice'
 import { suppressSimilarIssuesLogic } from './suppressSimilarIssuesLogic'
@@ -34,6 +44,7 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
     const { selectScope, createRules, dismissSuggestion } = useActions(suppressSimilarIssuesLogic)
 
     const multiple = snapshots.length > 1
+    const runsInSdk = !!selectedOption?.rules.some((rule) => getEvalMode(rule) !== 'server')
     const titles: Record<SuppressScopeKey, string> = {
         exact: multiple ? 'These messages only' : 'This message only',
         similar: 'Similar messages',
@@ -52,7 +63,32 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
                 </DialogHeader>
                 <DialogBody>
                     <FieldSet>
-                        <FieldLegend variant="label">Drop new exceptions that match</FieldLegend>
+                        <FieldLegend variant="label" className="flex w-full items-center justify-between gap-2">
+                            <span>Drop new exceptions that match</span>
+                            {runsInSdk && (
+                                <span className="flex items-center gap-1">
+                                    <Badge variant="success">
+                                        <IconLaptop />
+                                        Client
+                                    </Badge>
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            render={
+                                                <Button
+                                                    variant="default"
+                                                    size="icon-xs"
+                                                    aria-label="Who can read this rule"
+                                                    data-attr="error-tracking-suppress-similar-public-note"
+                                                />
+                                            }
+                                        >
+                                            <IconInfo />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs">{CLIENT_RULE_PUBLIC_NOTE}</TooltipContent>
+                                    </Tooltip>
+                                </span>
+                            )}
+                        </FieldLegend>
                         <RadioGroup
                             value={selectedScope}
                             onValueChange={(scope) => selectScope(scope as SuppressScopeKey)}
