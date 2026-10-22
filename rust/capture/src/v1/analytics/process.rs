@@ -1243,6 +1243,7 @@ mod tests {
     };
     use crate::v1::types::Destination;
     use crate::v1::Error;
+    use rstest::rstest;
 
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
@@ -3243,9 +3244,15 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::analytics(CaptureMode::Events)]
+    #[case::ai(CaptureMode::Ai)]
     #[tokio::test]
-    async fn process_batch_keeps_first_duplicate_with_its_own_result() {
-        let state = crate::v1::test_utils::TestStateBuilder::new().build().state;
+    async fn process_batch_keeps_first_duplicate_with_its_own_result(#[case] mode: CaptureMode) {
+        let state = crate::v1::test_utils::TestStateBuilder::new()
+            .with_capture_mode(mode)
+            .build()
+            .state;
         let mut ctx = test_utils::test_analytics_context();
         // The first copy is invalid, so its own drop must survive alongside the count.
         let (mut first, second) = test_utils::realistic_dup_uuid_pair();
