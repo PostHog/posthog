@@ -155,7 +155,7 @@ describe('emailDomainWizardLogic', () => {
             '  ',
             '',
             ' ',
-            { name: 'Acme', email: 'hello@mail.acme.com' },
+            { name: 'MockHog', email: 'hello@mail.acme.com' },
         ],
     ])('creates the sender with %s', async (_name, typedName, typedLocalPart, typedReplyTo, config) => {
         const logic = mountWizard()
