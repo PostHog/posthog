@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { AnotherDomainInput } from '../components/AnotherDomainInput'
 import { BigAction } from '../components/BigAction'
 import { DomainCard } from '../components/DomainCard'
+import { LocalProviderPicker } from '../components/LocalProviderPicker'
 import { SendingAddressCard } from '../components/SendingAddressCard'
 import { StepHeading } from '../components/StepHeading'
 import { EmailDomainWizardLogicProps, emailDomainWizardLogic } from '../emailDomainWizardLogic'
@@ -93,6 +94,7 @@ export function DomainStep(props: EmailDomainWizardLogicProps): JSX.Element {
             {selectedDomain ? (
                 <>
                     <SendingAddressCard {...props} />
+                    <LocalProviderPicker {...props} />
                     <CreateSender {...props} />
                 </>
             ) : (
