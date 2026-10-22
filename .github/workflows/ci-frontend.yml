@@ -1154,7 +1154,6 @@ jobs:
               run: |
                   uv run --script .github/scripts/report_test_timings.py \
                       --runner=jest \
-                      --signals-only \
                       ./junit-artifacts
 
     calculate-running-time:

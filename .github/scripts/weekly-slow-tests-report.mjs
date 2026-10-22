@@ -8,8 +8,8 @@
 //
 //   GHA cron ──> HogQL over posthog.trace_spans + GitHub commits API ──> Slack
 //
-// Known data gap: frontend CI emits failing jest spans only (--signals-only), so the
-// table is pytest-only until that emitter reports slow passing tests too.
+// Frontend CI emits passing Jest spans above the timing reporter's threshold so the
+// report can rank Jest and pytest tests together.
 
 import { pathToFileURL } from 'node:url'
 
@@ -309,7 +309,7 @@ function buildBlocks(now, rows) {
             elements: [
                 {
                     type: 'mrkdwn',
-                    text: "p50 is the median wall time across the week's CI builds. No slow Jest rows yet: frontend CI reports failing test spans only.",
+                    text: "p50 is the median wall time across the week's CI builds. Jest and pytest tests appear when they meet the CI timing threshold.",
                 },
             ],
         },
