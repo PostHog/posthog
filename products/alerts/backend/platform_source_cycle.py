@@ -18,10 +18,10 @@ same set of checks.
 
 import time
 import asyncio
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Final
+from typing import Any, Final
 
 from django.conf import settings
 
@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import skip_because_of_weekend
+from posthog.tasks.alerts.utils import RenderedInsightChart, render_alert_insight_chart, skip_because_of_weekend
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -516,6 +516,7 @@ def _decide(
         now=now,
         value=result.value,
         query_duration_ms=duration_ms,
+        firing=(alert, result.breaches or []),
     )
 
 
@@ -589,6 +590,11 @@ _FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CO
 # The one label a grouped insight alert splits on: each breakdown value is a group.
 BREAKDOWN_GROUPING_KEY = "breakdown"
 
+# How much of what a check found one group's detail keeps. Production lists one breach per series,
+# and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
+MAX_DETAIL_BREACHES: Final = 10
+MAX_BREACH_CHARS: Final = 500
+
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
 # production alert never reaches here, because `_decide` records that check without a query.
@@ -635,6 +641,30 @@ def _decide_grouped(
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
+    if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
+        # The row `decide_groups` judged for each key: the first, unless a later one breaches and it did not.
+        breaches: dict[str, list[str]] = {}
+        for series in evaluated.series:
+            key, found = bounded_grouping_key(series.identity), series.result.breaches or []
+            if key not in breaches or (found and not breaches[key]):
+                breaches[key] = found
+        # One render serves every value that fires, because they all show the same insight.
+        chart = _chart(check, alert)
+        decision = replace(
+            decision,
+            verdicts=tuple(
+                replace(
+                    verdict,
+                    group=replace(
+                        verdict.group,
+                        source_detail=_detail(breaches.get(verdict.group.grouping_key, []), chart),
+                    ),
+                )
+                if verdict.outcome.notification == NotificationAction.FIRE
+                else verdict
+                for verdict in decision.verdicts
+            ),
+        )
     return decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
@@ -642,6 +672,36 @@ def _decide_grouped(
         query_duration_ms=duration_ms,
         results_cut=evaluated.truncated,
     )
+
+
+def _firing_detail(
+    check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
+) -> dict[str, Any]:
+    """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
+    return _detail(breaches, _chart(check, alert))
+
+
+def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
+    # A render takes up to a minute and a half, so only an alert the platform delivers for pays
+    # for one. Production renders no chart for a real-time alert either.
+    if check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME:
+        return render_alert_insight_chart(alert)
+    return None
+
+
+def _clipped(breach: str) -> str:
+    return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
+
+
+def _detail(breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+    # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
+    detail: dict[str, Any] = {"breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]]}
+    if chart is not None:
+        # The ids rather than a URL, because the URL opens the chart without a login and history keeps
+        # this for its whole retention. A delivery mints the URL when it sends.
+        detail["insight_chart_asset_id"] = chart.asset_id
+        detail["insight_chart_render_user_id"] = chart.render_user_id
+    return detail
 
 
 def _verdict(
@@ -653,8 +713,14 @@ def _verdict(
     value: float | None = None,
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
+    firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    source_detail = (
+        _firing_detail(check, *firing)
+        if firing is not None and outcome.notification == NotificationAction.FIRE
+        else None
+    )
     return _recorded(
         check,
         snapshot,
@@ -667,6 +733,7 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
+        source_detail=source_detail,
     )
 
 
@@ -708,6 +775,7 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
+    source_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
@@ -738,4 +806,5 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         disable=disable,
         skipped=skipped,
+        source_detail=source_detail,
     )
