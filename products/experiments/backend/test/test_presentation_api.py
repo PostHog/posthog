@@ -1059,6 +1059,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.user.is_staff = is_staff
         self.user.save()
         experiment = self._create_experiment_with_a_pinned_condition(f"health-inputs-{_name}")
+        experiment.feature_flag.last_called_at = timezone.now() - timedelta(days=1)
+        experiment.feature_flag.save()
         if denied_property is not None:
             self._deny_event_property(denied_property)
         headers: dict[str, str] = {}
@@ -1085,6 +1087,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(
             [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
             [(1, "test"), (2, None)],
+        )
+        self.assertEqual(
+            (
+                inputs["flag_last_called_at"] is not None,
+                inputs["flag_called_during_run"],
+                inputs["exposure_events"]["required_flag_key"],
+            ),
+            (True, True, f"health-inputs-{_name}"),
         )
         traffic = inputs["condition_set_traffic"]
         self.assertEqual(

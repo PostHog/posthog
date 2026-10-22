@@ -45474,6 +45474,11 @@ export namespace Schemas {
       ReleaseConditions: 'release_conditions',
     } as const;
 
+    /**
+     * Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent.
+     */
+    export type ExperimentHealthInputsEventsReceived = {[key: string]: boolean};
+
     export interface ExperimentHealthInputsReleaseCondition {
       /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
       number: number;
@@ -45520,6 +45525,21 @@ export namespace Schemas {
       variants: ExperimentHealthInputsVariant[];
       /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
       split_text: string;
+    }
+
+    export interface ExperimentHealthInputsExposureEvents {
+      /**
+         * The event the exposure criteria count in place of the flag calls. Null for flag calls or an action.
+         * @nullable
+         */
+      custom_event: string | null;
+      /**
+         * The flag key the exposure query requires on the flag call events. Null for a custom event or an action.
+         * @nullable
+         */
+      required_flag_key: string | null;
+      /** The event property that holds the variant. */
+      variant_property: string;
     }
 
     export interface ExperimentHealthInputsFlagChange {
@@ -45900,6 +45920,25 @@ export namespace Schemas {
       secondary_metric_count: number;
       /** The experiment's feature flag. Null when it has none. */
       flag: ExperimentHealthInputsFlag | null;
+      /**
+         * The flag's latest recorded call, which a periodic sync of the flag call events sets. Null when the experiment has no flag, or the flag has no recorded call.
+         * @nullable
+         */
+      flag_last_called_at: string | null;
+      /**
+         * Whether PostHog has recorded any call of the flag. The flag traffic check reads it on a draft. Null when the experiment has no flag, or the organization's flag calls are stored where the checks can't read them.
+         * @nullable
+         */
+      flag_called: boolean | null;
+      /**
+         * Whether PostHog has recorded a call of the flag between launch and the end, or until now. The zero exposures check reads it to say whether the flag is called. Null before launch, after a latest call that came after the end, or when the organization's flag calls can't be read.
+         * @nullable
+         */
+      flag_called_during_run: boolean | null;
+      /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
+      exposure_events: ExperimentHealthInputsExposureEvents | null;
+      /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
+      events_received: ExperimentHealthInputsEventsReceived;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
