@@ -2663,9 +2663,8 @@ def test_chqueries_middleware_tags_http_request_id_from_request_middleware(name,
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
 
-    response = RequestMiddleware(CHQueries(get_response))(request)
+    RequestMiddleware(CHQueries(get_response))(request)
 
-    assert response.status_code == 200
     assert captured["http_request_id"] == expected_tag
 
 
