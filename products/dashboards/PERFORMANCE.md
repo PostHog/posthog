@@ -5,9 +5,10 @@ It applies to insight, text, image, button, and widget tiles.
 
 ## Understand the cost
 
-Dashboard cost depends on how often work runs, how many tiles it reaches, and how expensive each tile is.
+Dashboard cost depends on how often work runs, how many elements it reaches, and how expensive each element is.
 A small cost repeated across hundreds of tiles on every pointer event can block interaction.
 A large cost paid once can delay the start even when subsequent frames are smooth.
+Tile count alone is a weak measure. Include rendered cells, chart points, DOM nodes, observers, and retained memory.
 
 Separate the phases before choosing an optimization:
 
@@ -24,38 +25,24 @@ At 60 Hz, a frame lasts about 16.7 ms. JavaScript shares this time with browser 
 An animation frame callback schedules work before a paint; it does not make that work cheaper.
 A save request can overlap UI work. Use the browser timeline to separate server wait from work that blocks the interface.
 
-## Findings from a dense local dashboard
+## Identify the limiting resource
 
-We compared one change group at a time on a local dashboard with 89 mixed tiles.
-The browser viewport was 1504 by 1575 pixels at a device pixel ratio of 2, with no CPU throttle.
-Each run entered and exited edit mode six times, scrolled through the dashboard, then repeated the mode change three times.
-The table uses the median of those final three changes. The current implementation ranged from 156 to 179 ms to enter and 139 to 166 ms to exit across reference runs.
+The browser main thread runs input handlers, JavaScript, React commits, style calculation, layout, and paint.
+Any one of these can delay the next frame. A slow network request can delay content without blocking input.
+The two delays need different fixes.
 
-| Change removed for one run                  | Edit entry | Edit exit | Finding                                                                                                                         |
-| ------------------------------------------- | ---------: | --------: | ------------------------------------------------------------------------------------------------------------------------------- |
-| Local edit-mode state change                |     311 ms |    273 ms | State changes through the async dashboard loader caused the largest transition cost.                                            |
-| Stable tile callbacks and decorations       |     280 ms |    242 ms | New references spread a mode change into card renders.                                                                          |
-| SVG grid background                         |     278 ms |    162 ms | Thousands of grid-cell elements mainly delayed entry.                                                                           |
-| Skip save work when the layout is unchanged |     230 ms |    286 ms | Local save work delayed exit even when neither version sent a dashboard PATCH request.                                          |
-| Mount insight cards near the viewport       |     240 ms |    225 ms | Mounted insight cards rose from 2 to 49 without this limit. This run used an earlier version that unmounted cards after scroll. |
+- **CPU:** Repeated selectors, renders, data transforms, and chart drawing compete for frame time.
+- **DOM and style:** Many nodes and broad CSS changes increase style and layout work, including for content outside view.
+- **Memory:** Mounted tables, chart buffers, images, and observers remain after a scroll unless their lifecycle releases them.
+- **Network and server:** Query execution, bounded concurrency, and cache state determine when data becomes available.
+- **Scheduling:** Work that is cheap alone can cause a stall when many tiles start it in the same frame.
 
-These results measure each group's contribution to the current branch. They are not additive or a comparison against `master`.
-Fresh-load timing varied, so small differences need more evidence. At normal CPU speed, drag and resize had a median frame interval near 16.7 ms with every measured variant. The changes above mainly improved mode transitions and retained work; they did not establish a continuous-frame-rate gain.
+Measure cold and warm states separately. A fresh load can mount tiles, build caches, and initialize grid controls during the first interaction.
+A repeat gesture on the same page omits those costs. A full scroll can leave more content mounted than either state.
+Compare those states with the same viewport, data, and input gesture.
 
-A separate browser run compared the dashboard code before this PR with the current code, while both used the installed grid library version 2.3.0. The local dashboard had 89 mixed tiles. The viewport was 1504 by 1519 pixels at device pixel ratio 2, with no CPU throttle. Each variant ran three 60-frame corner resizes and three 60-frame drags.
-
-| Interaction   | Before: median / p95 frame interval | Current: median / p95 frame interval | Frames over 25 ms                  |
-| ------------- | ----------------------------------- | ------------------------------------ | ---------------------------------- |
-| Corner resize | 16.7 / 33.3–33.7 ms                 | 16.7 / 17.4–17.6 ms                  | 10 of 177 before; 0 of 177 current |
-| Drag          | 16.7 / 17.5–17.6 ms                 | 16.7 / 17.4–17.6 ms                  | 0 of 177 in both                   |
-
-The resize comparison shows fewer slow frames in this synthetic local gesture. It does not measure the grid library upgrade, slower devices, or production dashboards. Median FPS stayed near 60 in both variants, so the result is a reduction in resize frame spikes, not a median FPS increase.
-
-Removing content visibility, closed screenshot-editor deferral, the insight-card memo boundary alone, or persistent edge controls produced small or inconsistent timing differences in this setup.
-Do not rank those as proven gains without another workload that exposes their cost.
-A layout-compactor change reduced one 89-item helper call from about 0.009 to 0.002 ms in isolation. That difference alone cannot explain a visible delay.
-An isolated line-chart scale cache reduced calculation time but did not improve frame intervals, so we removed it.
-The grid-library upgrade, pointer handoff, and live chart redraw also affect correctness or visible behavior. This comparison did not isolate their performance effect.
+Optimize the user-visible result, not only one resource. Deferring mounts can shorten a frame stall but extend placeholder time.
+Virtualizing rows can reduce DOM size but change column sizing. Reducing query concurrency can protect the server but delay visible tiles.
 
 ## Limit how far state changes spread
 
@@ -63,6 +50,7 @@ React work grows with the number of components affected by a change.
 Dashboard-wide state can make every card render even when only one tile moves.
 
 - Keep transient geometry close to the grid or active tile.
+- Keep completed layout edits separate from dashboard tile data until Save. Replacing every tile on pointer release can invalidate dashboard-wide selectors and delay the next paint.
 - Separate a light geometry wrapper from expensive card content.
 - Preserve references for unchanged data, configuration, layout items, and callbacks where render boundaries depend on them.
 - Check which props actually change before adding memoization.
@@ -92,6 +80,7 @@ Deferred activation must retain the latest pointer position and wait until the g
 
 DOM size, CSS dependencies, and visible area affect style calculation, layout, paint, and compositing.
 A global class change can invalidate many tiles even when React skips their renders.
+Check third-party drag and resize code for global style changes. Recheck upstream behavior before changing a local workaround.
 
 - Inspect browser style and layout costs alongside React commits.
 - Avoid alternating geometry reads and DOM writes across tiles. Group required reads before writes.
@@ -109,22 +98,28 @@ In a vertically compacted grid, shrinking a tile from its top edge opens space a
 
 A long dashboard should avoid mounting every expensive card at initial load.
 Track DOM nodes, chart instances, observers, timers, decoded images, and memory after a full scroll and return.
+Measure edit entry after a full scroll. Dense SQL tables can make this transition slow even when the tile count is unchanged.
+Count rendered cells and DOM nodes as well as tiles. A few dense tables can cost more than many simple charts.
 
 - Mount expensive content near the viewport when the surface permits it.
 - Apply that limit to widget bodies as well as insight charts. Offscreen list widgets can retain thousands of DOM nodes.
-- Keep live widget bodies mounted because their data streams update in the component.
+- Before unmounting a live widget, preserve its data stream and recovery state outside the component.
 - Keep a card mounted after its first display if it owns saves, query results, refresh polling, or mutation recovery.
 - Release offscreen resources only after their work and state have a durable owner elsewhere.
 - Preserve active gestures, open dialogs or details, and export rendering.
 - Keep enough layout information to preserve tile positions while content is absent.
 - Render a cheap placeholder for an unmounted tile so a fast scroll never exposes an empty grid cell.
-- Avoid a second visibility delay after the tile mounts; the mount boundary already limits offscreen work.
+- When many tiles enter view together, spread expensive mounts across frames and show a useful placeholder.
+- Cancel a pending mount if its tile leaves view before the mount starts.
 - Avoid remounting neighboring content solely because its position changes.
 - Inspect existing observer sharing before introducing another observer layer.
 
 Choose the viewport margin from the tradeoff between preparation time and retained work.
 A mount-once policy delays initial cost but can still retain the entire dashboard after scrolling.
 Unmounting can also cause repeated initialization or queries; measure both resource use and revisit behavior.
+For a fast scroll jump, measure the longest frame and the time until every newly visible card displays content.
+Spreading mounts across frames can reduce one stall while increasing the time a visible card shows a placeholder.
+For virtualized tables, check column widths, pinned columns, horizontal scroll, the last row, and export.
 
 ## Make chart resize proportional to the change
 
@@ -150,6 +145,8 @@ Mode changes and virtualization must not accidentally invalidate queries or star
 - Distinguish data loading state from local interaction state.
 - Inspect request counts during mode changes, gestures, scrolling, and revisits.
 - Bound query concurrency and response processing during dashboard load or refresh.
+- Trace tile delivery, card mount, query queue wait, query execution, and result paint separately during a cold load.
+- Check whether visible tiles wait behind offscreen tiles in a bounded refresh queue.
 - Avoid unnecessary saves when no persisted state changed.
 - Preserve save errors, cancellation, and final layout correctness when moving work off the interaction path.
 - Check the local work done by an unchanged save. Zero network requests do not prove that exit is cheap.
@@ -164,10 +161,16 @@ If checks are paused, identify the unverified behavior and leave the change loca
 
 1. Define the phase and observable result: input-to-paint latency, frame intervals, long tasks, request count, or retained resources.
 2. Use invented data with representative tile types, chart complexity, dashboard length, and layout density.
+   Include dense SQL tables and tiles with different row and column counts.
 3. Record a baseline with fixed viewport, zoom, device pixel ratio, browser, and CPU settings.
 4. Use a browser trace to locate scripting, React, style, layout, paint, and network costs.
 5. Change one suspected cause. Repeat the same interaction and report variation.
-6. Stop traces and detach diagnostic sessions. Repeat timing measurements without profiling overhead.
+6. Measure pointer release separately from continuous movement. Include the synchronous work before mouse-up returns and the next paint.
+7. For a long dashboard, scroll through every tile before the gesture. Retained tables and charts can change the release cost.
+8. If release is slow, trace the final grid callback through Kea actions, reducers, selectors, React commits, and browser work. A fast grid calculation does not prove a fast commit.
+9. Compare against a temporary no-op for the suspected update, then restore it. Confirm that the measured cost belongs to that update before changing state ownership.
+10. Stop traces and detach diagnostic sessions. Repeat timing measurements without profiling overhead.
+11. Compare the first gesture after a fresh load with a repeat gesture on the same page. Record whether tiles still mount during the gesture.
 
 An A/B comparison needs a stable outcome as well as a timing difference.
 Check that both variants save, cancel, move, resize, and display charts correctly.
@@ -180,6 +183,7 @@ Check the following boundaries for interaction changes:
 - Horizontal and vertical resize, affected neighbors, and supported compaction modes.
 - A narrow scene with an open side panel, plus a wide scene.
 - A full scroll and return, including mounted content, memory, and request counts.
+- A fast jump to the middle of a cold dashboard, including frame time, placeholder duration, and query queue wait.
 - Chart line visibility throughout resize. A screenshot at rest cannot establish the absence of blank frames.
 
 Report the conditions, user-visible result, and remaining gaps.
