@@ -249,7 +249,7 @@ export function settleRequest(
     signal: AbortSignal,
     context: RemoteContext,
     deadlineMs = REQUEST_DEADLINE_MS
-): Promise<RemoteResults | null> {
+): Promise<{ results: RemoteResults; failed: boolean } | null> {
     const controller = new AbortController()
     const abort = (): void => controller.abort()
     signal.addEventListener('abort', abort, { once: true })
@@ -261,9 +261,11 @@ export function settleRequest(
     return (
         request
             .fetch(query, controller.signal, context)
-            .then((results) => settleSources(request, results))
+            .then((results) => ({ results: settleSources(request, results), failed: false }))
             // A failed source settles empty so its section never stays on skeletons.
-            .catch((error) => (isAbortError(error) && !timedOut ? null : settleSources(request, {})))
+            .catch((error) =>
+                isAbortError(error) && !timedOut ? null : { results: settleSources(request, {}), failed: true }
+            )
             .finally(() => {
                 clearTimeout(deadline)
                 signal.removeEventListener('abort', abort)

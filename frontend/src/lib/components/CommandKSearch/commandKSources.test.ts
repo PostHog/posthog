@@ -22,7 +22,7 @@ describe('settleRequest', () => {
     afterEach(() => jest.useRealTimers())
 
     test.each([
-        ['settles a stalled request empty at the deadline', false, { persons: [] }],
+        ['settles a stalled request empty at the deadline', false, { results: { persons: [] }, failed: true }],
         ['drops a request a newer query aborted', true, null],
     ])('%s', async (_, superseded, expected) => {
         const controller = new AbortController()

@@ -70,6 +70,7 @@ export interface ViewAll {
 /** What a remote section can render. Which request is in flight lives elsewhere, so starting one never re-renders. */
 export interface RemoteSlot {
     cache: Record<string, SearchItem[]>
+    failed?: Record<string, true>
 }
 
 export type RemoteSlots = Record<RemoteSource, RemoteSlot>

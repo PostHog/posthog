@@ -217,8 +217,10 @@ export interface commandKSearchLogicActions {
     }
     remoteLoaded: (
         query: string,
-        results: RemoteResults
+        results: RemoteResults,
+        failed?: boolean
     ) => {
+        failed: boolean
         query: string
         results: Partial<
             Record<
@@ -415,7 +417,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         clearQuery: true,
         syncRemote: true,
         requestStarted: (requestId: string, query: string) => ({ requestId, query }),
-        remoteLoaded: (query: string, results: RemoteResults) => ({ query, results }),
+        remoteLoaded: (query: string, results: RemoteResults, failed: boolean = false) => ({ query, results, failed }),
         showQuery: (query: SectionsQuery) => ({ query }),
         loadFolders: true,
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
@@ -466,10 +468,25 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         remote: [
             emptyRemoteSlots(),
             {
-                remoteLoaded: (state, { query, results }) => {
+                remoteLoaded: (state, { query, results, failed }) => {
                     const next = { ...state }
                     for (const [source, items] of Object.entries(results) as [RemoteSource, SearchItem[]][]) {
-                        next[source] = { cache: { ...state[source].cache, [query]: items } }
+                        const { [query]: _, ...stillFailed } = state[source].failed ?? {}
+                        next[source] = {
+                            cache: { ...state[source].cache, [query]: items },
+                            failed: failed ? { ...stillFailed, [query]: true } : stillFailed,
+                        }
+                    }
+                    return next
+                },
+                requestStarted: (state, { requestId, query }) => {
+                    const next = { ...state }
+                    for (const source of REMOTE_REQUESTS.find((request) => request.id === requestId)?.sources ?? []) {
+                        if (state[source].failed?.[query]) {
+                            const { [query]: _items, ...cache } = state[source].cache
+                            const { [query]: _failed, ...failed } = state[source].failed ?? {}
+                            next[source] = { cache, failed }
+                        }
                     }
                     return next
                 },
@@ -950,9 +967,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                             const controller = new AbortController()
                             const timer = setTimeout(() => {
                                 void settleRequest(request, query, controller.signal, values.remoteContext).then(
-                                    (results) => {
-                                        if (results && values.requestedQueries[request.id] === query) {
-                                            actions.remoteLoaded(query, results)
+                                    (settled) => {
+                                        if (settled && values.requestedQueries[request.id] === query) {
+                                            actions.remoteLoaded(query, settled.results, settled.failed)
                                         }
                                     }
                                 )
