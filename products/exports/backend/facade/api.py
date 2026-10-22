@@ -133,6 +133,10 @@ def export_limit_context(export_context: dict | None) -> LimitContext:
     return LimitContext.QUERY
 
 
+def export_prefers_recent_cache(export_context: dict | None) -> bool:
+    return (export_context or {}).get("prefer_recent_cache") is True
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
     """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
     chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
@@ -228,6 +232,7 @@ def _create_png_export_asset(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    prefer_recent_cache: bool = False,
 ) -> ExportedAsset:
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
@@ -256,6 +261,8 @@ def _create_png_export_asset(
             dashboard, "viewer"
         ):
             raise ValueError("Dashboard not found")
+    if prefer_recent_cache:
+        export_context = {**(export_context or {}), "prefer_recent_cache": True}
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -279,6 +286,7 @@ def create_png_export(
     query: dict | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    prefer_recent_cache: bool = False,
 ) -> int:
     """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
 
@@ -288,6 +296,11 @@ def create_png_export(
 
     Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
     InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
+
+    ``prefer_recent_cache`` lets a saved insight render from a recent cached result, and computes
+    and waits only when the cache is stale. The default recomputes the insight on every render.
+    Use it where a slightly older chart is acceptable and query load matters, such as link
+    previews. An ad hoc query always renders this way.
     """
     return _create_png_export_asset(
         team=team,
@@ -296,6 +309,7 @@ def create_png_export(
         export_context={"source": query} if query is not None else None,
         is_system=is_system,
         expires_after=expires_after,
+        prefer_recent_cache=prefer_recent_cache,
     ).id
 
 

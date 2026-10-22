@@ -34,6 +34,8 @@ def prepare_slack_unfurl_charts_activity(inputs: SlackAppUnfurlChartsWorkflowInp
                 query=chart.query,
                 is_system=True,
                 expires_after=expires_after,
+                # A recent cached result is fresh enough for a preview and saves a query per unfurl.
+                prefer_recent_cache=True,
             )
         except ValueError:
             continue
