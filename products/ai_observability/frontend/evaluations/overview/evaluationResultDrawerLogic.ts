@@ -185,6 +185,8 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         reloadOverview: () => {
             // The backend caches details for a few minutes, so a period read before the refresh skips that cache next.
             cache.refreshKeys = new Set([...(cache.refreshKeys ?? []), ...Object.keys(values.details)])
+            // A read still in flight started before the refresh, so its response must not land as current.
+            cache.generation = (cache.generation ?? 0) + 1
             actions.resetDetails()
         },
         trackEmptyStateAction: ({ action, state }) => {
@@ -231,6 +233,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         detailsRequested: async ({ key, evaluationId }) => {
             const { date_from, date_to } = values.request.params
             const refresh = cache.refreshKeys?.delete(key) === true
+            const generation = cache.generation ?? 0
             const result = await evaluationsOverviewDetailsRetrieve(String(values.currentTeamId), evaluationId, {
                 date_from,
                 date_to,
@@ -241,6 +244,9 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             )
             if (cache.prefetchingKey === key) {
                 cache.prefetchingKey = null
+            }
+            if (generation !== (cache.generation ?? 0)) {
+                return
             }
             if ('failure' in result) {
                 actions.loadDetailsFailure(key, result.failure)

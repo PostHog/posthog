@@ -140,6 +140,8 @@ export function EvaluationResultsTable(): JSX.Element {
                 dataSource={tableRows}
                 loading={overviewLoading}
                 rowKey="id"
+                // Each row draws a trend chart, so a long list renders one page at a time.
+                pagination={{ pageSize: 50 }}
                 nouns={['evaluation', 'evaluations']}
                 footer={
                     few && (

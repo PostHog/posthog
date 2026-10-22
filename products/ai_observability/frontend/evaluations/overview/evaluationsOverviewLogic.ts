@@ -45,6 +45,8 @@ export interface DirectoryTile {
 
 /** Several edits in a row, such as a few moves, reload the overview once. */
 const REFRESH_AFTER_CHANGE_MS = 500
+/** Several scope picks in a row, such as ticking a few evaluations, read the overview once. */
+const SCOPE_CHANGE_DEBOUNCE_MS = 300
 
 /** At or below this many evaluations, the page keeps a way to create another in view. */
 const FEW_EVALUATIONS_MAX = 3
@@ -69,8 +71,9 @@ export const OVERVIEW_DATE_OPTIONS: DateMappingOption[] = dateMapping.filter((op
 export interface OverviewPeriod {
     dateFrom: string
     dateTo: string
-    /** Length of the period, to check it against the backend's maximum. */
-    hours: number
+    /** Length of the period, to check it against the backend's maximum: calendar days for whole days, real time
+     * for instants, as the backend counts them. */
+    days: number
 }
 
 function toInstant(value: dayjs.Dayjs): string {
@@ -109,27 +112,26 @@ export function overviewPeriod(
             // Whole minutes keep the request, and so the backend's cache key, stable within a minute.
             const end = now.startOf('minute')
             const start = end.subtract(Number(rolling[1]), unit)
-            return { dateFrom: toInstant(start), dateTo: toInstant(end), hours: end.diff(start, 'hour', true) }
+            return { dateFrom: toInstant(start), dateTo: toInstant(end), days: end.diff(start, 'day', true) }
         }
         // The backend counts today as one of the days, so the range starts one day after the same day N units ago.
         const today = now.tz(timezone).startOf('day')
         const start = today.subtract(Number(rolling[1]), unit).add(1, 'day')
-        return {
-            dateFrom: start.format('YYYY-MM-DD'),
-            dateTo: today.format('YYYY-MM-DD'),
-            hours: today.endOf('day').diff(start, 'hour', true),
-        }
+        return wholeDays(start, today)
     }
     const start = resolveDate(dateFilter.dateFrom, timezone, weekStartDay)
     const end = (dateFilter.dateTo ? resolveDate(dateFilter.dateTo, timezone, weekStartDay) : null) ?? now.tz(timezone)
     if (!start) {
         return null
     }
-    return {
-        dateFrom: start.format('YYYY-MM-DD'),
-        dateTo: end.format('YYYY-MM-DD'),
-        hours: end.endOf('day').diff(start.startOf('day'), 'hour', true),
-    }
+    return wholeDays(start, end)
+}
+
+function wholeDays(start: dayjs.Dayjs, end: dayjs.Dayjs): OverviewPeriod {
+    const dateFrom = start.format('YYYY-MM-DD')
+    const dateTo = end.format('YYYY-MM-DD')
+    // Counted on UTC dates, because a local day across a daylight saving change is 23 or 25 hours long.
+    return { dateFrom, dateTo, days: dayjs.utc(dateTo).diff(dayjs.utc(dateFrom), 'day') + 1 }
 }
 
 function elapsedMs(since: number): number {
@@ -276,6 +278,9 @@ export interface evaluationsOverviewLogicActions {
     } // llmEvaluationsLogic
     deleteEvaluationSuccess: (id: string) => {
         id: string
+    } // llmEvaluationsLogic
+    loadEvaluationsFailure: () => {
+        value: true
     } // llmEvaluationsLogic
     loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => {
         evaluations: EvaluationConfig[]
@@ -507,6 +512,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 'setDates',
                 'selectDirectory',
                 'loadEvaluationsSuccess',
+                'loadEvaluationsFailure',
                 'toggleEvaluationEnabled',
                 'toggleEvaluationEnabledSuccess',
                 'toggleEvaluationEnabledFailure',
@@ -717,7 +723,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                     evaluation_ids: scopedIds ?? undefined,
                 }
                 // Without a start the backend falls back to its default period, which the date control would not show.
-                if (!period || period.hours > OVERVIEW_MAX_DAYS * 24 + 1) {
+                if (!period || period.days > OVERVIEW_MAX_DAYS) {
                     return {
                         params,
                         ready: false,
@@ -973,13 +979,14 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             }
         }
         return {
-            setPickedIds: ({ ids }) => {
+            setPickedIds: async ({ ids }, breakpoint) => {
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview scope changed', {
                     evaluation_count: ids.length,
                     directory_scoped: values.selectedDirectoryId !== null,
                     trigger: 'picker',
                 })
+                await breakpoint(SCOPE_CHANGE_DEBOUNCE_MS)
                 refresh()
             },
             selectDirectory: ({ directoryId }) => {
@@ -994,6 +1001,12 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             setDates: refresh,
             locationChanged: refresh,
             loadEvaluationsSuccess: refresh,
+            loadEvaluationsFailure: () => {
+                // A load that waited for the list has no list to resume with, so the page shows its retry.
+                if (cache.requestKey === null) {
+                    actions.setOverviewFailure('failed')
+                }
+            },
             setView: ({ view }) => {
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview view changed', { view })

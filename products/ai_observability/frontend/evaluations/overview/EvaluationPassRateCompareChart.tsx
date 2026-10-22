@@ -57,10 +57,8 @@ export function EvaluationPassRateCompareChart({ colors }: { colors: Map<string,
     }, [drawn, colors, medianTrend])
 
     const config = useMemo<TimeSeriesLineChartConfig>(() => {
-        const finite = series
-            .filter((entry) => entry.key !== MEDIAN_KEY)
-            .flatMap((entry) => entry.data)
-            .filter(Number.isFinite)
+        // The median covers every measured evaluation, not only the picked ones, so it can sit below all of them.
+        const finite = series.flatMap((entry) => entry.data).filter(Number.isFinite)
         const floor = finite.length > 0 ? Math.max(0, Math.floor((Math.min(...finite) - 5) / 10) * 10) : 0
         return {
             xAxis: { timezone, interval, ...(interval === 'hour' ? { tickFormatter: hourTick } : {}) },

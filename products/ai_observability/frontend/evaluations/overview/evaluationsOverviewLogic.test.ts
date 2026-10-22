@@ -136,6 +136,14 @@ describe('evaluationsOverviewLogic', () => {
             expected: [`${PERIOD}&evaluation_ids=eval-a`],
         },
         {
+            name: 'several scope picks in a row read once',
+            act: () => {
+                logic.actions.setPickedIds(['eval-a'])
+                logic.actions.setPickedIds(['eval-a', 'eval-b'])
+            },
+            expected: [`${PERIOD}&evaluation_ids=eval-a,eval-b`],
+        },
+        {
             name: 'date change sends the new period',
             act: () => llmEvaluationsLogic.actions.setDates('2026-09-01', '2026-09-30'),
             expected: ['date_from=2026-09-01&date_to=2026-09-30'],
@@ -154,6 +162,18 @@ describe('evaluationsOverviewLogic', () => {
             name: 'last 90 days fits the backend limit',
             act: () => llmEvaluationsLogic.actions.setDates('-90d', null),
             expected: ['date_from=2026-07-25&date_to=2026-10-22'],
+        },
+        {
+            // Clocks fall back on November 1, so these 90 days are 2161 hours long.
+            name: '90 days across a daylight saving change fit the backend limit',
+            act: () => {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    timezone: 'America/New_York',
+                })
+                llmEvaluationsLogic.actions.setDates('2026-08-05', '2026-11-02')
+            },
+            expected: ['date_from=2026-08-05&date_to=2026-11-02'],
         },
         {
             name: 'last 24 hours sends exact instants',
@@ -285,6 +305,28 @@ describe('evaluationsOverviewLogic', () => {
         expect(logic.values.overview).not.toBeNull()
     })
 
+    it('offers a retry when the list an open directory waits for fails to reload', async () => {
+        llmEvaluationsLogic.actions.selectDirectory('dir-1')
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:teamId/evaluations/': () => [500, {}] } })
+        requests = []
+
+        llmEvaluationsLogic.actions.loadEvaluations()
+        logic.actions.reloadOverview()
+        await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests).toEqual([])
+        expect(logic.values.overviewFailure).toEqual('failed')
+
+        logic.actions.loadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual([
+            `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
+        ])
+    })
+
     it('moves a rolling period up to the present on reload', async () => {
         llmEvaluationsLogic.actions.setDates('-24h', null)
         await expectLogic(logic).toFinishAllListeners()
@@ -299,16 +341,22 @@ describe('evaluationsOverviewLogic', () => {
         ])
     })
 
-    it('reads the open drawer again past the cache on reload', async () => {
+    test.each([
+        { name: 'after the first read lands', settleFirst: true },
+        { name: 'while the first read is still in flight', settleFirst: false },
+    ])('reads the open drawer again past the cache on reload $name', async ({ settleFirst }) => {
         const drawerLogic = evaluationResultDrawerLogic()
         drawerLogic.mount()
         drawerLogic.actions.openDrawer('eval-b')
-        await expectLogic(drawerLogic).toFinishAllListeners()
+        if (settleFirst) {
+            await expectLogic(drawerLogic).toFinishAllListeners()
+        }
 
         logic.actions.reloadOverview()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(drawerLogic).toFinishAllListeners()
 
         expect(detailRequests).toEqual(['eval-b', 'eval-b refresh'])
+        expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
     })
 })
