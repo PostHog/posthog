@@ -36,6 +36,14 @@ const layAcceptedSendOver = (
     },
 })
 
+export const emailPauseMetadata = (
+    hogFlow: HogFlow
+): Pick<HogFlow, 'email_sending_paused_at' | 'email_sending_paused_reason' | 'email_sending_paused_by'> => ({
+    email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
+    email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
+    email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
+})
+
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
     constructor(
@@ -79,9 +87,7 @@ export class HogFlowFunctionsService {
                 hog_flow_name: hogFlow.name,
                 hog_flow_action_name: actionName ?? null,
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
-                email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
-                email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
-                email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
+                ...emailPauseMetadata(hogFlow),
             },
         }
 
