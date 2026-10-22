@@ -134,6 +134,9 @@ TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 # `OperationalError`. A fresh query on the next sync attempt gets a new query ID, so this clears on
 # its own — not a PostHog or customer problem.
 TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
+# Trino's error name when no worker has free or healthy spill disk left. The customer's cluster ran out
+# of a resource it controls, so only the cluster owner can fix it, and a later query can succeed.
+TRINO_OUT_OF_SPILL_SPACE_ERROR = "name=OUT_OF_SPILL_SPACE"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
@@ -382,7 +385,12 @@ def discover_trino_schemas(
 
 
 def discover_trino_catalog(
-    cursor: Cursor, *, catalog: str, schema: str | None = None, names: list[str] | None = None
+    cursor: Cursor,
+    *,
+    catalog: str,
+    schema: str | None = None,
+    names: list[str] | None = None,
+    include_columns: bool = True,
 ) -> list[DiscoveredTrinoTable]:
     escaped_catalog = catalog.replace(chr(34), chr(34) * 2)
     table_query = (
@@ -409,6 +417,10 @@ def discover_trino_catalog(
 
     tables: dict[tuple[str, str], list[TrinoColumn]] = {}
     for schema_name, table_names in table_names_by_schema.items():
+        for table_name in table_names:
+            tables[(schema_name, table_name)] = []
+        if not include_columns:
+            continue
         for table_name_batch in batched(table_names, TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE, strict=False):
             placeholders = ", ".join("?" for _ in table_name_batch)
             column_query = (

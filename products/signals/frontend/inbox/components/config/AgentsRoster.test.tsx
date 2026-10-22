@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +23,25 @@ const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
 
 const EMPTY_LIST = { count: 0, next: null, previous: null, results: [] }
 
+const GITLAB_WIZARD_CONFIG = {
+    name: 'GitLab',
+    label: 'GitLab',
+    iconPath: '/static/services/gitlab.svg',
+    caption: null,
+    supportsColumnSelection: false,
+    versions: [],
+    defaultVersion: '',
+    deprecatedVersions: [],
+    fields: [{ name: 'personal_access_token', label: 'Personal access token', type: 'password', required: true }],
+}
+
+const JIRA_SOURCE = {
+    id: 'source-jira',
+    source_type: 'Jira',
+    status: 'Completed',
+    schemas: [{ id: 'schema-jira', name: 'issues', should_sync: true, sync_type: 'full_refresh' }],
+}
+
 describe('AgentsRoster', () => {
     beforeEach(() => {
         initKeaTests()
@@ -35,6 +54,8 @@ describe('AgentsRoster', () => {
                 ],
                 '/api/projects/:team_id/event_definitions/': () => [200, EMPTY_LIST],
                 '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
+                '/api/environments/:team_id/integrations/': () => [200, EMPTY_LIST],
+                '/api/projects/:team_id/external_data_sources/wizard/': () => [200, { GitLab: GITLAB_WIZARD_CONFIG }],
             },
         })
         // The roster only loads its sources behind this flag, so without it every list stays empty.
@@ -45,18 +66,41 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
-    it('renders a window of external sources and finds an unmounted source through search', async () => {
+    // The roster lists what the project runs; the other forty tools wait in the catalog. A regression
+    // that lists the whole registry again, or loses a connected tool from the roster, fails here.
+    it('lists only connected external sources, and reaches the rest through the catalog', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/': () => [
+                    200,
+                    { count: 1, next: null, previous: null, results: [JIRA_SOURCE] },
+                ],
+            },
+        })
         render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
 
-        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
-        await userEvent.click(screen.getAllByLabelText('Expand GitHub issues')[0])
-        expect(screen.getByText('Reads the GitHub issues data you sync to Data warehouse.')).toBeInTheDocument()
-        expect(screen.queryByText('GitLab')).not.toBeInTheDocument()
+        const jiraToggle = await screen.findByLabelText('Turn on Jira')
+        expect(jiraToggle.closest('[data-attr="signal-source-row"]')).toHaveAttribute('data-source', 'jira')
+        expect(document.querySelector('[data-attr="signal-source-row"][data-source="github"]')).toBeNull()
+        const recommendations = await screen.findByTestId('signal-source-recommendations')
+        expect(within(recommendations).getByText('Jira')).toBeInTheDocument()
+        expect(within(recommendations).getByText('Turn on')).toBeInTheDocument()
 
-        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitLab')
+        await userEvent.click(screen.getByText('Add source'))
+        expect(await screen.findByText('Add a source')).toBeInTheDocument()
+        const jiraTile = (): Element | null =>
+            document.querySelector('[data-attr="signal-source-catalog-tile"][data-source="jira"]')
+        expect(jiraTile()).toBeInTheDocument()
+        await userEvent.type(screen.getByLabelText('Search sources'), 'GitLab')
+        expect(jiraTile()).toBeNull()
 
-        expect(await screen.findByText('GitLab')).toBeInTheDocument()
-        expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
+        await userEvent.click(await screen.findByLabelText('Connect GitLab'))
+        expect(signalSourcesLogic.values.dataSourceSetupSource).toBe('gitlab')
+        expect(await screen.findByText('Connect GitLab')).toBeInTheDocument()
+        await userEvent.click(screen.getByText('All sources'))
+        expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
+        expect(await screen.findByText('Add a source')).toBeInTheDocument()
     })
 
     it('lets a connection retry finish before another retry can start', async () => {
@@ -105,8 +149,8 @@ describe('AgentsRoster', () => {
     })
 
     // A failed load leaves every switch reading off and every import source reading unconnected.
-    // A click then creates a row that may already exist, so the switches have to stay shut.
-    it('holds the source switches shut while the source list has failed to load', async () => {
+    // A click then creates a row that may already exist, so the switches and tiles have to stay shut.
+    it('holds the source switches and catalog tiles shut while the source list has failed to load', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/source_configs/': () => [500, { detail: 'Server error' }],
@@ -117,11 +161,12 @@ describe('AgentsRoster', () => {
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
-        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitHub issues')
-        const githubButton = await screen.findByLabelText('Turn on GitHub issues')
-        expect(githubButton).toHaveAttribute('aria-disabled', 'true')
-        await userEvent.click(githubButton)
+        expect(screen.queryByTestId('signal-source-recommendations')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('Add source'))
+        await screen.findByText('Add a source')
+        await userEvent.type(screen.getByLabelText('Search sources'), 'GitHub issues')
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Connect GitHub issues')).not.toBeInTheDocument()
         expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
-        expect(screen.queryByText('Connect')).not.toBeInTheDocument()
     })
 })

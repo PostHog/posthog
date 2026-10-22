@@ -665,7 +665,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -1072,7 +1072,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -1486,7 +1486,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -2157,7 +2157,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                    "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
                 ),
             email_sending_rate_limit: zod
                 .union([
@@ -3009,7 +3009,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -3268,6 +3268,50 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .describe('Workflow vars (key, type, default). Total <5KB.'),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const hogFlowsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const hogFlowsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const hogFlowsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const HogFlowsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        ids: zod
+            .array(zod.uuid())
+            .max(hogFlowsBulkUpdateTagsCreateBodyIdsMax)
+            .describe('List of object UUIDs to update tags on.'),
+        action: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .describe(
+                "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
+        tags: zod
+            .array(zod.string().max(hogFlowsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(hogFlowsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
+    })
+    .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 

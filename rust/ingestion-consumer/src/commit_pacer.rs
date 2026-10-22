@@ -2,24 +2,24 @@
 //! partition's frontier as it takes it from the ledger; the consumer asks the
 //! pacer what is due and commits that in one call. The pacer holds no I/O.
 //!
-//! The pacer keeps the latest frontier per partition and hands them out at
-//! most once per interval. A zero interval makes every take due.
+//! The pacer keeps the latest frontier per partition, with the charge of every
+//! take since the last commit, and hands them out at most once per interval.
+//! A zero interval makes every take due.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
+use common_kafka_consumer::{Held, Offset, TakenFrontier, TopicPartition};
 
 pub struct CommitPacer {
     interval: Duration,
-    pending: Mutex<Pending>,
+    frontiers: HashMap<TopicPartition, PendingFrontier>,
+    last_take: Option<Instant>,
 }
 
-#[derive(Default)]
-struct Pending {
-    frontiers: HashMap<TopicPartition, Offset>,
-    last_take: Option<Instant>,
+struct PendingFrontier {
+    offset: Offset,
+    held: Held,
 }
 
 impl CommitPacer {
@@ -30,51 +30,70 @@ impl CommitPacer {
     pub fn every(interval: Duration) -> Self {
         Self {
             interval,
-            pending: Mutex::new(Pending::default()),
+            frontiers: HashMap::new(),
+            last_take: None,
         }
     }
 
     /// Replace the partition's pending offset; frontiers only move forward.
-    pub fn advance_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
-        self.pending
-            .lock()
-            .unwrap()
+    pub fn advance_frontier(&mut self, topic_partition: &TopicPartition, taken: TakenFrontier) {
+        let taken_offsets = usize::try_from(taken.offset - taken.first)
+            .expect("a frontier is above its window base");
+        let pending = self
             .frontiers
-            .insert(topic_partition.clone(), taken.offset);
+            .entry(topic_partition.clone())
+            .or_insert(PendingFrontier {
+                offset: taken.offset,
+                held: Held::default(),
+            });
+        pending.offset = taken.offset;
+        pending.held += Held {
+            offsets: taken_offsets,
+            charge: taken.charge,
+        };
+    }
+
+    pub fn pending(&self, topic_partition: &TopicPartition) -> Held {
+        self.frontiers
+            .get(topic_partition)
+            .map(|pending| pending.held)
+            .unwrap_or_default()
     }
 
     /// Partitions leaving the assignment: drop whatever is held for them. A
     /// commit issued for a partition another member now owns could move the
     /// group's offset back behind that member's progress, so the frontier
     /// goes with the partition.
-    pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        let mut pending = self.pending.lock().unwrap();
+    pub fn forget_partitions(&mut self, topic_partitions: &[TopicPartition]) {
         for topic_partition in topic_partitions {
-            pending.frontiers.remove(topic_partition);
+            self.frontiers.remove(topic_partition);
         }
     }
 
-    pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        let mut pending = self.pending.lock().unwrap();
-        if pending.frontiers.is_empty() {
+    pub fn take_due(&mut self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        if self.frontiers.is_empty() {
             return None;
         }
-        if pending
+        if self
             .last_take
             .is_some_and(|last| now.duration_since(last) < self.interval)
         {
             return None;
         }
-        pending.last_take = Some(now);
-        Some(std::mem::take(&mut pending.frontiers))
+        self.last_take = Some(now);
+        self.take_all()
     }
 
-    pub fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        let mut pending = self.pending.lock().unwrap();
-        if pending.frontiers.is_empty() {
+    pub fn take_all(&mut self) -> Option<HashMap<TopicPartition, Offset>> {
+        if self.frontiers.is_empty() {
             return None;
         }
-        Some(std::mem::take(&mut pending.frontiers))
+        Some(
+            self.frontiers
+                .drain()
+                .map(|(topic_partition, pending)| (topic_partition, pending.offset))
+                .collect(),
+        )
     }
 }
 
@@ -106,7 +125,7 @@ mod tests {
 
     #[test]
     fn a_pending_frontier_is_due_on_the_next_take() {
-        let pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
 
         let offsets = pacer.take_due(Instant::now()).expect("due");
@@ -119,7 +138,7 @@ mod tests {
 
     #[test]
     fn the_latest_frontier_per_partition_is_what_goes_out() {
-        let pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
         pacer.advance_frontier(&tp(0), taken(10, 12));
@@ -133,7 +152,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_partition_is_not_committed() {
-        let pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
 
@@ -147,7 +166,7 @@ mod tests {
 
     #[test]
     fn frontiers_handed_over_within_the_interval_wait_for_it() {
-        let pacer = CommitPacer::every(Duration::from_millis(500));
+        let mut pacer = CommitPacer::every(Duration::from_millis(500));
         let start = Instant::now();
 
         pacer.advance_frontier(&tp(0), taken(0, 10));
@@ -172,8 +191,18 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_take_does_not_start_the_interval() {
+        let mut pacer = CommitPacer::every(Duration::from_millis(500));
+        let start = Instant::now();
+        assert!(pacer.take_due(start).is_none());
+
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        assert!(pacer.take_due(start + Duration::from_millis(100)).is_some());
+    }
+
+    #[test]
     fn take_all_ignores_the_interval() {
-        let pacer = CommitPacer::every(Duration::from_secs(3600));
+        let mut pacer = CommitPacer::every(Duration::from_secs(3600));
         let start = Instant::now();
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.take_due(start).expect("due");

@@ -246,7 +246,7 @@ the row lists both.
 | cloudflare_r2                    | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clerk                            | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | clevertap                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
@@ -346,6 +346,7 @@ the row lists both.
 | factorial                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fastly                           | HTTP                        | requests                                                        | ✅                          |
 | featurebase                      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| file_upload                      | HTTP (vendor SDK)           | s3fs (reads from PostHog's own bucket)                          | ⚠️                          |
 | fillout                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | finage                           | HTTP                        | requests                                                        | ✅                          |
 | financial_modelling              | HTTP                        | requests                                                        | ✅                          |
@@ -644,6 +645,7 @@ the row lists both.
 | paperform                        | HTTP                        | requests                                                        | ✅                          |
 | papersign                        | HTTP                        | requests                                                        | ✅                          |
 | pardot                           | HTTP                        | requests                                                        | ✅                          |
+| particle                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | partnerize                       | HTTP                        | requests                                                        | ✅                          |
 | partnerstack                     | HTTP                        | requests                                                        | ✅                          |
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
@@ -977,6 +979,9 @@ the row lists both.
   outbound traffic bypasses the tracked transport. Each client sets its own connect and read timeouts.
 - **cloudflare_r2** and **google_cloud_storage** use the same S3 clients as amazon_s3, pointed at the provider's
   S3-compatible endpoint, so the amazon_s3 note applies to them.
+- **file_upload** reads one uploaded file from PostHog's own bucket through the `s3fs` client the warehouse
+  uses for its own storage. It never calls a third party, and `s3fs` exposes no `requests` session, so the
+  reads bypass the tracked transport.
 - **temporalio** talks gRPC, but the Python `temporalio` SDK runs its entire gRPC stack in a Rust core
   (`temporalio.bridge`, a PyO3 module) — service RPCs dispatch through `ServiceClient._rpc_call` into the
   bridge, so there is no Python `grpc.Channel` or client-interceptor seam for the tracked gRPC transport to
@@ -1427,6 +1432,7 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
+- retreaver
 - ringcentral
 - rocket_chat
 - rocket_matter

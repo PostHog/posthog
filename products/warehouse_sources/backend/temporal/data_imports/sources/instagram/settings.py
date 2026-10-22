@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
@@ -13,11 +15,18 @@ GRAPH_API_HOST = "https://graph.facebook.com"
 # Node/edge field selections. Meta returns nothing but `id` unless `fields` is passed,
 # so every request names its columns explicitly.
 ACCOUNT_FIELDS = "id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count"
-MEDIA_FIELDS = (
+MEDIA_PAGE_SAFE_FIELDS = (
     "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,"
-    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled,is_shared_to_feed,owner,"
-    "boost_ads_list,boost_eligibility_info,copyright_check_information,legacy_instagram_media_id"
+    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled"
 )
+# Meta refuses a whole media page when one post on it is a video Meta can no longer find and the
+# page asks for one of these fields. A refused page is read again with the safe fields only, and
+# each of its posts then reads these fields on its own (see `_media_page`).
+MEDIA_REFUSABLE_FIELDS = (
+    "is_shared_to_feed,owner,boost_ads_list,boost_eligibility_info,copyright_check_information,"
+    "legacy_instagram_media_id"
+)
+MEDIA_FIELDS = f"{MEDIA_PAGE_SAFE_FIELDS},{MEDIA_REFUSABLE_FIELDS}"
 STORY_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,username"
 COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden,parent_id,from"
 # The media comments edge lists top-level comments only. Expanding `replies` inline brings
@@ -65,6 +74,17 @@ ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS: tuple[str, ...] = (
     "profile_links_taps",
     "follows_and_unfollows",
 )
+# `(metric, breakdown)` pairs for `account_insights_breakdowns`. Each pair is requested
+# with `metric_type=total_value` once per day, like the metrics above.
+ACCOUNT_INSIGHT_BREAKDOWNS: tuple[tuple[str, str], ...] = (
+    ("follows_and_unfollows", "follow_type"),
+    ("likes", "media_product_type"),
+    ("comments", "media_product_type"),
+    ("shares", "media_product_type"),
+    ("saves", "media_product_type"),
+    ("total_interactions", "media_product_type"),
+    ("profile_links_taps", "contact_button_type"),
+)
 
 # Per-media metrics, keyed by `media_product_type`. Each list must match Meta's media
 # insights table exactly: one metric that does not apply to the post fails the whole
@@ -96,7 +116,7 @@ MEDIA_INSIGHT_BREAKDOWNS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-@dataclass
+@frozen
 class InstagramEndpointConfig:
     name: str
     primary_keys: list[str]
@@ -116,6 +136,10 @@ class InstagramEndpointConfig:
     supports_time_window: bool = False
     # Columns carrying Meta's `+0000` offset, normalized to ISO 8601 on the way out.
     timestamp_fields: tuple[str, ...] = field(default_factory=tuple)
+    # Account insight requests for each window: daily time series metrics, then
+    # `(metric, breakdown)` pairs asked for as `total_value` once per day.
+    insight_time_series_metrics: tuple[str, ...] = field(default_factory=tuple)
+    insight_total_value_metrics: tuple[tuple[str, Optional[str]], ...] = field(default_factory=tuple)
 
 
 INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
@@ -201,6 +225,21 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         sort_mode="asc",
         supports_time_window=True,
         timestamp_fields=("date",),
+        insight_time_series_metrics=ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
+        insight_total_value_metrics=tuple((metric, None) for metric in ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS),
+    ),
+    # Daily account metrics split by a breakdown dimension. A separate table, so the key
+    # of `account_insights` stays the same for existing syncs.
+    "account_insights_breakdowns": InstagramEndpointConfig(
+        name="account_insights_breakdowns",
+        edge="insights",
+        primary_keys=["instagram_account_id", "metric", "breakdown", "breakdown_value", "date"],
+        incremental_fields=[incremental_field("date")],
+        partition_key="date",
+        sort_mode="asc",
+        supports_time_window=True,
+        timestamp_fields=("date",),
+        insight_total_value_metrics=ACCOUNT_INSIGHT_BREAKDOWNS,
     ),
 }
 
