@@ -508,10 +508,15 @@ def _actions_reference_cohorts(actions: Any) -> bool:
     if not isinstance(actions, list):
         return False
     for flow_action in actions:
-        if not isinstance(flow_action, dict) or flow_action.get("type") not in COHORT_CONDITION_ACTION_TYPES:
+        # The test-run scope check passes raw request data, so a type can be any JSON value.
+        action_type = flow_action.get("type") if isinstance(flow_action, dict) else None
+        if not isinstance(action_type, str) or action_type not in COHORT_CONDITION_ACTION_TYPES:
             continue
         config = flow_action.get("config") or {}
-        for condition in [*(config.get("conditions") or []), config.get("condition")]:
+        if not isinstance(config, dict):
+            continue
+        conditions = config.get("conditions")
+        for condition in [*(conditions if isinstance(conditions, list) else []), config.get("condition")]:
             filters = condition.get("filters") if isinstance(condition, dict) else None
             if isinstance(filters, dict) and (filter_cohort_ids(filters) or filter_action_ids(filters)):
                 return True

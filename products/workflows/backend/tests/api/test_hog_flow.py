@@ -3449,6 +3449,29 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("unhashable_type", [{"type": []}]),
+            ("non_dict_config", [{"type": "wait_until_condition", "config": "x"}]),
+            ("non_list_conditions", [{"type": "conditional_branch", "config": {"conditions": 5}}]),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=False)
+    def test_test_invocation_rejects_malformed_inline_actions_without_a_server_error(self, _name, actions, _mock_flag):
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._hog_flow_with_condition_filters("conditional_branch", {"properties": []}),
+        )
+        assert created.status_code == 201, created.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/invocations/",
+            {"configuration": {"actions": actions}, "globals": {"event": {"event": "$pageview", "distinct_id": "d"}}},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+
+    @parameterized.expand(
+        [
             (
                 "cohort_condition_without_person_read",
                 "conditional_branch",
