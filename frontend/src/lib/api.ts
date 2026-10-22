@@ -5448,6 +5448,7 @@ const api = {
             data: Partial<DataWarehouseSavedQuery> & {
                 types?: string[][]
                 edited_history_id?: string
+                rewrite_downstream_sql?: boolean
             }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })

@@ -1478,12 +1478,15 @@ export const QueryDatabase = ({
                     }
                     validateName={validateSavedQueryName}
                     onClose={() => setRenamingView(null)}
-                    onSubmit={async (name) => {
+                    onSubmit={async (name, rewriteDownstreamSQL) => {
                         await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
                             id: renamingView.id,
                             name,
+                            rewrite_downstream_sql: rewriteDownstreamSQL,
                         })
-                        lemonToast.success('View renamed')
+                        lemonToast.success(
+                            rewriteDownstreamSQL ? 'View renamed and downstream SQL updated' : 'View renamed'
+                        )
                     }}
                 />
             ) : null}

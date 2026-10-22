@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,7 +19,7 @@ export interface RenameViewModalProps {
     isNameTaken: (name: string) => boolean
     validateName: (name: string) => string | undefined
     onClose: () => void
-    onSubmit: (name: string) => Promise<void>
+    onSubmit: (name: string, rewriteDownstreamSQL: boolean) => Promise<void>
 }
 
 function getReferenceTypeLabel(type?: string): string {
@@ -53,6 +53,7 @@ export function RenameViewModal({
     const [nameError, setNameError] = useState<string>()
     const [submitError, setSubmitError] = useState<string>()
     const [isSaving, setIsSaving] = useState(false)
+    const [rewriteDownstreamSQL, setRewriteDownstreamSQL] = useState(false)
 
     const submit = async (): Promise<void> => {
         if (referencesLoading) {
@@ -78,10 +79,10 @@ export function RenameViewModal({
         setSubmitError(undefined)
         setIsSaving(true)
         try {
-            await onSubmit(newName)
+            await onSubmit(newName, rewriteDownstreamSQL)
             onClose()
-        } catch {
-            setSubmitError('Could not rename the view. Try again.')
+        } catch (error) {
+            setSubmitError(error instanceof Error ? error.message : 'Could not rename the view. Try again.')
         } finally {
             setIsSaving(false)
         }
@@ -107,7 +108,7 @@ export function RenameViewModal({
                         onClick={() => void submit()}
                         data-attr="data-warehouse-rename-view-submit"
                     >
-                        Rename view
+                        {rewriteDownstreamSQL ? 'Rename and update SQL' : 'Rename view'}
                     </LemonButton>
                 </>
             }
@@ -157,10 +158,20 @@ export function RenameViewModal({
                     <p className="text-secondary text-sm">No downstream references found in data model lineage.</p>
                 )}
 
+                <LemonCheckbox
+                    checked={rewriteDownstreamSQL}
+                    onChange={setRewriteDownstreamSQL}
+                    label="Update SQL in known views, materialized views, and all endpoint versions"
+                    data-attr="data-warehouse-rename-view-rewrite-downstream-sql"
+                />
+                {rewriteDownstreamSQL ? (
+                    <p className="text-secondary text-sm">Endpoint version numbers will stay the same.</p>
+                ) : null}
+
                 <LemonBanner type="warning" alignItems="start">
-                    This rename does not update downstream SQL. The list shows references in data model lineage.
-                    Insights, dashboards, notebooks, and SQL outside PostHog are not checked and may stop working after
-                    the rename.
+                    {rewriteDownstreamSQL
+                        ? 'This updates SQL in known saved views and materialized views, and in all SQL endpoint versions. Insights, dashboards, notebooks, and SQL outside PostHog are not checked and may stop working after the rename.'
+                        : 'This changes the view name only. Downstream SQL is not updated. Insights, dashboards, notebooks, and SQL outside PostHog are not checked and may stop working after the rename.'}
                 </LemonBanner>
 
                 {submitError ? <p className="text-danger text-sm">{submitError}</p> : null}

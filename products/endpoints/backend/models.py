@@ -200,10 +200,10 @@ def validate_endpoint_name(value: str) -> None:
 
 
 class EndpointVersion(UpdatedMetaFields, models.Model):
-    """Immutable snapshot of an endpoint's query at a specific version.
+    """Versioned snapshot of an endpoint's query.
 
-    Each time an endpoint's query is modified, a new version is created.
-    This allows users to execute specific versions or track query evolution over time.
+    Query edits create a new version. Saved-query renames rewrite table references in place so
+    endpoint version numbers and pinned client URLs remain stable.
     """
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
@@ -217,7 +217,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="+",
     )
     version = models.IntegerField()
-    query = models.JSONField(help_text="Immutable query snapshot")
+    query = models.JSONField(help_text="Versioned query snapshot")
     description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(

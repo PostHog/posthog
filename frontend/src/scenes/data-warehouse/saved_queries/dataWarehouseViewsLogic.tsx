@@ -88,6 +88,7 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
+    rewrite_downstream_sql?: boolean
 }
 
 // A plain function, not a logic action: the toast that calls it can outlive the logic, and an
