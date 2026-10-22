@@ -14,6 +14,7 @@ const HogFlowOutputVariableSchema = z.object({
     result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
     spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
     label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
+    description: z.string().optional().nullable(), // What an AI task step asks the agent to put in this `output.<name>` field
 })
 
 // Rows written before the API coerced bare key strings — normalize at read so one legacy value

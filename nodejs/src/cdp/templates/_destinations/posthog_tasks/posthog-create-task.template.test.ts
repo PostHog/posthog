@@ -111,25 +111,26 @@ describe('posthog create task template', () => {
         })
     })
 
-    it('asks the agent for the fields the output variables read from the output', async () => {
+    it('asks the agent for the fields the output variables read from the output, with their instructions', async () => {
         const hogFlow = {
             ...workflowOptions.hogFlow,
             actions: [
                 {
                     id: 'action_1',
                     output_variable: [
-                        { key: 'verdict', result_path: 'output.verdict' },
+                        { key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' },
                         { key: 'run', result_path: 'run_id' },
                     ],
                 },
             ],
-            variables: [{ key: 'verdict', type: 'string', label: 'Verdict', description: 'ship or hold' }],
+            variables: [{ key: 'verdict', type: 'string', label: 'Verdict' }],
         } as any
         const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
 
         expect(response.error).toBeUndefined()
-        expect(parseJSON((response.invocation.queueParameters as any).body).output_fields).toEqual({
-            verdict: 'string',
+        expect(parseJSON((response.invocation.queueParameters as any).body)).toMatchObject({
+            output_fields: { verdict: 'string' },
+            output_field_descriptions: { verdict: 'ship or hold' },
         })
     })
 

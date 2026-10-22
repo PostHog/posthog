@@ -58,6 +58,7 @@ const _commonActionFields = {
                 result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
                 spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
                 label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
+                description: z.string().optional().nullable(), // What an AI task step asks the agent to put in this `output.<name>` field
             }),
             z.array(
                 z.object({
@@ -65,6 +66,7 @@ const _commonActionFields = {
                     result_path: z.string().optional().nullable(),
                     spread: z.boolean().optional().nullable(),
                     label: z.string().optional().nullable(),
+                    description: z.string().optional().nullable(),
                 })
             ),
         ])

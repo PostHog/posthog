@@ -14,7 +14,7 @@ import type { HogFlowAction } from '../types'
 import type { HogFlow, HogFlowActionNode } from '../types'
 import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
-export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
+export type OutputMapping = { key: string; result_path: string; spread?: boolean | null; description?: string | null }
 // The variable types the output schema of an AI task step can express. Other input types stay
 // selectable only from the variables tab.
 export type WorkflowVariableType = 'string' | 'number' | 'boolean'
@@ -24,9 +24,28 @@ export const WORKFLOW_VARIABLE_TYPE_OPTIONS: { value: WorkflowVariableType; labe
     { value: 'boolean', label: 'True or false' },
 ]
 
+// Mirrors the plugin server's `output.<name>` rule: only these paths become fields the agent returns.
+const AI_TASK_OUTPUT_FIELD_PATH = /^output\.[A-Za-z_][A-Za-z0-9_]*$/
+export const MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH = 500
+
+export function isAiTaskOutputFieldPath(resultPath: string): boolean {
+    return AI_TASK_OUTPUT_FIELD_PATH.test(resultPath)
+}
+
 // A key must be addressable as `variables.<key>` in a template, so only identifier characters survive.
 export function sanitizeVariableKey(key: string): string {
     return key.replace(/[^A-Za-z0-9_]+/g, '_')
+}
+
+type OutputVariableEntry = Extract<NonNullable<HogFlowAction['output_variable']>, { key: string }>
+
+function toOutputMapping(raw: OutputVariableEntry): OutputMapping {
+    return {
+        key: raw.key,
+        result_path: raw.result_path || '',
+        spread: raw.spread,
+        ...(raw.description ? { description: raw.description } : {}),
+    }
 }
 
 export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
@@ -34,10 +53,10 @@ export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): 
         return []
     }
     if (Array.isArray(raw)) {
-        return raw.map((v) => ({ key: v.key, result_path: v.result_path || '', spread: v.spread }))
+        return raw.map(toOutputMapping)
     }
     if (raw.key) {
-        return [{ key: raw.key, result_path: raw.result_path || '', spread: raw.spread }]
+        return [toOutputMapping(raw)]
     }
     return []
 }
@@ -142,6 +161,13 @@ export interface hogFlowOutputMappingLogicActions {
     triggerShake: () => {
         value: true
     }
+    updateMappingDescription: (
+        index: number,
+        description: string
+    ) => {
+        index: number
+        description: string
+    }
     updateMappingResultPath: (
         index: number,
         path: string
@@ -199,6 +225,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         setMappings: (mappings: OutputMapping[]) => ({ mappings }),
         updateMappingResultPath: (index: number, path: string) => ({ index, path }),
         setMappingVariable: (index: number, key: string) => ({ index, key }),
+        updateMappingDescription: (index: number, description: string) => ({ index, description }),
         setVariableType: (key: string, type: WorkflowVariableType) => ({ key, type }),
         addMapping: true,
         removeMapping: (index: number) => ({ index }),
@@ -262,6 +289,11 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 updateMappingResultPath: (state, { index, path }) => {
                     const updated = [...state]
                     updated[index] = { ...updated[index], result_path: path }
+                    return updated
+                },
+                updateMappingDescription: (state, { index, description }) => {
+                    const updated = [...state]
+                    updated[index] = { ...updated[index], description }
                     return updated
                 },
                 setMappingVariable: (state, { index, key }) => {
@@ -339,6 +371,9 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 key: m.key,
                 result_path: m.result_path || null,
                 ...(m.spread ? { spread: true } : {}),
+                ...(m.description?.trim() && isAiTaskOutputFieldPath(m.result_path)
+                    ? { description: m.description.trim() }
+                    : {}),
             })
             const outputVariable =
                 filtered.length === 0 ? null : filtered.length === 1 ? toOutput(filtered[0]) : filtered.map(toOutput)
@@ -374,6 +409,9 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             updateMappingResultPath: () => {
                 persistMappings(values.mappings)
                 actions.triggerShake()
+            },
+            updateMappingDescription: () => {
+                persistMappings(values.mappings)
             },
             setMappingVariable: ({ key }) => {
                 if (key) {

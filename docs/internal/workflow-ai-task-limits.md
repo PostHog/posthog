@@ -27,9 +27,11 @@ With `on_error: continue`, the next step sees the dispatch IDs, the terminal `st
 An AI task step can hand fields the agent produced to later steps.
 The author adds an output variable mapping with the result path `output.<name>`, for example `output.verdict` into the variable `verdict`.
 The engine sends these fields with the create request as `output_fields`, a name to type map typed after the workflow variable (`string`, `number`, or `boolean`), with at most 20 fields.
-The tasks API builds the schema from that map. Field names are identifiers, and the names the task result uses for itself (`final_message`, `pr_urls` and the other bookkeeping keys) are refused.
+A mapping can carry a `description`, an instruction such as "true only if a failing test reproduces the bug". The engine sends these as `output_field_descriptions`, a name to instruction map of at most 500 characters per instruction.
+The tasks API collapses whitespace runs in an instruction to one space and drops an instruction that is blank.
+The tasks API builds the schema from those maps, with each instruction as the field's JSON Schema `description`. Field names are identifiers, and the names the task result uses for itself (`final_message`, `pr_urls` and the other bookkeeping keys) are refused.
 The agent runtime enforces the schema at the end of the run, and the resume result carries the fields under `output`, ahead of the final message.
-The agent prompt names the fields and their budget: each text field is capped at 1500 characters, and the fields share the 4096 byte step result with the final message, fields first.
+The agent prompt names the fields, their instructions, and their budget: each text field is capped at 1500 characters, and the fields share the 4096 byte step result with the final message, fields first.
 When the agent finishes without output that matches the fields, or a field was cut to fit the step result, the step still completes.
 The resume result carries `warnings`, the engine writes each one to the run log at `warn` level and counts the resume in `cdp_hogflow_awaited_step_resumed_with_warnings`, and the unmatched variables stay null.
 

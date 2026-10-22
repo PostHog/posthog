@@ -10,6 +10,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonInputSelect,
+    LemonTextArea,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -32,8 +33,10 @@ import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import {
+    MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH,
     WORKFLOW_VARIABLE_TYPE_OPTIONS,
     hogFlowOutputMappingLogic,
+    isAiTaskOutputFieldPath,
     sanitizeVariableKey,
 } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -47,6 +50,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const {
         setSelectedActionId,
         updateMappingResultPath,
+        updateMappingDescription,
         addMapping,
         removeMapping,
         selectPath,
@@ -291,6 +295,26 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             size="small"
                                                         />
                                                     </LemonField.Pure>
+                                                    {isAiTaskAction &&
+                                                        mapping.key &&
+                                                        isAiTaskOutputFieldPath(mapping.result_path) && (
+                                                            <LemonField.Pure
+                                                                label="Instructions for the agent"
+                                                                info="Describe what the agent should put in this field. The agent reads this before it answers."
+                                                                className="w-full"
+                                                            >
+                                                                <LemonTextArea
+                                                                    value={mapping.description ?? ''}
+                                                                    onChange={(value) =>
+                                                                        updateMappingDescription(index, value)
+                                                                    }
+                                                                    placeholder="e.g. true only if a failing test reproduces the bug"
+                                                                    maxLength={MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH}
+                                                                    minRows={1}
+                                                                    data-attr="workflow-ai-task-output-field-instructions"
+                                                                />
+                                                            </LemonField.Pure>
+                                                        )}
                                                 </div>
                                             ))}
                                             {pendingSuggestions.length > 0 && (
