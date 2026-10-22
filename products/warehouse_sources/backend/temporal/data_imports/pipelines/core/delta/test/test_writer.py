@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -1293,14 +1294,15 @@ class TestDeltaliteWritePath:
 
     @parameterized.expand(
         [
-            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024),
-            ("row_group_cap_off", 0, None),
-            ("negative_cap_is_off", -1, None),
+            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024, True),
+            ("row_group_cap_off", 0, None, True),
+            ("negative_cap_is_off", -1, None, True),
+            ("probe_cache_off", 16 * 1024 * 1024, 16 * 1024 * 1024, False),
         ]
     )
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(
-        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None
+        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None, probe_cache: bool
     ):
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
@@ -1318,7 +1320,10 @@ class TestDeltaliteWritePath:
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
-            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+            override_settings(
+                DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap,
+                DATA_WAREHOUSE_DELTALITE_PROBE_CACHE=probe_cache,
+            ),
         ):
             wrote = await DeltaWriter(helper)._write_via_deltalite(
                 existing_delta_table=existing,
@@ -1332,6 +1337,9 @@ class TestDeltaliteWritePath:
         fake_table.upsert.assert_called_once()
         assert fake_table.upsert.call_args.kwargs["max_row_group_bytes"] == expected_max_row_group_bytes
         assert "isolate_source_rows" not in fake_table.upsert.call_args.kwargs
+        # The default leaves the argument out, so a deltalite build without it still works.
+        assert fake_table.upsert.call_args.kwargs.get("use_probe_cache", True) is probe_cache
+        assert ("use_probe_cache" in fake_table.upsert.call_args.kwargs) is not probe_cache
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
         # The delta-rs handle is not refreshed on the write path (a log listing per batch); the ref
@@ -1917,3 +1925,68 @@ class TestCommitCoversBatch:
 
         assert await DeltaWriter(helper).has_batch_been_committed("r", 5) is True
         assert await DeltaWriter(helper).has_batch_been_committed("r", 6) is False
+
+
+class TestDeleteWhere:
+    _SEED = pa.table(
+        {
+            "_file_name": ["a.csv", "a.csv", "b.csv", "it's.csv", "c.csv", None],
+            "id": [1, 2, 3, 4, 5, 6],
+        }
+    )
+
+    @parameterized.expand(
+        [
+            ("in_one_commit", 1000, 1),
+            ("in_a_commit_per_two_values", 2, 2),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_deletes_the_rows_of_the_named_values_only(
+        self, _name: str, chunk_size: int, expected_commits: int
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            deleted = await writer.delete_where(
+                "_file_name",
+                ["b.csv", "it's.csv", "a.csv", "not_in_the_table.csv"],
+                chunk_size=chunk_size,
+                commit_metadata={"replace_scope_run": "run-1"},
+                before_commit=before_commit,
+            )
+
+            rows = deltalake.DeltaTable(tmp).to_pyarrow_table().sort_by("id").to_pydict()
+            assert deleted == 4
+            assert rows == {"_file_name": ["c.csv", None], "id": [5, 6]}
+            assert await writer.distinct_values("_file_name") == {"c.csv"}
+            deletes = [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"]
+            assert len(deletes) == expected_commits == before_commit.call_count
+            # A delete that carried a batch tag would make a redelivered batch skip its own write.
+            assert not any(commit_covers_batch(commit, "run-1", 0) for commit in deletes)
+
+    @pytest.mark.asyncio
+    async def test_a_delete_retried_after_a_conflict_checks_ownership_again(self) -> None:
+        async def retry_once(table: Any, operation_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            operation_fn()
+            return operation_fn()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            with patch(f"{_WRITER_MODULE}.execute_with_conflict_retry", side_effect=retry_once):
+                await writer.delete_where("_file_name", ["a.csv"], before_commit=before_commit)
+
+            assert before_commit.call_count == 2
+
+    @parameterized.expand([("no_table", False), ("no_such_column", True)])
+    @pytest.mark.asyncio
+    async def test_distinct_values_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            if table_exists:
+                deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
+            assert await DeltaWriter(make_local_table_ref(tmp)).distinct_values("_file_name") is None

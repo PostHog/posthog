@@ -16,11 +16,12 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 
 from products.signals.backend.activity_summary.prompt import (
     RESPONSE_FORMAT,
-    SYSTEM_PROMPT,
     MalformedSummaryError,
     normalize_summary,
+    system_prompt,
     user_message,
 )
+from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS, SUMMARY_MAX_WORDS
 
 AI_PRODUCT = "activity_summary"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -29,8 +30,6 @@ DEFAULT_MODEL = "gpt-6-luna"
 # One retry on a malformed or truncated answer. The SDK already retries a failed request on its own.
 MAX_ATTEMPTS = 2
 REQUEST_TIMEOUT_SECONDS = 120.0
-# A full answer is about 300 tokens. The cap bounds the cost of a model that does not stop.
-MAX_COMPLETION_TOKENS = 600
 TRUNCATED_FINISH_REASON = "length"
 
 
@@ -88,10 +87,12 @@ def summarize(
     previous_summary: dict[str, Any] | None,
     model: str,
     as_of: datetime.date,
+    max_completion_tokens: int = MAX_COMPLETION_TOKENS,
+    summary_max_words: int = SUMMARY_MAX_WORDS,
 ) -> SummaryOutcome:
     """One summary. Tokens and latency add up over the attempts, because the retry costs too."""
     messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt(summary_max_words)},
         {"role": "user", "content": user_message(rendered_input, previous_summary, as_of)},
     ]
     tokens_in: int | None = None
@@ -105,7 +106,7 @@ def summarize(
                 messages=messages,
                 user=PIPELINE_DISTINCT_ID,
                 response_format=RESPONSE_FORMAT,
-                max_completion_tokens=MAX_COMPLETION_TOKENS,
+                max_completion_tokens=max_completion_tokens,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
         except OpenAIError as api_error:
@@ -121,6 +122,7 @@ def summarize(
             summary = normalize_summary(
                 choice.message.content if choice is not None else None,
                 had_previous_summary=previous_summary is not None,
+                max_words=summary_max_words,
             )
         except MalformedSummaryError as malformed:
             error = f"malformed_output: {malformed}"

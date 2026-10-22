@@ -1007,9 +1007,16 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        assert "Ticket messages: private notes only" not in granted
+        assert "Ticket messages: private notes only" in _prompt(write_scopes=["ticket:write"])
         # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
         assert "never create one" not in granted
         assert "never create one" in _prompt(write_scopes=["canvas:write"])
+        # Experiment lifecycle actions change what end users see, so the grant has to say when to make one.
+        assert "Experiment lifecycle changes reach real users" not in granted
+        experiment_granted = _prompt(write_scopes=["experiment:write"])
+        assert "experiments in this project" in experiment_granted
+        assert "Experiment lifecycle changes reach real users" in experiment_granted
 
         # A scout that holds only the default grant still has to be told it may write notebooks.
         notebooks_only = _prompt(write_scopes=["notebook:write"])

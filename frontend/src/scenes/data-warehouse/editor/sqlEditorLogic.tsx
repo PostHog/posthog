@@ -52,7 +52,10 @@ import { slugify } from 'lib/utils/strings'
 import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import {
     filtersPlaceholderBindings,
     parseQueryTablesAndColumns,
@@ -673,6 +676,7 @@ export interface sqlEditorLogicValues {
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
+    selectedSchemaConnectionId: string | undefined
     sendRawQueryEnabled: boolean
     showAgentHints: boolean
     singleStatement: boolean
@@ -1241,6 +1245,10 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
+        selectedSchemaConnectionId: (
+            sourceQuery: DataVisualizationNode,
+            selectedConnectionId: string | undefined
+        ) => string | undefined
         selectedDirectSource: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             selectedConnectionId: string | undefined
@@ -2169,7 +2177,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 // Opening another query can replace sourceQuery without changing the connection,
-                // so the selectedConnectionId subscription does not run again.
+                // so the schema scope subscription does not run again.
                 actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
@@ -2468,14 +2476,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
                 // leaves the incremental fields hidden, so the view saves as a normal full refresh.
                 let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
-                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
-                    try {
-                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                            query: selectedRef.current ?? values.queryInput ?? '',
-                        })
-                    } catch {
-                        incrementalCheck = null
-                    }
+                try {
+                    incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                        query: selectedRef.current ?? values.queryInput ?? '',
+                    })
+                } catch {
+                    incrementalCheck = null
                 }
 
                 const folderOptions: { value: string | null; label: string }[] = [
@@ -3572,16 +3578,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
         },
-        selectedConnectionId: (selectedConnectionId) => {
-            if (cache.lastSelectedConnectionId === selectedConnectionId) {
+        selectedSchemaConnectionId: (selectedConnectionId) => {
+            if (cache.lastSchemaConnectionId === selectedConnectionId) {
                 return
             }
 
-            cache.lastSelectedConnectionId = selectedConnectionId
+            cache.lastSchemaConnectionId = selectedConnectionId
             claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase(schemaLoadOptions())
-            if (selectedConnectionId) {
+            if (values.selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
                 actions.maybeLoadConnectionOptions()
@@ -3717,6 +3723,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ? sourceQuery.source.connectionId
                     : undefined
             },
+        ],
+        selectedSchemaConnectionId: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined): string | undefined =>
+                sourceQuery.source.executionTarget === 'managed_trino'
+                    ? MANAGED_TRINO_SCHEMA_SCOPE
+                    : selectedConnectionId,
         ],
         selectedDirectSource: [
             (s) => [s.connectionOptions, s.selectedConnectionId],
@@ -3970,7 +3983,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 }
             }
-            const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+            const expectedDatabaseConnectionId = values.selectedSchemaConnectionId ?? null
             const shouldSyncDatabaseConnection =
                 values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
 
@@ -4402,14 +4415,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
-                actions.setConnection(expectedDatabaseConnectionId)
+                actions.setConnection(values.selectedSchemaConnectionId ?? null)
                 actions.loadDatabase(schemaLoadOptions())
             }
         },
     })),
     afterMount(({ actions, props, values, cache }) => {
-        cache.lastSelectedConnectionId = values.selectedConnectionId
-        claimConnectionScope(props.tabId, values.selectedConnectionId)
+        cache.lastSchemaConnectionId = values.selectedSchemaConnectionId
+        claimConnectionScope(props.tabId, values.selectedSchemaConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -4600,7 +4613,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             applyResult(range, decorations)
         }
 
-        const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+        const expectedDatabaseConnectionId = values.selectedSchemaConnectionId ?? null
         const shouldSyncDatabaseConnection =
             values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
         const hasExplicitEditorUrlState =
@@ -4612,7 +4625,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) || !hasExplicitEditorUrlState) &&
             shouldSyncDatabaseConnection
         ) {
-            actions.setConnection(values.selectedConnectionId ?? null)
+            actions.setConnection(values.selectedSchemaConnectionId ?? null)
             // `databaseTableListLogic` is a shared singleton. If a prior visit left `databaseLoading`
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a

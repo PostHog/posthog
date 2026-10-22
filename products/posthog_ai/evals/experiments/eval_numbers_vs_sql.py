@@ -45,6 +45,8 @@ from products.posthog_ai.evals.experiments.scorers import CitesDiagnosticGroup
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from products.posthog_ai.evals.offline_config import offline_suite
 
+NO_SEND_LOGS = True
+
 
 async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
@@ -154,6 +156,7 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-diagnose-numbers-vs-sql-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(
