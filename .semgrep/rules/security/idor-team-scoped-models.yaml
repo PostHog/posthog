@@ -194,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -409,6 +410,7 @@ rules:
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -460,6 +462,7 @@ rules:
                               |TracingView
                               |UploadedMedia
                               |UserInterview
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -670,6 +673,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -875,6 +879,7 @@ rules:
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -925,6 +930,7 @@ rules:
                         |TracingView
                         |UploadedMedia
                         |UserInterview
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
