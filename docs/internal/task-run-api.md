@@ -116,37 +116,34 @@ These operations are not idempotent. If a response is lost, inspect the task and
 
 ## Mobile notifications and task pickup
 
-A task created with `X-PostHog-Client-Platform: mobile` is eligible for mobile task notifications.
-Tasks created elsewhere remain quiet on mobile until a user actively continues them there.
-Successfully starting or resuming a run, sending a user message, or resolving a permission request
-with that header subscribes only the acting user. Viewing a task, opening its event stream,
-sending presence beacons, changing configuration, and rejected actions do not subscribe anyone.
-This choice persists when the person returns to the web app.
+Use `X-PostHog-Client-Platform: mobile` to identify mobile requests.
+Tasks created on mobile can send task notifications.
+A successful mobile run start, resume, user message, or permission response also enables notifications for that user.
+Reads, presence updates, configuration changes, and failed actions do not enable notifications.
+This choice persists when the user returns to the web app.
 
-After pickup, that person's automatic Slack mentions and proactive private-thread updates move
-to mobile. Shared Slack discussions remain available without pinging the picked-up person,
-and a direct Slack request still receives its answer. Agent-design turns use an ordinary thread reply
-when their recipient has moved to mobile, preserving the answer and attachments without starting
-a targeted Slack stream. Other participants' notifications are unchanged.
-Existing Slack streams stop proactively delivering to a private thread when their recipient picks up on mobile.
+Continuing a task on mobile stops that user's automatic Slack mentions and proactive private-thread updates.
+Shared replies and answers to direct Slack requests remain available.
+Other participants keep their notifications.
 
-Mobile task notifications cover completion, failure, cancellation, waiting for input, thread replies,
-handoffs, and verified pull-request merges or closes. Recipients must still have access to the task;
-active task presence suppresses device fanout. PR outcomes are deduplicated per person, task, PR, and outcome,
-independently of whether Slack announced the PR. Deduplication starts after the triggering transaction
-commits. If enqueueing fails, the PR outcome claim and cooldown are released so replaying the event
-can retry the push.
+Task notifications cover run results, input requests, replies, handoffs, and verified PR merges or closes.
+Active task presence suppresses notifications on those devices.
+The server prevents duplicate PR outcome notifications.
 
-Report notifications are independent of task origin: suggested reviewers receive new reports;
-reviewers, claimants, task initiators, and picked-up participants can receive meaningful research or
-implementation updates and verified PR outcomes. Ready-for-review PR notifications retain their reviewer
-and claimant recipients. Report discussions follow task notification preferences.
-Reports authored by a scout with `output_destinations.inbox: false` do not send mobile pushes;
-the delivery worker also checks this setting for queued notifications.
-Report pushes retain the `posthog-code-mobile-push` feature gate. Ordinary task pushes use their existing
-released behavior and do not require that report gate.
+Report notifications cover new reports, work updates, and PR review or outcome updates, regardless of task origin.
+Report discussions use task notification preferences.
+Reports with `output_destinations.inbox: false` do not send notifications.
+Report notifications require `posthog-code-mobile-push`.
+Ordinary task notifications do not require this flag.
 
-`PATCH /api/users/@me/` persists four boolean keys under `notification_settings`, all enabled by default:
-`mobile_push_enabled`, `mobile_push_tasks_enabled`, `mobile_push_reports_enabled`, and
-`mobile_push_report_updates_enabled`. Disabling the master switch or a category also stops queued
-notifications when the delivery worker checks the current preferences and access again.
+`PATCH /api/users/@me/` sets four booleans under `notification_settings`:
+
+| Key                                  | Controls                 |
+| ------------------------------------ | ------------------------ |
+| `mobile_push_enabled`                | All mobile notifications |
+| `mobile_push_tasks_enabled`          | Chat and task updates    |
+| `mobile_push_reports_enabled`        | New reports              |
+| `mobile_push_report_updates_enabled` | Report updates           |
+
+All four default to `true`.
+The delivery worker checks current preferences and access before it sends a queued notification.
