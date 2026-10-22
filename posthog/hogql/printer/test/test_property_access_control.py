@@ -684,7 +684,8 @@ class TestRestrictedPersonPropertiesBlobQuery(ClickhouseTestMixin, BaseTest):
         )
 
         response = execute_hogql_query(
-            "SELECT distinct_id, person.properties FROM events ORDER BY distinct_id",
+            "SELECT distinct_id, person.properties FROM events"
+            " WHERE distinct_id IN ('with-person-properties', 'without-person-properties') ORDER BY distinct_id",
             team=self.team,
             user=self.user,
             modifiers=HogQLQueryModifiers(
