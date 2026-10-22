@@ -22,13 +22,8 @@ for file in os.listdir(directory):
         fixtures.append(filename)
 
 
-def _modes(filename: str) -> tuple[str, ...]:
-    with open(os.path.join(directory, filename), encoding="utf_8") as f:
-        # A path export holds no query, and a trends row names its series only through the query.
-        return ("hogql",) if "query" in json.load(f) else ("legacy", "hogql")
-
-
-@pytest.mark.parametrize("filename,mode", [(filename, mode) for filename in fixtures for mode in _modes(filename)])
+@pytest.mark.parametrize("filename", fixtures)
+@pytest.mark.parametrize("mode", ("legacy", "hogql"))
 @pytest.mark.django_db
 @patch("products.exports.backend.tasks.csv_exporter.requests.request")
 @patch("products.exports.backend.tasks.csv_exporter.process_query_dict")
@@ -67,7 +62,7 @@ def test_csv_rendering(
         assert csv_rows == fixture["csv_rows"]
 
     if mode == "hogql":
-        export_context["source"] = fixture.get("query", {"some": "query"})
+        export_context["source"] = fixture["response"].get("query", {"some": "query"})
         asset.save()
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`

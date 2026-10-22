@@ -575,7 +575,16 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 
             raise unexpected_empty_json_response
 
-        csv_rows = list(_convert_response_to_csv_data(data))
+        # A saved insight's results name their series only through the query that the insights API returns with them.
+        query = data.get("query")
+        series_query = _series_query(query) if isinstance(query, dict) else None
+        csv_rows = list(
+            _convert_response_to_csv_data(
+                data,
+                series_query=series_query,
+                action_names=get_action_names(exported_asset.team, series_query) if series_query else None,
+            )
+        )
         total += len(csv_rows)
         yield from csv_rows
 

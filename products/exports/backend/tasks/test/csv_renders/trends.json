@@ -1,11 +1,4 @@
 {
-    "query": {
-        "kind": "TrendsQuery",
-        "series": [
-            { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "Yes" },
-            { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "No" }
-        ]
-    },
     "csv_rows": [
         "series,custom name,1-Apr-2022,1-May-2022,1-Jun-2022,1-Jul-2022",
         "pineapple_on_pizza_survey - Belarus,Yes,0,0,0,1",
@@ -48,6 +41,13 @@
         ""
     ],
     "response": {
+        "query": {
+            "kind": "TrendsQuery",
+            "series": [
+                { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "Yes" },
+                { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "No" }
+            ]
+        },
         "result": [
             {
                 "order": 0,
