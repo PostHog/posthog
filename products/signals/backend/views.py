@@ -703,6 +703,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
+    ("verified_manually", "Verified manually"),
     ("no_action_needed", "No action needed"),
     ("pr_merged", "PR was merged"),
     ("other", "Something else…"),
@@ -711,7 +712,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
-    "fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
@@ -724,6 +725,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
+    "Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. "
+    "It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic "
+    "verification result or evidence amendment. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
@@ -762,6 +766,7 @@ class SignalReportState(models.TextChoices):
     SUPPRESSED = "suppressed", "suppressed"
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
+    MONITORING = "monitoring", "monitoring"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -769,11 +774,15 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
+            "Resolving is allowed from ready, pending_input, failed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
-            "Dismissing or resolving closes the report's open implementation PR, if it has one."
+            "Dismissing or resolving closes the report's open implementation PR, if it has one. "
+            "Use 'monitoring' when implementation is complete and outcome verification is pending. "
+            "New entry requires the organization rollout and the implementation-completion service. "
+            "Entry is unavailable until that service is integrated. Manual completion records caller "
+            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -822,6 +831,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("dismissal_reason") == "verified_manually" and attrs.get("state") != SignalReportState.RESOLVED:
+            raise serializers.ValidationError({"dismissal_reason": "Verified manually requires state 'resolved'."})
         if attrs.get("dismissal_reason") == "no_action_needed" and attrs.get("state") != SignalReportState.RESOLVED:
             raise serializers.ValidationError({"dismissal_reason": "No action needed requires state 'resolved'."})
         if (
@@ -3633,6 +3644,8 @@ class SignalReportViewSet(
         `_apply_wrong_repo_selection`.
         """
         target_status = SignalReport.Status(target)
+        if target_status == SignalReport.Status.MONITORING and not self._report_monitoring_enabled:
+            return SignalReportBulkStateOutcome.SKIPPED, "Monitoring is unavailable for this organization."
 
         with transaction.atomic():
             # Lock the report row for the whole guard + transition so it serializes with the refund
@@ -3640,8 +3653,26 @@ class SignalReportViewSet(
             # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
             # and refund row and refuse, instead of overwriting the suppression and re-opening
             # already-refunded work.
-            if SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first() is not None:
+            if (
+                SignalReport.objects.select_for_update(no_key=True).filter(id=report.id, team_id=self.team.id).first()
+                is not None
+            ):
                 report.refresh_from_db()
+            if dismissal_reason == "verified_manually" and (
+                not self._report_monitoring_enabled
+                or report.monitoring_started_at is None
+                or not (
+                    report.status in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}
+                    or (
+                        report.status == SignalReport.Status.SUPPRESSED
+                        and report.status_before_suppression == SignalReport.Status.MONITORING
+                    )
+                )
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "Manual verification requires an enabled Monitoring period.",
+                )
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
 
             # Refund guard: a refunded report can never be billed again (see billing.py), so putting
@@ -3708,6 +3739,13 @@ class SignalReportViewSet(
                     )
                 effective_target = report.restore_target_status()
 
+            # Entry must atomically snapshot the implementation attempt before checks are armed.
+            if target_status == SignalReport.Status.MONITORING and report.status != SignalReport.Status.MONITORING:
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "Implementation completion is unavailable. Resolve the report manually or try again later.",
+                )
+
             effective_snooze_for = snooze_for if target == "potential" else None
 
             # A verdict the report already holds is honoured, not refused: the open detail view lags
@@ -3719,6 +3757,24 @@ class SignalReportViewSet(
                 SignalReport.Status.RESOLVED,
                 SignalReport.Status.MONITORING,
             )
+
+            stopping_monitoring = (
+                target_status == SignalReport.Status.RESOLVED
+                and not already_holds_verdict
+                and self._report_monitoring_enabled
+                and (
+                    report.status == SignalReport.Status.MONITORING
+                    or (
+                        report.status == SignalReport.Status.SUPPRESSED
+                        and report.status_before_suppression == SignalReport.Status.MONITORING
+                    )
+                )
+            )
+            if stopping_monitoring:
+                manual_note = (
+                    "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
+                )
+                dismissal_note = f"{manual_note}\n\n{dismissal_note}" if dismissal_note else manual_note
 
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
                 dismissal_reason or dismissal_note
@@ -3738,6 +3794,14 @@ class SignalReportViewSet(
                 except (ValueError, TypeError) as e:
                     logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
                     return SignalReportBulkStateOutcome.FAILED, None
+
+                if stopping_monitoring:
+                    for check in (
+                        SignalReportCheck.objects.for_team(self.team.id)
+                        .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
+                        .order_by("id")
+                    ):
+                        cancel_check(check, reason="stopped_by_person", attribution=self._request_attribution())
 
                 # Tell the status-changed receiver that this transition carries caller-supplied feedback,
                 # so the label picks up the artefact written just below. Set before the save because the

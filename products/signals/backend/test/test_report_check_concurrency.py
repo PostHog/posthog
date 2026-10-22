@@ -12,12 +12,18 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckObservation
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.report_check_authoring import cancel_check
-from products.signals.backend.report_check_execution import expire_overdue_checks, run_due_report_checks
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_execution import (
+    expire_overdue_checks,
+    record_check_verdict,
+    run_due_report_checks,
+)
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -75,6 +81,52 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                 if cursor.fetchone()[0]:
                     return
         self.fail("The competing write did not wait for the holder transaction")
+
+    @parameterized.expand([(False,), (True,)])
+    def test_stopping_monitoring_rejects_a_verdict_waiting_for_the_report_lock(self, bulk: bool) -> None:
+        now = timezone.now()
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = now - timedelta(days=1)
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        self.check.expires_at = now + timedelta(days=30)
+        self.check.save(update_fields=["expires_at"])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        url = (
+            f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+            if bulk
+            else f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+        )
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            with transaction.atomic():
+                SignalReport.objects.select_for_update().get(id=self.report.id, team_id=self.team.id)
+                future = self._start_write(
+                    executor,
+                    lambda: record_check_verdict(
+                        self.check, CheckVerdict(outcome="passed", explanation="Late query result", observed_value=1)
+                    ),
+                )
+                self._assert_write_waits(future)
+                response = client.post(
+                    url,
+                    {
+                        "state": "resolved",
+                        "dismissal_reason": "verified_manually",
+                        **({"ids": [str(self.report.id)]} if bulk else {}),
+                    },
+                    format="json",
+                )
+                assert response.status_code == 200, response.json()
+            future.result(timeout=10)
+        self.report.refresh_from_db()
+        self.check.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert self.check.status == SignalReportCheck.Status.CANCELLED
+        assert self.check.last_outcome is None
+        assert not SignalReportArtefact.objects.filter(report=self.report, type="check_result").exists()
 
     @parameterized.expand([("cancelled",), ("extended",)])
     def test_expiry_sweep_preserves_a_concurrent_change(self, change: str) -> None:

@@ -14,7 +14,7 @@ Monitoring means implementation is complete and outcome verification is pending.
 
 A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
 
-Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs still accept only suppressed, potential, and resolved targets; neither manual entry controls nor automatic PR-merge entry are available.
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs recognize the Monitoring target. New entry is refused until the implementation-completion service is integrated. The gated entry control is disabled. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
@@ -42,6 +42,14 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
+## Manual implementation-completion integration
+
+Manual entry depends on the implementation-attempt service. The integration point is `SignalReportViewSet._transition_report_state`, shared by single and bulk writes, after the report is locked and refund and merge-survivor restrictions have passed. Replace the entry refusal with the service call; do not add a second eligibility selector or snapshot schema. Enable the entry control only after this is wired and validated. The completion service accepts `team_id`, `report_id`, the server-owned `monitoring_started_at`, caller `attribution`, `actor_user`, and `close_pr_on_resolve=True`. Use `select_for_update(no_key=True)` for the outer report lock so concurrent check activity can write its report foreign key. Refresh the caller's report after the service saves its separately loaded instance. Return its resulting status through both APIs.
+
+The service must record stale expiries before selecting this report's pending or active, unexpired checks, independently of kind and approval. Historical terminal checks, standalone metrics, and related reports' checks do not qualify. No applicable checks resolve directly without a verified-success claim. Applicable checks enter Monitoring with the current attempt's durable membership and version snapshot. Missing Monitoring configuration or soak blocks verification; zero soak is valid. Carried-over active checks require fresh evidence.
+
+Archive and restore must preserve the attempt and original start, including expiry recovery and saved interim observations. Reopening implementation clears the period; completing implementation again creates a fresh attempt. The service must retain organization gates, parent-plan behavior, child-environment scope, transaction safety, and idempotency under concurrent single and bulk requests. Disabled or unavailable evaluations refuse new entry and use the existing Resolved fallback. Final evaluation, automatic completion, amendments, and PR-merge entry remain separate work.
+
 ## Follow-up checks
 
 Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
@@ -63,6 +71,10 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
 ## Monitoring metric definitions
+
+The report detail action is **Start monitoring**, with the tooltip “PostHog watches to make sure the fix works”. It is hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
+
+**Stop monitoring** resolves the report manually and cancels its remaining pending and active follow-up checks in the same transaction. Historical terminal checks and other reports' checks are preserved. Results already in flight cannot revive canceled checks. Its reasons are **Verified manually**, **No action needed**, **Was already fixed before this report**, and **Something else…**. The `verified_manually` reason is separate from `fixed_outside_posthog`, requires an enabled Monitoring period, and is preserved with caller attribution. Stopping records that automatic verification and an evidence amendment were not performed.
 
 Open checks on Monitoring reports expose a server-derived `monitoring_timing` field when `signals-report-monitoring` is enabled. The field separates a scheduled or due interim measurement from the end of that check's soak window, and identifies paused, archived, unarmed, expired, or incomplete timing. It is omitted for other checks and when the flag is disabled or unavailable. Timing reads do not arm checks, change their schedules, or decide outcomes.
 

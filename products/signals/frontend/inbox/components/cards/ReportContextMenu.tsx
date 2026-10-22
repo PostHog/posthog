@@ -38,6 +38,7 @@ import {
     DismissalFeedback,
     DismissalReasonValue,
     RESOLVE_REASON_OPTIONS,
+    STOP_MONITORING_REASON_OPTIONS,
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
@@ -188,6 +189,7 @@ function ReportContextMenuItems({
         openResolveReportDialog({
             reportTitle,
             hasOpenPr,
+            isMonitoring: report.status === SignalReportStatus.MONITORING,
             initialReason,
             onConfirm: ({ reason, note }) => resolveWith(reason, note),
         })
@@ -315,7 +317,9 @@ function ReportContextMenuItems({
                         <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">
                             <ButtonPrimitive menuItem>
                                 <IconCheckCircle />
-                                Resolve
+                                <span>
+                                    {report.status === SignalReportStatus.MONITORING ? 'Stop monitoring' : 'Resolve'}
+                                </span>
                                 <IconChevronRight className="ml-auto size-3" />
                             </ButtonPrimitive>
                         </ContextMenuSubTrigger>
@@ -323,8 +327,16 @@ function ReportContextMenuItems({
                         buttons' fixed height. */}
                         <ContextMenuSubContent className="max-w-80">
                             <ReasonSubmenuItems
-                                options={RESOLVE_REASON_OPTIONS}
-                                noteTooltip="Resolve and write a note"
+                                options={
+                                    report.status === SignalReportStatus.MONITORING
+                                        ? STOP_MONITORING_REASON_OPTIONS
+                                        : RESOLVE_REASON_OPTIONS
+                                }
+                                noteTooltip={
+                                    report.status === SignalReportStatus.MONITORING
+                                        ? 'Stop monitoring and write a note'
+                                        : 'Resolve and write a note'
+                                }
                                 dataAttrPrefix="inbox-report-context-menu-resolve"
                                 onPick={pickResolveReason}
                                 onPickWithNote={openResolveDialog}
