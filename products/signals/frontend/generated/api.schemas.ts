@@ -3352,6 +3352,25 @@ export interface HubspotTicketSignalExtraApi {
     createdate: string | null
 }
 
+export interface Dynamics365TicketSignalExtraApi {
+    ticketnumber: string | null
+    prioritycode: string | null
+    severitycode: string | null
+    casetypecode: string | null
+    statuscode: string | null
+    createdon: string | null
+}
+
+export interface ZohoCrmTicketSignalExtraApi {
+    case_number: string | null
+    status: string | null
+    priority: string | null
+    type: string | null
+    case_origin: string | null
+    case_reason: string | null
+    created_time: string | null
+}
+
 export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     page: string
     query: string
@@ -3431,6 +3450,34 @@ export interface XmattersIncidentSignalExtraApi {
     created_at: string | null
 }
 
+export interface LaceworkScannerFindingSignalExtraApi {
+    alert_type: string | null
+    severity: string | null
+    status: string | null
+    internet_exposure: string | null
+    start_time: string | null
+}
+
+export interface OrcaSecurityScannerFindingSignalExtraApi {
+    category: string | null
+    risk_level: string | null
+    orca_score: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface TenableVulnerabilityManagementScannerFindingSignalExtraApi {
+    asset_uuid: string | null
+    plugin_id: string | null
+    port_number: string | null
+    protocol: string | null
+    plugin_cvss3_base_score: string | null
+    severity: string | null
+    state: string | null
+    first_found: string | null
+}
+
 export interface BetterstackIncidentSignalExtraApi {
     url: string | null
     started_at: string | null
@@ -3506,6 +3553,8 @@ export type SignalExtraApi =
     | JudgemeReviewsReviewSignalExtraApi
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
+    | Dynamics365TicketSignalExtraApi
+    | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
@@ -3516,6 +3565,9 @@ export type SignalExtraApi =
     | SolarwindsServiceDeskIncidentSignalExtraApi
     | GrafanaIrmIncidentSignalExtraApi
     | XmattersIncidentSignalExtraApi
+    | LaceworkScannerFindingSignalExtraApi
+    | OrcaSecurityScannerFindingSignalExtraApi
+    | TenableVulnerabilityManagementScannerFindingSignalExtraApi
     | BetterstackIncidentSignalExtraApi
     | MonteCarloAlertSignalExtraApi
     | BigeyeIssueSignalExtraApi

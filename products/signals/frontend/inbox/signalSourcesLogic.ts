@@ -622,6 +622,7 @@ export interface signalSourcesLogicMeta {
                 | 'bugsnag'
                 | 'canny'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -641,9 +642,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -660,9 +663,11 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null,
@@ -688,6 +693,7 @@ export interface signalSourcesLogicMeta {
                 | 'bugsnag'
                 | 'canny'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -707,9 +713,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -726,9 +734,11 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null
@@ -745,6 +755,7 @@ export interface signalSourcesLogicMeta {
                 | 'bugsnag'
                 | 'canny'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -764,9 +775,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -783,9 +796,11 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null,

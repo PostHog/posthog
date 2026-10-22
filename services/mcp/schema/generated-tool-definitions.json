@@ -4093,11 +4093,11 @@
         }
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own: tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Create or refine a catalog metric",
-        "title": "Create or refine a catalog metric",
+        "summary": "Create a catalog metric",
+        "title": "Create a catalog metric",
         "required_scopes": ["data_catalog:write"],
         "api_operations": ["POST /api/projects/{project_id}/data_catalog/metrics/"],
         "annotations": {
@@ -16418,6 +16418,37 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-make-email-template-transactional-execute": {
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (execute)",
+        "title": "Make email template transactional (execute)",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-make-email-template-transactional-prepare": {
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (prepare)",
+        "title": "Make email template transactional (prepare)",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-patch-action-email": {
         "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",

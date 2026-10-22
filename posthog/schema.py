@@ -32039,6 +32039,10 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description=("Select the native managed Trino catalog instead of the default PostHog catalog."),
+    )
     includeFields: bool | None = Field(
         default=None,
         description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),

@@ -1120,6 +1120,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
+
+
 class DatabaseSchemaTableCertificationStatus(StrEnum):
     CERTIFIED = "certified"
     DEPRECATED = "deprecated"
@@ -1449,6 +1454,7 @@ class ExperimentExposureHealthCheckStatus(StrEnum):
 
 
 class ExperimentExposureHealthFindingActionKind(StrEnum):
+    OPEN_FEATURE_FLAG = "open_feature_flag"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
@@ -1790,11 +1796,6 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
-
-
-class ExecutionTarget(StrEnum):
-    DEFAULT = "default"
-    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):

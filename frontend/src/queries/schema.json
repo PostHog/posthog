@@ -21345,6 +21345,11 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "executionTarget": {
+                    "description": "Select the native managed Trino catalog instead of the default PostHog catalog.",
+                    "enum": ["default", "managed_trino"],
+                    "type": "string"
+                },
                 "includeFields": {
                     "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
                     "type": "boolean"
@@ -25636,7 +25641,7 @@
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
-            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "enum": ["open_feature_flag", "edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {

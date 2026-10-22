@@ -6322,6 +6322,7 @@ export type ExperimentExposureHealthFindingCode =
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
 export type ExperimentExposureHealthFindingActionKind =
+    | 'open_feature_flag'
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
@@ -6716,6 +6717,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Select the native managed Trino catalog instead of the default PostHog catalog. */
+    executionTarget?: 'default' | 'managed_trino'
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
     /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */

@@ -254,6 +254,18 @@ export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
+export interface EmailTemplateSenderApi {
+    /**
+     * Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address.
+     * @maxLength 254
+     */
+    email?: string
+    /** Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name. */
+    name?: string
+    /** ID of the project's email sender integration that sends this email. Transactional sends need a verified sender. */
+    integrationId: number
+}
+
 /**
  * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
  */
@@ -303,6 +315,10 @@ export interface EmailTemplateApi {
     html?: string
     /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
     design?: EmailTemplateApiDesign
+    /** The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with. */
+    from?: EmailTemplateSenderApi
+    /** Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to. */
+    replyTo?: string
 }
 
 export interface MessageTemplateContentApi {
