@@ -16,6 +16,7 @@ import json
 import time
 import signal
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
@@ -189,13 +190,21 @@ def _is_permanent_client_error(status_code: object) -> bool:
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
+# One worker, so a hung cache or database call blocks later lookups instead of piling up threads.
+# Each caller still waits at most the timeout, then logs without a team.
+_TEAM_LOOKUP_TIMEOUT_SECONDS = 2.0
+_team_lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dlq-team-lookup")
+
+
 def _team_id_for_token(token: object) -> int | None:
-    """Best-effort team lookup so a DLQ log line can name the affected team. Never raises: a failed
-    lookup must not turn a DLQ write into a retry."""
+    """Best-effort team lookup so a DLQ log line can name the affected team. Never raises and never
+    waits past the timeout: a slow or failed lookup must not stall or retry a DLQ write."""
     if not isinstance(token, str):
         return None
     try:
-        team = Team.objects.get_team_from_cache_or_token(token)
+        team = _team_lookup_executor.submit(Team.objects.get_team_from_cache_or_token, token).result(
+            timeout=_TEAM_LOOKUP_TIMEOUT_SECONDS
+        )
     except Exception:
         return None
     return team.id if team else None
