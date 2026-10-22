@@ -54,6 +54,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
@@ -65,7 +66,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -198,6 +199,7 @@ from products.product_analytics.backend.presentation.insight import (
 )
 from products.subscriptions.backend.facade.api import (
     blocked_access_for_subscribed_dashboard_tile,
+    dashboard_has_active_full_subscription,
     dashboard_ids_with_subscriptions,
 )
 
@@ -2118,7 +2120,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
-            self._check_restored_tiles_access(instance, cast(User, self.context["request"].user))
+            self._check_restored_tiles_access(
+                instance, cast(User, self.context["request"].user), self.context["view"].user_access_control
+            )
             self._undo_delete_related_tiles(instance)
 
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
@@ -2710,21 +2714,36 @@ class DashboardSerializer(DashboardMetadataSerializer):
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
-    def _check_restored_tiles_access(instance: Dashboard, user: User) -> None:
-        """A dashboard restore brings every tile back without a tile write, so the checks that
-        gate a single tile restore run here for each insight the restore shows again. An insight
-        can be edited while its dashboard is deleted, so its query may have changed since."""
-        queries = (
-            Insight.objects_including_soft_deleted.filter(
+    def _check_restored_tiles_access(instance: Dashboard, user: User, user_access_control: UserAccessControl) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the check that
+        gates a single tile restore runs here, once over every insight the restore shows again.
+        An insight can be edited while its dashboard is deleted, so its query may have changed
+        since. The exposure is decided once and the queries compile against one schema, so a
+        restore costs one check rather than one per tile."""
+        if not instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return
+        if user_access_control.is_organization_admin:
+            return
+        if is_publicly_shared(instance):
+            exposure = "publicly shared"
+        elif dashboard_has_active_full_subscription(team_id=instance.team_id, dashboard_id=instance.id):
+            exposure = "delivered by a subscription"
+        else:
+            return
+        queries = [
+            query
+            for query in Insight.objects_including_soft_deleted.filter(
                 dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
             )
             .distinct()
             .values_list("query", flat=True)
-        )
-        for query in queries:
-            check_can_add_insight_to_shared_dashboard(user, instance, query)
-            if error := blocked_access_for_subscribed_dashboard_tile(user, instance.team, instance.id, query):
-                raise serializers.ValidationError(error)
+            if isinstance(query, dict)
+        ]
+        if blocked := blocked_access_for_user(user, instance.team, queries):
+            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            raise serializers.ValidationError(
+                f"Can't restore this dashboard: you don't have access to {blocked_list}, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
