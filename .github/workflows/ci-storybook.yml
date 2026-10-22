@@ -829,9 +829,14 @@ jobs:
             # bad signature, so the merge queue still catches a forged one.
             # !cancelled() keeps the check after a test-runner failure. A failed CLI build
             # fails this step too, so a fork PR never passes unverified.
+            # Outside PostHog/posthog the check warns instead of failing: another runner
+            # renders a third of the unchanged stories a pixel off, and Visual Review
+            # verifies the change once it reaches PostHog/posthog.
             - name: Verify snapshots against the baseline offline
               if: ${{ !cancelled() && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') }}
               shell: bash
+              env:
+                  BLOCKING: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   set +e
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js verify --partial \
@@ -850,6 +855,10 @@ jobs:
                       cat /tmp/vr-verify.log
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
+                  if [ "$status" -ne 0 ] && [ "$BLOCKING" != "true" ]; then
+                      echo "::warning title=Snapshots not verified::The offline snapshot check did not pass for this shard. This repository has no Visual Review run, and the exact-pixel fallback also flags stories that another runner renders a pixel off, so it does not block here. Visual Review verifies the change when it reaches PostHog/posthog. The job log lists the snapshots that differ."
+                      exit 0
+                  fi
                   if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
                       echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
                   elif [ "$status" -ne 0 ]; then
