@@ -19,6 +19,7 @@ from products.data_catalog.evals.constants import (
     ANNOTATION_WRITE_LOST_STAGE,
     ANNOTATION_WRITE_WON_STAGE,
     CERTIFIED_SOURCE_NAME,
+    CLIENT_INVOICES_LIST_TOTAL,
     DEPRECATED_SOURCE_NAME,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
@@ -55,6 +56,7 @@ from products.data_catalog.evals.seeders import (
     seed_annotated_ledger_view,
     seed_annotation_write_target,
     seed_certification_trust_sources,
+    seed_client_invoices_table,
     seed_deprecation_candidate_sources,
     seed_form_response_tables,
     seed_instruction_like_column_annotation,
@@ -264,6 +266,20 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                 "answer_value_stated": {"value": FORM_RESPONSES_PRICING_COUNT},
             },
             setup=seed_form_response_tables,
+        ),
+        # Two columns both read as revenue, and only the annotation says which one ignores discounts. The values do
+        # not give it away: the other column is higher on some rows, lower on others, and higher in total.
+        SandboxedEvalCase(
+            name="column_description_selects_measure",
+            prompt="What's our total revenue from clients, ignoring discounts?",
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.columns",
+                    "required_columns": ["description"],
+                },
+                "answer_value_stated": {"value": CLIENT_INVOICES_LIST_TOTAL},
+            },
+            setup=seed_client_invoices_table,
         ),
     ]
 

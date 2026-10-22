@@ -52,6 +52,9 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
     CERTIFIED_SOURCE_NAME,
+    CLIENT_INVOICES_DESCRIPTIONS,
+    CLIENT_INVOICES_ROWS,
+    CLIENT_INVOICES_SCHEMA,
     CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
     CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
     CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
@@ -176,6 +179,7 @@ __all__ = [
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_client_invoices_table",
     "seed_daily_active_orgs_metric",
     "seed_definition_insight",
     "seed_form_response_tables",
@@ -954,3 +958,24 @@ def seed_form_response_tables(context: CustomPromptSandboxContext) -> dict[str, 
         descriptions={},
     )
     return {"candidate_tables": [f"postgres_{FORM_RESPONSES_TARGET_SCHEMA}", f"postgres_{FORM_RESPONSES_DECOY_SCHEMA}"]}
+
+
+def seed_client_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=CLIENT_INVOICES_SCHEMA,
+        table_name=f"postgres_{CLIENT_INVOICES_SCHEMA}",
+        columns={
+            "invoice_id": _INTEGER_COLUMN,
+            "client_id": _INTEGER_COLUMN,
+            "revenue": _FLOAT_COLUMN,
+            "client_revenue": _FLOAT_COLUMN,
+        },
+        rows=CLIENT_INVOICES_ROWS,
+        descriptions=CLIENT_INVOICES_DESCRIPTIONS,
+        description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+    )
+    return {"synced_table": {"name": f"postgres_{CLIENT_INVOICES_SCHEMA}"}}

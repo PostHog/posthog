@@ -611,3 +611,20 @@ FORM_RESPONSES_DECOY_ROWS = tuple(
     for index in range(36)
 )
 FORM_RESPONSES_PRICING_COUNT = "13"
+
+# Measure choice arm. Two columns both read as revenue, and only the annotation of client_revenue says it ignores
+# discounts. revenue is the discounted amount plus 25% VAT, so it is higher than list price on some rows, lower on
+# others, and higher in total. Neither "pick the larger column" nor "pick the larger total" finds the pre-discount one.
+CLIENT_INVOICES_SCHEMA = "client_invoices"
+CLIENT_INVOICES_DESCRIPTIONS = {
+    "": "One row per client invoice from the billing database.",
+    "client_revenue": "Revenue per client invoice at list price, before discounts and excluding tax, in USD.",
+}
+_LIST_PRICES = (1200, 850, 2400, 640, 1785, 990, 3120, 2055, 470, 1500, 760, 2280)
+_DISCOUNT_RATES = (0.0, 0.1, 0.25, 0.0, 0.22, 0.05, 0.25, 0.1, 0.0, 0.15, 0.22, 0.25)
+# (invoice_id, client_id, revenue, client_revenue)
+CLIENT_INVOICES_ROWS = tuple(
+    (index + 1, 400 + index % 7, round(price * (1 - discount) * 1.25, 2), float(price))
+    for index, (price, discount) in enumerate(zip(_LIST_PRICES, _DISCOUNT_RATES, strict=True))
+)
+CLIENT_INVOICES_LIST_TOTAL = f"{sum(_LIST_PRICES):.2f}"
