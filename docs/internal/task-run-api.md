@@ -124,6 +124,7 @@ This choice persists when the user returns to the web app.
 
 Continuing a task on mobile stops that user's automatic Slack mentions and proactive private-thread updates.
 Shared replies and answers to direct Slack requests remain available.
+This includes replies that restart a completed task.
 Other participants keep their notifications.
 
 Task notifications cover run results, input requests, replies, handoffs, and verified PR merges or closes.
@@ -131,6 +132,7 @@ Active task presence suppresses notifications on those devices.
 The server prevents duplicate PR outcome notifications.
 
 Report notifications cover new reports, work updates, and PR review or outcome updates, regardless of task origin.
+Active presence in the report's implementation or research task suppresses its work-update notifications across that user's devices.
 Report discussions use task notification preferences.
 Reports with `output_destinations.inbox: false` do not send notifications.
 Report notifications require `posthog-code-mobile-push`.

@@ -177,10 +177,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import get_message_actor, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import is_explicit_slack_reply, turn_person_message
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
+        task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         handler = SlackThreadHandler.for_run(
             context,
             input.run_id,
@@ -189,14 +190,13 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
         )
         if (
-            input.run_id
+            task_run is not None
             and handler.proactive_notifications_muted()
-            and not (input.message_id and get_message_actor(input.run_id, input.message_id))
+            and not is_explicit_slack_reply(task_run, input.message_id)
         ):
             if input.ts is not None:
                 handler.stop_status_stream(ts=input.ts, final_markdown=None, mention_sent=True)
             return
-        task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         deliveries: list[SlackFileDeliveryResult] = []
 
         def _append_attachments() -> None:

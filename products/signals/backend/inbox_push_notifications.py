@@ -37,7 +37,11 @@ from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_claims import get_active_claims, responsible_user
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_inbox_notifications import resolve_org_suggested_reviewer_user_ids
-from products.tasks.backend.mobile_push import enqueue_mobile_pr_outcome, mobile_push_user_ids
+from products.tasks.backend.mobile_push import (
+    enqueue_mobile_pr_outcome,
+    mobile_push_user_ids,
+    suppressed_push_token_ids_for_task,
+)
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -293,7 +297,13 @@ def _push_report(
                     try:
 
                         def enqueue() -> None:
-                            send_user_push.delay(user.id, title, body, data)
+                            if task_id is not None:
+                                suppressed = suppressed_push_token_ids_for_task(
+                                    user_id=user.id, task_id=task_id, team_id=report.team_id
+                                )
+                                send_user_push.delay(user.id, title, body, data, suppressed)
+                            else:
+                                send_user_push.delay(user.id, title, body, data)
 
                         if pull_request_url is not None and task_id is not None:
                             return enqueue_mobile_pr_outcome(

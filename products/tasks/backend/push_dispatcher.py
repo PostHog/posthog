@@ -23,12 +23,10 @@ from typing import TYPE_CHECKING, Literal, cast
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections, transaction
 from django.db.models import Exists, OuterRef
-from django.utils import timezone
 
 import structlog
 
 from posthog.models.user import User
-from posthog.models.user_push_token import UserPushToken
 from posthog.push_notifications import mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
@@ -36,9 +34,10 @@ from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_
 from products.tasks.backend.mobile_push import (
     enqueue_mobile_pr_outcome,
     mobile_push_user_ids,
+    suppressed_push_token_ids_for_task,
     task_mobile_push_eligible,
 )
-from products.tasks.backend.models import Task, TaskPresence, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
@@ -341,7 +340,7 @@ def _enqueue_user(
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         return
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
-    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
+    suppressed = suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id, team_id=task.team_id)
     data["type"] = "task"
     data["notificationKind"] = kind
     data["projectId"] = task.team_id
@@ -383,28 +382,3 @@ def _enqueue_user(
             )
 
     transaction.on_commit(dispatch)
-
-
-def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:
-    """Return all of the user's UserPushToken UUIDs (as strings) when at least one device
-    has beaconed presence for this task — otherwise an empty list.
-
-    The contract documented on the beacon endpoint is "if any device is
-    provably watching, suppress the others". The watching device doesn't need
-    a push either — it's already rendering the task UI in real time — so when
-    any presence row is active we suppress the entire fanout for the user.
-    Computed at enqueue time; the Celery dispatch is essentially instant so
-    the race window against the 30-second beacon cadence is irrelevant.
-
-    ``unscoped`` is the right escape hatch here: the dispatcher fires from a
-    mix of Temporal activities and model methods that don't have the DRF
-    team-context ContextVar set. Both queries are scoped through
-    ``user_id`` and ``task_id`` and the presence rows are tenant-safe by
-    virtue of their FK to a team-scoped Task.
-    """
-    has_active_presence = (
-        TaskPresence.objects.unscoped().filter(task_id=task_id, user_id=user_id, expires_at__gt=timezone.now()).exists()
-    )
-    if not has_active_presence:
-        return []
-    return [str(pid) for pid in UserPushToken.objects.filter(user_id=user_id).values_list("id", flat=True)]

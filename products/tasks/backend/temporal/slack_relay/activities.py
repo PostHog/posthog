@@ -205,7 +205,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import (
-        get_message_actor,
+        is_explicit_slack_reply,
         slack_reply_target,
         turn_person_message,
     )
@@ -264,9 +264,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         turn_person_message=person_message,
     )
 
-    if handler.proactive_notifications_muted() and not (
-        input.message_id and get_message_actor(input.run_id, input.message_id)
-    ):
+    if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
         handler.delete_progress()
         return
     text = handler.notification_text(text, target)

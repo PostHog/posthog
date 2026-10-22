@@ -223,21 +223,26 @@ class TestSlackAgentDesignStream(TestCase):
 
     @parameterized.expand(
         [
-            ("shared_channel", "C1", False, False),
-            ("direct_request", "D1", False, True),
-            ("answer_at_start", "C1", True, False),
-            ("private_proactive", "D1", False, False),
+            ("shared_channel", "C1", False, None),
+            ("direct_request", "D1", False, "slack_message"),
+            ("slack_successor", "D1", False, "slack_run"),
+            ("web_after_slack_successor", "D1", False, "web_message_after_slack_run"),
+            ("answer_at_start", "C1", True, None),
+            ("private_proactive", "D1", False, None),
         ]
     )
     @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
     @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_mobile_pickup_keeps_the_answer_without_a_targeted_stream(
-        self, _name, channel, answer_at_start, explicit_request, mock_get_client, mock_muted, mock_deliver
+        self, _name, channel, answer_at_start, request_origin, mock_get_client, mock_muted, mock_deliver
     ) -> None:
         mock_muted.side_effect = lambda **kwargs: channel == "D1" or not kwargs.get("private_only", False)
-        message_id = "slack-request" if explicit_request else None
-        if message_id:
+        message_id = request_origin if request_origin in {"slack_message", "web_message_after_slack_run"} else None
+        if request_origin in {"slack_run", "web_message_after_slack_run"}:
+            self.task_run.state = {**self.task_run.state, "interaction_origin": "slack"}
+            self.task_run.save(update_fields=["state"])
+        if request_origin == "slack_message":
             record_delivered_message(
                 str(self.task_run.id), message_id, actor_slack_user_id="U456", person_message="How are signups?"
             )
@@ -278,7 +283,7 @@ class TestSlackAgentDesignStream(TestCase):
         client.chat_startStream.assert_not_called()
         client.chat_appendStream.assert_not_called()
         client.chat_stopStream.assert_not_called()
-        if channel == "D1" and not explicit_request:
+        if channel == "D1" and request_origin not in {"slack_message", "slack_run"}:
             client.chat_postMessage.assert_not_called()
             mock_deliver.assert_not_called()
         else:

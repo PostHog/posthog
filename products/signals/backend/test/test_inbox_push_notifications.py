@@ -6,12 +6,14 @@ from unittest.mock import call, patch
 
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -34,7 +36,7 @@ from products.signals.backend.report_assignments import PullRequestDetails, crea
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 # Task ORM model needed for a task-claim fixture; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskPresence, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_pull_request_outcome,
     notify_task_run_awaiting_input,
@@ -308,6 +310,48 @@ class TestInboxPushNotifications(BaseTest):
             self.assertEqual(self.send_push.call_args.args[3]["taskRunId"], str(run.id))
             self.assertIn(report.title, self.send_push.call_args.args[2])
             self.assertNotIn(task.title, self.send_push.call_args.args[2])
+
+    @parameterized.expand(
+        [
+            ("active", "implementation", notify_task_run_completed),
+            ("expired", "research", notify_task_run_awaiting_input),
+            ("other_task", "implementation", notify_task_run_turn_completed),
+        ]
+    )
+    def test_report_work_respects_task_presence(self, presence, relationship, notify) -> None:
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        self._add_reviewers(report, self.user, self.reviewer)
+        task = Task.objects.create(team=self.team, created_by=self.user, signal_report=report)
+        run = TaskRun.objects.create(task=task, team=self.team)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type=relationship,
+            task_id=str(task.id),
+            run_id=str(run.id),
+        )
+        tokens = [
+            UserPushToken.objects.create(user=self.user, token=f"ExponentPushToken[device-{index}]", platform="ios")
+            for index in range(2)
+        ]
+        watched_task = Task.objects.create(team=self.team, created_by=self.user) if presence == "other_task" else task
+        TaskPresence.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=watched_task,
+            user=self.user,
+            push_token=tokens[0],
+            expires_at=timezone.now() + timedelta(minutes=-1 if presence == "expired" else 1),
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(run)
+        pushes = {push.args[0]: push.args for push in self.send_push.call_args_list}
+        self.assertEqual(set(pushes), {self.user.id, self.reviewer.id})
+        self.assertEqual(pushes[self.user.id][3]["type"], "report")
+        self.assertCountEqual(
+            pushes[self.user.id][4], [str(token.id) for token in tokens] if presence == "active" else []
+        )
+        self.assertEqual(pushes[self.reviewer.id][4], [])
 
     @parameterized.expand(
         [

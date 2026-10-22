@@ -85,15 +85,17 @@ class TestRelaySlackMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("mobile_private", True, False, False),
-            ("explicit_slack_private", True, True, True),
-            ("shared_mobile", False, False, True),
+            ("mobile_private", True, None, False),
+            ("explicit_slack_private", True, "slack_message", True),
+            ("slack_successor_private", True, "slack_run", True),
+            ("web_after_slack_successor", True, "web_message_after_slack_run", False),
+            ("shared_mobile", False, None, True),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_mobile_takeover_preserves_shared_and_explicit_slack_answers(
-        self, _name, private, explicit_slack, expected_post, _delete_progress, post
+        self, _name, private, request_origin, expected_post, _delete_progress, post
     ) -> None:
         self.task.state = {"mobile_push_user_ids": [self.user.id]}
         self.task.save(update_fields=["state"])
@@ -104,8 +106,11 @@ class TestRelaySlackMessage(TestCase):
                 else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
             )
         )
-        message_id = f"slack-message-{_name}" if explicit_slack else None
-        if message_id:
+        message_id = request_origin if request_origin in {"slack_message", "web_message_after_slack_run"} else None
+        if request_origin in {"slack_run", "web_message_after_slack_run"}:
+            self.task_run.state = {"interaction_origin": "slack", "slack_actor_slack_user_id": "U123"}
+            self.task_run.save(update_fields=["state"])
+        if request_origin == "slack_message":
             record_delivered_message(
                 str(self.task_run.id), message_id, actor_slack_user_id="U123", person_message="Continue"
             )

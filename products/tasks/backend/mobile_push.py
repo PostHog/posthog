@@ -3,8 +3,11 @@ from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
-from products.tasks.backend.models import Task
+from posthog.models.user_push_token import UserPushToken
+
+from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.visibility import task_control_q
 
 MOBILE_PUSH_USER_IDS = "mobile_push_user_ids"
@@ -19,6 +22,27 @@ def task_mobile_push_eligible(task: Task, user_id: int) -> bool:
     return user_id in mobile_push_user_ids(task) or (
         (task.state or {}).get("created_on_mobile") is True and task.origin_product != Task.OriginProduct.SLACK
     )
+
+
+def suppressed_push_token_ids_for_task(*, user_id: int, task_id: str | UUID, team_id: int) -> list[str]:
+    """Return all of the user's UserPushToken UUIDs (as strings) when at least one device
+    has beaconed presence for this task, otherwise an empty list.
+
+    The contract documented on the beacon endpoint is "if any device is
+    provably watching, suppress the others". The watching device doesn't need
+    a push either because it already renders the task UI in real time, so when
+    any presence row is active we suppress the entire fanout for the user.
+    Computed at enqueue time; the Celery dispatch is essentially instant so
+    the race window against the 30-second beacon cadence is irrelevant.
+    """
+    has_active_presence = (
+        TaskPresence.objects.for_team(team_id)
+        .filter(task_id=task_id, user_id=user_id, expires_at__gt=timezone.now())
+        .exists()
+    )
+    if not has_active_presence:
+        return []
+    return [str(pid) for pid in UserPushToken.objects.filter(user_id=user_id).values_list("id", flat=True)]
 
 
 def record_mobile_pickup(*, task_id: str | UUID, team_id: int, user_id: int) -> None:
