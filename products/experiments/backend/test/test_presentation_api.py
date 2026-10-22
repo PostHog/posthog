@@ -32,6 +32,7 @@ from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthent
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
@@ -791,6 +792,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        EventDefinition.objects.create(
+            team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
+        )
         flag = FeatureFlag.objects.create(
             team=self.team,
             key=f"health-findings-{_name}",
@@ -844,6 +848,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
+        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
 
     @parameterized.expand(
         [
@@ -1055,6 +1060,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.user.is_staff = is_staff
         self.user.save()
         experiment = self._create_experiment_with_a_pinned_condition(f"health-inputs-{_name}")
+        experiment.feature_flag.last_called_at = timezone.now() - timedelta(days=1)
+        experiment.feature_flag.save()
         if denied_property is not None:
             self._deny_event_property(denied_property)
         headers: dict[str, str] = {}
@@ -1081,6 +1088,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(
             [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
             [(1, "test"), (2, None)],
+        )
+        self.assertEqual(
+            (
+                inputs["flag_last_called_at"] is not None,
+                inputs["flag_called_during_run"],
+                inputs["exposure_events"]["required_flag_key"],
+            ),
+            (True, True, f"health-inputs-{_name}"),
         )
         traffic = inputs["condition_set_traffic"]
         self.assertEqual(
@@ -10167,3 +10182,175 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
         self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)
+
+
+_SHIP_TEST_VARIANT = {
+    "feature_flag": {
+        "filters": {
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
+            }
+        }
+    },
+    "update_feature_flag_params": True,
+}
+
+_SHIP_TEST_VARIANT_LEGACY = {
+    "parameters": {
+        "feature_flag_variants": [
+            {"key": "control", "rollout_percentage": 0},
+            {"key": "test", "rollout_percentage": 100},
+        ]
+    },
+    "update_feature_flag_params": True,
+}
+
+
+class TestExperimentScoutCallerRules(APILicensedTest):
+    def _experiment(self, *, launched: bool) -> Experiment:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Scout rules",
+                "feature_flag_key": "scout-rules-flag",
+                "allow_unknown_events": True,
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        if launched:
+            launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{response.json()['id']}/launch/")
+            assert launch.status_code == status.HTTP_200_OK, launch.json()
+        return Experiment.objects.get(id=response.json()["id"])
+
+    def _authenticate(self, scope: str) -> None:
+        application = OAuthApplication.objects.create(
+            name="Signals scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_experiment_scout_rules_test",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    @parameterized.expand(
+        [
+            ("scout_soft_delete", True, "patch", "", {"deleted": True}, True, False, 403),
+            ("scout_unhashable_deleted", True, "patch", "", {"deleted": [True]}, True, False, 400),
+            ("scout_copy_to_project", True, "post", "copy_to_project/", {}, True, False, 403),
+            ("scout_migrate", True, "post", "migrate/", {}, True, False, 403),
+            ("scout_end_with_cleanup_pr", True, "post", "end/", {"open_cleanup_pr": True}, True, False, 403),
+            ("scout_ship_variant", True, "post", "ship_variant/", {"variant_key": "test"}, True, False, 403),
+            (
+                "scout_ship_variant_with_flag_write",
+                True,
+                "post",
+                "ship_variant/",
+                {"variant_key": "test"},
+                True,
+                True,
+                200,
+            ),
+            ("scout_live_flag_rollout", True, "patch", "", _SHIP_TEST_VARIANT, True, False, 403),
+            ("scout_live_flag_rollout_legacy", True, "patch", "", _SHIP_TEST_VARIANT_LEGACY, True, False, 403),
+            ("scout_live_flag_rollout_with_flag_write", True, "patch", "", _SHIP_TEST_VARIANT, True, True, 200),
+            ("scout_draft_flag_rollout", False, "patch", "", _SHIP_TEST_VARIANT, True, False, 200),
+            ("scout_pause", True, "post", "pause/", {}, True, False, 200),
+            ("non_scout_soft_delete", True, "patch", "", {"deleted": True}, False, False, 200),
+            ("non_scout_ship_variant", True, "post", "ship_variant/", {"variant_key": "test"}, False, False, 200),
+            ("non_scout_live_flag_rollout", True, "patch", "", _SHIP_TEST_VARIANT, False, False, 200),
+        ]
+    )
+    def test_scout_experiment_writes(
+        self,
+        _name: str,
+        launched: bool,
+        method: str,
+        path: str,
+        body: dict[str, Any],
+        is_scout: bool,
+        with_flag_write: bool,
+        expected_status: int,
+    ) -> None:
+        experiment = self._experiment(launched=launched)
+        assert experiment.feature_flag is not None
+        flag_filters_before = experiment.feature_flag.filters
+        scopes = ["experiment:read", "experiment:write"]
+        if is_scout:
+            # A real scout token also carries `task:write` from INTERNAL_SCOPES.
+            scopes += ["signal_scout_internal:write", "task:write"]
+        if with_flag_write:
+            scopes.append("feature_flag:write")
+        self._authenticate(" ".join(scopes))
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/{path}", body, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        if expected_status >= 400:
+            assert not experiment.deleted
+            assert experiment.end_date is None
+            assert experiment.feature_flag.filters == flag_filters_before
+            assert Experiment.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand([("running", True, False), ("draft_on_live_flag", False, True)])
+    def test_scout_cannot_change_a_live_flag_holdout(self, _name: str, launched: bool, reuse_live_flag: bool) -> None:
+        if reuse_live_flag:
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="scout-rules-flag",
+                active=True,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            )
+        experiment = self._experiment(launched=launched)
+        assert experiment.feature_flag is not None
+        flag_filters_before = experiment.feature_flag.filters
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Scout holdout",
+            created_by=self.user,
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout-scout"}],
+        )
+        self._authenticate("experiment:read experiment:write signal_scout_internal:write task:write")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {"holdout_id": holdout.id, "update_feature_flag_params": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.holdout is None
+        assert experiment.feature_flag.filters == flag_filters_before

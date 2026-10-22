@@ -253,7 +253,7 @@ class TestDataSuggestions(SimpleTestCase):
         assert email["html"] == "<p>saved</p>"
         assert "text" not in email
 
-    def test_build_workflow_puts_a_wait_between_back_to_back_emails(self) -> None:
+    def test_build_workflow_spaces_out_emails_for_a_person(self) -> None:
         built = build_workflow(
             IDEA, plan(step("first", next="second"), step("second", email_subject="Second")), context()
         )
@@ -264,10 +264,29 @@ class TestDataSuggestions(SimpleTestCase):
             "function_email",
         ]
         assert built.workflow["actions"][2]["config"] == {"delay_duration": "1d"}
+        assert built.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": 7 * 24 * 60 * 60, "threshold": None}
         assert edges(built)[1:3] == [
             ("action_0_email", "action_1_delay", "continue", None),
             ("action_1_delay", "action_2_email", "continue", None),
         ]
+
+    @parameterized.expand([("quiet trigger", 50_000, None), ("busy trigger", 1_000_000, 5), ("flood", 9_000_000, 1)])
+    def test_build_workflow_starts_a_busy_trigger_on_a_sample(
+        self, _name: str, weekly_count: int, share: int | None
+    ) -> None:
+        built = build_workflow(IDEA, plan(step("welcome")), context(weekly_count=weekly_count))
+        assert built is not None
+        if share is None:
+            assert edges(built)[0] == ("trigger_node", "action_0_email", "continue", None)
+            return
+        assert edges(built)[:4] == [
+            ("trigger_node", "action_sample", "continue", None),
+            ("action_sample", "action_0_email", "branch", 0),
+            ("action_sample", "exit_node", "branch", 1),
+            ("action_sample", "exit_node", "continue", None),
+        ]
+        sample = next(action for action in built.workflow["actions"] if action["id"] == "action_sample")
+        assert [cohort["percentage"] for cohort in sample["config"]["cohorts"]] == [share, 100 - share]
 
     @parameterized.expand(
         [

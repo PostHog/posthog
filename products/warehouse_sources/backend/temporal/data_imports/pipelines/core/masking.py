@@ -115,7 +115,7 @@ def mask_table_columns(
     primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
 ) -> pa.Table:
-    """Replace each masked column with string digests. Call after `normalize_table_column_names`."""
+    """Replace each masked column with string digests. Names match by their folded form, normalized or not."""
     masked = resolve_masked_columns(masked_columns, primary_keys, incremental_field)
     if not masked:
         return table
@@ -142,7 +142,7 @@ def mask_table_columns(
 async def mask_table_if_configured(
     table: pa.Table, schema: ExternalDataSchema, resource: SourceResponse, source_column_names: Iterable[str]
 ) -> pa.Table:
-    """Mask a batch whose names are already normalized. `source_column_names` are the names before that."""
+    """Mask a batch. `source_column_names` are the batch's names before any normalization."""
     if not schema.masked_columns:
         return table
     # A source column added after the mask was saved can fold to a masked name. Normalization then

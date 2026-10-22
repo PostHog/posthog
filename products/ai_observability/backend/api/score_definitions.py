@@ -42,6 +42,9 @@ from products.ai_observability.backend.score_definition_configs import ScoreDefi
 
 
 class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
+    updated_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who last updated the scorer or created a version."
+    )
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -78,6 +81,7 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
             "created_by",
             "created_at",
             "updated_at",
+            "updated_by",
             "team",
         ]
         read_only_fields = fields
@@ -221,6 +225,7 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
+    created_by = django_filters.NumberFilter(field_name="created_by_id", help_text="Filter by the creator's user ID.")
     search = django_filters.CharFilter(
         method="filter_search",
         help_text="Search scorers by name or description.",
@@ -277,7 +282,9 @@ class ScoreDefinitionViewSet(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
         queryset = (
-            queryset.filter(team_id=self.team_id).select_related("current_version", "created_by").order_by("name", "id")
+            queryset.filter(team_id=self.team_id)
+            .select_related("current_version", "created_by", "updated_by")
+            .order_by("name", "id")
         )
 
         # List defaults to active scorers to mirror the UI; non-boolean `?archived=` values keep that default.
@@ -347,7 +354,10 @@ class ScoreDefinitionViewSet(
         if not changed_fields:
             return
 
-        definition.save(update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at"])
+        definition.updated_by = cast(User, self.request.user)
+        definition.save(
+            update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at", "updated_by"]
+        )
         event_properties: dict[str, str | bool | int | list[str]] = {
             **self._event_properties(definition),
             "changed_fields": changed_fields,
