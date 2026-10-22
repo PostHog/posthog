@@ -20,14 +20,18 @@ class _Clock:
 
 
 class _Monitor:
-    def __init__(self, shutting_down: bool) -> None:
+    def __init__(self, shutting_down: bool, shutdown_age: float | None = None) -> None:
         self.shutting_down = shutting_down
+        self.shutdown_age = shutdown_age
 
     def run_on_shutdown(self, callback: Any) -> None:
         pass
 
     def is_worker_shutdown(self) -> bool:
         return self.shutting_down
+
+    def seconds_since_shutdown(self) -> float | None:
+        return self.shutdown_age
 
     def raise_if_is_worker_shutdown(self) -> None:
         if self.shutting_down:
@@ -42,9 +46,10 @@ def _gate(
     age: float | None = 600.0,
     legacy: bool = True,
     restarts_from_scratch: bool = False,
+    shutdown_age: float | None = None,
 ) -> tuple[HandoffGate, _Clock, DurableProgress]:
     clock = _Clock()
-    monitor = _Monitor(shutting_down)
+    monitor = _Monitor(shutting_down, shutdown_age)
     durable = DurableProgress()
     if progress:
         durable.mark("resume_commit")
@@ -106,6 +111,21 @@ def test_the_preemptor_waits_exactly_as_long_as_the_gate_would(kwargs: dict[str,
     clock.now = 100.0
 
     assert gate.seconds_until_deadline() == expected
+
+
+def test_a_gate_opened_after_the_shutdown_counts_its_deadline_from_the_shutdown() -> None:
+    # A source setup that runs past the shutdown builds the pipeline, and so the stopwatch, after
+    # the monitor's callbacks already ran. The deadline must still land inside the grace period.
+    gate, clock, _ = _gate(restarts_from_scratch=True, shutdown_age=1200.0)
+
+    # The first question starts the stopwatch, backdated to the shutdown 1200 s ago.
+    assert gate.should_hand_off_now() is False
+
+    clock.now = 6300.0 - 1200.0 - 1.0
+    assert gate.should_hand_off_now() is False
+
+    clock.now = 6300.0 - 1200.0
+    assert gate.should_hand_off_now() is True
 
 
 def test_a_staged_carry_over_value_counts_as_progress_only_when_the_next_execution_reads_it() -> None:

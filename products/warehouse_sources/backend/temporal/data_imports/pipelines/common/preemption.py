@@ -68,12 +68,17 @@ class ShutdownStopwatch:
 
     def __init__(self, shutdown_monitor: ShutdownMonitor, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
+        self._shutdown_monitor = shutdown_monitor
         self._started_at: float | None = None
         shutdown_monitor.run_on_shutdown(self.start)
 
     def start(self) -> None:
-        if self._started_at is None:
-            self._started_at = self._clock()
+        if self._started_at is not None:
+            return
+        # A stopwatch built after the shutdown - a source setup that ran long - never receives the
+        # monitor's callback, so it backdates its start to the shutdown itself. The grace period
+        # runs from there, and a deadline measured from here instead would outlast it.
+        self._started_at = self._clock() - (self._shutdown_monitor.seconds_since_shutdown() or 0.0)
 
     def elapsed_seconds(self) -> float | None:
         return None if self._started_at is None else self._clock() - self._started_at

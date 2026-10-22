@@ -2868,6 +2868,10 @@ class _ShutdownSwitch:
     def is_worker_shutdown(self) -> bool:
         return self._flag.is_set()
 
+    def seconds_since_shutdown(self) -> float | None:
+        # The stopwatches of these tests are built before the shutdown, so they start on the callback.
+        return None
+
     async def wait_for_worker_shutdown(self) -> None:
         await self.seen_by_event_loop.wait()
 
