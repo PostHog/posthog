@@ -399,12 +399,12 @@ It writes a tombstone and never removes a row:
 UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry) REMOVE wrapped_key, sealed_key, key_nonce
 ```
 
-| Request                                  | The worker tombstones                                                                                                                         | Unreadable after the key caches expire                                                                                       |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Session, and person through its sessions | The session row                                                                                                                               | The session's blocks, its inline images and its sealed index values. Its `url_fingerprints` can no longer be linked to a URL |
-| Team                                     | The team month rows of the previous, current and next UTC month, then every `month:` row of the team, then every session row in the 32 shards | Everything of the team: blocks, inline images, fetched images and sealed index values                                        |
+| Request                                  | The worker tombstones                                                                                                                         | Unreadable after the key caches expire                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Session, and person through its sessions | The session row                                                                                                                               | The session's blocks and its sealed index values. Its `url_fingerprints` can no longer be linked to a URL |
+| Team                                     | The team month rows of the previous, current and next UTC month, then every `month:` row of the team, then every session row in the 32 shards | Everything of the team: blocks, inline images, fetched images and sealed index values                     |
 
-- A session tombstone does not reach fetched images. They are sealed under the team month key, and other sessions of the team can refer to the same image.
+- A session tombstone does not reach inline or fetched images. Both are sealed under the team month key, and other sessions of the team can refer to the same image. They stay readable with that key until they expire (see [Lifecycle](#lifecycle)), but the deleted session's blocks, which say where the session used them, cannot be read.
 - A tombstone the worker creates for a row that does not exist yet gets an `expires_at` by the key rule, from the row's month for a team month row and from the current month for a session row. A tombstone that replaces a key keeps the key's expiry.
 - The worker reads only `pk` and `sk` and has no KMS access. Its role has Query and UpdateItem on the v4 key table.
 - A conditional put cannot replace a tombstone, so no writer creates a new key for a deleted row. A writer that meets a tombstone drops the data, and the image fetcher drops a job whose team month row is deleted.
@@ -446,7 +446,7 @@ The additional authenticated data is the canonical JSON of `{"v": 4, "context": 
 | Object                 | Key            | `context`                                                                                           |
 | ---------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
 | Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "brotli"`, `ref` (the block object key) |
-| Inline image in a pack | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)    |
+| Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)                 |
 | Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)         |
 | Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
@@ -459,9 +459,13 @@ A block holds the replay messages of one session from one Kafka partition in one
 The recorder streams each block into the encoder. Read a block as a stream: a Brotli stream does not state its decompressed size.
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
-- An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is its key month.
+- An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is the UTC month of the write.
 - The recorder takes base64 PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. It also takes the image frames of the posthog-js canvas recorder. Anything else stays inline in the sealed block, for example SVG or line-wrapped base64.
-- A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the fetch job.
+- A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the block and in its fetch job, where the month is the UTC month of the write. The block and the job always carry the same reference, so a reader opens the fetched image directly.
+- A URL that the URL policy refuses becomes `imageurl:v4:declined:{reason}` in the block, for example `declined:credential`, `declined:non_public_host` or `declined:tracking_beacon`. The original URL cannot be recovered. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
+- The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. It is not limited by the 512 URLs per message that get fetch jobs.
+- Some URLs stay as they arrived: relative URLs, remote URLs outside image slots (links, frames, text, CSS custom properties and other CSS properties), the `image-set()` candidates the recorder does not choose, URLs inside a compressed value that did not decode or that the decode budget skipped, and URL text written in another form than the recorder read it, for example with a CSS escape. The recorder counts the last kind as `outcome="unrewritten"`.
+- When the text of a rewritten URL also appears outside an image slot in the same block, it is replaced there too.
 - `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
 
 ### Layout
@@ -473,7 +477,7 @@ Fetched images are partitioned by the key month of their reference.
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
 | `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
-| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image and session                            |
+| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
@@ -545,15 +549,15 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 
 ### Image index
 
-`index/images/` has one row per inline image and session in a pack: `team_id`, `session_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
+`index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
 
-- Each frame in a pack is sealed under the session key of the session whose block moved the image out, so a session deletion makes that session's inline images unreadable.
-- `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct session and reference, so an image that two sessions show is stored twice.
-- A reader resolves an image of a block by (`team_id`, `session_id`, `image_ref`) and opens it with that session's key.
+- Each frame in a pack is sealed under the team month key of the write month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
+- `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
+- A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
 
 ### Remote images
 
-The recorder sends each remote image URL to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain.
+The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block.
 It collects URLs from image sources, `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
