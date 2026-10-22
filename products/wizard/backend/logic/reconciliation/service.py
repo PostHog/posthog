@@ -1,8 +1,9 @@
-import logging
 from time import monotonic
 
 from django.db.models import Q
 from django.utils import timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 
@@ -25,7 +26,7 @@ from products.wizard.backend.logic.workers import lifecycle as worker_lifecycle
 from products.wizard.backend.models import WizardRun, WizardWorker
 from products.wizard.backend.observability.service import wizard_observability
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -69,7 +70,9 @@ def reconcile_pending_dispatches() -> ReconciliationSummary:
         except WizardRunDispatchError as error:
             logger.exception(
                 "wizard_run_redispatch_failed",
-                extra={"team_id": team_id, "run_id": str(run_id), "exhausted": error.exhausted},
+                team_id=team_id,
+                run_id=str(run_id),
+                exhausted=error.exhausted,
             )
             if error.exhausted:
                 try:
@@ -77,11 +80,12 @@ def reconcile_pending_dispatches() -> ReconciliationSummary:
                 except (IllegalStatusTransitionError, WizardRunNotFoundError, ValueError):
                     logger.exception(
                         "wizard_run_dispatch_exhaustion_failed",
-                        extra={"team_id": team_id, "run_id": str(run_id)},
+                        team_id=team_id,
+                        run_id=str(run_id),
                     )
             continue
         except (WizardRunNotFoundError, ValueError):
-            logger.exception("wizard_run_redispatch_failed", extra={"team_id": team_id, "run_id": str(run_id)})
+            logger.exception("wizard_run_redispatch_failed", team_id=team_id, run_id=str(run_id))
             continue
         reconciled += 1
 
@@ -111,7 +115,8 @@ def reconcile_pending_cancellations() -> ReconciliationSummary:
         except (WizardRunNotFoundError, ValueError):
             logger.exception(
                 "wizard_run_cancellation_reconciliation_failed",
-                extra={"team_id": team_id, "run_id": str(run_id)},
+                team_id=team_id,
+                run_id=str(run_id),
             )
 
     return _summary(len(pending), reconciled)
@@ -132,7 +137,7 @@ def reconcile_expired_runs() -> ReconciliationSummary:
         try:
             run = lifecycle.fail_run(team_id, run_id, error_code=WizardRunErrorCode.TIMEOUT)
         except (IllegalStatusTransitionError, WizardRunNotFoundError, ValueError):
-            logger.exception("wizard_run_expiration_failed", extra={"team_id": team_id, "run_id": str(run_id)})
+            logger.exception("wizard_run_expiration_failed", team_id=team_id, run_id=str(run_id))
             continue
         wizard_observability.run_past_deadline(run)
         if workflow_id is not None:
@@ -174,7 +179,7 @@ def reconcile_pending_worker_cleanup() -> ReconciliationSummary:
         try:
             worker_lifecycle.cleanup_worker(team_id, run_id, sandbox_id)
         except WizardWorkerCleanupError:
-            logger.exception("wizard_worker_reconciliation_failed", extra={"team_id": team_id, "run_id": str(run_id)})
+            logger.exception("wizard_worker_reconciliation_failed", team_id=team_id, run_id=str(run_id))
             continue
         reconciled += 1
 
