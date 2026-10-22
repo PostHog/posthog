@@ -98,10 +98,10 @@ describe('OfflineItemInspector', () => {
             />
         )
         const label = `${result.scorer.name} v${result.scorer.version}`
-        expect(await screen.findByText(label)).toBeInTheDocument()
+        expect(await screen.findByRole('button', { name: label })).toBeInTheDocument()
         fireEvent.click(screen.getByText('Next'))
         expect(await screen.findByText('Results unavailable')).toBeInTheDocument()
-        expect(screen.queryByText(label)).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
         expect(screen.getByText('Next').closest('button')).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(screen.getByText('Next'))
         expect(api.aiObservabilityOfflineExperimentsItemsResultsList).toHaveBeenCalledTimes(2)

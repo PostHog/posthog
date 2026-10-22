@@ -71212,6 +71212,8 @@ export namespace Schemas {
       kind: ScoreDefinitionKindEnum;
       /** Current scorer display name. */
       name: string;
+      /** Current compact label. Blank uses the full name. */
+      short_name: string;
       /** Current scorer description. */
       description: string;
       /** Whether the scorer is archived. */
@@ -75824,6 +75826,8 @@ export namespace Schemas {
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
+      /** Optional compact label for table headers and other compact views. */
+      readonly short_name: string;
       readonly description: string;
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
@@ -87758,6 +87762,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /**
+         * Updated compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer description.
          * @nullable
@@ -102664,6 +102673,11 @@ export namespace Schemas {
          */
       name: string;
       /**
+         * Optional compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Optional human-readable description.
          * @nullable
          */
@@ -102681,6 +102695,11 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Updated compact label, saved with this version.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer name, saved with this version.
          * @maxLength 255
@@ -131671,7 +131690,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string;
     /**
