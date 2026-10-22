@@ -266,16 +266,8 @@ export function TaskComposer({
                                                 <RepositorySelector
                                                     value={newTaskData.repositoryConfig}
                                                     autoOpen={repositoryRequested}
-                                                    onChange={(config) => {
-                                                        if (
-                                                            !config.repository &&
-                                                            config.integrationId ===
-                                                                newTaskData.repositoryConfig.integrationId
-                                                        ) {
-                                                            setRepositoryRequested(false)
-                                                        }
-                                                        setNewTaskData({ repositoryConfig: config })
-                                                    }}
+                                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                                                    onPickerClose={() => setRepositoryRequested(false)}
                                                 />
                                             )}
                                             <AttachedContextChips />

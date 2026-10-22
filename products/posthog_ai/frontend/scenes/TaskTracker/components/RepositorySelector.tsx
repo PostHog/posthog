@@ -1,14 +1,22 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGitBranch, IconGithub } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { Button, ButtonGroup } from '@posthog/quill-primitives'
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill-primitives'
 
 import api from 'lib/api'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { githubRepositorySearchLogic } from 'lib/integrations/githubRepositorySearchLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +26,7 @@ export interface RepositorySelectorProps {
     value: RepositoryConfig
     onChange: (config: RepositoryConfig) => void
     autoOpen?: boolean
+    onPickerClose?: () => void
 }
 
 const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
@@ -27,7 +36,12 @@ const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next:
  * with one or more it shows a joined [repo ▾][branch ▾] ButtonGroup (matching the posthog/code
  * composer), plus a leading integration switcher when several GitHub orgs are connected.
  */
-export function RepositorySelector({ value, onChange, autoOpen = false }: RepositorySelectorProps): JSX.Element {
+export function RepositorySelector({
+    value,
+    onChange,
+    autoOpen = false,
+    onPickerClose,
+}: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
@@ -62,16 +76,15 @@ export function RepositorySelector({ value, onChange, autoOpen = false }: Reposi
     if (githubIntegrations.length === 0) {
         return (
             <div className="flex items-center gap-2 flex-wrap">
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconGithub />}
-                    to={githubAuthorizeUrl}
-                    disableClientSideRouting
+                <Button
+                    variant="outline"
+                    size="sm"
+                    render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
                     onClick={reportConnect}
                 >
+                    <IconGithub className="shrink-0" />
                     Connect GitHub
-                </LemonButton>
+                </Button>
             </div>
         )
     }
@@ -79,39 +92,56 @@ export function RepositorySelector({ value, onChange, autoOpen = false }: Reposi
     return (
         <div className="flex items-center gap-2 flex-wrap">
             {githubIntegrations.length > 1 && (
-                <LemonMenu
-                    items={[
-                        {
-                            items: githubIntegrations.map((integration) => ({
-                                icon: (
-                                    <img
-                                        src={integration.icon_url}
-                                        alt={`${integration.display_name} icon`}
-                                        className="w-5 h-5 rounded"
-                                    />
-                                ),
-                                label: integration.display_name,
-                                active: integration.id === value.integrationId,
-                                onClick: () => handleIntegrationChange(integration.id),
-                            })),
-                        },
-                        {
-                            items: [
-                                {
-                                    to: githubAuthorizeUrl,
-                                    disableClientSideRouting: true,
-                                    onClick: reportConnect,
-                                    label: 'Connect another',
-                                },
-                                { to: urls.settings('project-integrations'), label: 'Manage integrations' },
-                            ],
-                        },
-                    ]}
-                >
-                    <LemonButton size="small" type="secondary" icon={<IconGithub />}>
-                        {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ?? 'GitHub'}
-                    </LemonButton>
-                </LemonMenu>
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button variant="outline" size="sm">
+                                <IconGithub className="shrink-0" />
+                                {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ?? 'GitHub'}
+                            </Button>
+                        }
+                    />
+                    <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
+                        {githubIntegrations.map((integration) => (
+                            <DropdownMenuItem
+                                key={integration.id}
+                                onClick={() => handleIntegrationChange(integration.id)}
+                                data-active={integration.id === value.integrationId || undefined}
+                            >
+                                <img
+                                    src={integration.icon_url}
+                                    alt={`${integration.display_name} icon`}
+                                    className="size-5 rounded"
+                                />
+                                {integration.display_name}
+                            </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            render={
+                                <Button
+                                    size="row"
+                                    left
+                                    render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
+                                />
+                            }
+                            onClick={reportConnect}
+                        >
+                            Connect another
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            render={
+                                <Button
+                                    size="row"
+                                    left
+                                    render={<LinkPrimitive to={urls.settings('project-integrations')} />}
+                                />
+                            }
+                        >
+                            Manage integrations
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             )}
 
             {value.integrationId ? (
@@ -121,6 +151,7 @@ export function RepositorySelector({ value, onChange, autoOpen = false }: Reposi
                     onRepositoryChange={handleRepositoryChange}
                     onBranchChange={handleBranchChange}
                     autoOpen={autoOpen}
+                    onPickerClose={onPickerClose}
                 />
             ) : null}
         </div>
@@ -133,6 +164,7 @@ interface RepositoryBranchPickersProps {
     onRepositoryChange: (repository: string | null) => void
     onBranchChange: (branch: string | null) => void
     autoOpen: boolean
+    onPickerClose?: () => void
 }
 
 /**
@@ -147,6 +179,7 @@ function RepositoryBranchPickers({
     onRepositoryChange,
     onBranchChange,
     autoOpen,
+    onPickerClose,
 }: RepositoryBranchPickersProps): JSX.Element {
     // Same keyed instance GitHubRepositoryCombobox mounts, so this shares its load state — no extra fetch.
     const { loading: repositoriesLoading } = useValues(githubRepositorySearchLogic({ id: integrationId }))
@@ -160,6 +193,7 @@ function RepositoryBranchPickers({
                 placeholder="No repo"
                 showNoneOption
                 defaultOpen={autoOpen && !value.repository}
+                onOpenChange={(open) => !open && onPickerClose?.()}
             />
             {value.repository && !repositoriesLoading ? (
                 <GitHubBranchCombobox
