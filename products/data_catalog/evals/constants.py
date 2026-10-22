@@ -503,31 +503,6 @@ SYNCED_TIME_OFF_ROWS = tuple(
 )
 SYNCED_TIME_OFF_APPROVED_COUNT = "13"
 
-ANNOTATION_WRITE_SCHEMA_NAME = "deals"
-ANNOTATION_WRITE_TABLE_NAME = "hubspot_deals"
-ANNOTATION_WRITE_COLUMN = "dealstage"
-ANNOTATION_WRITE_DESCRIPTIONS = {
-    "": "A sales opportunity or transaction tracked through a pipeline in HubSpot CRM.",
-    "hs_object_id": "HubSpot's unique internal identifier for the deal.",
-    "dealname": "The name of the deal.",
-    "amount": "The total monetary value of the deal.",
-    "dealstage": "The deal's current stage within its pipeline.",
-    "pipeline": "The pipeline the deal belongs to.",
-}
-# HubSpot gives the stages of a custom pipeline numeric IDs, and the canonical description cannot say what they mean.
-ANNOTATION_WRITE_WON_STAGE = "1129847"
-ANNOTATION_WRITE_LOST_STAGE = "1129848"
-# (hs_object_id, dealname, amount, dealstage, pipeline)
-ANNOTATION_WRITE_ROWS = (
-    ("9001", "Acme renewal", 12000, ANNOTATION_WRITE_WON_STAGE, "88214503"),
-    ("9002", "Globex expansion", 8500, ANNOTATION_WRITE_LOST_STAGE, "88214503"),
-    ("9003", "Initech pilot", 4000, "appointmentscheduled", "88214503"),
-    ("9004", "Umbrella upgrade", 15000, ANNOTATION_WRITE_WON_STAGE, "88214503"),
-    ("9005", "Hooli onboarding", 6200, "qualifiedtobuy", "88214503"),
-)
-# Terms the saved description must carry, so a write that drops either stage meaning fails the case.
-ANNOTATION_WRITE_REQUIRED_TERMS = (ANNOTATION_WRITE_WON_STAGE, "won", ANNOTATION_WRITE_LOST_STAGE, "lost")
-
 # Table discovery arms. Each case first installs the information_schema suite's catalog of about 250 tables, then a
 # set of queryable candidates whose names all match the question. Only the table descriptions say which candidate to
 # use, and each candidate holds different rows, so a wrong pick gives a wrong number.

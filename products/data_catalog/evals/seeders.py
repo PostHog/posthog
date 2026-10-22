@@ -41,12 +41,6 @@ from products.data_catalog.evals.constants import (
     ANNOTATED_LEDGER_VIEW_DESCRIPTION,
     ANNOTATED_LEDGER_VIEW_NAME,
     ANNOTATED_LEDGER_VIEW_SQL,
-    ANNOTATION_WRITE_COLUMN,
-    ANNOTATION_WRITE_DESCRIPTIONS,
-    ANNOTATION_WRITE_REQUIRED_TERMS,
-    ANNOTATION_WRITE_ROWS,
-    ANNOTATION_WRITE_SCHEMA_NAME,
-    ANNOTATION_WRITE_TABLE_NAME,
     APPROVED_METRIC_DEFINITION,
     APPROVED_METRIC_DESCRIPTION,
     APPROVED_METRIC_DISTINGUISHING_FILTER,
@@ -170,7 +164,6 @@ __all__ = [
     "seed_accepted_relationship_context",
     "seed_acv_candidate_tables",
     "seed_annotated_ledger_view",
-    "seed_annotation_write_target",
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
@@ -838,35 +831,6 @@ def seed_synced_time_off_table(context: CustomPromptSandboxContext) -> dict[str,
         descriptions=SYNCED_TIME_OFF_DESCRIPTIONS,
     )
     return {"synced_table": {"name": SYNCED_TIME_OFF_TABLE_NAME}}
-
-
-def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    synced = _synced_table(
-        team,
-        user,
-        source_type=ExternalDataSourceType.HUBSPOT,
-        schema_name=ANNOTATION_WRITE_SCHEMA_NAME,
-        table_name=ANNOTATION_WRITE_TABLE_NAME,
-        columns={
-            "hs_object_id": _STRING_COLUMN,
-            "dealname": _STRING_COLUMN,
-            "amount": _INTEGER_COLUMN,
-            ANNOTATION_WRITE_COLUMN: _STRING_COLUMN,
-            "pipeline": _STRING_COLUMN,
-        },
-        rows=ANNOTATION_WRITE_ROWS,
-        descriptions=ANNOTATION_WRITE_DESCRIPTIONS,
-    )
-    return {
-        "annotation_target": {
-            "table_id": str(synced.table_id),
-            "table_name": ANNOTATION_WRITE_TABLE_NAME,
-            "column_name": ANNOTATION_WRITE_COLUMN,
-            "annotation_id": str(synced.annotation_ids[ANNOTATION_WRITE_COLUMN]),
-            "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
-        }
-    }
 
 
 def _seed_candidate_tables(

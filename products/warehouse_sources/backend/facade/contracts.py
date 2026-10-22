@@ -49,8 +49,6 @@ class ConfigValueError(ValueError):
 class SyncedWarehouseTable:
     table_id: UUID
     name: str
-    # Keyed by column name. "" is the table-level annotation.
-    annotation_ids: dict[str, UUID]
 
 
 @dataclass(frozen=True)

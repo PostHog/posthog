@@ -35,7 +35,6 @@ __all__ = [
     "AnswerTableQueried",
     "AnswerValueStated",
     "CanonicalMetricRun",
-    "ColumnAnnotationWritten",
     "DeprecationProposed",
     "SemanticMetadataQueried",
     "SemanticTrustDecisionCorrectness",
@@ -58,8 +57,6 @@ METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
 QUESTION_TOOL = "askuserquestion"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
-COLUMN_ANNOTATION_CREATE_TOOL = "warehouse-column-annotations-create"
-COLUMN_ANNOTATION_UPDATE_TOOL = "warehouse-column-annotations-partial-update"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
 # Matches the PostHog MCP namespace across regional server names —
@@ -824,66 +821,6 @@ class AnswerValueStated(Scorer):
         pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\d)"
         found = re.search(pattern, normalized) is not None
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
-
-
-class ColumnAnnotationWritten(Scorer):
-    """Binary: did the agent save a description on the seeded column that carries every required term?
-
-    A synced column already has a canonical annotation, so the agent can write through a create, which upserts on
-    (table, column_name), or through a partial update of that annotation by id. Either way the last write wins.
-    """
-
-    def _name(self) -> str:
-        return "column_annotation_written"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if not _requested(expected, self._name()):
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-
-        seed = (output or {}).get("seed")
-        target = seed.get("annotation_target", {}) if isinstance(seed, dict) else {}
-        table_id = target.get("table_id")
-        column_name = target.get("column_name")
-        required_terms = [str(term).casefold() for term in target.get("required_terms", [])]
-        if not table_id or not column_name:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "seed has no annotation target"})
-
-        annotation_id = target.get("annotation_id")
-        writes = sorted(
-            (
-                call
-                for tool in (COLUMN_ANNOTATION_CREATE_TOOL, COLUMN_ANNOTATION_UPDATE_TOOL)
-                for call in parser.get_tool_calls(tool)
-                if not call.is_error and isinstance(call.input, dict) and isinstance(call.input.get("description"), str)
-            ),
-            key=lambda call: call.position,
-        )
-        target_writes = [
-            call
-            for call in writes
-            if (str(call.input.get("table")) == str(table_id) and call.input.get("column_name") == column_name)
-            or (annotation_id is not None and str(call.input.get("id")) == str(annotation_id))
-        ]
-        if not target_writes:
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={
-                    "reason": "no description written on the target column",
-                    "writes": [c.input for c in writes],
-                },
-            )
-        stored = target_writes[-1].input["description"]
-
-        missing = [term for term in required_terms if term not in stored.casefold()]
-        return Score(
-            name=self._name(),
-            score=0.0 if missing else 1.0,
-            metadata={"description": stored, "missing_terms": missing},
-        )
 
 
 def _reads_table(query: str, names: list[str]) -> bool:

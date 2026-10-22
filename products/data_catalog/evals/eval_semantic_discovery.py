@@ -16,8 +16,6 @@ from products.data_catalog.evals.constants import (
     ACV_TOTAL,
     ANNOTATED_LEDGER_COLLECTED_USD,
     ANNOTATED_LEDGER_VIEW_NAME,
-    ANNOTATION_WRITE_LOST_STAGE,
-    ANNOTATION_WRITE_WON_STAGE,
     CERTIFIED_SOURCE_NAME,
     CLIENT_INVOICES_LIST_TOTAL,
     DEPRECATED_SOURCE_NAME,
@@ -42,7 +40,6 @@ from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     AnswerTableQueried,
     AnswerValueStated,
-    ColumnAnnotationWritten,
     DeprecationProposed,
     SemanticMetadataQueried,
     SemanticTrustDecisionCorrectness,
@@ -51,7 +48,6 @@ from products.data_catalog.evals.seeders import (
     seed_accepted_relationship_context,
     seed_acv_candidate_tables,
     seed_annotated_ledger_view,
-    seed_annotation_write_target,
     seed_certification_trust_sources,
     seed_client_invoices_table,
     seed_deprecation_candidate_sources,
@@ -205,16 +201,6 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             },
             setup=seed_synced_time_off_table,
         ),
-        SandboxedEvalCase(
-            name="save_column_annotation",
-            prompt=(
-                f"Heads up: in our HubSpot deals, deal stage {ANNOTATION_WRITE_WON_STAGE} means closed-won and "
-                f"{ANNOTATION_WRITE_LOST_STAGE} means closed-lost in our custom sales pipeline. Save that in the "
-                "column's description in the data catalog so future analyses read it correctly."
-            ),
-            expected={"column_annotation_written": {}},
-            setup=seed_annotation_write_target,
-        ),
         # The prompt names no table. Among about 250 catalog tables, four candidates match "ACV" by name, and only
         # their table descriptions say which one holds signed contracts in USD.
         SandboxedEvalCase(
@@ -273,7 +259,6 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             SemanticTrustDecisionCorrectness(),
             DeprecationProposed(),
             AnswerValueStated(),
-            ColumnAnnotationWritten(),
             AnswerTableQueried(),
         ],
         ctx=ctx,

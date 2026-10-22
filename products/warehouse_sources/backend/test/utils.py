@@ -185,9 +185,8 @@ def create_synced_table_from_rows(
         status=ExternalDataSchema.Status.COMPLETED,
         initial_sync_complete=True,
     )
-    annotation_ids = {
-        column_name: WarehouseColumnAnnotation.objects.for_team(team.id)
-        .create(
+    for column_name, description in descriptions.items():
+        WarehouseColumnAnnotation.objects.for_team(team.id).create(
             team=team,
             table=table,
             column_name=column_name,
@@ -195,7 +194,4 @@ def create_synced_table_from_rows(
             description_source=description_source,
             is_user_edited=description_source == WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
         )
-        .id
-        for column_name, description in descriptions.items()
-    }
-    return SyncedWarehouseTable(table_id=table.id, name=table.name, annotation_ids=annotation_ids)
+    return SyncedWarehouseTable(table_id=table.id, name=table.name)
