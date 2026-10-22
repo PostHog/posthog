@@ -2153,9 +2153,12 @@ class TestDevboxDirect:
         self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path, recorded_properties: dict[str, object]
     ) -> None:
         started: list[tuple[str, int]] = []
-        monkeypatch.setattr(
-            devbox_cli, "start_direct_proxy", lambda name, port: started.append((name, port)) or _DIRECT_PROXY
-        )
+
+        def start(name: str, port: int) -> coder.DirectProxy:
+            started.append((name, port))
+            return _DIRECT_PROXY
+
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", start)
         monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: (host, port) == ("10.0.0.5", 8411))
         monkeypatch.setattr(devbox_cli.telemetry, "add_command_properties", lambda **p: recorded_properties.update(p))
 
