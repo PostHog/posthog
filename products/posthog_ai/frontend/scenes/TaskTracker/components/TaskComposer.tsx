@@ -45,8 +45,6 @@ import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttac
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
-import { QUILL_STARTER_PROMPTS } from '../../../components/quill/quillStarterPrompts'
-import { QuillSuggestionCards } from '../../../components/quill/QuillSuggestionCards'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 import { TaskComposerAddMenu } from './TaskComposerAddMenu'
@@ -342,15 +340,6 @@ export function TaskComposer({
                         </Composer.Root>
                     </div>
                     {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
-                    {skin === 'quill' && !composerOverride?.hideSuggestions && !draft.value.trim() && (
-                        <QuillSuggestionCards
-                            prompts={QUILL_STARTER_PROMPTS}
-                            onSelect={(prompt) => {
-                                applyPrefill(prompt.prompt, prompt.mode)
-                                textAreaRef.current?.focus()
-                            }}
-                        />
-                    )}
                 </Suggestions.Root>
             </div>
         </div>
