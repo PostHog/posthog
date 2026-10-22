@@ -29,7 +29,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import dashboard_has_active_full_subscription
 
 
-def delivered_dashboard_exposure(dashboard: Dashboard) -> str | None:
+def dashboard_shared_or_subscribed(dashboard: Dashboard) -> str | None:
     """How the dashboard's tiles reach readers who never pass a table-access check: through its
     public link, or through a subscription that delivers the whole dashboard. None when neither
     applies, so a tile write needs no access check."""
@@ -58,7 +58,7 @@ def check_can_add_insight_to_dashboard(
     # org admins have full access, so skip the gate for a faster write
     if uac.is_organization_admin:
         return
-    exposure = delivered_dashboard_exposure(dashboard)
+    exposure = dashboard_shared_or_subscribed(dashboard)
     if exposure is None:
         return
     blocked = blocked_access_for_user(user, dashboard.team, [query])

@@ -60,7 +60,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.sharing_publish_gate import (
     check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
-    delivered_dashboard_exposure,
+    dashboard_shared_or_subscribed,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
@@ -2719,7 +2719,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return
         if user_access_control.is_organization_admin:
             return
-        exposure = delivered_dashboard_exposure(instance)
+        exposure = dashboard_shared_or_subscribed(instance)
         if exposure is None:
             return
         queries = [
