@@ -460,6 +460,31 @@ class TestRestParityForObjectGrants(BaseTest):
         deny_key = next(iter(placeholders))
         assert f"notIn(toString(system__{table}.{column}), %({deny_key})s)" in sql
 
+    @parameterized.expand([("resource_granted", "editor", "notIn"), ("resource_denied", "none", "in")])
+    def test_view_creator_keeps_the_jobs_of_their_denied_view(
+        self, _name: str, resource_level: str, operator: str
+    ) -> None:
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        own_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="own_view", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        )
+        other_view_id = "018f0000-0000-0000-0000-000000000003"
+        self._ac(resource="warehouse_objects", access_level=resource_level)
+        for view_id in (str(own_view.id), other_view_id):
+            self._ac(
+                resource="warehouse_view",
+                resource_id=view_id,
+                access_level="none" if resource_level == "editor" else "viewer",
+                organization_member=self.membership,
+            )
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        owned_key = next(k for k, v in self._id_list_placeholders(context).items() if v == [str(own_view.id)])
+        assert f"{operator}(toString(system__data_modeling_jobs.saved_query_id)" in sql
+        assert f"in(toString(system__data_modeling_jobs.saved_query_id), %({owned_key})s)" in sql
+
     @parameterized.expand(
         [
             (f"{name}_{table}", resource_level, scope, parent, table, operator)

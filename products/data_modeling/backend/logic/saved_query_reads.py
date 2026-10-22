@@ -125,6 +125,13 @@ def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
     ]
 
 
+def saved_query_ids_created_by(team_id: int, user_id: int) -> frozenset[UUID]:
+    """The saved queries this user created, soft-deleted ones included. One query."""
+    return frozenset(
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
+    )
+
+
 def allowed_saved_query_ids(
     team_id: int,
     user_access_control: "UserAccessControl",

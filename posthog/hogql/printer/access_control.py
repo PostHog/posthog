@@ -90,6 +90,21 @@ def build_access_control_guard(
     if creator_exemption is not None:
         guard = ast.Or(exprs=[guard, creator_exemption], type=ast.BooleanType())
 
+    creator_owned_ids = table.creator_owned_object_ids(user_access_control, context.team_id)
+    if creator_owned_ids:
+        guard = ast.Or(
+            exprs=[
+                guard,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=_id_as_string(id_field, table_type),
+                    right=ast.Constant(value=sorted(creator_owned_ids), is_sensitive=True),
+                    type=ast.BooleanType(),
+                ),
+            ],
+            type=ast.BooleanType(),
+        )
+
     # Surface that this query is subject to filtering so callers don't mistake a possibly-partial
     # result for the full set. Note the guard applying doesn't mean rows were actually excluded —
     # the user's blocked objects may not have matched the query anyway.

@@ -191,6 +191,16 @@ class PostgresTable(FunctionCallTable):
             return frozenset()
         return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
 
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int]
+    ) -> frozenset[str]:
+        """Ids in the `access_control_id` column of objects the user created.
+
+        The guard keeps these rows, so a child table can follow its parent's creator exemption. The
+        default is empty: a child row carries no creator of the parent to compare against.
+        """
+        return frozenset()
+
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
 

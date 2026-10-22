@@ -2019,7 +2019,22 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
-data_modeling_jobs: PostgresTable = PostgresTable(
+
+class _DataModelingJobsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int]
+    ) -> frozenset[str]:
+        # The creator of a view keeps it under a deny rule, so they keep the jobs that ran for it.
+        from products.data_modeling.backend.facade.api import (
+            saved_query_ids_created_by,  # noqa: PLC0415 — keeps the ORM off this module's import path
+        )
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_jobs needs a team to resolve view access")
+        return frozenset(str(view_id) for view_id in saved_query_ids_created_by(team_id, user_access_control.user.pk))
+
+
+data_modeling_jobs: _DataModelingJobsTable = _DataModelingJobsTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
     access_scope="warehouse_view",
