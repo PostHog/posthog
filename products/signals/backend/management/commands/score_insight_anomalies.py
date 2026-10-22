@@ -32,7 +32,7 @@ class Command(BaseCommand):
 
     def _print(self, scores: InsightScores) -> None:
         self.stdout.write(
-            f"interval={scores.interval.value} detector={scores.detector} version={scores.detector_version}"
+            f"interval={scores.interval.value} profile={scores.profile} detector={scores.detector} version={scores.detector_version}"
         )
         for series in scores.series:
             name = series.label if series.breakdown_value is None else f"{series.label} [{series.breakdown_value}]"

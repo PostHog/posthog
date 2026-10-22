@@ -1,5 +1,6 @@
 import json
 import hashlib
+import dataclasses
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -18,11 +19,18 @@ from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
+from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.registry import get_detector
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import DEFAULT_CONFIG, AnomalyScoringConfig
+from products.signals.backend.anomaly_scores.config import (
+    DEFAULT_LIMITS,
+    IntervalScoring,
+    ScoringLimits,
+    ScoringProfile,
+    resolve_profile,
+)
 
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
@@ -53,6 +61,7 @@ class ScoredSeries:
 @frozen
 class InsightScores:
     interval: IntervalType
+    profile: str
     detector: str
     detector_version: str
     series: list[ScoredSeries]
@@ -63,16 +72,16 @@ def _short_hash(payload: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def detector_version(detector_config: dict[str, Any]) -> str:
-    """Identifies the scoring behavior, so scores from different configs are never mixed in one series."""
-    return _short_hash(detector_config)
+def detector_version(scoring: IntervalScoring) -> str:
+    """Identifies the scoring behavior, so scores from different settings are never mixed in one series."""
+    return _short_hash(dataclasses.asdict(scoring))
 
 
 def series_key(insight_id: int, series_definition: dict[str, Any], breakdown_value: str | None) -> str:
     return _short_hash({"insight": insight_id, "series": series_definition, "breakdown": breakdown_value})
 
 
-def trends_query_for(insight: Insight, config: AnomalyScoringConfig = DEFAULT_CONFIG) -> TrendsQuery:
+def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
     if insight.query is None:
         raise UnsupportedInsightError("Insight has no query")
     with upgrade_insight(insight):
@@ -86,23 +95,27 @@ def trends_query_for(insight: Insight, config: AnomalyScoringConfig = DEFAULT_CO
         raise UnsupportedInsightError("Insight shows a single value, not a time series")
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
         raise UnsupportedInsightError("Cumulative insights are not scored")
-    if config.lookback_for(_interval(trends)) is None:
-        raise UnsupportedInsightError(f"Interval {_interval(trends).value} is not scored")
+    interval_scoring(profile, _interval(trends))
     return trends
 
 
-def build_scoring_query(query: TrendsQuery, config: AnomalyScoringConfig = DEFAULT_CONFIG) -> TrendsQuery:
+def interval_scoring(profile: ScoringProfile, interval: IntervalType) -> IntervalScoring:
+    scoring = profile.for_interval(interval)
+    if scoring is None:
+        raise UnsupportedInsightError(f"Interval {interval.value} is not scored")
+    return scoring
+
+
+def build_scoring_query(
+    query: TrendsQuery, scoring: IntervalScoring, limits: ScoringLimits = DEFAULT_LIMITS
+) -> TrendsQuery:
     """Fetch the scorer's lookback instead of the chart's date range.
 
     Series, filters and formulas stay as they are, so the scores describe the series the chart shows.
     """
-    lookback = config.lookback_for(_interval(query))
-    if lookback is None:
-        raise UnsupportedInsightError(f"Interval {_interval(query).value} is not scored")
-
     days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
     update: dict[str, Any] = {
-        "dateRange": DateRange(date_from=lookback, daysOfWeek=days_of_week),
+        "dateRange": DateRange(date_from=scoring.lookback, daysOfWeek=days_of_week),
         "compareFilter": None,
     }
     if has_breakdown_filter(query.breakdownFilter):
@@ -111,7 +124,7 @@ def build_scoring_query(query: TrendsQuery, config: AnomalyScoringConfig = DEFAU
         # "Other" mixes whichever values fall outside the top N on each run, so it is not one series.
         update["breakdownFilter"] = breakdown_filter.model_copy(
             update={
-                "breakdown_limit": max(1, min(config.max_breakdown_values, config.max_series // lines_per_value)),
+                "breakdown_limit": max(1, min(limits.max_breakdown_values, limits.max_series // lines_per_value)),
                 "breakdown_hide_other_aggregation": True,
             }
         )
@@ -122,11 +135,11 @@ def score_series(
     values: Sequence[float],
     buckets: Sequence[datetime],
     *,
-    detector_config: dict[str, Any],
+    scoring: IntervalScoring,
     interval: IntervalType,
     now: datetime,
     after: datetime | None = None,
-    config: AnomalyScoringConfig = DEFAULT_CONFIG,
+    limits: ScoringLimits = DEFAULT_LIMITS,
 ) -> list[ScoredPoint]:
     """Score one series and return its newest completed buckets later than ``after``.
 
@@ -135,32 +148,23 @@ def score_series(
     if len(values) != len(buckets):
         raise ValueError("Each value needs a bucket")
     completed = [i for i, start in enumerate(buckets) if _bucket_end(start, interval) <= now]
-    if not completed:
-        return []
-    # The ongoing bucket is still filling, so it must not shape any score.
-    data = np.array(values[: completed[-1] + 1], dtype=float)
-    result = get_detector(detector_config).detect_batch(data)
-    triggered = set(result.triggered_indices)
-    sub_results = result.metadata.get("sub_results", [])
-    # An AND ensemble needs every sub-detector, so a missing sub-score means the bucket is not scored yet.
-    needs_every_sub_score = detector_config.get("operator") == "and"
-    warm_up = config.warm_up_for(interval)
+    returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
+    detector = get_detector(scoring.detector)
+    data = np.array(values, dtype=float)
 
-    returned = [i for i in completed if after is None or buckets[i] > after][-config.max_backfill_buckets :]
     points: list[ScoredPoint] = []
     for i in returned:
-        score = _score_at(result.all_scores, i)
-        sub_scores = {str(sub.get("type")): _score_at(sub.get("all_scores") or [], i) for sub in sub_results}
-        scored = i + 1 >= warm_up and score is not None
-        if needs_every_sub_score and None in sub_scores.values():
-            scored = False
+        # Score each bucket on the history up to it, so the ongoing bucket and later buckets never shape the score.
+        # detect() fits once per call; detect_batch() refits at every point of the lookback for model-based detectors.
+        result = detector.detect(data[: i + 1]) if i + 1 >= scoring.min_points else None
+        score = None if result is None or result.score is None else float(result.score)
         points.append(
             ScoredPoint(
                 bucket_start=buckets[i],
                 value=float(values[i]),
-                score=score if scored else None,
-                flag=(i in triggered) if scored else None,
-                details={"sub_scores": sub_scores} if scored and sub_scores else {},
+                score=score,
+                flag=None if result is None or score is None else result.is_anomaly,
+                details={} if result is None or score is None else _details(result),
             )
         )
     return points
@@ -172,12 +176,13 @@ def score_insight(
     *,
     now: datetime,
     after: datetime | None = None,
-    config: AnomalyScoringConfig = DEFAULT_CONFIG,
+    limits: ScoringLimits = DEFAULT_LIMITS,
 ) -> InsightScores:
-    query = trends_query_for(insight, config)
-    scoring_query = build_scoring_query(query, config)
-    interval = _interval(scoring_query)
-    detector_config = config.detector_config()
+    profile = resolve_profile(team, insight)
+    query = trends_query_for(insight, profile)
+    interval = _interval(query)
+    scoring = interval_scoring(profile, interval)
+    scoring_query = build_scoring_query(query, scoring, limits)
 
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     calculation = calculate_for_query_based_insight(
@@ -194,7 +199,7 @@ def score_insight(
 
     timezone = team.timezone_info
     series: list[ScoredSeries] = []
-    for result in cast(list[dict[str, Any]], calculation.result)[: config.max_series]:
+    for result in cast(list[dict[str, Any]], calculation.result)[: limits.max_series]:
         buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
         series.append(
@@ -205,18 +210,19 @@ def score_insight(
                 points=score_series(
                     result.get("data") or [],
                     buckets,
-                    detector_config=detector_config,
+                    scoring=scoring,
                     interval=interval,
                     now=now,
                     after=after,
-                    config=config,
+                    limits=limits,
                 ),
             )
         )
     return InsightScores(
         interval=interval,
-        detector=str(detector_config["type"]),
-        detector_version=detector_version(detector_config),
+        profile=profile.name,
+        detector=str(scoring.detector["type"]),
+        detector_version=detector_version(scoring),
         series=series,
     )
 
@@ -264,9 +270,18 @@ def _bucket_end(start: datetime, interval: IntervalType) -> datetime:
     return start + interval_spec(interval).period
 
 
-def _score_at(scores: list[float | None], index: int) -> float | None:
-    score = scores[index] if index < len(scores) else None
-    return None if score is None else float(score)
+def _details(result: DetectionResult) -> dict[str, Any]:
+    """Detector-specific values for one bucket. Only scalars are kept, so the event property stays small."""
+    sub_results = result.metadata.get("sub_results")
+    if isinstance(sub_results, list):
+        return {
+            "sub_scores": {
+                f"{sub.get('type')}_{position}": sub.get("score") for position, sub in enumerate(sub_results)
+            }
+        }
+    return {
+        key: value for key, value in result.metadata.items() if value is None or isinstance(value, int | float | str)
+    }
 
 
 def _parse_bucket(day: str, timezone: ZoneInfo) -> datetime:

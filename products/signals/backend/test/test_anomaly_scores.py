@@ -24,7 +24,7 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import DEFAULT_CONFIG
+from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
     score_insight,
@@ -33,7 +33,19 @@ from products.signals.backend.anomaly_scores.scoring import (
 )
 
 NEW_YORK = ZoneInfo("America/New_York")
-DETECTOR = DEFAULT_CONFIG.detector_config()
+DAY_SCORING = DEFAULT_PROFILE.intervals[IntervalType.DAY]
+ZSCORE_OR_KNN = IntervalScoring(
+    lookback="-365d",
+    min_points=56,
+    detector={
+        "type": "ensemble",
+        "operator": "or",
+        "detectors": [
+            {"type": "zscore", "threshold": 0.95, "window": 56, "preprocessing": {"diffs_n": 1}},
+            {"type": "knn", "threshold": 0.95},
+        ],
+    },
+)
 
 
 def _buckets(start: datetime, interval: IntervalType, count: int) -> list[datetime]:
@@ -41,24 +53,32 @@ def _buckets(start: datetime, interval: IntervalType, count: int) -> list[dateti
 
 
 class TestScoreSeries(SimpleTestCase):
-    def test_flags_the_spike_and_not_its_flat_neighbor(self) -> None:
-        values = list(np.random.default_rng(0).normal(100, 5, size=60))
-        values[55] = 400.0
-        buckets = _buckets(datetime(2026, 1, 1, tzinfo=NEW_YORK), IntervalType.DAY, 60)
+    @parameterized.expand(
+        [
+            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}),
+            ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}),
+        ]
+    )
+    def test_flags_the_spike_and_not_its_flat_neighbor(
+        self, _name: str, scoring: IntervalScoring, detail_keys: set[str]
+    ) -> None:
+        values = list(np.random.default_rng(0).normal(100, 5, size=120))
+        values[110] = 400.0
+        buckets = _buckets(datetime(2026, 1, 1, tzinfo=NEW_YORK), IntervalType.DAY, 120)
 
         points = score_series(
             values,
             buckets,
-            detector_config=DETECTOR,
+            scoring=scoring,
             interval=IntervalType.DAY,
             now=buckets[-1] + timedelta(hours=12),
         )
 
         by_bucket = {point.bucket_start: point for point in points}
-        assert by_bucket[buckets[55]].flag is True
-        assert by_bucket[buckets[54]].flag is False
-        assert set(by_bucket[buckets[55]].details["sub_scores"]) == {"zscore", "knn"}
-        assert len(points) == DEFAULT_CONFIG.max_backfill_buckets
+        assert by_bucket[buckets[110]].flag is True
+        assert by_bucket[buckets[109]].flag is False
+        assert set(by_bucket[buckets[110]].details) == detail_keys
+        assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
 
     @parameterized.expand(
         [
@@ -88,7 +108,9 @@ class TestScoreSeries(SimpleTestCase):
         buckets = _buckets(start, interval, 6)
         buckets = [bucket for bucket in buckets if bucket <= now]
 
-        points = score_series([1.0] * len(buckets), buckets, detector_config=DETECTOR, interval=interval, now=now)
+        points = score_series(
+            [1.0] * len(buckets), buckets, scoring=DEFAULT_PROFILE.intervals[interval], interval=interval, now=now
+        )
 
         assert points[-1].bucket_start == buckets[last_completed]
 
@@ -98,7 +120,7 @@ class TestScoreSeries(SimpleTestCase):
         points = score_series(
             [1.0, 2.0, 1.0, 50.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
             buckets,
-            detector_config=DETECTOR,
+            scoring=DAY_SCORING,
             interval=IntervalType.DAY,
             now=buckets[-1] + timedelta(days=1),
         )
@@ -170,4 +192,4 @@ class TestTrendsQueryFor(SimpleTestCase):
     )
     def test_unsupported_shapes_raise(self, _name: str, query: dict[str, Any]) -> None:
         with self.assertRaises(UnsupportedInsightError):
-            trends_query_for(Insight(id=1, query=query))
+            trends_query_for(Insight(id=1, query=query), DEFAULT_PROFILE)

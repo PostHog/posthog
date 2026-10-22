@@ -1,44 +1,61 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema import IntervalType
 
 from posthog.dataclasses import frozen
-from posthog.tasks.alerts.detectors.pyod_detectors.knn import KNNDetector
-from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+    from products.product_analytics.backend.facade.models import Insight
 
 
 @frozen
-class AnomalyScoringConfig:
-    """Defaults for anomaly scoring. Every value is a plain field, so a flag payload can override it."""
+class IntervalScoring:
+    """How one interval is scored. The detector is any registered detector config, so swapping it needs no code."""
 
-    detector_operator: str = "and"
-    hour_lookback: str = "-14d"
-    day_lookback: str = "-90d"
-    week_lookback: str = "-52w"
-    month_lookback: str = "-36m"
-    warm_up_points: int = 14
-    month_warm_up_points: int = 12
+    lookback: str
+    min_points: int
+    detector: dict[str, Any]
+
+
+@frozen
+class ScoringProfile:
+    name: str
+    intervals: dict[IntervalType, IntervalScoring]
+
+    def for_interval(self, interval: IntervalType) -> IntervalScoring | None:
+        return self.intervals.get(interval)
+
+
+@frozen
+class ScoringLimits:
+    """Caps that bound the cost of scoring one insight. Every value is a plain field, so a flag payload can override it."""
+
     max_breakdown_values: int = 10
     max_series: int = 20
     max_backfill_buckets: int = 30
 
-    def detector_config(self) -> dict[str, Any]:
-        return {
-            "type": "ensemble",
-            "operator": self.detector_operator,
-            "detectors": [ZScoreDetector.get_default_config(), KNNDetector.get_default_config()],
-        }
 
-    def lookback_for(self, interval: IntervalType) -> str | None:
-        return {
-            IntervalType.HOUR: self.hour_lookback,
-            IntervalType.DAY: self.day_lookback,
-            IntervalType.WEEK: self.week_lookback,
-            IntervalType.MONTH: self.month_lookback,
-        }.get(interval)
-
-    def warm_up_for(self, interval: IntervalType) -> int:
-        return self.month_warm_up_points if interval == IntervalType.MONTH else self.warm_up_points
+def _zscore(window: int) -> dict[str, Any]:
+    # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
+    # and on sparse series raw values score almost every non-zero bucket near 1.0.
+    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
 
 
-DEFAULT_CONFIG = AnomalyScoringConfig()
+DEFAULT_PROFILE = ScoringProfile(
+    name="default-v1",
+    intervals={
+        IntervalType.HOUR: IntervalScoring(lookback="-28d", min_points=336, detector=_zscore(336)),
+        IntervalType.DAY: IntervalScoring(lookback="-365d", min_points=56, detector=_zscore(56)),
+        IntervalType.WEEK: IntervalScoring(lookback="-156w", min_points=52, detector=_zscore(52)),
+        IntervalType.MONTH: IntervalScoring(lookback="-60m", min_points=24, detector=_zscore(24)),
+    },
+)
+
+DEFAULT_LIMITS = ScoringLimits()
+
+
+def resolve_profile(team: "Team", insight: "Insight") -> ScoringProfile:
+    """The one place that picks scoring settings for an insight, so project and per-metric overrides only change this."""
+    return DEFAULT_PROFILE
