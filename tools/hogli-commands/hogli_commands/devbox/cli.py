@@ -1604,7 +1604,9 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
 
     click.echo(f"Stopping '{name}'...")
     stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
+    start_command = f"hogli devbox:start {workspace}" if workspace else "hogli devbox:start"
+    click.echo("Stopped. Billing for the box stops now.")
+    click.echo(f"The disk and your files stay until you destroy the box. Run '{start_command}' to resume it.")
 
 
 @click.command(name="devbox:restart", help="Restart your devbox")
