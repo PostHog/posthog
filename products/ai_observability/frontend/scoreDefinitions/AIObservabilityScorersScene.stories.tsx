@@ -11,6 +11,7 @@ import { AIObservabilityScorersScene } from './AIObservabilityScorersScene'
 const definition: ScoreDefinitionApi = {
     tags: ['production', 'quality', 'regression', 'support', 'long-tag-name-for-overflow'],
     id: 'b4f331fe-7d3b-4bbe-9f88-52e1b0a8b000',
+    short_name: '',
     name: 'Answer quality',
     description: 'Quality of generated answers',
     kind: 'numeric',

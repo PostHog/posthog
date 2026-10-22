@@ -366,6 +366,7 @@ class OfflineEvaluationReadService:
             version=version.version,
             kind=definition.kind,
             name=definition.name,
+            short_name=definition.short_name,
             description=definition.description,
             archived=definition.archived,
             config=cast(dict[str, JSONValue], version.config),
