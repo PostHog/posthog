@@ -45182,6 +45182,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -45204,6 +45205,7 @@ export namespace Schemas {
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
+      EarlySignificance: 'early_significance',
     } as const;
 
     /**
@@ -45268,7 +45270,8 @@ export namespace Schemas {
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `new_flag_no_traffic` - New Flag No Traffic */
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `early_significance` - Early Significance */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45308,6 +45311,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -45328,6 +45332,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -45364,6 +45369,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded

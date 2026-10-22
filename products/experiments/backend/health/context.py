@@ -198,6 +198,37 @@ class PauseHistory:
 
 
 @frozen
+class StoredVariantResult:
+    key: str
+    samples: int
+    # For a funnel, the users who completed the last step.
+    sum: float
+    # None when validation stopped the analysis of the variant.
+    significant: bool | None
+
+
+@frozen
+class StoredMetricResult:
+    """The current stored result of a metric, the one the results page shows after its last calculation."""
+
+    baseline_samples: int
+    baseline_sum: float
+    variants: tuple[StoredVariantResult, ...]
+
+
+@frozen
+class PrimaryMetric:
+    """The experiment's first primary metric, which its running-time estimate sizes, with its stored result."""
+
+    name: str
+    is_funnel: bool
+    # The relative effect, as a percentage, that the experiment plans to detect.
+    minimum_detectable_effect: float
+    # None when no completed result is stored under the metric's current calculation key. Only read for a funnel.
+    result: StoredMetricResult | None
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -283,6 +314,9 @@ class HealthContext:
     condition_set_traffic: ConditionSetTraffic | None
     # None when not loaded or unknown. Only the health endpoint loads it, and only for a paused experiment.
     pause_history: PauseHistory | None
+    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoint loads it,
+    # and only for a launched experiment.
+    primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
 
@@ -567,5 +601,6 @@ def load_health_context(
         flag_history=flag_history,
         condition_set_traffic=None,
         pause_history=None,
+        primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )
