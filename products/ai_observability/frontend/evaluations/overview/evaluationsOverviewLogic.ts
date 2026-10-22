@@ -242,7 +242,10 @@ export interface evaluationsOverviewLogicValues {
     periodLength: number
     periodNow: number
     pickedIds: string[]
-    ranked: { results: RankedRow[]; labels: RankedRow[] }
+    ranked: {
+        labels: RankedRow[]
+        results: RankedRow[]
+    }
     request: OverviewRequest
     rows: EvaluationResultApi[]
     rowsById: Map<string, EvaluationResultApi>
@@ -446,7 +449,10 @@ export interface evaluationsOverviewLogicMeta {
             overview: EvaluationsOverviewApi | null,
             rows: EvaluationResultApi[],
             rowsById: Map<string, EvaluationResultApi>
-        ) => { results: RankedRow[]; labels: RankedRow[] }
+        ) => {
+            labels: RankedRow[]
+            results: RankedRow[]
+        }
         configById: (evaluations: EvaluationConfig[]) => Map<string, EvaluationConfig>
         attentionCounts: (rows: EvaluationResultApi[]) => Record<string, number>
         directoryTiles: (
