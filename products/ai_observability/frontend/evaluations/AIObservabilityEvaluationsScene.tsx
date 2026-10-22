@@ -61,6 +61,8 @@ import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogi
 import { EvaluationsTabs } from './EvaluationsTabs'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { EvaluationResultsTable } from './overview/EvaluationResultsTable'
+import { EvaluationsOverview } from './overview/EvaluationsOverview'
 import { statusReasonLabel } from './statusDisplay'
 import { EvaluationConfig } from './types'
 
@@ -133,9 +135,37 @@ function EvaluationDescription({ description }: { description: string }): JSX.El
     )
 }
 
+/** The table without the overview. It alone reads the metrics, so the overview never runs their queries. */
+function EvaluationsWithMetricsTable({
+    columns,
+    displayedEvaluations,
+    loading,
+}: {
+    columns: LemonTableColumns<EvaluationConfig>
+    displayedEvaluations: EvaluationConfig[]
+    loading: boolean
+}): JSX.Element {
+    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
+    const displayedIds = new Set(displayedEvaluations.map((evaluation) => evaluation.id))
+
+    return (
+        <LemonTable
+            columns={columns}
+            dataSource={evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
+                displayedIds.has(evaluation.id)
+            )}
+            loading={loading}
+            rowKey="id"
+            pagination={{
+                pageSize: 50,
+            }}
+            nouns={['evaluation', 'evaluations']}
+        />
+    )
+}
+
 function AIObservabilityEvaluationsContent(): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic()
-    const metricsLogic = evaluationMetricsLogic()
     const {
         evaluations,
         displayedEvaluations,
@@ -170,7 +200,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         selectDirectory,
         deleteEvaluation,
     } = useActions(evaluationsLogic)
-    const { evaluationsWithMetrics } = useValues(metricsLogic)
+    const overviewEnabled = useFeatureFlag('AI_OBSERVABILITY_EVALUATIONS_OVERVIEW')
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
@@ -182,9 +212,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             evaluation.user_access_level ?? undefined
         )
 
-    const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
-        displayedEvaluations.some((filtered) => filtered.id === evaluation.id)
-    )
     const directoryById = new Map(evaluationDirectories.map((directory) => [directory.id, directory]))
 
     const columns: LemonTableColumns<EvaluationConfig> = [
@@ -603,7 +630,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {!selectedDirectoryId && (
+                    {!selectedDirectoryId && !overviewEnabled && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -639,33 +666,41 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 <EvaluationTemplatesEmptyState />
             ) : (
                 <>
-                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                    {overviewEnabled ? (
+                        <EvaluationsOverview />
+                    ) : (
+                        <>
+                            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
-                    <EvaluationMetrics />
+                            <EvaluationMetrics />
+                        </>
+                    )}
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search online evals..."
-                            value={evaluationsFilter}
-                            data-attr="evaluations-search-input"
-                            onChange={setEvaluationsFilter}
-                            prefix={<IconSearch />}
-                            className="max-w-sm"
-                        />
-                        <LemonButton
-                            type="secondary"
-                            active={!showDisabledEvaluations}
-                            icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
-                            onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
-                            data-attr="toggle-show-disabled-evaluations"
-                            tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
-                        >
-                            {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
-                        </LemonButton>
-                    </div>
+                    {!overviewEnabled && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonInput
+                                type="search"
+                                placeholder="Search online evals..."
+                                value={evaluationsFilter}
+                                data-attr="evaluations-search-input"
+                                onChange={setEvaluationsFilter}
+                                prefix={<IconSearch />}
+                                className="max-w-sm"
+                            />
+                            <LemonButton
+                                type="secondary"
+                                active={!showDisabledEvaluations}
+                                icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
+                                onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
+                                data-attr="toggle-show-disabled-evaluations"
+                                tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
+                            >
+                                {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
+                            </LemonButton>
+                        </div>
+                    )}
 
-                    {!evaluationsFilter && !selectedDirectoryId && (
+                    {!overviewEnabled && !evaluationsFilter && !selectedDirectoryId && (
                         <LemonTable
                             columns={directoryColumns}
                             dataSource={evaluationDirectories}
@@ -675,16 +710,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         />
                     )}
 
-                    <LemonTable
-                        columns={columns}
-                        dataSource={filteredEvaluationsWithMetrics}
-                        loading={evaluationsLoading || evaluationDirectoriesLoading}
-                        rowKey="id"
-                        pagination={{
-                            pageSize: 50,
-                        }}
-                        nouns={['evaluation', 'evaluations']}
-                    />
+                    {overviewEnabled ? (
+                        <EvaluationResultsTable />
+                    ) : (
+                        <EvaluationsWithMetricsTable
+                            columns={columns}
+                            displayedEvaluations={displayedEvaluations}
+                            loading={evaluationsLoading || evaluationDirectoriesLoading}
+                        />
+                    )}
                 </>
             )}
 
@@ -723,17 +757,28 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
     )
 }
 
+/**
+ * Binding mounts the metrics for the scene's lifetime. Attaching them to llmEvaluationsLogic instead would hold both
+ * mounted, so the list would never reload on the next visit. The overview never shows them, so it skips their queries.
+ */
+function LegacyMetricsBinding({ bound, children }: { bound: boolean; children: React.ReactNode }): JSX.Element {
+    return bound ? (
+        <BindLogic logic={evaluationMetricsLogic} props={{}}>
+            {children}
+        </BindLogic>
+    ) : (
+        <>{children}</>
+    )
+}
+
 export function AIObservabilityEvaluationsScene(): JSX.Element {
     useMountedLogic(llmEvaluationsLogic())
-    // Mount for this component's lifetime rather than attaching to llmEvaluationsLogic:
-    // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
-    // other mounted, and the list never reloads on the next visit to this scene.
-    useMountedLogic(evaluationMetricsLogic())
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const overviewEnabled = useFeatureFlag('AI_OBSERVABILITY_EVALUATIONS_OVERVIEW')
 
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <BindLogic logic={evaluationMetricsLogic} props={{}}>
+            <LegacyMetricsBinding bound={!overviewEnabled}>
                 <SceneContent>
                     <SceneTitleSection
                         name="Evaluations"
@@ -770,7 +815,7 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
                         <AIObservabilityEvaluationsContent />
                     </EvaluationsTabs>
                 </SceneContent>
-            </BindLogic>
+            </LegacyMetricsBinding>
         </BindLogic>
     )
 }
