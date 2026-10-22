@@ -1340,6 +1340,12 @@
         mount(root) {
           this.ui = {
             summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
+            changelogStatus: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            // Rebuilt only when the action it offers changes, so a refresh keeps what is typed.
+            changelogForm: el("div"),
+            changelogFormKey: null,
+            changelogError: el("div", { style: "padding: 0 14px" }),
+            changelogDetail: el("div"),
             issuesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             partitionsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             podsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
@@ -1357,6 +1363,8 @@
           });
           root.append(
             this.ui.summary,
+            el("div", { class: "panel" }, el("h2", {}, "Changelog"),
+              this.ui.changelogStatus, this.ui.changelogForm, this.ui.changelogError, this.ui.changelogDetail),
             el("div", { class: "panel" }, el("h2", {}, "Issues"), this.ui.issuesBody),
             el("div", { class: "panel" }, el("h2", {}, "Partitions"), this.ui.partitionsBody),
             el("div", { class: "panel" }, el("h2", {}, "Pods"), this.ui.podsBody),
@@ -1378,6 +1386,236 @@
           }
           if (seq !== this.refreshSeq) return;
           this.render(data);
+          // The lag scan talks to Kafka, so it never blocks the topology render.
+          this.refreshChangelog();
+        },
+
+        // One changelog view in flight at a time, always rendered: a scan slower
+        // than the refresh interval would otherwise be discarded every time.
+        refreshChangelog() {
+          if (this.changelogInFlight) {
+            this.changelogPending = true;
+            return;
+          }
+          this.changelogInFlight = true;
+          fetchJSON("api/personhog/changelog")
+            .then(
+              (view) => this.renderChangelog(view),
+              (e) => this.ui.changelogStatus.replaceChildren(el("div", { class: "error-box" }, String(e))))
+            .finally(() => {
+              this.changelogInFlight = false;
+              if (this.changelogPending) {
+                this.changelogPending = false;
+                this.refreshChangelog();
+              }
+            });
+        },
+
+        renderChangelog(view) {
+          const formKey = this.changelogFormKeyOf(view);
+          if (this.ui.changelogFormKey !== formKey) {
+            this.ui.changelogFormKey = formKey;
+            this.ui.changelogError.replaceChildren();
+            this.ui.changelogForm.replaceChildren(...(view.config
+              ? [this.migrationForm(view), this.retireGroupForm()]
+              : [this.seedForm()]));
+          }
+          if (!view.config) {
+            this.ui.changelogStatus.replaceChildren(
+              el("div", { class: "muted", style: "padding: 6px 14px 8px" }, "Not seeded. Every personhog service waits at startup until the changelog is seeded."));
+            this.ui.changelogDetail.replaceChildren();
+            return;
+          }
+          const c = view.config;
+          this.ui.changelogStatus.replaceChildren(
+            el("div", { class: "row", style: "padding: 6px 14px" },
+              el("span", { class: "pill accent mono" }, c.topic),
+              el("span", { class: "pill muted" }, `${fmtInt(c.partitions)} partitions`),
+              el("span", { class: "pill muted" }, `epoch ${fmtInt(c.epoch)}`)));
+          this.ui.changelogDetail.replaceChildren(
+            this.migrationDetail(view),
+            !view.writer
+              ? el("div", { class: "empty" }, "No writer group.")
+              : el("table", {},
+                  el("thead", {}, el("tr", {},
+                    el("th", {}, "consumer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
+                    el("th", { title: "A grow's restart replays about this many records per partition; a shrink by k replays about k partitions' worth. Larger replays lengthen the pause." }, "worst partition"))),
+                  el("tbody", {}, [view.writer, ...view.retire_groups].map((g, i) =>
+                    el("tr", {},
+                      el("td", { class: "mono" }, g.group, i === 0 ? null : this.removeRetireGroupButton(g.group)),
+                      el("td", { class: "mono" }, g.error ? el("span", { class: "pill bad", title: g.error }, "scan failed") : fmtInt(g.partitions)),
+                      el("td", { class: "mono" }, g.error ? "–" : fmtInt(g.lagging_partitions)),
+                      el("td", { class: "mono" }, g.error ? "–" : el("span", { class: `pill ${g.total_lag === 0 ? "good" : "warn"}` }, fmtInt(g.total_lag))),
+                      el("td", { class: "mono" }, g.error ? "–" : fmtInt(g.max_partition_lag)))))));
+        },
+
+        changelogFormKeyOf(view) {
+          if (!view.config) return "unseeded";
+          const groups = (view.config.retire_groups || []).join(",");
+          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}:${groups}`;
+          if (view.request) return `request:${view.request.id}:${groups}`;
+          return `idle:${groups}`;
+        },
+
+        removeRetireGroupButton(group) {
+          const button = el("button", { style: "margin-left: 8px" }, "Remove");
+          button.onclick = () => this.postChangelogAction("api/personhog/changelog/retire-groups", {
+            method: "DELETE",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ group }),
+          }, `Stop retire waiting on ${group}?\n\nOnly do this for a consumer that no longer runs. Retire stops waiting for it, so a generation it has not read to the end can retire and be deleted. If it still runs, it refuses to start on its next restart.`);
+          return button;
+        },
+
+        retireGroupForm() {
+          const groupInput = el("input", { type: "text", placeholder: "consumer group, e.g. personhog-changelog-relay", style: "width: 360px" });
+          const button = el("button", {}, "Add retire group");
+          button.onclick = () => {
+            const group = groupInput.value.trim();
+            if (!group) return;
+            this.postChangelogAction("api/personhog/changelog/retire-groups", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ group }),
+            }, `Add ${group} as a retire group?\n\nRetire then also waits for this group to read each generation to the end. A changelog consumer such as the relay refuses to start until its group is listed. Remove it from its row once that consumer no longer runs.`);
+          };
+          return el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" },
+            el("span", { class: "muted" }, "Other consumers retire waits on:"), groupInput, button);
+        },
+
+        async postChangelogAction(path, options, confirmText) {
+          if (!window.confirm(confirmText)) return;
+          try {
+            await fetchJSON(path, options);
+            this.ui.changelogError.replaceChildren();
+            this.refresh();
+          } catch (e) {
+            this.ui.changelogError.replaceChildren(el("div", { class: "error-box" }, String(e)));
+          }
+        },
+
+        seedForm() {
+          const topicInput = el("input", { type: "text", placeholder: "changelog topic, e.g. personhog_updates_64", style: "width: 360px" });
+          const groupInput = el("input", { type: "text", placeholder: "writer consumer group, e.g. personhog-writer", style: "width: 280px" });
+          const error = el("div");
+          const button = el("button", {}, "Seed config/changelog");
+          button.onclick = async () => {
+            const topic = topicInput.value.trim();
+            const writer_group = groupInput.value.trim();
+            if (!topic || !writer_group) {
+              error.replaceChildren(el("div", { class: "error-box" }, "Enter the topic and the writer's consumer group."));
+              return;
+            }
+            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata. Every personhog participant adopts this object; only a migration can move it afterward.`)) return;
+            button.disabled = true;
+            try {
+              await fetchJSON("api/personhog/changelog/seed", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ topic, writer_group }),
+              });
+              this.refresh();
+            } catch (e) {
+              error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            } finally {
+              button.disabled = false;
+            }
+          };
+          return el("div", { style: "padding: 0 14px 6px" },
+            el("div", { class: "row" }, topicInput, groupInput, button),
+            error);
+        },
+
+        migrationForm(view) {
+          const m = view.migration;
+          const r = view.request;
+          const form = el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" });
+          if (m) {
+            const cancellable = ["Freezing", "Draining"].includes(m.phase);
+            const cancel = el("button", { disabled: !cancellable }, "Cancel migration");
+            cancel.onclick = () => this.postChangelogAction("api/personhog/migrations/current", {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: m.id }),
+            },
+              `Cancel the migration to ${m.to.topic}? Held partitions resume on ${m.from.topic}.`);
+            form.append(
+              el("span", { class: "pill warn" }, `migrating: ${m.phase}`),
+              el("span", { class: "mono" }, `${m.from.topic} (${fmtInt(m.from.partitions)}) → ${m.to.topic} (${fmtInt(m.to.partitions)})`),
+              cancel);
+          } else if (r) {
+            const withdraw = el("button", {}, "Stop migration");
+            withdraw.onclick = () => this.postChangelogAction("api/personhog/migrations/current", {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: r.id }),
+            },
+              `Stop the migration to ${r.to.topic}? It has not started, so nothing is held; if it starts in the meantime, it is cancelled before the flip.`);
+            form.append(
+              el("span", { class: "pill muted" }, "requested: waiting to start"),
+              el("span", { class: "mono" }, `${r.from.topic} (${fmtInt(r.from.partitions)}) → ${r.to.topic} (${fmtInt(r.to.partitions)})`),
+              withdraw);
+          } else {
+            const topicInput = el("input", { type: "text", placeholder: "target topic, e.g. personhog_updates_128", style: "width: 360px" });
+            const start = el("button", {}, "Migrate changelog");
+            start.onclick = () => {
+              const topic = topicInput.value.trim();
+              if (!topic) return;
+              this.postChangelogAction("api/personhog/migrations", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ topic }),
+              }, `Migrate the changelog to ${topic}?\n\nThe coordinator starts it once no partition is moving and every owner is ready, then every partition pauses briefly while the fleet restarts onto the new topic. The partition count is read from the topic's metadata.`);
+            };
+            form.append(topicInput, start);
+          }
+          return form;
+        },
+
+        migrationDetail(view) {
+          const m = view.migration;
+          const r = view.request;
+          const body = el("div", { style: "padding: 0 14px 6px" });
+          if (m) {
+            body.append(m.blocking.length === 0
+              ? el("div", { class: "muted" }, "Nothing blocking.")
+              : el("ul", { class: "mono", style: "margin: 4px 0" }, m.blocking.slice(0, 12).map((b) => el("li", {}, b))));
+          } else if (r) {
+            body.append(r.waiting.length === 0
+              ? el("div", { class: "muted" }, "Starting once no partition is moving and every owner is ready.")
+              : el("ul", { class: "mono", style: "margin: 4px 0" }, r.waiting.slice(0, 12).map((w) => el("li", {}, w))));
+          }
+          for (const g of view.draining) {
+            const groups = [g.writer, ...g.retire_groups];
+            const isDrained = (d) => !d.error && d.partitions > 0 && d.drained_partitions === d.partitions;
+            const drained = groups.every(isDrained);
+            const retire = el("button", { disabled: !drained }, `Retire ${g.topic}`);
+            retire.onclick = () => this.postChangelogAction("api/personhog/changelog/retire", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ topic: g.topic }),
+            }, `Retire ${g.topic} now?\n\nEvery gating group has read it to the end. The coordinator retires it on its own once each group reports the drain. Retiring now skips that wait. Delete the topic in Terraform afterwards.`);
+            body.append(el("div", { class: "row", style: "margin-top: 6px" },
+              el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
+              groups.map((d) => el("span", { class: `pill ${d.error ? "bad" : isDrained(d) ? "good" : "warn"}`, title: d.error || "" },
+                `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}${d.reported ? " · reported" : ""}`)),
+              retire));
+          }
+          if (view.history.length > 0) {
+            body.append(el("table", {},
+              el("thead", {}, el("tr", {}, el("th", {}, "migration"), el("th", {}, "from"), el("th", {}, "to"), el("th", {}, "outcome"))),
+              el("tbody", {}, view.history.slice(0, 5).map((h) =>
+                el("tr", {},
+                  el("td", { class: "mono" }, h.id),
+                  el("td", { class: "mono" }, `${h.from.topic} (${fmtInt(h.from.partitions)})`),
+                  el("td", { class: "mono" }, `${h.to.topic} (${fmtInt(h.to.partitions)})`),
+                  el("td", {},
+                    el("span", { class: `pill ${h.phase === "Complete" ? "good" : "bad"}`, title: h.blocking.join("; ") }, h.phase),
+                    h.cancel_reason ? el("span", { class: "muted mono", style: "margin-left: 8px" }, h.cancel_reason)
+                      : h.phase !== "Complete" && h.blocking.length > 0 ? el("span", { class: "muted mono", style: "margin-left: 8px" }, h.blocking.join("; ")) : null,
+                    h.phase === "Complete" && !view.draining.some((g) => g.topic === h.from.topic) ? el("span", { class: "muted", style: "margin-left: 8px" }, `${h.from.topic} is retired; delete it in Terraform`) : null))))));
+          }
+          return body;
         },
 
         render(data) {
@@ -1391,7 +1629,7 @@
               ? el("span", { class: "pill good", title: `lease ${data.leader.lease_id}${data.leader.lease_ttl_secs !== null ? ` · ttl ${data.leader.lease_ttl_secs}s` : ""}` }, `coordinator ${data.leader.holder}`)
               : el("span", { class: "pill bad" }, "no coordinator"),
             el("span", { class: "pill muted" },
-              data.total_partitions === null ? "total_partitions missing" : `${fmtInt(data.total_partitions)} partitions`),
+              data.total_partitions === null ? "changelog not seeded" : `${fmtInt(data.total_partitions)} partitions`),
             el("span", { class: `pill ${readyPods === data.pods.length && readyPods > 0 ? "good" : "warn"}` },
               `${fmtInt(readyPods)}/${fmtInt(data.pods.length)} pods ready`),
             el("span", { class: "pill muted" }, `${fmtInt(data.routers.length)} router${data.routers.length === 1 ? "" : "s"}`),
@@ -1493,6 +1731,7 @@
             summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
             mappingsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             mergesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            personsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
           };
           const matchesAny = (values, q) =>
             values.some((v) => v !== null && v !== undefined && String(v).toLowerCase().includes(q));
@@ -1511,10 +1750,18 @@
             renderTable: (rows) => this.renderMerges(rows),
             emptyText: "No merge disagreements in the sample.",
           });
+          this.personsView = listView({
+            placeholder: "Filter by team, person, or outcome…",
+            pageSize: 100,
+            matches: (s, q) => matchesAny([s.team_id, s.person_uuid, s.outcome, ...(s.differing_properties || [])], q),
+            renderTable: (rows) => this.renderPersons(rows),
+            emptyText: "No person disagreements in the sample. The monitor compares persons only when both person topics are set.",
+          });
           root.append(
             this.ui.summary,
             el("div", { class: "panel" }, el("h2", {}, "Distinct ids"), this.ui.mappingsBody),
-            el("div", { class: "panel" }, el("h2", {}, "Merges"), this.ui.mergesBody)
+            el("div", { class: "panel" }, el("h2", {}, "Merges"), this.ui.mergesBody),
+            el("div", { class: "panel" }, el("h2", {}, "Persons"), this.ui.personsBody)
           );
           this.refresh();
           this.timers.push(setInterval(() => this.refresh(), 30000));
@@ -1531,6 +1778,7 @@
             if (!this.loaded) {
               this.ui.mappingsBody.replaceChildren(el("div", { class: "empty" }, "No data."));
               this.ui.mergesBody.replaceChildren(el("div", { class: "empty" }, "No data."));
+              this.ui.personsBody.replaceChildren(el("div", { class: "empty" }, "No data."));
             }
             return;
           }
@@ -1545,7 +1793,7 @@
           const samples = data.samples.slice().reverse().sort((a, b) => at(b) - at(a));
           const counts = new Map();
           for (const s of samples) {
-            const label = s.kind === "merge" ? `merge ${s.outcome}` : s.outcome;
+            const label = s.kind === "mapping" ? s.outcome : `${s.kind} ${s.outcome}`;
             counts.set(label, (counts.get(label) || 0) + 1);
           }
           this.ui.summary.replaceChildren(
@@ -1559,6 +1807,8 @@
           this.ui.mappingsBody.replaceChildren(this.mappingsView.body);
           this.mergesView.setRows(samples.filter((s) => s.kind === "merge"));
           this.ui.mergesBody.replaceChildren(this.mergesView.body);
+          this.personsView.setRows(samples.filter((s) => s.kind === "person"));
+          this.ui.personsBody.replaceChildren(this.personsView.body);
         },
 
         when(sample) {
@@ -1594,6 +1844,33 @@
                 el("td", { class: personClass }, person(node)),
                 el("td", { class: personClass }, person(personhog)),
                 el("td", { class: `${deletedClass} nowrap` }, pair((r) => (r.is_deleted ? "yes" : "no"))),
+                el("td", { class: "muted mono nowrap" }, pair((r) => String(r.version))));
+            }))
+          ));
+        },
+
+        renderPersons(rows) {
+          return el("div", { class: "scroll-x" }, el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "time"), el("th", {}, "team"), el("th", {}, "person"), el("th", {}, "outcome"),
+              el("th", { title: "Top level property keys whose values differ or that one side lacks" }, "differing properties"),
+              el("th", {}, "deleted"), el("th", {}, "identified"), el("th", {}, "created at"),
+              el("th", { title: "Versions order rows within one feed and are not compared across feeds" }, "versions"))),
+            el("tbody", {}, rows.map((s) => {
+              const node = s.node, personhog = s.personhog;
+              const both = node && personhog;
+              const pair = (f) => `${node ? f(node) : "–"} / ${personhog ? f(personhog) : "–"}`;
+              const differs = (f) => (both && f(node) !== f(personhog) ? "mono diff nowrap" : "mono nowrap");
+              const keys = s.differing_properties || [];
+              return el("tr", {},
+                el("td", { class: "muted mono nowrap" }, this.when(s)),
+                el("td", { class: "mono" }, String(s.team_id)),
+                el("td", { class: "mono" }, this.shortId(s.person_uuid)),
+                el("td", { class: "nowrap" }, el("span", { class: "pill warn" }, s.outcome)),
+                el("td", { class: keys.length ? "mono diff" : "muted" }, keys.length ? keys.join(", ") : "–"),
+                el("td", { class: differs((r) => r.is_deleted) }, pair((r) => (r.is_deleted ? "yes" : "no"))),
+                el("td", { class: differs((r) => r.is_identified) }, pair((r) => (r.is_identified ? "yes" : "no"))),
+                el("td", { class: differs((r) => r.created_at) }, pair((r) => r.created_at)),
                 el("td", { class: "muted mono nowrap" }, pair((r) => String(r.version))));
             }))
           ));

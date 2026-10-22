@@ -33,6 +33,11 @@ TIKTOK_AUTH_ERROR_CODES = {40105, 40110}
 # fresh token under the current app is the only fix; retrying with the same token cannot succeed.
 TIKTOK_APP_TOKEN_MISMATCH_MESSAGE = "app_id is inconsistent with the token's app information"
 
+# Also under the generic 40000 bucket: TikTok's wording for a revoked/invalid token on this
+# endpoint, distinct from the 40105 code `list_advertisers` otherwise relies on. Reconnecting is
+# the only fix.
+TIKTOK_INVALID_TOKEN_MESSAGE = "Access token is incorrect or has been revoked"
+
 # Throttling (400xx) and TikTok-side outages (5xxxx/60001) also arrive as HTTP 200 + a body `code`,
 # so no HTTP-level retry ever fires on them. Neither is our bug and neither is fixed by reconnecting:
 # the caller just has to try again shortly.

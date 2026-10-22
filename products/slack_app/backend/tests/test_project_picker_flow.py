@@ -80,14 +80,11 @@ class TestProjectPickerFlow(TestCase):
         return integration
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def _mention(
-        self, *, picker_enabled: bool = True, post_fails: bool = False, is_ext_shared_channel: bool = False
-    ) -> dict[str, Any]:
+    def _mention(self, *, post_fails: bool = False, is_ext_shared_channel: bool = False) -> dict[str, Any]:
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = RequestFactory().post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         with (
-            patch("products.slack_app.backend.api.is_slack_app_project_picker_enabled", return_value=picker_enabled),
             patch(
                 "products.slack_app.backend.api.post_slack_ephemeral",
                 side_effect=RuntimeError("slack is down") if post_fails else None,
@@ -142,15 +139,12 @@ class TestProjectPickerFlow(TestCase):
 
     @parameterized.expand(
         [
-            ("picker_on", True, False, True),
-            ("picker_off", False, False, False),
-            ("picker_fails_to_post", True, True, False),
+            ("picker_posted", False, True),
+            ("picker_fails_to_post", True, False),
         ]
     )
-    def test_mention_with_several_projects_gets_the_picker_or_the_hint(
-        self, _name, picker_enabled, post_fails, expect_picker
-    ):
-        outcome = self._mention(picker_enabled=picker_enabled, post_fails=post_fails)
+    def test_mention_with_several_projects_gets_the_picker_or_the_hint(self, _name, post_fails, expect_picker):
+        outcome = self._mention(post_fails=post_fails)
 
         assert outcome["hint_posted"] is not expect_picker
         assert outcome["drop"]["drop_reason"] == "multiple_projects"

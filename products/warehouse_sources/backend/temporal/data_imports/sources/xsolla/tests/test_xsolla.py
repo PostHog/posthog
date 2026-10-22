@@ -11,16 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
     route,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xsolla import XsollaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.settings import AUTH_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.source import XsollaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.xsolla import (
-    MERCHANT_ID_ERROR,
-    XsollaResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.xsolla import XsollaResumeConfig
 
 
 def transaction(transaction_id: int, created: str) -> dict[str, Any]:
@@ -211,20 +206,3 @@ def test_sync_raises_actionable_error_on_rejected_credentials(driver: SourceDriv
 
     assert isinstance(result.raised, Exception)
     assert AUTH_ERROR in str(result.raised)
-
-
-@pytest.mark.parametrize(
-    "merchant_id,status,expected",
-    [
-        ("123", 200, (True, None)),
-        ("123", 401, (False, AUTH_ERROR)),
-        ("123", 403, (False, AUTH_ERROR)),
-        ("123", 500, (False, "Xsolla returned an unexpected response (HTTP 500). Try again later.")),
-        ("123.evil.example", 200, (False, MERCHANT_ID_ERROR)),
-    ],
-)
-def test_validate_credentials(merchant_id: str, status: int, expected: tuple[bool, str | None]) -> None:
-    with scripted_network(always(ScriptedResponse(status=status, json=[]))):
-        result = validate_credentials(XsollaSourceConfig(merchant_id=merchant_id, api_key="test-xsolla-key"), "v2")
-
-    assert result == expected

@@ -58,10 +58,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: reads must see the worker's own previous writes, with no locks or snapshots.
 - Kept by: every event, merge, cascade, sweep, backfill and reconcile step for the partition runs on its worker.
-  A revoke wipes a slice after its worker exits, and a partition that moves in after boot is wiped just before its worker spawns.
-- Limit: with durable restore on, nothing makes boot recovery finish before workers start.
-  The events consumer dispatches polls that arrive before its assignment settles, and the followers start once the catalog loads, so a worker can run while the boot redrive clears outbox rows.
-  This is a gap in the ordering, not a reproduced failure.
+  Boot recovery wipes unowned slices and redrives the outbox before the first poll, and workers spawn only after it.
   See [processor runtime](processor-runtime.md#startup).
 
 **8. A committed offset never runs ahead of state on disk.**
@@ -258,7 +255,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 | Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                                                                           | Reconcile                                     |
 | Single-leaf sweep output                                                                                | At least once while the worker runs, and across a restart only with durable restore on | Retries within the path                       |
 | Cascade messages consumed                                                                               | At least once                                                                          | Holds and replays                             |
-| Merge state and its transfer                                                                            | At least once while the partition stays assigned. A revoke deletes a pending transfer  | The outbox and its redrive                    |
+| Merge state and its transfer                                                                            | At least once while the slice survives. A store wipe deletes a pending transfer        | The outbox and its redrive                    |
 | Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                          | Replays after holds                           |
 | Membership consumer                                                                                     | At least once, applied idempotently                                                    | The version guard, when version writes are on |
 
@@ -268,6 +265,7 @@ It does not rule out duplicates: a store that loses unflushed writes, or is wipe
 Reconcile repairs lost output, not lost state.
 It re-tells the rows the store holds.
 An event that Stage 1 skipped needs a later seed that covers it, and a person whose first Stage 2 row was never written needs a seed or a leaf flip that touches them.
+A person seed that changes nothing still recomposes a composed cohort with no row for the person, so a cohort added over already-seeded leaves gets its rows from its own run.
 
 The system is built on one bargain: live paths favor speed and may lose a change, and every backfill ends with a reconcile that re-tells everything the store holds.
 Anything that stops reconcile from running, or from covering a cohort, leaves downstream wrong with no signal.

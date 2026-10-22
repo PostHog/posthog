@@ -1,4 +1,6 @@
 import re
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
@@ -42,12 +44,14 @@ from posthog.hogql.printer.events_json_document import event_document_sql, json_
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import (
     RESTRICTABLE_JSON_BLOB_COLUMNS,
+    key_read_overlaps_restriction,
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
@@ -141,9 +145,37 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 )
 
 
+# ClickHouse JSON functions whose arguments after the document are all keys into it.
+_JSON_KEY_PATH_FUNCTIONS = frozenset(
+    {
+        "JSONHas",
+        "JSONLength",
+        "JSONArrayLength",
+        "JSONType",
+        "JSONExtractUInt",
+        "JSONExtractInt",
+        "JSONExtractFloat",
+        "JSONExtractBool",
+        "JSONExtractString",
+        "JSONExtractKeys",
+        "JSONExtractRaw",
+        "JSONExtractArrayRaw",
+        "JSONExtractKeysAndValuesRaw",
+    }
+)
+# JSON functions that take keys after the document and then a return type as the last argument.
+_JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
+
+
+def _group_type_index_of_blob(column_name: str) -> int | None:
+    group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
+    return int(group_column_match.group(1)) if group_column_match else None
+
+
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
+    _unmasked_blob_type: ast.FieldType | None = None
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -176,6 +208,22 @@ class ClickHousePrinter(BasePrinter):
             raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
 
     def _render_function_call(self, node: ast.Call, func_meta) -> str:
+        with self._without_json_drop_keys(self._unmasked_json_function_document(node, func_meta)):
+            return self._render_clickhouse_function_call(node, func_meta)
+
+    def _unmasked_json_function_document(self, node: ast.Call, func_meta) -> ast.FieldType | None:
+        """The blob a constant-key JSON function call may read without JSONDropKeysPool, or None."""
+        key_count = len(node.args) - 1
+        if func_meta.clickhouse_name in _JSON_FUNCTIONS_WITH_TRAILING_TYPE:
+            key_count -= 1
+        elif func_meta.clickhouse_name not in _JSON_KEY_PATH_FUNCTIONS:
+            return None
+        if key_count < 1 or not all(isinstance(arg, ast.Constant) for arg in node.args[1:]):
+            return None
+        first_key = cast(ast.Constant, node.args[1]).value
+        return self._unmasked_key_read_type(node.args[0], first_key)
+
+    def _render_clickhouse_function_call(self, node: ast.Call, func_meta) -> str:
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
@@ -681,17 +729,63 @@ class ClickHousePrinter(BasePrinter):
         finally:
             self._json_function_argument_depth = depth
 
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
+        first_key = node.keys[0] if node.keys else None
+        with self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)):
+            return super().visit_property_access(node)
+
+    def _unmasked_key_read_type(self, document: ast.Expr, first_key: object) -> ast.FieldType | None:
+        """The blob that a read of `first_key` may print without JSONDropKeysPool, or None to keep the mask.
+
+        A key that no restricted path overlaps reads the same value from the stored blob as from the masked one, so
+        the per-row UDF call only costs time. An integer first key reads by position, which dropping keys shifts.
+        Native events documents are rebuilt by the printer and keep their own masking. A user-written alias keeps the
+        mask, because ClickHouse lets the rest of the query read the aliased blob.
+        """
+        if not self.context.restricted_properties or not isinstance(first_key, str):
+            return None
+        while isinstance(document, ast.Alias) and document.hidden:
+            document = document.expr
+        if not isinstance(document, ast.Field) or not isinstance(document.type, ast.FieldType):
+            return None
+        field_type = document.type
+        resolved_field = field_type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, StringJSONDatabaseField):
+            return None
+        if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
+            return None
+        if self._events_json_document_field(field_type) is not None:
+            return None
+        keys_to_drop = restricted_property_keys_for_table_type(
+            field_type.table_type, self.context, group_type_index=_group_type_index_of_blob(resolved_field.name)
+        )
+        if key_read_overlaps_restriction(first_key, keys_to_drop):
+            return None
+        return field_type
+
+    @contextmanager
+    def _without_json_drop_keys(self, field_type: ast.FieldType | None) -> Iterator[None]:
+        if field_type is None:
+            yield
+            return
+        previous = self._unmasked_blob_type
+        self._unmasked_blob_type = field_type
+        try:
+            yield
+        finally:
+            self._unmasked_blob_type = previous
+
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
         """
-        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        Wraps a StringJSONDatabaseField in JSONDropKeysPool() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
 
         `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
         document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
-        `$feature_flags` map, where JSONDropKeys cannot reach a restricted `$feature/<key>`, so the map is dropped and
-        merged back without the restricted flags.
+        `$feature_flags` map, where JSONDropKeysPool cannot reach a restricted `$feature/<key>`, so the map is dropped
+        and merged back without the restricted flags.
         """
-        if not self.context.restricted_properties:
+        if not self.context.restricted_properties or type is self._unmasked_blob_type:
             return field_sql
 
         resolved_field = type.resolve_database_field(self.context)
@@ -701,19 +795,14 @@ class ClickHousePrinter(BasePrinter):
         # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
         # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
         # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
-        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # would incorrectly skip JSONDropKeysPool wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        group_type_index = None
-        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
-        if group_column_match:
-            group_type_index = int(group_column_match.group(1))
-
         keys_to_drop = restricted_property_keys_for_table_type(
-            type.table_type, self.context, group_type_index=group_type_index
+            type.table_type, self.context, group_type_index=_group_type_index_of_blob(resolved_field.name)
         )
         if not keys_to_drop:
             return field_sql
@@ -733,13 +822,19 @@ class ClickHousePrinter(BasePrinter):
             }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not is_events_json_document:
-            # A String JSON column holds '' when its producer omits the value.
-            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
-            # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+        if is_events_json_document:
             # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
-            stripped = f"if(empty({field_sql}), '', {stripped})"
+            # The UDF reads RowBinary, which encodes a JSON column differently from a String. Without toString the
+            # worker misreads the row and waits for more input until ClickHouse times out the pipe.
+            stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(toString({field_sql}), {keys_placeholder})"
+        else:
+            # A String JSON column holds '' when its producer omits the value, and the UDF fails to parse ''.
+            # ClickHouse can evaluate both branches of `if`, so the UDF gets '{}' in place of '' and the outer
+            # `if` discards that result.
+            guarded_sql = f"if(empty({field_sql}), '{{}}', {field_sql})"
+            stripped = (
+                f"if(empty({field_sql}), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}({guarded_sql}, {keys_placeholder}))"
+            )
         if not mask_stored_feature_flags:
             return stripped
 
@@ -1261,7 +1356,9 @@ class ClickHousePrinter(BasePrinter):
             type=ast.BooleanType(),
         )
 
-    def _print_select_columns(self, columns):
+    def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
+        columns = list(columns)
+
         def _alias_from_column_type(column: ast.Expr) -> str | None:
             column_type = getattr(column, "type", None)
             if isinstance(column_type, ast.FieldAliasType):
@@ -1279,7 +1376,7 @@ class ClickHousePrinter(BasePrinter):
                 if not found_aliases.get(alias.alias, None) or not alias.hidden:
                     found_aliases[alias.alias] = alias
 
-        columns_sql = []
+        prepared_columns: list[tuple[ast.Expr, str | None]] = []
         used_aliases: set[str] = set()
         for column in columns:
             printed_alias: str | None = None
@@ -1314,11 +1411,32 @@ class ClickHousePrinter(BasePrinter):
                     printed_alias = column_alias
                 else:
                     printed_alias = None
-            columns_sql.append(self.visit(column))
+            prepared_columns.append((column, printed_alias))
             if printed_alias is not None:
                 used_aliases.add(printed_alias)
 
-        return columns_sql
+        return prepared_columns
+
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        return [self.visit(column) for column, _ in self._prepare_select_columns(columns)]
+
+    def select_column_names(self, query: ast.SelectQuery) -> list[str]:
+        # ClickHouse names an unaliased expression after the SQL it receives, with bound values inlined.
+        names: list[str] = []
+        for column, _ in self._prepare_select_columns(query.select):
+            if isinstance(column, ast.Alias) and not column.hidden:
+                names.append(column.alias)
+                continue
+
+            rendered = (
+                f"({', '.join(self.visit(expression) for expression in column.exprs)})"
+                if isinstance(column, ast.Tuple)
+                else self.visit(column)
+            )
+            if re.search(r"%\([^)]*_sensitive\)s", rendered):
+                raise QueryError("An expression that reads sensitive source data needs an explicit alias")
+            names.append(substitute_params(rendered, self.context.values))
+        return names
 
     def _get_extra_select_clauses(
         self,

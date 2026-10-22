@@ -3,7 +3,9 @@ import { DateTime } from 'luxon'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '../../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
 import {
     HogInvocationResultRow,
@@ -140,6 +142,43 @@ describe('HogInvocationResultsService', () => {
             const decoded = JSON.stringify(globals)
             expect(decoded).not.toContain('sk-super-secret')
             expect(decoded).not.toContain('abc123')
+        })
+
+        it.each([
+            ['an ordinary email', false, {}, { code: '482913' }],
+            ['a sensitive email', true, {}, undefined],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            [
+                'a recovery stub of an unstamped transactional run',
+                undefined,
+                { event: { event: '$transactional_email' } },
+                undefined,
+            ],
+            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
+        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
+            const hogFlow =
+                sensitive === undefined
+                    ? ({ id: 'flow-1' } as any)
+                    : new FixtureHogFlowBuilder()
+                          .withWorkflow({
+                              actions: {
+                                  email: {
+                                      type: 'function_email',
+                                      config: { template_id: 'template-email', sensitive, inputs: {} },
+                                  } as any,
+                              },
+                              edges: [],
+                          })
+                          .build()
+            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
+            Object.assign(invocation.state, state, { event: { ...invocation.state.event, ...(state as any).event } })
+            await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
+
+            const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
+                string,
+                any
+            >
+            expect(globals.variables).toEqual(variables)
         })
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
