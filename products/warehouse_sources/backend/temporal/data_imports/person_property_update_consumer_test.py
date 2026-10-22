@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
     _DEFAULT_RATE_PER_SEC,
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     build_capture_kwargs,
 )
 
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
 _SETTING = (
     "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer.get_instance_setting"
 )
@@ -179,6 +181,28 @@ class TestProcessRecord:
 
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("team_found", {"return_value": SimpleNamespace(id=42)}, 42),
+            ("team_missing", {"return_value": None}, None),
+            ("lookup_error", {"side_effect": RuntimeError("db down")}, None),
+        ]
+    )
+    def test_capture_rejection_dlq_log_names_team(self, _name, lookup_kwargs, expected_team_id):
+        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        c = self._consumer(capture)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        with (
+            patch(f"{_MODULE}.Team.objects.get_team_from_cache_or_token", **lookup_kwargs),
+            capture_logs() as logs,
+        ):
+            assert c.process_record(value) == DLQ
+
+        [entry] = [e for e in logs if e["event"] == "person_property_update.dlq"]
+        assert entry["reason"] == "capture_error:402"
+        assert entry["team_id"] == expected_team_id
 
     @parameterized.expand(
         [

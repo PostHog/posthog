@@ -33,6 +33,7 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.settings import CONSTANCE_CONFIG
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +189,18 @@ def _is_permanent_client_error(status_code: object) -> bool:
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
+def _team_id_for_token(token: object) -> int | None:
+    """Best-effort team lookup so a DLQ log line can name the affected team. Never raises: a failed
+    lookup must not turn a DLQ write into a retry."""
+    if not isinstance(token, str):
+        return None
+    try:
+        team = Team.objects.get_team_from_cache_or_token(token)
+    except Exception:
+        return None
+    return team.id if team else None
+
+
 class PersonPropertyUpdateConsumer:
     def __init__(
         self,
@@ -225,11 +238,11 @@ class PersonPropertyUpdateConsumer:
             self._dlq_producer = get_producer(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ)
         return self._dlq_producer
 
-    def _dlq(self, value: bytes, reason: str) -> str:
+    def _dlq(self, value: bytes, reason: str, token: object = None) -> str:
         """Route a poison message to the DLQ. Returns ``DLQ`` only once the write is confirmed
         delivered; a failed DLQ write returns ``RETRY`` so the source offset stays uncommitted and
         the message is redelivered rather than silently dropped from both topics."""
-        logger.warning("person_property_update.dlq", reason=reason)
+        logger.warning("person_property_update.dlq", reason=reason, team_id=_team_id_for_token(token))
         producer = self._get_dlq_producer()
         result = producer.produce(
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
@@ -309,7 +322,7 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}")
+                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
@@ -319,12 +332,12 @@ class PersonPropertyUpdateConsumer:
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
         if result.dropped:
-            return self._dlq(value, "capture_dropped")
+            return self._dlq(value, "capture_dropped", kwargs["token"])
         # A permanent whole-request 4xx is likewise poison (bad/stale token, validation), so DLQ it
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}")
+            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 
