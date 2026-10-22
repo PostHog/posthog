@@ -54233,6 +54233,12 @@ export namespace Schemas {
       Mobile: 'mobile',
     } as const;
 
+    export interface FormbricksFeedbackSignalExtra {
+      survey_id: string | null;
+      finished: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `allowed` - allowed
      * * `blocked` - blocked
@@ -71373,6 +71379,8 @@ export namespace Schemas {
       kind: ScoreDefinitionKindEnum;
       /** Current scorer display name. */
       name: string;
+      /** Current compact label. Blank uses the full name. */
+      short_name: string;
       /** Current scorer description. */
       description: string;
       /** Whether the scorer is archived. */
@@ -75993,6 +76001,8 @@ export namespace Schemas {
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
+      /** Optional compact label for table headers and other compact views. */
+      readonly short_name: string;
       readonly description: string;
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
@@ -87932,6 +87942,11 @@ export namespace Schemas {
          */
       name?: string;
       /**
+         * Updated compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Updated scorer description.
          * @nullable
          */
@@ -94753,6 +94768,12 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    export interface QualtricsFeedbackSignalExtra {
+      survey_id: string | null;
+      recorded_date: string | null;
+      finished: string | null;
+    }
+
     /**
      * * `run` - Run
      * * `skip` - Skip
@@ -99373,6 +99394,38 @@ export namespace Schemas {
       created_date: string | null;
     }
 
+    export interface UsersnapFeedbackSignalExtra {
+      feedback_number: string | null;
+      public_link: string | null;
+      status_type: string | null;
+      priority: string | null;
+      created_at: string | null;
+      labels: unknown[];
+    }
+
+    export interface TypeformFeedbackSignalExtra {
+      form_id: string | null;
+      submitted_at: string | null;
+    }
+
+    export interface SurveymonkeyFeedbackSignalExtra {
+      survey_id: string | null;
+      date_created: string | null;
+      response_status: string | null;
+    }
+
+    export interface SurvicateFeedbackSignalExtra {
+      survey_id: string | null;
+      collected_at: string | null;
+      url: string | null;
+    }
+
+    export interface SurveysparrowFeedbackSignalExtra {
+      survey_id: string | null;
+      completed: string | null;
+      completed_time: string | null;
+    }
+
     export interface ZohoCrmTicketSignalExtra {
       case_number: string | null;
       status: string | null;
@@ -99462,7 +99515,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -102862,6 +102915,11 @@ export namespace Schemas {
          */
       name: string;
       /**
+         * Optional compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Optional human-readable description.
          * @nullable
          */
@@ -102879,6 +102937,11 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Updated compact label, saved with this version.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer name, saved with this version.
          * @maxLength 255
@@ -131885,7 +131948,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string;
     /**
