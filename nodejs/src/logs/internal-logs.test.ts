@@ -51,6 +51,8 @@ describe('InternalLogsVerifier', () => {
         },
         { name: 'no configured key', keys: '', signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
         { name: 'a source with no policy', signature: signInternalLogs(KEY, 'not_a_source', TEAM_ID, PAYLOAD) },
+        { name: 'an inherited property as source', signature: signInternalLogs(KEY, 'constructor', TEAM_ID, PAYLOAD) },
+        { name: 'the prototype as source', signature: signInternalLogs(KEY, '__proto__', TEAM_ID, PAYLOAD) },
         { name: 'an empty payload', payload: null, signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
     ])(
         'bills a batch with $name',

@@ -93,7 +93,8 @@ export class InternalLogsVerifier {
         }
         const source = signature.split('.')[1] ?? ''
         const reason = this.rejectReason(signature, source, teamId, payload)
-        const policy = reason ? undefined : this.policies[source]
+        // Own keys only, because a source like `constructor` resolves to an inherited policy with no `billed`.
+        const policy = reason || !Object.hasOwn(this.policies, source) ? undefined : this.policies[source]
         if (!policy) {
             logsInternalLogsCounter.inc({ outcome: 'rejected', reason: reason ?? 'unknown_source' })
             return undefined

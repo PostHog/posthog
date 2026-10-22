@@ -740,12 +740,10 @@ export class LogsIngestionConsumer {
             await this.filterRateLimitedMessages(quotaAllowedMessages)
 
         const usageStats = this.trackOutgoingTrafficAndBuildUsageStats(rateLimiterAllowedMessages, [
-            ...backfillDroppedMessages,
+            ...backfillDroppedMessages.filter((message) => !this.isUnbilledInternal(message)),
             ...quotaDroppedMessages,
             ...rateLimiterDroppedMessages,
         ])
-
-        this.queueInternalLogsMetrics(internalMessages)
 
         // One transformation time budget shared by all messages of this batch
         const transformationBatchBudget = this.deps.logsTransformer?.startBatch()
@@ -761,7 +759,8 @@ export class LogsIngestionConsumer {
                 // A usage map that is never emitted keeps their stats off the team's billed row.
                 // They run after the billed batches, so the per-batch concurrency limit still holds.
                 await this.processAndProduceLogMessages(internalMessages, new Map(), transformationBatchBudget)
-                // Metric rules emit deltas, so they wait until no group can fail the batch into a replay.
+                // Metric rules and internal usage emit deltas, so they wait until no group can fail the batch into a replay.
+                this.queueInternalLogsMetrics(internalMessages)
                 await this.emitMetricRuleTallies(metricTalliesByTeam)
                 await this.deps.teamManager.setTeamsIngestedData(
                     rateLimiterAllowedMessages.map((message) => message.teamId)
@@ -875,13 +874,16 @@ export class LogsIngestionConsumer {
     } {
         const backfillAllowedMessages: LogsIngestionMessage[] = []
         const backfillDroppedMessages: LogsIngestionMessage[] = []
-        const droppedRecordsByTeam = new Map<number, { messages: number; records: number }>()
+        const droppedRecordsByTeam = new Map<number, { messages: number; records: number; billed: boolean }>()
         for (const message of messages) {
             if (message.backfillRequested && !teamIdMatchesCsv(this.backfillEnabledTeamsRaw, message.teamId)) {
                 backfillDroppedMessages.push(message)
-                const dropped = droppedRecordsByTeam.get(message.teamId) ?? { messages: 0, records: 0 }
+                const dropped = droppedRecordsByTeam.get(message.teamId) ?? { messages: 0, records: 0, billed: false }
                 dropped.messages++
-                dropped.records += message.recordCount
+                if (!this.isUnbilledInternal(message)) {
+                    dropped.records += message.recordCount
+                    dropped.billed = true
+                }
                 droppedRecordsByTeam.set(message.teamId, dropped)
             } else {
                 backfillAllowedMessages.push(message)
@@ -894,7 +896,9 @@ export class LogsIngestionConsumer {
                 dropped.messages
             )
             recordLogMessageDropped('backfill_not_enabled', teamId.toString(), dropped.messages)
-            this.queueUsageMetric(teamId, 'records_dropped_backfill_not_enabled', dropped.records)
+            if (dropped.billed) {
+                this.queueUsageMetric(teamId, 'records_dropped_backfill_not_enabled', dropped.records)
+            }
         }
 
         return { backfillAllowedMessages, backfillDroppedMessages }

@@ -1163,6 +1163,54 @@ describe('LogsIngestionConsumer', () => {
                 credits: [...bytesCreditSpy.mock.calls, ...recordsCreditSpy.mock.calls],
             }).toEqual({ expired: 1, produced: 1, credits: [] })
         })
+
+        it.each([
+            { name: 'drops a signed backfill without writing to the team usage row', backfill: true },
+            { name: 'keeps the usage of a failed internal batch out of the next flush', backfill: false },
+        ])('$name', async ({ backfill }) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_BACKFILL_ENABLED_TEAMS: String(team2.id),
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+            })
+            const [internal] = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '100',
+                record_count: '1',
+                ...(backfill ? { backfill_days: '540' } : {}),
+            })
+            internal.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(
+                    signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, internal.value!)
+                ),
+            })
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                if (topicMessages.topic === KAFKA_LOGS_CLICKHOUSE && !backfill) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                await consumer.processKafkaBatch([internal]).then((r) => r.backgroundTask?.catch(() => undefined))
+                mockProducer.queueMessages = originalQueueMessages
+                // A later batch of another team flushes the shared usage aggregator.
+                const [next] = await createKafkaMessages([createLogMessage()], { token: team2.api_token })
+                await waitForBackgroundTasks(consumer.processKafkaBatch([next]))
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m) => m.value.team_id === team.id)
+                    .map((m) => m.value.metric_name)
+            ).toEqual([])
+        })
     })
 
     describe('filterQuotaLimitedMessages', () => {
