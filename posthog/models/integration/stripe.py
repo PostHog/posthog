@@ -13,6 +13,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -286,14 +287,14 @@ class StripeIntegration:
 
         Revocation has to span both or tokens issued before the application split survive it.
         """
-        client_ids = [
-            cid
-            for cid in (
-                settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID,
-                get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS),
-            )
-            if cid
-        ]
+        try:
+            orchestrator_client_id = get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
+        except CredentialsServiceFailure:
+            # This value is only used to find and delete local tokens. Falling back during an
+            # outage (or recovery) cannot expose the credential and must not block revocation.
+            orchestrator_client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+
+        client_ids = [cid for cid in (settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID, orchestrator_client_id) if cid]
         if not client_ids:
             return []
         return list(OAuthApplication.objects.filter(client_id__in=client_ids))

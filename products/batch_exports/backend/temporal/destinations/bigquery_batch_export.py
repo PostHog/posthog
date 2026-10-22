@@ -460,7 +460,7 @@ class GoogleCloudCredentialsError(Exception):
 async def ensure_our_google_cloud_credentials_are_valid():
     """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
 
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     session = _make_requests_session()
     try:
         await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
@@ -498,7 +498,7 @@ async def get_service_account_description(
 
     Uses our credentials to authenticate.
     """
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
     retryable_get_service_account = make_retryable_with_exponential_backoff(

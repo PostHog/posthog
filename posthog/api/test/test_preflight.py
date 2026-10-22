@@ -22,7 +22,7 @@ from posthog.credentials_service.errors import (
     SecretMissingError,
 )
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
-from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import SlackIntegration
@@ -68,7 +68,7 @@ class TestPreflightCredentials(SimpleTestCase):
                 "posthog.models.integration.slack.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "old-id"},
             ),
-            patch("posthog.views.get_or_settings", side_effect=partial(get_or_settings, client=client)),
+            patch("posthog.views.get_many_or_settings", side_effect=partial(get_many_or_settings, client=client)),
             patch(
                 "posthog.models.integration.slack.get_many_or_instance_settings",
                 side_effect=partial(get_many_or_instance_settings, client=client),

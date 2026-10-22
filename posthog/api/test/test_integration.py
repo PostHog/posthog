@@ -6264,8 +6264,9 @@ class TestStripeIntegrationOAuthTokens:
         mock_get_or_settings: MagicMock,
         MockStripeClient: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = error
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
 
         integration, access_token, refresh_token = self._create_integration_with_tokens()
 
