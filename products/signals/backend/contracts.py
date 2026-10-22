@@ -997,6 +997,92 @@ class RetentlyFeedbackSignalInput(SignalInputBase):
     extra: RetentlyFeedbackSignalExtra
 
 
+class UsersnapFeedbackSignalExtra(SignalExtraBase):
+    feedback_number: str | None
+    public_link: str | None
+    status_type: str | None
+    priority: str | None
+    created_at: str | None
+    labels: list
+
+
+class UsersnapFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.USERSNAP]
+    extra: UsersnapFeedbackSignalExtra
+
+
+class TypeformFeedbackSignalExtra(SignalExtraBase):
+    form_id: str | None
+    submitted_at: str | None
+
+
+class TypeformFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.TYPEFORM]
+    extra: TypeformFeedbackSignalExtra
+
+
+class QualtricsFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    recorded_date: str | None
+    finished: str | None
+
+
+class QualtricsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.QUALTRICS]
+    extra: QualtricsFeedbackSignalExtra
+
+
+class SurveymonkeyFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    date_created: str | None
+    response_status: str | None
+
+
+class SurveymonkeyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVEYMONKEY]
+    extra: SurveymonkeyFeedbackSignalExtra
+
+
+class FormbricksFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    finished: str | None
+    created_at: str | None
+
+
+class FormbricksFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FORMBRICKS]
+    extra: FormbricksFeedbackSignalExtra
+
+
+class SurvicateFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    collected_at: str | None
+    url: str | None
+
+
+class SurvicateFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVICATE]
+    extra: SurvicateFeedbackSignalExtra
+
+
+class SurveysparrowFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    completed: str | None
+    completed_time: str | None
+
+
+class SurveysparrowFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVEYSPARROW]
+    extra: SurveysparrowFeedbackSignalExtra
+
+
 class AppfiguresReviewSignalExtra(SignalExtraBase):
     stars: str | None
     version: str | None
@@ -1423,6 +1509,13 @@ SignalInput = Annotated[
     | CannyFeedbackSignalInput
     | AsknicelyFeedbackSignalInput
     | RetentlyFeedbackSignalInput
+    | UsersnapFeedbackSignalInput
+    | TypeformFeedbackSignalInput
+    | QualtricsFeedbackSignalInput
+    | SurveymonkeyFeedbackSignalInput
+    | FormbricksFeedbackSignalInput
+    | SurvicateFeedbackSignalInput
+    | SurveysparrowFeedbackSignalInput
     | AppfiguresReviewSignalInput
     | AppfollowReviewSignalInput
     | JudgemeReviewsReviewSignalInput
@@ -1500,6 +1593,13 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     CannyFeedbackSignalInput,
     AsknicelyFeedbackSignalInput,
     RetentlyFeedbackSignalInput,
+    UsersnapFeedbackSignalInput,
+    TypeformFeedbackSignalInput,
+    QualtricsFeedbackSignalInput,
+    SurveymonkeyFeedbackSignalInput,
+    FormbricksFeedbackSignalInput,
+    SurvicateFeedbackSignalInput,
+    SurveysparrowFeedbackSignalInput,
     AppfiguresReviewSignalInput,
     AppfollowReviewSignalInput,
     JudgemeReviewsReviewSignalInput,

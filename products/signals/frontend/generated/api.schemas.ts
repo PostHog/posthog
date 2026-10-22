@@ -3317,6 +3317,50 @@ export interface RetentlyFeedbackSignalExtraApi {
     created_date: string | null
 }
 
+export interface UsersnapFeedbackSignalExtraApi {
+    feedback_number: string | null
+    public_link: string | null
+    status_type: string | null
+    priority: string | null
+    created_at: string | null
+    labels: unknown[]
+}
+
+export interface TypeformFeedbackSignalExtraApi {
+    form_id: string | null
+    submitted_at: string | null
+}
+
+export interface QualtricsFeedbackSignalExtraApi {
+    survey_id: string | null
+    recorded_date: string | null
+    finished: string | null
+}
+
+export interface SurveymonkeyFeedbackSignalExtraApi {
+    survey_id: string | null
+    date_created: string | null
+    response_status: string | null
+}
+
+export interface FormbricksFeedbackSignalExtraApi {
+    survey_id: string | null
+    finished: string | null
+    created_at: string | null
+}
+
+export interface SurvicateFeedbackSignalExtraApi {
+    survey_id: string | null
+    collected_at: string | null
+    url: string | null
+}
+
+export interface SurveysparrowFeedbackSignalExtraApi {
+    survey_id: string | null
+    completed: string | null
+    completed_time: string | null
+}
+
 export interface AppfiguresReviewSignalExtraApi {
     stars: string | null
     version: string | null
@@ -3570,6 +3614,13 @@ export type SignalExtraApi =
     | CannyFeedbackSignalExtraApi
     | AsknicelyFeedbackSignalExtraApi
     | RetentlyFeedbackSignalExtraApi
+    | UsersnapFeedbackSignalExtraApi
+    | TypeformFeedbackSignalExtraApi
+    | QualtricsFeedbackSignalExtraApi
+    | SurveymonkeyFeedbackSignalExtraApi
+    | FormbricksFeedbackSignalExtraApi
+    | SurvicateFeedbackSignalExtraApi
+    | SurveysparrowFeedbackSignalExtraApi
     | AppfiguresReviewSignalExtraApi
     | AppfollowReviewSignalExtraApi
     | JudgemeReviewsReviewSignalExtraApi
