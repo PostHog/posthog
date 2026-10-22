@@ -10,6 +10,8 @@ from parameterized import parameterized
 from posthog.clickhouse.workload import Workload
 from posthog.models.instance_setting import override_instance_config
 
+from products.actions.backend.models.action import Action
+
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNativeEventsClusterWebQueries(APIBaseTest):
@@ -32,10 +34,13 @@ class TestNativeEventsClusterWebQueries(APIBaseTest):
                 },
             ),
             ("web_url_search", {"kind": "WebPageURLSearchQuery", "properties": [], "dateRange": {"date_from": "-7d"}}),
+            ("web_goals", {"kind": "WebGoalsQuery", "properties": [], "dateRange": {"date_from": "-7d"}}),
         ]
     )
     def test_native_opt_in_reads_only_the_native_cluster(self, _name: str, query: dict[str, Any]) -> None:
-        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+        Action.objects.create(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
+        rows = [[0, 0, "Viewed a page", (0, 0), (0, 0)]] if query["kind"] == "WebGoalsQuery" else []
+        with patch("posthog.hogql.query.sync_execute", return_value=(rows, [])) as execute:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/",
                 {"query": {**query, "modifiers": {"useNewEventsCluster": True}}, "refresh": "force_blocking"},
