@@ -20,6 +20,7 @@ from posthog.dags import (
     property_definitions,
     warehouse_object_reads_daily,
 )
+from posthog.dags.common import deletion_run_log
 
 from . import loggers, resources
 
@@ -72,6 +73,7 @@ defs = dagster.Definitions(
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
         deletes.run_deletes_after_squash,
         deletes.run_deletes_after_manual_trigger,
+        deletion_run_log.reconcile_deletion_run_logs,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
         warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,

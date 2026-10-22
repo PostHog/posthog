@@ -3450,6 +3450,34 @@ export interface XmattersIncidentSignalExtraApi {
     created_at: string | null
 }
 
+export interface LaceworkScannerFindingSignalExtraApi {
+    alert_type: string | null
+    severity: string | null
+    status: string | null
+    internet_exposure: string | null
+    start_time: string | null
+}
+
+export interface OrcaSecurityScannerFindingSignalExtraApi {
+    category: string | null
+    risk_level: string | null
+    orca_score: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface TenableVulnerabilityManagementScannerFindingSignalExtraApi {
+    asset_uuid: string | null
+    plugin_id: string | null
+    port_number: string | null
+    protocol: string | null
+    plugin_cvss3_base_score: string | null
+    severity: string | null
+    state: string | null
+    first_found: string | null
+}
+
 export interface BetterstackIncidentSignalExtraApi {
     url: string | null
     started_at: string | null
@@ -3468,6 +3496,28 @@ export interface BigeyeIssueSignalExtraApi {
     current_status: string | null
     priority: string | null
     opened_time_seconds: string | null
+}
+
+export interface TriggerDevErrorSignalExtraApi {
+    task_identifier: string | null
+    status: string | null
+    count: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface ChecklyErrorGroupSignalExtraApi {
+    check_id: string | null
+    error_hash: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface RoarkIssueSignalExtraApi {
+    severity: string | null
+    status: string | null
+    event_count: string | null
+    created_at: string | null
 }
 
 export type SignalExtraApi =
@@ -3537,9 +3587,15 @@ export type SignalExtraApi =
     | SolarwindsServiceDeskIncidentSignalExtraApi
     | GrafanaIrmIncidentSignalExtraApi
     | XmattersIncidentSignalExtraApi
+    | LaceworkScannerFindingSignalExtraApi
+    | OrcaSecurityScannerFindingSignalExtraApi
+    | TenableVulnerabilityManagementScannerFindingSignalExtraApi
     | BetterstackIncidentSignalExtraApi
     | MonteCarloAlertSignalExtraApi
     | BigeyeIssueSignalExtraApi
+    | TriggerDevErrorSignalExtraApi
+    | ChecklyErrorGroupSignalExtraApi
+    | RoarkIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
