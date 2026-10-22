@@ -17,6 +17,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -413,6 +414,22 @@ class TestEmail(BaseTest):
             ),
             ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None, ["transactional email failed"]),
             (
+                "workflows_unreachable_falls_back",
+                True,
+                [requests.ConnectionError("refused"), 200],
+                ["workflows", "customer_io"],
+                "customer_io",
+                ["transactional email workflows rejected", "transactional email triggered"],
+            ),
+            (
+                "workflows_timeout_sends_nothing",
+                True,
+                [requests.ReadTimeout("no response")],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
+            ),
+            (
                 "flag_off_uses_customer_io",
                 False,
                 [200],
@@ -429,7 +446,7 @@ class TestEmail(BaseTest):
         self,
         _name: str,
         flag_enabled: bool,
-        status_codes: list[int],
+        status_codes: list[int | Exception],
         expected_providers: list[str],
         sent_by: str | None,
         expected_events: list[str],
@@ -438,8 +455,11 @@ class TestEmail(BaseTest):
         mock_capture: MagicMock,
     ) -> None:
         mock_feature_enabled.return_value = flag_enabled
-        responses = []
+        responses: list[MagicMock | Exception] = []
         for status_code in status_codes:
+            if isinstance(status_code, Exception):
+                responses.append(status_code)
+                continue
             response = MagicMock(status_code=status_code, text="error")
             response.json.return_value = {"message_id": "m1"} if status_code == 202 else {"delivery_id": "d1"}
             responses.append(response)
@@ -451,7 +471,6 @@ class TestEmail(BaseTest):
                 CUSTOMER_IO_API_KEY="cio-key",
                 WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL="https://us.posthog.com",
-                WORKFLOWS_TRANSACTIONAL_EMAIL_PROJECT_ID=2,
                 WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS={"2fa_enabled": "tmpl-1"},
             ),
         ):
@@ -480,7 +499,7 @@ class TestEmail(BaseTest):
         workflows_call = next((c for c in mock_post.call_args_list if c.args[0].startswith("https://us.")), None)
         if workflows_call is not None:
             self.assertEqual(
-                workflows_call.args[0], "https://us.posthog.com/api/projects/2/messaging_templates/tmpl-1/send/"
+                workflows_call.args[0], "https://us.posthog.com/api/projects/@current/messaging_templates/tmpl-1/send/"
             )
             self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
             self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])

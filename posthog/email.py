@@ -168,9 +168,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
 # Message template ids in the US project, for templates that can send through Workflows instead of Customer.io.
 # A template sends through Workflows only for recipients the flag below matches.
 WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
-    "approval_requested": "01a16311-33e6-0000-c533-f383fd8e70f0",
     "password_reset": "01a1597a-5d91-0000-99fa-9eeb18d293c5",
-    "proxy_provisioned": "01a16311-b3de-0000-8aec-7c865f3e5432",
 }
 
 # Release conditions match the `email` and `transactional_email_template` person properties passed at evaluation,
@@ -223,8 +221,27 @@ def get_customer_io_template_id(template_name: str) -> str:
     return template_id
 
 
-class WorkflowsSendRejected(Exception):
-    """Workflows did not take the email, so another provider can send it without a duplicate."""
+class WorkflowsEmailError(Exception):
+    """Workflows did not queue the email, or the caller could not tell whether it did.
+
+    `code` and `status_code` match posthog-python's `EmailError`, so the fallback rule keeps working when the
+    SDK sends instead. `status_code` is None when no response came back.
+    """
+
+    def __init__(self, message: str, *, code: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
+    """Whether Customer.io can send the email without the risk of a duplicate."""
+    if err.status_code is None:
+        # A refused connection never reached Workflows, and a client that queued nothing sent nothing. After a
+        # timeout, Workflows can have queued the email.
+        return err.code in ("connection_error", "not_queued")
+    # A 409 means an earlier attempt with the same idempotency key is still in flight and can still send.
+    return err.status_code != 409
 
 
 def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str | None:
@@ -264,6 +281,51 @@ def _unescape_for_liquid(value: Any, key: Any = None) -> Any:
     return value
 
 
+def _queue_workflows_email(
+    *,
+    to: str,
+    template_id: str,
+    template_data: dict[str, Any],
+    distinct_id: str | None = None,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Queue one email from a Workflows transactional template and return its `message_id` and `replayed`.
+
+    Takes the same arguments as posthog-python's `Emails.send`, so the SDK can replace this body once it ships.
+    """
+    payload: dict[str, Any] = {"to": to, "message_data": template_data}
+    if distinct_id:
+        payload["identifiers"] = {"distinct_id": distinct_id}
+    try:
+        response = requests.post(
+            # The project secret API key names the project, so `@current` resolves to it.
+            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL}/api/projects/@current/messaging_templates/{template_id}/send/",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY}",
+                "Idempotency-Key": idempotency_key,
+            },
+            json=payload,
+            # The caller holds the MessagingRecord row lock for the whole request, so keep it short.
+            timeout=10,
+        )
+    except requests.ConnectionError as err:
+        raise WorkflowsEmailError(str(err), code="connection_error") from err
+    except requests.Timeout as err:
+        raise WorkflowsEmailError(str(err), code="timeout") from err
+
+    if response.status_code != 202:
+        try:
+            code = response.json().get("code") or "api_error"
+        except ValueError:
+            code = "api_error"
+        raise WorkflowsEmailError(
+            f"{response.status_code} - {response.text}", code=code, status_code=response.status_code
+        )
+    body = response.json()
+    return {"message_id": body.get("message_id"), "replayed": bool(body.get("replayed", False))}
+
+
 def _send_one_via_workflows(
     dest: dict[str, str], campaign_key: str, template_id: str, properties: dict
 ) -> dict[str, Any]:
@@ -273,38 +335,19 @@ def _send_one_via_workflows(
         customer["id"] = dest["distinct_id"]
     if dest.get("first_name"):
         customer["first_name"] = sanitize_email_string(dest["first_name"])
-    payload: dict[str, Any] = {
-        "to": dest["raw_email"],
-        "message_data": _unescape_for_liquid({**properties, "customer": customer}),
-    }
-    if dest.get("distinct_id"):
-        payload["identifiers"] = {"distinct_id": dest["distinct_id"]}
 
-    # A retry after a read timeout must not send the email twice.
-    idempotency_key = hashlib.sha256(f"{campaign_key}\n{dest['raw_email']}".encode()).hexdigest()
-    try:
-        response = requests.post(
-            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL}/api/projects/"
-            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_PROJECT_ID}/messaging_templates/{template_id}/send/",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY}",
-                "Idempotency-Key": idempotency_key,
-            },
-            json=payload,
-            timeout=30,
-        )
-    except requests.ConnectionError as err:
-        # The request never reached Workflows. A read timeout is not caught here, because Workflows can have
-        # queued the email before it timed out.
-        raise WorkflowsSendRejected(str(err)) from err
-
-    if response.status_code == 409:
-        # An earlier attempt with this key is still in flight and can still send.
-        raise Exception(f"Workflows API error: {response.status_code} - {response.text}")
-    if response.status_code != 202:
-        raise WorkflowsSendRejected(f"{response.status_code} - {response.text}")
-    return response.json()
+    result = _queue_workflows_email(
+        to=dest["raw_email"],
+        template_id=template_id,
+        template_data=_unescape_for_liquid({**properties, "customer": customer}),
+        distinct_id=dest.get("distinct_id") or None,
+        # Derived from the email itself, so a Celery retry of the whole send cannot queue it twice.
+        idempotency_key=hashlib.sha256(f"{campaign_key}\n{dest['raw_email']}".encode()).hexdigest(),
+    )
+    if not result["message_id"]:
+        # A disabled SDK client queues nothing and returns no ID.
+        raise WorkflowsEmailError("Workflows queued nothing", code="not_queued")
+    return result
 
 
 def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properties: dict) -> dict[str, Any]:
@@ -355,7 +398,9 @@ def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, prope
     if workflows_template_id:
         try:
             return "workflows", _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)
-        except WorkflowsSendRejected as err:
+        except WorkflowsEmailError as err:
+            if not _workflows_error_allows_fallback(err):
+                raise
             logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
             EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
             _capture_email_event(
