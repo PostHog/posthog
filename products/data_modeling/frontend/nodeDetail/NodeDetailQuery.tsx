@@ -6,10 +6,11 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+import { NodeDetailQueryEditor } from './NodeDetailQueryEditor'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
-    const { savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
+    const { savedQuery, savedQueryLoading, savedQueryError, canEditQuery } = useValues(nodeDetailSceneLogic({ id }))
     const { loadSavedQuery } = useActions(nodeDetailSceneLogic({ id }))
 
     if (savedQueryLoading && !savedQuery) {
@@ -30,7 +31,9 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                {queryString ? (
+                {queryString && savedQuery && canEditQuery ? (
+                    <NodeDetailQueryEditor key={savedQuery.id} savedQuery={savedQuery} />
+                ) : queryString ? (
                     <CodeSnippet
                         language={Language.SQL}
                         // Scales with the viewport so the query gets the space the collapsed columns free up.

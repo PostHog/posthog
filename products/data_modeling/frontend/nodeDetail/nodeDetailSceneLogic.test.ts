@@ -8,8 +8,9 @@ import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/ma
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
+import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
@@ -100,6 +101,26 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.effectiveTab).toEqual(expectedTab)
         expect(logic.values.currentTab).toEqual(expectedTab)
+    })
+
+    // An endpoint's query is versioned by the endpoint, and a viewer cannot save a view, so only
+    // an editor on a plain or materialized view gets the editable query.
+    it.each<[string, DataModelingNodeType, AccessControlLevel, boolean]>([
+        ['an editor on a view', 'view', AccessControlLevel.Editor, true],
+        ['an editor on a materialized view', 'matview', AccessControlLevel.Editor, true],
+        ['a viewer on a view', 'view', AccessControlLevel.Viewer, false],
+        ['an editor on an endpoint', 'endpoint', AccessControlLevel.Editor, false],
+    ])('decides whether the query is editable for %s', async (_case, type, accessLevel, expected) => {
+        node = buildNode(type)
+        savedQuery = {
+            ...savedQuery,
+            user_access_level: accessLevel,
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        }
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.canEditQuery).toBe(expected)
     })
 
     it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {

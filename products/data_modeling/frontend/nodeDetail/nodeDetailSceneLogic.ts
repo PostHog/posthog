@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +12,8 @@ import { urls } from 'scenes/urls'
 
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     Breadcrumb,
     DataModelingEdge,
     DataModelingNode,
@@ -72,6 +75,7 @@ export interface nodeDetailSceneLogicValues {
     currentProjectId: number | string // teamLogic
     availableTabs: NodeDetailSceneTab[]
     breadcrumbs: Breadcrumb[]
+    canEditQuery: boolean
     currentTab: NodeDetailSceneTab | null
     dataQualitySubject: NodeDetailDataQualitySubject | null
     defaultTab: NodeDetailSceneTab
@@ -285,6 +289,7 @@ export interface nodeDetailSceneLogicMeta {
             node: DataModelingNode | null,
             savedQuery: DataWarehouseSavedQuery | null
         ) => string | null
+        canEditQuery: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
     }
 }
 
@@ -637,6 +642,19 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             (s) => [s.node, s.savedQuery],
             (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null): string | null =>
                 savedQuery?.status ?? node?.last_run_status ?? null,
+        ],
+        // An endpoint's query is versioned by the endpoint, so it is edited there and not as a view.
+        canEditQuery: [
+            (s) => [s.node, s.savedQuery],
+            (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null): boolean =>
+                !!node?.saved_query_id &&
+                node.type !== 'endpoint' &&
+                typeof savedQuery?.query?.query === 'string' &&
+                userHasAccess(
+                    AccessControlResourceType.WarehouseObjects,
+                    AccessControlLevel.Editor,
+                    savedQuery.user_access_level
+                ),
         ],
     }),
     listeners(({ actions, props, values }) => ({

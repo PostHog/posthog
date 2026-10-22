@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { ReactNode, memo, useCallback, useMemo, useRef } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -65,6 +65,10 @@ interface QueryWindowProps {
     autoFocusQueryPane?: boolean
     hideVariables?: boolean
     hideFilters?: boolean
+    hideAiTools?: boolean
+    toolbarActions?: ReactNode
+    /** False removes the button that expands the schema panel. Defaults to true. */
+    canExpandDatabaseTree?: boolean
 }
 
 export function QueryWindow({
@@ -87,6 +91,9 @@ export function QueryWindow({
     autoFocusQueryPane,
     hideVariables,
     hideFilters,
+    hideAiTools,
+    toolbarActions,
+    canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -278,12 +285,14 @@ export function QueryWindow({
                     )}
                 >
                     <div className="flex flex-wrap items-center gap-2">
-                        <ExpandDatabaseTreeButton
-                            showDatabaseTree={showDatabaseTree}
-                            onShowDatabaseTree={onShowDatabaseTree}
-                            mode={mode}
-                            hostProduct={hostProduct}
-                        />
+                        {canExpandDatabaseTree ? (
+                            <ExpandDatabaseTreeButton
+                                showDatabaseTree={showDatabaseTree}
+                                onShowDatabaseTree={onShowDatabaseTree}
+                                mode={mode}
+                                hostProduct={hostProduct}
+                            />
+                        ) : null}
                         {hideRunButton ? null : (
                             <RunButton
                                 onRunQuery={onRunQuery}
@@ -305,7 +314,7 @@ export function QueryWindow({
                         ) : null}
                         {!hideFilters ? <QueryFiltersMenu /> : null}
                         <QueryPlaceholdersMenu />
-                        {editingView ? (
+                        {editingView && mode !== SQLEditorMode.Embedded ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -324,7 +333,7 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        <FixErrorButton type="secondary" size="small" source="action-bar" />
+                        {hideAiTools ? null : <FixErrorButton type="secondary" size="small" source="action-bar" />}
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu
                                 items={editorSettingsItems}
@@ -343,12 +352,13 @@ export function QueryWindow({
                             </LemonMenu>
                         ) : null}
                         {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
-                        {mode === SQLEditorMode.Embedded && (
+                        {mode === SQLEditorMode.Embedded && !hideAiTools && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
                                 maxToolProps={executeSqlMaxToolProps}
                             />
                         )}
+                        {toolbarActions}
                     </div>
                 </div>
             ) : null}

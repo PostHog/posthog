@@ -58,6 +58,7 @@ import { QueryWindow } from './QueryWindow'
 import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
+import { useUpdateEditingView } from './useUpdateEditingView'
 
 export enum SQLEditorPanel {
     Full = 'full',
@@ -73,6 +74,7 @@ interface SQLEditorProps {
 
     tabId?: string
     mode?: SQLEditorMode
+    /** Pass false to leave out the schema panel and the button that expands it. */
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
     /** Extra top-level sections for the database tree, owned by the embedder — see QueryDatabase. */
@@ -102,6 +104,10 @@ interface SQLEditorProps {
     hideAgentHints?: boolean
     hideVariables?: boolean
     hideFilters?: boolean
+    /** Leave out the toolbar's AI buttons. */
+    hideAiTools?: boolean
+    /** Extra controls at the right end of the query toolbar. Rendered inside the editor's logic bindings. */
+    toolbarActions?: ReactNode
 }
 
 export function SQLEditor({
@@ -129,6 +135,8 @@ export function SQLEditor({
     hideAgentHints,
     hideVariables,
     hideFilters,
+    hideAiTools,
+    toolbarActions,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -355,6 +363,9 @@ export function SQLEditor({
                                                                 autoFocusQueryPane={autoFocusQueryPane}
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
+                                                                hideAiTools={hideAiTools}
+                                                                toolbarActions={toolbarActions}
+                                                                canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />
                                                         )}
                                                     </div>
@@ -497,16 +508,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         editingInsight,
         insightLoading,
         sourceQuery,
-        changesToSave,
-        inProgressViewEdits,
         isSourceQueryLastRun,
-        isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
-        reviewViewUpdate,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -650,58 +657,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
-    const { editingViewDisabledReason, editingViewLoading } = useMemo((): {
-        editingViewDisabledReason: string | undefined
-        editingViewLoading: boolean
-    } => {
-        if (updatingDataWarehouseSavedQuery) {
-            return { editingViewDisabledReason: 'Saving...', editingViewLoading: true }
-        }
-
-        if (isMultiQuery) {
-            return {
-                editingViewDisabledReason: 'Views must be a single query — remove extra statements to update',
-                editingViewLoading: false,
-            }
-        }
-
-        if (!changesToSave) {
-            return { editingViewDisabledReason: 'No changes to save', editingViewLoading: false }
-        }
-
-        // Require the current (edited) query to have been run successfully before updating — a stale
-        // response from a previous run must not enable the button after further edits.
-        if (!isSourceQueryLastRun) {
-            return {
-                editingViewDisabledReason: 'Run the latest query before updating the view',
-                editingViewLoading: false,
-            }
-        }
-
-        if (responseLoading) {
-            return { editingViewDisabledReason: 'Running query...', editingViewLoading: true }
-        }
-
-        if (responseError || !response) {
-            return {
-                editingViewDisabledReason: 'Run the query successfully before updating the view',
-                editingViewLoading: false,
-            }
-        }
-
-        return { editingViewDisabledReason: undefined, editingViewLoading: false }
-    }, [
-        updatingDataWarehouseSavedQuery,
-        changesToSave,
-        isSourceQueryLastRun,
-        responseLoading,
-        responseError,
-        response,
-        isMultiQuery,
-    ])
+    const {
+        disabledReason: editingViewDisabledReason,
+        loading: editingViewLoading,
+        isMaterializedView,
+        update: updateEditingView,
+    } = useUpdateEditingView()
     const EditingViewButtonIcon = editingViewLoading ? Spinner : IconDownload
 
-    const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
         ? 'Close this insight and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
         : editingView
@@ -798,19 +761,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             closeObjectTooltip={closeObjectTooltip}
                             editingViewDisabledReason={editingViewDisabledReason}
                             editingViewLoading={editingViewLoading}
-                            onUpdateView={() =>
-                                editingView &&
-                                reviewViewUpdate({
-                                    id: editingView.id,
-                                    query: {
-                                        ...sourceQuery.source,
-                                        query: queryInput ?? '',
-                                    },
-                                    types: response && 'types' in response ? (response?.types ?? []) : [],
-                                    shouldRematerialize: isMaterializedView,
-                                    edited_history_id: inProgressViewEdits[editingView.id],
-                                })
-                            }
+                            onUpdateView={updateEditingView}
                             saveAsInsightDisabledReason={saveAsInsightDisabledReason}
                             saveAsDisabledReason={saveAsDisabledReason}
                             saveAsViewAccessDisabledReason={saveAsViewAccessDisabledReason}
@@ -838,19 +789,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         userAccessLevel={editingView.user_access_level}
                                     >
                                         <LemonButton
-                                            onClick={() =>
-                                                reviewViewUpdate({
-                                                    id: editingView.id,
-                                                    query: {
-                                                        ...sourceQuery.source,
-                                                        query: queryInput ?? '',
-                                                    },
-                                                    types:
-                                                        response && 'types' in response ? (response?.types ?? []) : [],
-                                                    shouldRematerialize: isMaterializedView,
-                                                    edited_history_id: inProgressViewEdits[editingView.id],
-                                                })
-                                            }
+                                            onClick={updateEditingView}
                                             disabledReason={editingViewDisabledReason}
                                             icon={<EditingViewButtonIcon />}
                                             type="primary"
