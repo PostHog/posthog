@@ -3440,6 +3440,40 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("triggered_by", "check_id"),
+    [("manual", "00000000-0000-0000-0000-000000000001"), (TRIGGERED_BY_CHECK, None)],
+)
+async def test_activity_skips_queued_report_checks_without_starting_scout_work(
+    triggered_by: str, check_id: str | None
+) -> None:
+    with patch(
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
+        side_effect=AssertionError("Report checks must not start scout work"),
+    ):
+        output = await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(
+                team_id=7,
+                skill_name="signals-scout-errors",
+                skill_version=2,
+                triggered_by=triggered_by,
+                check_id=check_id,
+            ),
+        )
+
+    assert output == RunSignalsScoutOutput(
+        run_id=None,
+        task_run_id=None,
+        status=None,
+        runtime_s=0.0,
+        skill_name="signals-scout-errors",
+        skill_version=2,
+        skip_reason="report_check_execution_disabled",
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ("quota_gate", "daily_limited", "expected_skip_reason"),
