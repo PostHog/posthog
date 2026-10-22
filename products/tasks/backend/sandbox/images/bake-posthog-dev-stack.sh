@@ -315,13 +315,16 @@ fi
 rm -f /var/run/docker.pid /var/run/docker.sock
 
 log "cleaning up"
-# The checkout goes away — node_modules, Storybook dist, Vite/Turbo caches included.
-# Deliberate: baked build output would reflect the baked commit, not the task's
-# checkout, so e.g. Storybook screenshots would silently miss the agent's edits.
-# The warmed stores above keep the task-time installs that precede a rebuild cheap.
 cd /
-rm -rf "$BAKE_ROOT" "$REPO_DIR"
-rmdir -p "$(dirname "$REPO_DIR")" 2> /dev/null || true
+rm -rf "$BAKE_ROOT"
+git -C "$REPO_DIR" reset -q --hard
+git -C "$REPO_DIR" clean -ffdxq
+git -C "$REPO_DIR" update-ref refs/remotes/origin/master "$BAKED_SHA"
+git -C "$REPO_DIR" config core.checkStat minimal
+git -C "$REPO_DIR" config core.trustctime false
+sleep 1
+git -C "$REPO_DIR" update-index -q --really-refresh
+git -C "$REPO_DIR" update-index --force-write-index --refresh > /dev/null
 
 log "installing task-time bootstrap helper"
 # A restored sandbox is not self-starting: the sandbox runtime rewrites /etc/hosts at

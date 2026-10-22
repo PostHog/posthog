@@ -98,11 +98,13 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
+    ClonePhases,
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
+    parse_clone_phases,
 )
 
 
@@ -1467,6 +1469,8 @@ class TestModalSandboxCommandEscaping:
             (True, False, "--depth 1", "--filter=blob:"),
             (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
             (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, "if [ -d /tmp/workspace/repos/posthog/posthog/.git ]", None),
+            (False, False, "--filter=blob:limit=128k", "/tmp/workspace/repos/posthog/posthog/.git ]"),
         ],
     )
     def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
@@ -1485,6 +1489,23 @@ class TestModalSandboxCommandEscaping:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [
+            (
+                "clone_phases_ms mode=baked fetch=6012 checkout=640\n",
+                ClonePhases(mode="baked", fetch_ms=6012, checkout_ms=640),
+            ),
+            (
+                "Cloning into 'posthog'...\nclone_phases_ms mode=fallback fetch=9100 checkout=1500",
+                ClonePhases(mode="fallback", fetch_ms=9100, checkout_ms=1500),
+            ),
+            ("", None),
+        ],
+    )
+    def test_parse_clone_phases(self, stdout, expected):
+        assert parse_clone_phases(stdout) == expected
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",

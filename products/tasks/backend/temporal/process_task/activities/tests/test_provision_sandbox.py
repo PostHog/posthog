@@ -552,6 +552,49 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
     ]
 
 
+def test_clone_records_fetch_and_checkout_phases_from_clone_output(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="clone_phases_ms mode=baked fetch=6012 checkout=640\n", stderr="", exit_code=0
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    record_phases = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.record_repository_clone_phases_ms"
+    )
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox,
+        CloneRepositoryInSandboxInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            repository="posthog/posthog",
+            github_token="github-token",
+            shallow_clone=True,
+        ),
+    )
+
+    record_phases.assert_called_once_with(
+        "baked",
+        {"fetch": 6012, "checkout": 640},
+        origin_product=Task.OriginProduct.USER_CREATED,
+        runtime=mocker.ANY,
+    )
+
+
 def test_clone_failure_records_failed_latency_and_captures_command_result(mocker, activity_environment):
     context = TaskProcessingContext(
         task_id="task-id",

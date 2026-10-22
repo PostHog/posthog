@@ -640,6 +640,35 @@ def record_agent_server_boot_phases_ms(
         )
 
 
+def record_repository_clone_phases_ms(
+    clone_mode: str,
+    phases_ms: Mapping[str, int],
+    *,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in phases_ms.items():
+        attributes: Attributes = {
+            "step": f"repository_clone_{phase}",
+            "used_snapshot": _bool_label(False),
+            "status": "COMPLETED",
+            "clone_mode": clone_mode,
+        }
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
+        try:
+            _metric_meter(attributes).create_histogram_timedelta(
+                "tasks_process_sandbox_step_latency",
+                "Latency for get_sandbox_for_repository sub-steps",
+                unit="ms",
+            ).record(dt.timedelta(milliseconds=duration_ms))
+        except Exception:
+            pass
+        record_startup_step_event(f"repository_clone_{phase}", duration_ms, attributes)
+
+
 def increment_agent_server_readiness_retry(
     attempt: int,
     outcome: str,

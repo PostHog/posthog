@@ -336,6 +336,23 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
     r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
+CLONE_PHASES_ECHO = 'echo "clone_phases_ms mode=$MODE fetch=$((T1-T0)) checkout=$((T2-T1))"'
+CLONE_PHASES_PATTERN = re.compile(r"clone_phases_ms mode=(?P<mode>\w+) fetch=(?P<fetch>\d+) checkout=(?P<checkout>\d+)")
+
+
+@frozen
+class ClonePhases:
+    mode: str
+    fetch_ms: int
+    checkout_ms: int
+
+
+def parse_clone_phases(stdout: str) -> ClonePhases | None:
+    for line in reversed(stdout.splitlines()):
+        match = CLONE_PHASES_PATTERN.fullmatch(line.strip())
+        if match is not None:
+            return ClonePhases(mode=match["mode"], fetch_ms=int(match["fetch"]), checkout_ms=int(match["checkout"]))
+    return None
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -623,13 +640,46 @@ class SandboxBase(ABC):
         blob_filter = ""
         if not shallow:
             blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
-        clone_command = (
+        fresh_clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{blob_filter}{depth_flag}{branch_flag} "
-            f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
+            "T0=$(date +%s%3N) && "
+            f"git clone --no-checkout --single-branch{blob_filter}{depth_flag}{branch_flag} "
+            f"{shlex.quote(repo_url)} {shlex.quote(repo)} && "
+            "T1=$(date +%s%3N) && "
+            f"cd {shlex.quote(repo)} && "
+            "git -c checkout.workers=0 checkout -q -f && "
+            f"T2=$(date +%s%3N) && {CLONE_PHASES_ECHO}"
         )
+        if shallow:
+            resolve_branch = (
+                f"BRANCH={shlex.quote(branch)}"
+                if branch
+                else "BRANCH=$(git ls-remote --symref origin HEAD | awk '$1==\"ref:\"{print substr($2,12)}')"
+            )
+            baked_fetch_command = (
+                f"cd {shlex.quote(target_path)} && "
+                "T0=$(date +%s%3N) && "
+                "{ cat .git/objects/pack/* .git/index .git/shallow > /dev/null 2>&1 || true; } && "
+                f"git remote set-url origin {shlex.quote(repo_url)} && "
+                f"{resolve_branch} && "
+                '[ -n "$BRANCH" ] && '
+                'git config remote.origin.fetch "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" && '
+                f"git fetch -q --no-tags{depth_flag} origin && "
+                "T1=$(date +%s%3N) && "
+                'git -c checkout.workers=0 checkout -q -f -B "$BRANCH" "origin/$BRANCH" && '
+                'git branch -q --set-upstream-to="origin/$BRANCH" && '
+                'git remote set-head origin "$BRANCH" && '
+                f"T2=$(date +%s%3N) && {CLONE_PHASES_ECHO}"
+            )
+            clone_command = (
+                f"if [ -d {shlex.quote(target_path)}/.git ]; then "
+                f"( MODE=baked && {baked_fetch_command} ) || ( MODE=fallback && {fresh_clone_command} ); "
+                f"else ( MODE=fresh && {fresh_clone_command} ); fi"
+            )
+        else:
+            clone_command = f"MODE=fresh && {fresh_clone_command}"
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
