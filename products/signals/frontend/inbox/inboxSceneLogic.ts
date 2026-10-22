@@ -145,9 +145,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
 }
 
 /**
- * Which pane of the scout detail page is open. The main column holds Reports, Runs, Trials and Signals; the
- * rail holds Told and Learned. One value covers both, because below the detail page's container
- * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
+ * Which pane of the scout detail page is open. One tab bar holds every pane, so one pane shows at a time.
  *
  * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
  */

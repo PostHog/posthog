@@ -18,6 +18,24 @@ _LEAD_PROFILE_COLUMNS = {
     "emailAddress": "The lead's email address, when known.",
 }
 
+_DAILY_STATS_COLUMNS = {
+    "date": "Day the stats cover.",
+    "profileViews": "Profile views performed that day.",
+    "postLikes": "Post likes performed that day.",
+    "follows": "Follows performed that day.",
+    "messagesSent": "Messages sent that day.",
+    "totalMessageStarted": "Message threads started that day.",
+    "totalMessageReplies": "Replies received to messages that day.",
+    "inmailMessagesSent": "InMail messages sent that day.",
+    "totalInmailStarted": "InMail threads started that day.",
+    "totalInmailReplies": "Replies received to InMails that day.",
+    "connectionsSent": "Connection requests sent that day.",
+    "connectionsAccepted": "Connection requests accepted that day.",
+    "messageReplyRate": "Replies received divided by message threads started.",
+    "inMailReplyRate": "InMail replies received divided by InMail threads started.",
+    "connectionAcceptanceRate": "Connections accepted divided by connection requests sent.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "campaigns": {
         "description": "An outreach campaign: a sequence of LinkedIn actions sent to a list of leads from one or more sender accounts.",
@@ -107,22 +125,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "overall_stats": {
         "description": "Daily outreach totals across all sender accounts and campaigns.",
         "docs_url": _API_DOCS_URL,
+        "columns": _DAILY_STATS_COLUMNS,
+    },
+    "campaign_stats": {
+        "description": "Daily outreach totals for each campaign, across all sender accounts.",
+        "docs_url": _API_DOCS_URL,
         "columns": {
-            "date": "Day the stats cover.",
-            "profileViews": "Profile views performed that day.",
-            "postLikes": "Post likes performed that day.",
-            "follows": "Follows performed that day.",
-            "messagesSent": "Messages sent that day.",
-            "totalMessageStarted": "Message threads started that day.",
-            "totalMessageReplies": "Replies received to messages that day.",
-            "inmailMessagesSent": "InMail messages sent that day.",
-            "totalInmailStarted": "InMail threads started that day.",
-            "totalInmailReplies": "Replies received to InMails that day.",
-            "connectionsSent": "Connection requests sent that day.",
-            "connectionsAccepted": "Connection requests accepted that day.",
-            "messageReplyRate": "Replies received divided by message threads started.",
-            "inMailReplyRate": "InMail replies received divided by InMail threads started.",
-            "connectionAcceptanceRate": "Connections accepted divided by connection requests sent.",
+            "campaignId": "Identifier of the campaign the stats cover.",
+            "campaignName": "Name of the campaign.",
+            "isCampaignDeleted": "Whether the campaign has been deleted.",
+            **_DAILY_STATS_COLUMNS,
+        },
+    },
+    "list_companies": {
+        "description": "A company belonging to a company list, with its LinkedIn company page details.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "listId": "Identifier of the company list the company belongs to.",
+            "name": "Name of the company.",
+            "description": "Description of the company from its LinkedIn page.",
+            "industry": "Industry of the company.",
+            "imageUrl": "URL of the company's logo.",
+            "companySize": "Company size range, as shown on LinkedIn.",
+            "employeesOnLinkedIn": "Number of employees on LinkedIn.",
+            "location": "Location of the company.",
+            "specialities": "Specialities listed on the company's LinkedIn page.",
+            "website": "The company's website.",
+        },
+    },
+    "sender_network": {
+        "description": "A LinkedIn connection in the network of a sender account.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "senderId": "Identifier of the LinkedIn sender account the connection belongs to.",
+            "linkedin_id": "LinkedIn member identifier of the connection.",
+            "profileUrl": "URL of the connection's LinkedIn profile.",
+            "firstName": "The connection's first name.",
+            "lastName": "The connection's last name.",
+            "headline": "The connection's LinkedIn headline.",
+            "location": "The connection's location, as shown on LinkedIn.",
+            "companyName": "Name of the company the connection works at.",
+            "position": "The connection's job title at their current company.",
+            "emailAddress": "The connection's email address, when known.",
         },
     },
 }

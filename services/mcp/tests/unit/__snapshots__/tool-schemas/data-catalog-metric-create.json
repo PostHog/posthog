@@ -50,6 +50,11 @@
             "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
             "type": "string"
         },
+        "overwrite": {
+            "default": false,
+            "description": "Set to true only after the user explicitly agreed to overwrite the live metric that already holds this name. Leave it unset on the first call.",
+            "type": "boolean"
+        },
         "reasoning": {
             "description": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.",
             "type": "string"

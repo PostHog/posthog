@@ -26,7 +26,11 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    TableFieldsStatus,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -57,6 +61,10 @@ import {
     createVirtualTableField,
     resolveFieldTraverserTarget,
 } from 'products/data_warehouse/frontend/shared/fieldTraversal'
+import {
+    filterMaterializedViewsByStatus,
+    MaterializationStatusFilter,
+} from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
 import {
     connectionSelectorLogic,
     POSTHOG_WAREHOUSE,
@@ -1742,6 +1750,7 @@ export interface queryDatabaseLogicValues {
     highlightedDropFolderId: string | null
     hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
+    materializationStatusFilters: MaterializationStatusFilter[]
     metricsLoadFailed: boolean
     pendingViewFolderOverrides: Record<string, string | null>
     propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
@@ -1850,6 +1859,9 @@ export interface queryDatabaseLogicActions {
         value: true
     } // viewLinkLogic
     clearDraggedViewState: () => {
+        value: true
+    }
+    clearMaterializationStatusFilters: () => {
         value: true
     }
     clearPendingViewFolderOverride: (viewId: string) => {
@@ -2034,6 +2046,9 @@ export interface queryDatabaseLogicActions {
         folderId: string
         isExpanded: boolean
     }
+    toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => {
+        status: 'Completed' | 'Failed' | 'Running'
+    }
     updateDraggedViewDropTarget: (dropTargetId: string | null) => {
         dropTargetId: string | null
     }
@@ -2161,7 +2176,8 @@ export interface queryDatabaseLogicMeta {
             selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
             databaseLoading: boolean,
             databaseLoadError: string | null,
-            allTablesMap: Record<string, DatabaseSchemaTable>
+            allTablesMap: Record<string, DatabaseSchemaTable>,
+            materializationStatusFilters: ('Completed' | 'Failed' | 'Running')[]
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
             searchTerm: string,
@@ -2210,6 +2226,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => ({ status }),
+        clearMaterializationStatusFilters: true,
         setPropertyDefinitionSearch: (
             propertyFieldKey: string,
             target: SidebarPropertyDefinitionTarget,
@@ -2389,6 +2407,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
 
+        materializationStatusFilters: [
+            [] as MaterializationStatusFilter[],
+            {
+                toggleMaterializationStatusFilter: (state, { status }) =>
+                    state.includes(status) ? state.filter((value) => value !== status) : [...state, status],
+                clearMaterializationStatusFilters: () => [],
+                locateTable: () => [],
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -3485,6 +3512,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.databaseLoadError,
                 s.allTablesMap,
+                s.materializationStatusFilters,
             ],
             (
                 searchTerm: string,
@@ -3494,12 +3522,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
                 databaseLoading: boolean,
                 databaseLoadError: string | null,
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                allTablesMap: Record<string, DatabaseSchemaTable>,
+                materializationStatusFilters: MaterializationStatusFilter[]
             ): TreeDataItem[] => {
                 const sourceData = searchTerm ? searchTreeData : treeData
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
-                    return sourceData
+                    return filterMaterializedViewsByStatus(sourceData, materializationStatusFilters)
                 }
 
                 const flattenedTables: TreeDataItem[] = []
@@ -3538,7 +3567,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema())
                 }
                 if (!databaseLoading && !hasLoadedTables) {
-                    return createDirectConnectionEmptyNodes(connectionId)
+                    const emptyNodes = createDirectConnectionEmptyNodes(connectionId)
+                    return connectionId === MANAGED_TRINO_SCHEMA_SCOPE ? emptyNodes.slice(0, 1) : emptyNodes
                 }
 
                 return [

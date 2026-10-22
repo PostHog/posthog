@@ -7,8 +7,11 @@ config-only consumers of the main facade.
 
 from uuid import UUID
 
+from posthog.models.user import User
+
 from ..logic.recommendations import (
     refresh as _refresh,
+    source_maps_examples as _source_maps_examples,
     store as _store,
 )
 from . import contracts
@@ -52,3 +55,9 @@ def dismiss_recommendation(team_id: int, recommendation_id: UUID) -> contracts.E
 
 def restore_recommendation(team_id: int, recommendation_id: UUID) -> contracts.ErrorTrackingRecommendation:
     return _to_recommendation(_store.restore_recommendation(team_id, recommendation_id))
+
+
+def list_missing_symbols_examples(
+    team_id: int, platform: contracts.SymbolsPlatform, *, user: User
+) -> contracts.MissingSymbolsExamples:
+    return _source_maps_examples.missing_symbols_examples(team_id, platform, user)
