@@ -12,12 +12,17 @@ const MATERIALIZATION_STATUS_BY_TOKEN = new Map(
     MATERIALIZATION_STATUS_FILTER_OPTIONS.map((status) => [status.toLowerCase(), status])
 )
 const MATERIALIZATION_STATUS_TOKEN_PATTERN = /^status:(failed|running|completed)$/i
+const MATERIALIZATION_STATUS_TOKENS = MATERIALIZATION_STATUS_FILTER_OPTIONS.map(
+    (status) => `status:${status.toLowerCase()}`
+)
+
+const tokenizeDatabaseSearch = (searchTerm: string): string[] => searchTerm.trim().split(/\s+/).filter(Boolean)
 
 export function parseDatabaseSearch(searchTerm: string): ParsedDatabaseSearch {
     const materializationStatusFilters: MaterializationStatusFilter[] = []
     const searchTokens: string[] = []
 
-    for (const token of searchTerm.trim().split(/\s+/).filter(Boolean)) {
+    for (const token of tokenizeDatabaseSearch(searchTerm)) {
         const statusToken = token.match(MATERIALIZATION_STATUS_TOKEN_PATTERN)?.[1].toLowerCase()
         const status = statusToken ? MATERIALIZATION_STATUS_BY_TOKEN.get(statusToken) : undefined
 
@@ -34,6 +39,12 @@ export function parseDatabaseSearch(searchTerm: string): ParsedDatabaseSearch {
         searchText: searchTokens.join(' '),
         materializationStatusFilters,
     }
+}
+
+export function databaseSearchNeedsFieldHydration(searchTerm: string): boolean {
+    return tokenizeDatabaseSearch(searchTerm).some(
+        (token) => !MATERIALIZATION_STATUS_TOKENS.some((statusToken) => statusToken.startsWith(token.toLowerCase()))
+    )
 }
 
 function buildDatabaseSearch(searchText: string, statuses: MaterializationStatusFilter[]): string {

@@ -2,6 +2,7 @@ import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import {
     clearMaterializationStatusSearchTokens,
+    databaseSearchNeedsFieldHydration,
     filterMaterializedViewsByStatus,
     MaterializationStatusFilter,
     parseDatabaseSearch,
@@ -29,6 +30,19 @@ describe('filterMaterializedViewsByStatus', () => {
         expect(withBoth).toEqual('orders status:failed status:running')
         expect(toggleMaterializationStatusSearchToken(withBoth, 'Failed')).toEqual('orders status:running')
         expect(clearMaterializationStatusSearchTokens(withBoth)).toEqual('orders')
+    })
+
+    it.each([
+        ['', false],
+        ['s', false],
+        ['status:', false],
+        ['status:f', false],
+        ['status:failed', false],
+        ['orders status:f', true],
+        ['status:unknown', true],
+        ['orders', true],
+    ])('checks whether %p needs full field hydration', (searchTerm, expected) => {
+        expect(databaseSearchNeedsFieldHydration(searchTerm)).toBe(expected)
     })
 
     it.each<{ statuses: MaterializationStatusFilter[]; expected: string[] }>([

@@ -601,6 +601,11 @@ describe('queryDatabaseLogic', () => {
             })) as unknown as DataWarehouseSavedQuery[]
         )
 
+        await expectLogic(logic, () => logic.actions.setSearchTerm('status:f')).toNotHaveDispatchedActions([
+            'ensureAllTableFields',
+        ])
+        logic.actions.clearSearch()
+
         logic.actions.toggleMaterializationStatusFilter('Failed')
         expect(logic.values.searchTerm).toEqual('status:failed')
         expect(logic.values.searchText).toEqual('')
@@ -1041,9 +1046,27 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
+        it('treats status syntax as literal search text', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {},
+                    },
+                },
+                joins: [],
+            } as any)
+            logic.actions.setSearchTerm('status:failed')
+
+            expect(logic.values.searchText).toEqual('status:failed')
+            expect(logic.values.materializationStatusFilters).toEqual([])
+            expect(logic.values.displayedTreeData).toEqual([])
+        })
+
         it.each(['source-id', MANAGED_TRINO_SCHEMA_SCOPE])('hides unrelated folders for schema scope %s', (scope) => {
             databaseTableListLogic.findMounted()?.actions.setConnection(scope)
-            logic.actions.toggleMaterializationStatusFilter('Failed')
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
