@@ -234,7 +234,8 @@ tools:
             resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full
             workflow definition including trigger, edges, actions, exit condition, variables, and any recurring
             'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in
-            'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes
+            'schedules' to confirm it will actually fire. On an active workflow or one disabled while active,
+            'draft' holds staged content changes
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
@@ -418,7 +419,8 @@ tools:
             addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
             email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
             server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
-            nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
+            nothing. On an active workflow or one disabled while active, edits stage a draft (composing with any staged
+            graph edits) and nothing
             reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over
             workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
             sync. For library templates use workflows-patch-email-template instead.
@@ -440,7 +442,8 @@ tools:
             remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and
             edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully
             validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing
-            changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch
+            changes. On an active workflow or one disabled while active, patches stage a draft instead of changing
+            what's running: the first patch
             copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until
             workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
             edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
@@ -607,7 +610,8 @@ tools:
         description: >
             Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
-            drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
+            drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow or
+            one disabled while active,
             content fields stage a draft (published with workflows-publish) while name, description and tags apply
             immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status
             changes go through workflows-enable / workflows-archive.

@@ -5438,9 +5438,11 @@ class HogFlowViewSet(
                     "changes steps by id and leaves the rest of the graph untouched."
                 )
 
-            # Content edits on an active workflow stage a draft rather than landing live. Status-only
-            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlowState.ACTIVE and has_non_status:
+            # Content edits on active workflows, and workflows disabled from active, stage a draft.
+            # Status-only lifecycle PATCHes and metadata-only edits apply straight to the live row.
+            if (
+                serializer.instance.status == HogFlowState.ACTIVE or serializer.instance.disabled_from_active
+            ) and has_non_status:
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
         elif serializer.instance.status == HogFlowState.ACTIVE and self.request.data.get("stage_draft"):
             # The web builder opts into the same draft routing per request ("stage_draft" rides the
@@ -5594,7 +5596,7 @@ class HogFlowViewSet(
                 team_id=self.team_id,
                 user_id=self._actor_id(),
                 hog_flow_id=workflow_ref.id,
-                stage_if_active=self._is_mcp_request(request),
+                stage_if_protected=self._is_mcp_request(request),
                 base_updated_at=request.data.get("base_updated_at"),
                 edit=edit,
                 changes_graph=True,
@@ -5663,7 +5665,7 @@ class HogFlowViewSet(
                 team_id=self.team_id,
                 user_id=self._actor_id(),
                 hog_flow_id=unlocked.id,
-                stage_if_active=self._is_mcp_request(request),
+                stage_if_protected=self._is_mcp_request(request),
                 base_updated_at=request.data.get("base_updated_at"),
                 edit=edit,
                 changes_graph=False,

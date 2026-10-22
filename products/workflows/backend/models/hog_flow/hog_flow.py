@@ -288,6 +288,8 @@ class HogFlow(Taggable, UUIDTModel):
     # a draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
     # touching the live values.
     draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+    # Distinguish workflows disabled from live so MCP content edits still stage while status is draft.
+    disabled_from_active = models.BooleanField(default=False)
 
     # Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained
     # by the API whenever a live graph edit deletes actions, so runs parked on a deleted step can
