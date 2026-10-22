@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { EmailDomainWizardLogicProps, emailDomainWizardLogic } from '../emailDomainWizardLogic'
+import { DEFAULT_LOCAL_PART, EmailDomainWizardLogicProps, emailDomainWizardLogic } from '../emailDomainWizardLogic'
 
 interface SendPrefixOption {
     prefix: string
@@ -64,6 +64,38 @@ function SendPrefixPicker(props: EmailDomainWizardLogicProps): JSX.Element {
     )
 }
 
+function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
+    const logic = emailDomainWizardLogic(props)
+    const { senderName, suggestedSenderName, localPart, sendingDomain } = useValues(logic)
+    const { setSenderNameInput, setLocalPart } = useActions(logic)
+    return (
+        <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5 text-sm">
+                <label htmlFor="email-domain-sender-name-input">From name</label>
+                <LemonInput
+                    id="email-domain-sender-name-input"
+                    value={senderName}
+                    onChange={setSenderNameInput}
+                    placeholder={suggestedSenderName}
+                />
+            </div>
+            <div className="flex flex-col gap-1.5 text-sm">
+                <label htmlFor="email-domain-local-part">Address</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonInput
+                        id="email-domain-local-part"
+                        className="w-40 font-mono"
+                        value={localPart}
+                        onChange={setLocalPart}
+                        placeholder={DEFAULT_LOCAL_PART}
+                    />
+                    <span className="font-mono text-secondary break-all">@{sendingDomain}</span>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
     const logic = emailDomainWizardLogic(props)
     const { bouncePrefix, advancedOpen, sendingDomain, domainSender } = useValues(logic)
@@ -113,6 +145,7 @@ export function SendingAddressCard(props: EmailDomainWizardLogicProps): JSX.Elem
                 <span className="text-sm text-secondary">Emails will come from</span>
                 <span className="font-mono text-xl @md:text-2xl font-semibold break-all">{fromAddress}</span>
             </div>
+            <SenderIdentityFields {...props} />
             <SendPrefixPicker {...props} />
             <BouncePrefixField {...props} />
         </section>

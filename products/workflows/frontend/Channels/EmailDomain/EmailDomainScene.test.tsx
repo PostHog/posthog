@@ -98,6 +98,9 @@ describe('EmailDomainScene', () => {
         typeInto('email-domain-another-domain', 'acme.com')
         click('email-domain-use-custom-domain')
         expect(screen.getByText('hello@mail.acme.com')).toBeInTheDocument()
+        typeInto('email-domain-sender-name-input', 'Thomas Obermüller')
+        typeInto('email-domain-local-part', 'thomas')
+        expect(screen.getByText('thomas@mail.acme.com')).toBeInTheDocument()
 
         // Tests run as a local stack, which starts on Maildev.
         click('email-domain-local-provider-ses')
@@ -105,7 +108,12 @@ describe('EmailDomainScene', () => {
         await flush()
         expect(backend.requestsTo('integration_create')[0].body).toEqual({
             kind: 'email',
-            config: { email: 'hello@mail.acme.com', name: 'Acme', provider: 'ses', mail_from_subdomain: 'feedback' },
+            config: {
+                email: 'thomas@mail.acme.com',
+                name: 'Thomas Obermüller',
+                provider: 'ses',
+                mail_from_subdomain: 'feedback',
+            },
         })
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}$`))
         expectStep('Add 8 settings at Cloudflare')
