@@ -433,11 +433,29 @@ _DISMISSAL_CONTEXT = (
     "words rather than copying it verbatim."
 )
 
+# A text search only finds a report whose title or summary names the entity, so an aggregate report or
+# one the pipeline rewrote stays invisible to it. Shared by every persona that looks for its own reports.
+_OWN_REPORTS_SEARCH = (
+    "Then list your own reports with the same flags, `scout=<the skill_name in *Your run identity*>`, and "
+    "no search text: a report can cover your entity without naming it in its title or summary (one report that covers "
+    "several entities, or a summary the pipeline rewrote), so a text search alone misses it. Search your "
+    "scratchpad for the whole `report:<domain>:` prefix too, not one exact entity key, because an earlier "
+    "run may have keyed the report under another entity or an aggregate name (see *The `report:` "
+    "scratchpad entry is a pointer*)."
+)
+
+# With `ordering=-updated_at` a closed duplicate can sort above the still-open original, so a scout that
+# stops at the first match reads the closed copy as a relapse and re-files.
+_ALL_MATCHES_RULE = (
+    "Match each candidate against **every** report you found, not just the first or newest: a closed match "
+    "makes the issue new only when no other covering report is still live. A resolved duplicate does not "
+    "reopen an issue whose original report is still open."
+)
+
 # The three report-authoring variants share the search discipline and differ only in what the scout
 # may do with a match, so the search bullet and the non-idempotency warning are stated once here.
 _REPORT_SEARCH_BULLET = (
-    f"- **Search first, every time.** {_INBOX_SEARCH_RECIPE} Check your `report:<domain>:<entity>` "
-    "scratchpad pointer from a prior run too (see *The `report:` scratchpad entry is a pointer*). "
+    f"- **Search first, every time.** {_INBOX_SEARCH_RECIPE} {_OWN_REPORTS_SEARCH} {_ALL_MATCHES_RULE} "
     f"{_DISMISSAL_CONTEXT}"
 )
 
@@ -481,7 +499,7 @@ _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbo
 `scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
-- **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
+- **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. When a live report covers only some of your candidates, edit it for those (add a new item to it when the item fits its scope) and author only for the rest. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when no covering report is still live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointers at it.
 {_EDIT_REPOSITORY_BULLET}
 - **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
@@ -490,14 +508,14 @@ _AUTHORING_REPORT_EMIT_ONLY = f"""# Authoring reports: search the inbox first
 `scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
-- **Don't duplicate a *live* report.** This run can't edit reports, so when a still-open report already covers the issue, record a `remember(...)` note and skip rather than authoring a near-duplicate. A `resolved` / `suppressed` / `failed` report won't resurface and you can't reopen it, so a genuine relapse of a closed report *is* genuinely new: author a fresh report for it.
+- **Don't duplicate a *live* report.** This run can't edit reports, so when a still-open report already covers the issue, record a `remember(...)` note and skip rather than authoring a near-duplicate. When it covers only some of your candidates, author only for the rest. A `resolved` / `suppressed` / `failed` report won't resurface and you can't reopen it, so a genuine relapse of a closed report *is* genuinely new when no other covering report is still live: author a fresh report for it.
 - **Author only when it's genuinely new.** A materially new issue, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_EMIT_ONLY}"""
 
 _EDITING_REPORT_EDIT_ONLY = f"""# Editing existing reports
 
 This run updates reports that already exist; it can't author new ones. Find the report your evidence bears on, then keep it current:
 
-- **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
+- **Find it.** {_INBOX_SEARCH_RECIPE} {_OWN_REPORTS_SEARCH} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching, so when several reports match, edit the one that is still live. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 {_EDIT_REPOSITORY_BULLET}
@@ -527,6 +545,7 @@ After you author or edit a report, stash its `report_id` under a stable `report:
 
 - **The inbox is the source of truth.** The entry holds an id, not the report's state, so always `inbox-reports-retrieve` the live report before editing it: its `title`, `summary`, and `status` may have moved since you wrote the pointer.
 - **The pipeline can overwrite what you authored.** When later signals consolidate on the same topic, the pipeline may re-research your report and rewrite its `title` / `summary`. That's expected. Your durable record of "I filed this" is the `report_id`, so re-find by the pointer (or by entity via `inbox-reports-list`), never by remembering the exact title.
+- **One report, several entities, one pointer each.** When a report covers more than one entity, write a `report:<domain>:<entity>` pointer for each of them, all holding the same `report_id`, so a later run that checks any one entity finds the report. When you fold a new entity into a live report, add its pointer too.
 - **Don't copy report content into the pointer.** Keep it to the `report_id` plus the minimum to recognize the entity."""
 
 
