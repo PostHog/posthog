@@ -14,7 +14,12 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.activity_summary.logic import MAX_VERSIONS, MIN_UNITS, MIN_UPDATE_INTERVAL
+from products.signals.backend.activity_summary.logic import (
+    MAX_SKIP_BACKOFF,
+    MAX_VERSIONS,
+    MIN_UNITS,
+    MIN_UPDATE_INTERVAL,
+)
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
@@ -44,6 +49,20 @@ class ActivitySummaryConfig:
     capture_events: bool = True
     # Count viewed objects in the queue. Turn it on only when the update reads views as an input.
     count_views: bool = False
+    # The summary age each tier aims for. A pair's staleness is its summary age over this interval.
+    target_interval_days_paying: float = 3.0
+    target_interval_days_free: float = 5.0
+    # A free pair with at least this staleness joins the paying pass, so paying pairs cannot starve it.
+    max_overdue_factor: float = 3.0
+    # Added to the score of a pair with no summary, because a first summary changes the most.
+    cold_start_bonus: float = 5.0
+    # The share of the tick that the paying pass can take. The free pass gets the rest.
+    paying_budget_share: float = 1.0
+    # The largest share of one pass that the pairs of one organization can take.
+    max_org_share: float = 0.1
+    # The tick stops when this share of its model calls failed or raised.
+    max_error_rate: float = 0.5
+    max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
     limits: RenderLimits = DEFAULT_LIMITS
     # Summaries generated before this time are rebuilt from the full window, as after a version change.
     rebuild_before: datetime.datetime | None = None
@@ -132,6 +151,18 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
+        target_interval_days_paying=_positive_number(
+            payload.get("target_interval_days_paying"), defaults.target_interval_days_paying
+        ),
+        target_interval_days_free=_positive_number(
+            payload.get("target_interval_days_free"), defaults.target_interval_days_free
+        ),
+        max_overdue_factor=_positive_number(payload.get("max_overdue_factor"), defaults.max_overdue_factor),
+        cold_start_bonus=_positive_number(payload.get("cold_start_bonus"), defaults.cold_start_bonus),
+        paying_budget_share=_fraction(payload.get("paying_budget_share"), defaults.paying_budget_share),
+        max_org_share=_fraction(payload.get("max_org_share"), defaults.max_org_share),
+        max_error_rate=_fraction(payload.get("max_error_rate"), defaults.max_error_rate),
+        max_skip_backoff_hours=_positive_number(payload.get("max_skip_backoff_hours"), defaults.max_skip_backoff_hours),
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
