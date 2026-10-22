@@ -7,6 +7,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { DataWarehouseSavedQuery } from '~/types'
 
+import { NodeDetailDiscardChangesButton } from './NodeDetailDiscardChangesButton'
 import { NodeDetailUpdateViewButton } from './NodeDetailUpdateViewButton'
 
 export function NodeDetailQueryEditor({ savedQuery }: { savedQuery: DataWarehouseSavedQuery }): JSX.Element {
@@ -36,7 +37,12 @@ export function NodeDetailQueryEditor({ savedQuery }: { savedQuery: DataWarehous
                 hideAgentHints
                 hideAiTools
                 autoFocusQueryPane={false}
-                toolbarActions={<NodeDetailUpdateViewButton />}
+                toolbarActions={
+                    <>
+                        <NodeDetailDiscardChangesButton />
+                        <NodeDetailUpdateViewButton />
+                    </>
+                }
             />
         </div>
     )
