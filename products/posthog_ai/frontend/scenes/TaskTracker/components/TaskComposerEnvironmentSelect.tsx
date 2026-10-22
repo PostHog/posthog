@@ -140,7 +140,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
     const selectedName = [...environmentOptions, ...imageOptions].find(
         (option) => option.key === selectedCloudTarget
     )?.name
-    const triggerLabel = selectedName ?? 'Default'
+    const triggerLabel = selectedName ?? 'Standard sandbox'
 
     const pick = (cloudTarget: string | null): void => {
         setOpen(false)
@@ -207,8 +207,8 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                             variant="default"
                             size="sm"
                             disabled={isSubmittingTask}
-                            aria-label="Environment"
-                            title={triggerLabel}
+                            aria-label={`Cloud environment: ${triggerLabel}`}
+                            title={`The agent runs in: ${triggerLabel}`}
                             data-attr="task-composer-environment"
                         >
                             <IconCloud className="shrink-0 text-muted-foreground" />
@@ -237,7 +237,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                     <DropdownMenuGroup className="max-h-[min(20rem,calc(var(--available-height,20rem)-3rem))] overflow-y-auto">
                         <OptionRow
                             icon={<IconCloud />}
-                            title="Default"
+                            title="Standard sandbox"
                             description="Full network access"
                             selected={selectedCloudTarget === null}
                             onSelect={() => pick(null)}
