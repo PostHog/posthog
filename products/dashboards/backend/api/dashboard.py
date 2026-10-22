@@ -3362,11 +3362,7 @@ class DashboardsViewSet(
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
             check_can_add_insight_to_shared_dashboard(
-                cast(User, request.user),
-                to_dashboard_obj.team,
-                to_dashboard_obj.id,
-                tile.insight.query,
-                self.user_access_control,
+                cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
             if error := blocked_access_for_subscribed_dashboard_tile(
                 cast(User, request.user),
@@ -3454,7 +3450,7 @@ class DashboardsViewSet(
 
             # The destination's public link must not expose a query the editor can't run.
             check_can_add_insight_to_shared_dashboard(
-                cast(User, request.user), destination.team, destination.id, tile.insight.query, user_access_control
+                cast(User, request.user), destination, tile.insight.query, user_access_control
             )
             if error := blocked_access_for_subscribed_dashboard_tile(
                 cast(User, request.user), destination.team, destination.id, tile.insight.query, user_access_control
