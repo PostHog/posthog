@@ -762,13 +762,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
 }
 
 /**
- * A shared metric can carry the same uuid as an inline metric, so the uuid alone does not identify a metric card.
- */
-export function getMetricCardKey(metric: ExperimentMetric): string {
-    return `${metric.sharedMetricId ?? 'inline'}-${metric.uuid}`
-}
-
-/**
  * Returns metric indices in display order. Metrics whose UUID appears in
  * orderedUuids come first (in that order), followed by any remaining metrics
  * in their original array position. Each entry is the original index into the

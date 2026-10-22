@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { getEventCountQuery } from 'scenes/experiments/utils'
+
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { metricRecentActivityLogic } from './metricRecentActivityLogic'
@@ -12,7 +14,8 @@ export type MetricRecentActivityProps = {
 }
 
 export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecentActivityProps): JSX.Element => {
-    const { eventCount, eventCountLoading } = useValues(metricRecentActivityLogic({ metric, filterTestAccounts }))
+    const query = metric.uuid ? getEventCountQuery(metric, filterTestAccounts) : null
+    const { eventCount, eventCountLoading } = useValues(metricRecentActivityLogic({ query }))
 
     if (eventCountLoading) {
         return (
