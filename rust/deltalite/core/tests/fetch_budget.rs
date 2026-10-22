@@ -33,6 +33,7 @@ use object_store::{
     PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::file::properties::WriterProperties;
 
 // ---- live-fetched-bytes accounting ----------------------------------------------
 
@@ -310,6 +311,15 @@ fn rows(
 /// A table of `FILES` single-row-group files per partition, written straight through
 /// delta-rs. Returns the table's URI and the largest compressed row group in bytes.
 async fn seed(dir: &std::path::Path, partitions: &[&str]) -> (String, usize) {
+    seed_row_groups(dir, partitions, 1).await
+}
+
+/// [`seed`] with `row_groups` equal row groups per file.
+async fn seed_row_groups(
+    dir: &std::path::Path,
+    partitions: &[&str],
+    row_groups: usize,
+) -> (String, usize) {
     let partitioned = !partitions.is_empty();
     let mut create = CreateBuilder::new()
         .with_location(dir.to_str().unwrap())
@@ -333,7 +343,12 @@ async fn seed(dir: &std::path::Path, partitions: &[&str]) -> (String, usize) {
     };
     for p in parts {
         for f in 0..FILES {
-            let mut w = RecordBatchWriter::for_table(&table).unwrap();
+            let props = WriterProperties::builder()
+                .set_max_row_group_row_count(Some(ROWS.div_ceil(row_groups)))
+                .build();
+            let mut w = RecordBatchWriter::for_table(&table)
+                .unwrap()
+                .with_writer_properties(props);
             w.write(rows(&s, f, &ids, 0, p)).await.unwrap();
             w.flush_and_commit(&mut table).await.unwrap();
         }
@@ -347,18 +362,11 @@ async fn seed(dir: &std::path::Path, partitions: &[&str]) -> (String, usize) {
             .unwrap()
             .metadata()
             .clone();
-        assert_eq!(
-            meta.num_row_groups(),
-            1,
-            "fixture files are single-row-group"
-        );
-        let rg: usize = meta
-            .row_group(0)
-            .columns()
-            .iter()
-            .map(|c| c.byte_range().1 as usize)
-            .sum();
-        max_rg = max_rg.max(rg);
+        assert_eq!(meta.num_row_groups(), row_groups);
+        for g in meta.row_groups() {
+            let rg: usize = g.columns().iter().map(|c| c.byte_range().1 as usize).sum();
+            max_rg = max_rg.max(rg);
+        }
     }
     (format!("dlfetch://{}", dir.to_string_lossy()), max_rg)
 }
@@ -462,6 +470,39 @@ async fn fetch_budget_bounds_live_fetched_bytes() {
             0,
             "{case}: fetched bytes leaked"
         );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn read_ahead_holds_two_row_groups_only_when_the_budget_has_room() {
+    register_scheme();
+    // (budget in row groups, expected peak range in row groups)
+    let cases: [(f64, f64, f64); 2] = [
+        // Room for the pair: the reader holds its row group and the next.
+        (2.5, 1.5, 2.5),
+        // No room for the pair: the reader runs without read-ahead.
+        (1.5, 0.9, 1.5),
+    ];
+    for (budget_rgs, min_peak, max_peak) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let (uri, rg) = seed_row_groups(dir.path(), &[], 4).await;
+        let gauge = gauge_for(dir.path());
+        let (s, batches) = source(&[]);
+        let budget = (rg as f64 * budget_rgs) as usize;
+        let mut o = opts(budget, roomy_limits());
+        // One reader, so the peak measures what a single reader holds.
+        o.max_parallel_files = 1;
+        o.read_ahead_row_groups = true;
+        let stats = run(&uri, s, batches, o).await;
+        assert_rewrote_everything(&stats, 1);
+
+        let peak = gauge.peak.load(Ordering::SeqCst) as f64 / rg as f64;
+        assert!(
+            (min_peak..=max_peak).contains(&peak),
+            "budget {budget_rgs} row groups: peak live fetched bytes = {peak:.2} row groups, \
+             expected {min_peak}..={max_peak}"
+        );
+        assert_eq!(gauge.live.load(Ordering::SeqCst), 0, "fetched bytes leaked");
     }
 }
 

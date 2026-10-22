@@ -49,6 +49,41 @@ TIER1_SOURCES = [
     # OAuth-connected support sources
     (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
+    # CRM case tools
+    (ExternalDataSourceType.DYNAMICS365, "Cases", "dynamics365", "ticket"),
+    (ExternalDataSourceType.ZOHOCRM, "Cases", "zoho_crm", "ticket"),
+    # Incident management / on-call
+    (ExternalDataSourceType.PAGERDUTY, "incidents", "pagerduty", "incident"),
+    (ExternalDataSourceType.OPSGENIE, "alerts", "opsgenie", "incident"),
+    (ExternalDataSourceType.INCIDENTIO, "incidents", "incident_io", "incident"),
+    (ExternalDataSourceType.FIREHYDRANT, "incidents", "firehydrant", "incident"),
+    (ExternalDataSourceType.SQUADCAST, "incidents", "squadcast", "incident"),
+    (ExternalDataSourceType.SERVICENOW, "incidents", "servicenow", "incident"),
+    (ExternalDataSourceType.SOLARWINDSSERVICEDESK, "incidents", "solarwinds_service_desk", "incident"),
+    (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
+    (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
+    (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Work trackers
+    (ExternalDataSourceType.ASANA, "tasks", "asana", "issue"),
+    (ExternalDataSourceType.MONDAY, "items", "monday", "issue"),
+    (ExternalDataSourceType.PLANE, "work_items", "plane", "issue"),
+    (ExternalDataSourceType.AZUREDEVOPS, "work_item_revisions", "azure_devops", "issue"),
+    # Data quality / observability
+    (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
+    (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Tier-2 security tools
+    (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
+    (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
+    (
+        ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
+        "vulnerabilities",
+        "tenable_vulnerability_management",
+        "scanner_finding",
+    ),
+    # Error monitors
+    (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
+    (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),
+    (ExternalDataSourceType.ROARK, "issue", "roark", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -59,8 +94,10 @@ def _mock_record(fields: tuple[str, ...]) -> dict:
     record: dict = {}
     for field in fields:
         name = field.rsplit(" AS ", 1)[-1]
-        if name in ("tags", "labels"):
-            record[name] = '["one", "two"]'
+        if name in ("tags", "labels", "projects"):
+            record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
+        elif name == "column_values":
+            record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:

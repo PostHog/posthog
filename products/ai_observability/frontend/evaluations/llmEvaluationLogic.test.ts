@@ -726,6 +726,72 @@ return result`,
             })
 
             it.each([
+                [undefined, true],
+                [0, true],
+                [0.35, true],
+                [1, true],
+                [-0.01, false],
+                [1.01, false],
+                [NaN, false],
+                [Infinity, false],
+            ])('validates a decision threshold of %s as %s', async (threshold, valid) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: {},
+                    model_configuration: { provider: 'system_one', model: 'custom-model', provider_key_id: 'key-1' },
+                })
+                logic.actions.patchOutputConfig({ decision_threshold: threshold })
+                expect(logic.values.evaluation?.output_config.decision_threshold).toBe(threshold)
+                expect(logic.values.formValid).toBe(valid)
+            })
+
+            it.each([
+                ['llm', NaN, null],
+                ['llm', 1.5, null],
+                ['hog', NaN, null],
+                ['hog', 1.5, null],
+                ['llm', 0, 0],
+                ['llm', 0.35, 0.35],
+                ['hog', 0, 0],
+                ['hog', 0.35, 0.35],
+            ] as const)(
+                'allows saving after leaving decision judging for %s with threshold %s',
+                async (method, threshold, expectedThreshold) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        evaluation_config: { prompt: 'Check the response.', judge_method: 'decision' },
+                        output_config: { allows_na: true, true_is_failure: true },
+                        model_configuration: {
+                            provider: 'system_one',
+                            model: 'custom-model',
+                            provider_key_id: 'key-1',
+                        },
+                    })
+                    logic.actions.patchOutputConfig({ decision_threshold: threshold })
+
+                    if (method === 'llm') {
+                        await expectLogic(logic, () => logic.actions.setJudgeMethod('llm')).toFinishAllListeners()
+                        logic.actions.setModelConfiguration({
+                            provider: 'openai',
+                            model: 'gpt-5-mini',
+                            provider_key_id: 'key-1',
+                        })
+                    } else {
+                        logic.actions.setEvaluationType('hog')
+                    }
+
+                    expect(logic.values.evaluation?.output_config).toEqual({
+                        allows_na: method === 'llm',
+                        true_is_failure: true,
+                        decision_threshold: expectedThreshold,
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
+
+            it.each([
                 ['system_one', false, true],
                 ['openrouter', true, true],
                 ['openrouter', false, false],

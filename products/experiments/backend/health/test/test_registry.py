@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import MultipleVariantHandling
+from posthog.schema import MultipleVariantHandling, PropertyOperator
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
@@ -19,6 +19,7 @@ from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
+    FlagKeyFilter,
     FlagState,
     FlagVariant,
     HealthContext,
@@ -67,7 +68,9 @@ EVENT_KEYS = (Key.METRIC_EVENT_NOT_INGESTED, Key.EXPOSURE_CRITERIA_CANNOT_MATCH)
 def _events(name: str, received: dict[str, bool]) -> dict[str, Any]:
     return {
         "metric_events": (MetricEvents(name="Metric", role="primary", events=(name,)),),
-        "exposure_events": ExposureEvents(custom_event=name, required_flag_key=None, flag_key_filters=()),
+        "exposure_events": ExposureEvents(
+            custom_event=name, required_flag_key=None, variant_property="$feature/flag", flag_key_filters=()
+        ),
         "events_received": received,
     }
 
@@ -270,6 +273,57 @@ class TestEvaluate(TestCase):
         health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **ENDED, exposures=exposures), (MULTIPLE_VARIANTS_CHECK,))
 
         self.assertEqual([finding.title for finding in health.findings], [title])
+
+    @parameterized.expand(
+        [
+            (
+                "exposure_event_never_received",
+                _events("checkout_viewed", {"checkout_viewed": False}),
+                ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ),
+            (
+                "filter_on_another_flag",
+                {
+                    "exposure_events": ExposureEvents(
+                        custom_event=None,
+                        required_flag_key="checkout-test",
+                        variant_property="$feature_flag_response",
+                        flag_key_filters=(FlagKeyFilter(operator=PropertyOperator.EXACT, values=("pricing-test",)),),
+                    )
+                },
+                ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ),
+            (
+                "exposure_event_never_received_after_the_end",
+                {**_events("checkout_viewed", {"checkout_viewed": False}), **ENDED},
+                ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ),
+            (
+                "exposure_event_received",
+                _events("checkout_viewed", {"checkout_viewed": True}),
+                ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ),
+        ]
+    )
+    def test_one_check_reports_an_experiment_without_exposures(
+        self, _name: str, changes: dict[str, Any], expected: ExperimentHealthFindingCode
+    ) -> None:
+        ctx = replace(RUNNING_CONTEXT, flag=EVEN_SPLIT_FLAG, exposures=replace(NO_EXPOSURES, hours_since_launch=48))
+
+        health = evaluate(replace(ctx, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS))
+
+        reporting = {finding.code for finding in health.findings} & {
+            ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+        }
+        zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
+        self.assertEqual(
+            (reporting, zero_exposures.status),
+            (
+                {expected},
+                Status.FINDING if expected == ExperimentHealthFindingCode.ZERO_EXPOSURES else Status.NOT_APPLICABLE,
+            ),
+        )
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
         with patch.object(registry, "capture_exception") as capture:
