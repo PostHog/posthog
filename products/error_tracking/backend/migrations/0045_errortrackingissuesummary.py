@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("error_tracking", "0043_errortrackingissue_active_created_idx"),
+        ("error_tracking", "0044_remove_stackframe_js_frames_index"),
         ("posthog", "1405_user_onboarding_skipped_reason_connector"),
     ]
 
