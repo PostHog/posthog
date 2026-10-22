@@ -25,10 +25,12 @@ from products.messaging.backend.facade.transactional_email import (
     RenderedEmail,
     SenderNotAllowed,
     SenderNotVerified,
+    SendRoute,
     code_send_from,
     rendered_content,
 )
 from products.messaging.backend.presentation.views.transactional_email_api import (
+    IDEMPOTENCY_KEY_PARAMETER,
     TRANSACTIONAL_EMAIL_THROTTLES,
     SendTransactionalEmailResponseSerializer,
     SendTransactionalEmailSerializer,
@@ -303,8 +305,13 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             ),
             409: OpenApiResponse(
                 response=TemplateErrorSerializer,
-                description="PostHog holds no template with this key, or not the content the hash describes. "
-                "Nothing was sent",
+                description="`template_outdated`: PostHog holds no template with this key, or not the content the "
+                "hash describes. Nothing was sent. `idempotency_key_in_flight`: a request with the same "
+                "Idempotency-Key is still in progress",
+            ),
+            422: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="The Idempotency-Key was already used for a different request, or on the other send route",
             ),
             429: OpenApiResponse(
                 response=TemplateErrorSerializer,
@@ -320,8 +327,10 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             "holds the content you hold: a key or content it doesn't hold sends nothing and answers "
             "`template_outdated`, and content that newer content replaced sends the current content with a "
             "`template_superseded` warning. Or content your code rendered, named by `template_key`: PostHog sends "
-            "it as is and never stores it. Transactional emails skip opt-outs and frequency caps."
+            "it as is and never stores it. Transactional emails skip opt-outs and frequency caps. Send an "
+            "`Idempotency-Key` header to retry safely without sending the email twice."
         ),
+        parameters=[IDEMPOTENCY_KEY_PARAMETER],
     )
     @action(detail=False, methods=["POST"], url_path="send/email")
     def send_email(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -357,7 +366,15 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             send = self._accepted_send(data, content=None) if reference.key is not None else self._tracking_only(data)
         except (SenderNotVerified, SenderNotAllowed) as e:
             return self._refuse(unusable_sender(e), usage={**usage, "template_id": str(target.template.id)})
-        queued = self._send_transactional_email(request, target.template, data, usage=usage, send=send)
+        queued = self._send_transactional_email(
+            request,
+            target.template,
+            data,
+            usage=usage,
+            send=send,
+            idempotency_key=self._idempotency_key(request),
+            route=SendRoute.SEND_EMAIL,
+        )
         warnings = [TEMPLATE_SUPERSEDED] if target.hash_state == ContentHashState.SUPERSEDED else []
         return self._queued(queued, warnings)
 
@@ -376,8 +393,14 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             to=data["to"],
             distinct_id=self._distinct_id(data),
             source=RenderedEmail(key=key, send=send),
+            idempotency_key=self._idempotency_key(request),
+            route=SendRoute.SEND_EMAIL,
         )
         return self._queued(self._send(request, command, report=usage), [])
+
+    @staticmethod
+    def _idempotency_key(request: Request) -> str | None:
+        return request.headers.get("Idempotency-Key")
 
     def _accepted_send(self, data: dict[str, Any], *, content: RenderedContent | None) -> AcceptedSend:
         capture = data.get("capture_engagement")

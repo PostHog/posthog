@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient, in one of two forms. A template named by its key or id: `message_data` fills its `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: a key or content it doesn't hold sends nothing and answers `template_outdated`, and content that newer content replaced sends the current content with a `template_superseded` warning. Or content your code rendered, named by `template_key`: PostHog sends it as is and never stores it. Transactional emails skip opt-outs and frequency caps.
+ * Send one transactional email to one recipient, in one of two forms. A template named by its key or id: `message_data` fills its `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: a key or content it doesn't hold sends nothing and answers `template_outdated`, and content that newer content replaced sends the current content with a `template_superseded` warning. Or content your code rendered, named by `template_key`: PostHog sends it as is and never stores it. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const MessagingSendEmailCreateParams = () => zod.object({
@@ -17,6 +17,15 @@ export const MessagingSendEmailCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingSendEmailCreateHeader = () => zod.object({
+    'Idempotency-Key': zod
+        .string()
+        .optional()
+        .describe(
+            "A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key for a different request, or on the other send route, returns a 422."
         ),
 })
 

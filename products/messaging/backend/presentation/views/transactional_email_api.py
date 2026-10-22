@@ -5,6 +5,8 @@ from typing import Any
 
 import structlog
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, serializers, status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -24,6 +26,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailSendCommand,
     Queued,
     Rejected,
+    SendRoute,
     StoredTemplate,
     Unavailable,
     send_email,
@@ -35,6 +38,16 @@ logger = structlog.get_logger(__name__)
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+
+IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
+    name="Idempotency-Key",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description="A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and "
+    "the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key "
+    "for a different request, or on the other send route, returns a 422.",
+)
 
 
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
@@ -267,6 +280,7 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         usage: dict[str, str],
         send: AcceptedSend | None = None,
         idempotency_key: str | None = None,
+        route: SendRoute = SendRoute.TEMPLATE_SEND,
     ) -> Queued:
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
@@ -276,6 +290,7 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
             distinct_id=self._distinct_id(data),
             source=StoredTemplate(template_id=template.id, message_data=data["message_data"], send=send),
             idempotency_key=idempotency_key,
+            route=route,
         )
         return self._send(request, command, report={"template_id": str(template.id), **usage})
 

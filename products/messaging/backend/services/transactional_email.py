@@ -29,6 +29,7 @@ from products.messaging.backend.facade.contracts import (
     SenderNotVerified,
     SenderUnavailable,
     SendFrom,
+    SendRoute,
     StoredTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
@@ -333,6 +334,9 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
         payload["idempotency_key"] = command.idempotency_key
     if command.source.send is not None:
         payload["send"] = _send_payload(command.source.send)
+    if command.route == SendRoute.SEND_EMAIL:
+        # The template route sends none, so its keys keep the fingerprint they were reserved with.
+        payload["route"] = command.route.value
     try:
         response = run_transactional_workflow(command.team_id, str(hog_flow_id), payload)
     except Exception:

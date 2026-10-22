@@ -8,6 +8,7 @@ import { IntegrationManagerService } from '../managers/integration-manager.servi
 import { PolicyCode, SendCandidate } from '../messaging/email-send-policy'
 import { selectEmailSenderIntegrationId } from '../messaging/email-sender-selection'
 import { emailPauseMetadata } from './hogflow-functions.service'
+import { IdempotencyKeys } from './idempotency-keys'
 
 export const AcceptedSendSchema = z
     .object({
@@ -49,7 +50,22 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
     send: AcceptedSendSchema.optional(),
+    // Set by `messaging/send/email/`. Absent for `messaging_templates/{id}/send/`.
+    route: z.literal('send_email').optional(),
 })
+
+export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema>
+
+/**
+ * What an idempotency key is bound to. A key reused on the other send route, or with other code
+ * content, is another request. A template send on the original route keeps the parts it had before
+ * code sends, so a retry across a deploy still matches the key it reserved.
+ */
+export function transactionalSendFingerprint(hogFlowId: string, request: TransactionalEmailRequest): string {
+    const { to, distinct_id: distinctId, variables, send, route } = request
+    const parts: unknown[] = [hogFlowId, to, distinctId, variables]
+    return IdempotencyKeys.fingerprint(send || route ? [...parts, send ?? null, route ?? null] : parts)
+}
 
 export type TransactionalEmailOutcome =
     | 'queued'
