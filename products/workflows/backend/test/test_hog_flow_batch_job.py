@@ -73,24 +73,17 @@ class TestHogFlowBatchJob(TestCase):
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
 
-    @parameterized.expand([("project", False), ("environment", True)])
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_batch_jobs_do_not_block_team_deletion(self, _name, delete_environment, _mock_create_invocation):
-        team = (
-            Team.objects.create(organization=self.org, name="child env", parent_team=self.team)
-            if delete_environment
-            else self.team
-        )
-        hog_flow = HogFlow.objects.create(team=team, name="Broadcast", actions=self.hog_flow.actions)
-        HogFlowBatchJob.objects.create(team=team, hog_flow=hog_flow)
+    def test_batch_jobs_do_not_block_team_deletion(self, _mock_create_invocation):
+        HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
 
-        delete_team_records([team.id])
+        delete_team_records([self.team.id])
         # Deferred foreign keys fail at COMMIT, which a TestCase never reaches.
         connection.check_constraints()
 
-        assert not Team.objects.filter(id=team.id).exists()
+        assert not Team.objects.filter(id=self.team.id).exists()
 
     @parameterized.expand(
         [

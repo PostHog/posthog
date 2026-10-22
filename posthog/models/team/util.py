@@ -358,7 +358,6 @@ def delete_team_records(team_ids: list[int]) -> None:
 
     from posthog.models.team import Team
 
-    hog_flow = apps.get_model("workflows", "HogFlow")
     hog_flow_batch_job = apps.get_model("workflows", "HogFlowBatchJob")
 
     with transaction.atomic():
@@ -368,12 +367,6 @@ def delete_team_records(team_ids: list[int]) -> None:
             queue_training_deletion(team.pk, "team")
         # The cascade skips batch jobs (DO_NOTHING), so delete them here, in the step a stuck deletion retries.
         _raw_delete_batch(hog_flow_batch_job.objects.filter(team_id__in=team_ids))
-        # A job saves under the root team, but its workflow can belong to an environment.
-        _raw_delete_batch(
-            hog_flow_batch_job.objects.filter(
-                hog_flow_id__in=hog_flow.objects.filter(team_id__in=team_ids).values("id")
-            )
-        )
         Team.objects.filter(id__in=team_ids).delete()
 
 
