@@ -17,6 +17,15 @@ interface ExternalSignalSourceDefinition {
 // Only warehouse tables registered in the signals emission registry belong here.
 export const EXTERNAL_SIGNAL_SOURCES = [
     {
+        source: 'cursor',
+        label: 'Cursor Bugbot',
+        category: 'Code review',
+        watches: 'Surface bugs that Bugbot finds in pull requests',
+        dwSourceType: 'Cursor',
+        requiredTables: ['bugbot_reviews'],
+        sourceType: 'issue',
+    },
+    {
         source: 'gitea',
         label: 'Gitea',
         category: 'Issue tracking',
@@ -113,6 +122,33 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface new and reopened errors',
         dwSourceType: 'Sentry',
         requiredTables: ['issues'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'appsignal',
+        label: 'AppSignal',
+        category: 'Error tracking',
+        watches: 'Surface new unresolved errors',
+        dwSourceType: 'Appsignal',
+        requiredTables: ['exception_incidents'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'azure_application_insights',
+        label: 'Azure Application Insights',
+        category: 'Error tracking',
+        watches: 'Surface new and recurring exceptions',
+        dwSourceType: 'AzureApplicationInsights',
+        requiredTables: ['exceptions'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'google_play_console',
+        label: 'Google Play Console',
+        category: 'Error tracking',
+        watches: 'Surface new crashes and ANRs in your Android apps',
+        dwSourceType: 'GooglePlayConsole',
+        requiredTables: ['error_issues'],
         sourceType: 'issue',
     },
     {
