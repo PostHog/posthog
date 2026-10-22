@@ -1,6 +1,7 @@
-import { FEATURE_FLAGS } from 'lib/constants'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -34,8 +35,11 @@ describe('emailDomainLogic', () => {
     })
 
     const turnOnSuggestions = (on: boolean): void => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]: on })
+        organizationLogic.mount()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: on,
+        })
     }
 
     const mountAndLoad = async (id = '42'): Promise<void> => {

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -7,6 +9,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -26,6 +29,7 @@ const SUGGESTED_WORKFLOW: DataSuggestionApi = {
     trigger_event: 'teammate_joined',
     weekly_count: 120,
     stage: 'onboarding',
+    premade: false,
     step_outline: ['email', 'delay', 'email'],
 }
 const SENDER_ID = 42
@@ -82,9 +86,10 @@ describe('EmailDomainScene', () => {
     }
 
     const turnOnSuggestions = (on: boolean): void => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true,
-            [FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]: on,
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true })
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: on,
         })
     }
 

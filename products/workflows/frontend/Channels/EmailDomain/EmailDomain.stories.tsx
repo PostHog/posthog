@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
@@ -25,6 +29,7 @@ const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
         trigger_event: 'teammate_joined',
         weekly_count: 1_840,
         stage: 'onboarding',
+        premade: false,
         step_outline: ['email', 'delay', 'email'],
     },
     {
@@ -35,6 +40,7 @@ const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
         trigger_event: 'trial_started',
         weekly_count: 320,
         stage: 'trial',
+        premade: false,
         step_outline: ['delay', 'email', 'delay', 'email'],
     },
     {
@@ -45,6 +51,7 @@ const SUGGESTED_WORKFLOWS: DataSuggestionApi[] = [
         trigger_event: 'board_created',
         weekly_count: 9_600,
         stage: 'churn_risk',
+        premade: false,
         step_outline: ['wait_until', 'branch', 'email'],
     },
 ]
@@ -60,6 +67,7 @@ interface DomainPageArgs {
     email?: string
     seed?: (backend: FakeEmailDomainBackend) => void
     stage?: Stage
+    aiApproved?: boolean
 }
 
 const seededBackend = (
@@ -81,10 +89,14 @@ function Staged({ backend, id, stage }: { backend: FakeEmailDomainBackend; id: s
     return null
 }
 
-function DomainPage({ host, email, seed, stage }: DomainPageArgs): JSX.Element {
+function DomainPage({ host, email, seed, stage, aiApproved = false }: DomainPageArgs): JSX.Element {
     const backend = useMemo(() => seededBackend(host, seed, email), [host, seed, email])
     const id = String(backend.sender(42)?.id)
     useStorybookMocks(backend.mocks())
+    const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
+    useEffect(() => {
+        loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: aiApproved })
+    }, [aiApproved, loadCurrentOrganizationSuccess])
     return (
         <>
             <EmailDomainScene id={id} />
@@ -222,9 +234,7 @@ export const ReadyWithSuggestions: Story = {
             backend.verifyDomain(DOMAIN)
             backend.suggestWorkflows(SUGGESTED_WORKFLOWS)
         },
-    },
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+        aiApproved: true,
     },
 }
 
