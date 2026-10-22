@@ -29,6 +29,10 @@ class GoogleAdsScopeInsufficientError(ValidationError):
     """Google's consent screen lets a login sign in without ticking the Google Ads permission."""
 
 
+class GoogleAdsQuotaExhaustedError(Exception):
+    """Google rejected the request with a 429 RESOURCE_EXHAUSTED — a transient quota limit, not a bug."""
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(2),
@@ -141,6 +145,13 @@ class GoogleAdsIntegration:
                 "This integration does not have permission to access this resource. "
                 "Please check the account permissions on the provider side."
             )
+
+        if response.status_code == 429:
+            # A quota/rate-limit RESOURCE_EXHAUSTED on this interactive call isn't retried
+            # automatically (no Temporal activity wraps it, unlike the sync path), and it isn't a
+            # bug worth paging on, so skip capture_exception and let the caller tell the user to
+            # retry instead of surfacing a generic internal error.
+            raise GoogleAdsQuotaExhaustedError("Google Ads rate-limited this request (quota exhausted).")
 
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))

@@ -1120,6 +1120,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
+
+
 class DatabaseSchemaTableCertificationStatus(StrEnum):
     CERTIFIED = "certified"
     DEPRECATED = "deprecated"
@@ -1573,6 +1578,7 @@ class FileSystemIconType(StrEnum):
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
+    UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
@@ -1790,11 +1796,6 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
-
-
-class ExecutionTarget(StrEnum):
-    DEFAULT = "default"
-    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -2716,6 +2717,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    UPTIME_MONITORING = "uptime_monitoring"
     METRICS = "metrics"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"

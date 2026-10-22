@@ -118,11 +118,24 @@ def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> Dashboar
 
 
 def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
+    return _dashboard_insights(team, user, dashboard_id, limit)
+
+
+def dashboard_insight_tile(*, team: "Team", user: User, dashboard_id: int, short_id: str) -> DashboardInsights | None:
+    found = _dashboard_insights(team, user, dashboard_id, 1, short_id=short_id)
+    return found if found is not None and found.tiles else None
+
+
+def _dashboard_insights(
+    team: "Team", user: User, dashboard_id: int, limit: int, short_id: str | None = None
+) -> DashboardInsights | None:
     dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
     access = UserAccessControl(user=user, team=team)
     if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
         return None
     insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    if short_id is not None:
+        insight_tiles = insight_tiles.filter(insight__short_id=short_id)
     tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
     return DashboardInsights(
         dashboard_id=dashboard.id,
@@ -179,6 +192,23 @@ def create_dashboard_from_tiles(
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     """Dashboard IDs and names for callers that already validated the dashboard IDs."""
     return _refs_in_given_order(dashboard_ids)
+
+
+def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
+    """The listed dashboards each insight of this team sits on, oldest tile first, in one query.
+
+    Deleted tiles, dashboards and insights do not count. An insight on no such dashboard has no key.
+    """
+    rows = (
+        DashboardTile.objects.filter(dashboard__team_id=team_id, insight_id__in=insight_ids, insight__deleted=False)
+        .exclude(dashboard__creation_mode=Dashboard.CreationMode.UNLISTED)
+        .order_by("insight_id", "id")
+        .values_list("insight_id", "dashboard_id", "dashboard__name")
+    )
+    refs: dict[int, list[DashboardRef]] = {}
+    for insight_id, dashboard_id, name in rows:
+        refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
+    return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
 
 
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
