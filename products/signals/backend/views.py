@@ -204,6 +204,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
@@ -2213,6 +2214,11 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.source_suggestion_failed", report_id=str(report.id))
             source_suggestion = None
+        try:
+            plan = report_plan(team_id=self.team_id, report_id=str(report.id))
+        except Exception:
+            logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
+            plan = None
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -2223,6 +2229,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "source_suggestions_map": {str(report.id): source_suggestion},
+            "report_plans_map": {str(report.id): plan},
         }
 
     def retrieve(self, request, *args, **kwargs):
