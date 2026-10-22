@@ -182,148 +182,140 @@ function HistoryRow({
     )
 }
 
-function QuarantineSection({
+interface QuarantineVariant {
+    identifier: string
+    label: string | null
+    quarantineEntry: QuarantinedIdentifierEntryApi | null
+    loading: boolean
+    onUnquarantine: () => void
+}
+
+function QuarantineBanner({
     identifier,
     label,
     quarantineEntry,
-    isQuarantined,
     onQuarantine,
     onUnquarantine,
-    runType,
     repoFullName,
 }: {
     identifier: string
-    runType: string
     repoFullName: string
-    label?: string | null
-    quarantineEntry: QuarantinedIdentifierEntryApi | null
-    isQuarantined: boolean
+    label: string | null
+    quarantineEntry: QuarantinedIdentifierEntryApi
     onQuarantine: OnQuarantine
     onUnquarantine: () => void
 }): JSX.Element {
-    if (isQuarantined && quarantineEntry) {
-        const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
-        const sourceRun = quarantineEntry.source_run ?? null
-        const openConfirmation = (): void => {
-            LemonDialog.open({
-                title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
-                description:
-                    'This identifier will be gated on again in future runs. ' +
-                    "Branches that haven't merged the fix may get blocked.",
-                primaryButton: {
-                    children: 'Unquarantine',
-                    status: 'danger',
-                    onClick: onUnquarantine,
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        }
-        return (
-            <LemonBanner
-                type="warning"
-                // No `action` here — extend lives inline below so the user can
-                // see "what was wrong" first (the source-run link) before
-                // choosing to extend or unquarantine.
-            >
-                <div className="text-sm flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span>
-                            <span className="font-semibold">Quarantined{label && ` (${label})`}:</span>{' '}
-                            {quarantineEntry.reason || 'no reason given'}
-                        </span>
-                        {expires && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span>
-                                    until {expires.toLocaleDateString()}{' '}
-                                    <span className="text-muted">({dayjs(expires).fromNow()})</span>
-                                </span>
-                            </>
-                        )}
-                        {!expires && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span className="text-muted">no expiry set</span>
-                            </>
-                        )}
-                        {quarantineEntry.created_by && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
-                            </>
-                        )}
-                    </div>
-                    {sourceRun && (
-                        <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <span>Failed on</span>
-                            <span className="font-mono">{sourceRun.branch}</span>
-                            <span aria-hidden>·</span>
-                            <Link
-                                to={`https://github.com/${repoFullName}/commit/${sourceRun.commit_sha}`}
-                                target="_blank"
-                                className="font-mono"
-                            >
-                                {sourceRun.commit_sha.slice(0, 8)}
-                            </Link>
-                            {sourceRun.pr_number && (
-                                <>
-                                    <span aria-hidden>·</span>
-                                    <Link
-                                        to={`https://github.com/${repoFullName}/pull/${sourceRun.pr_number}`}
-                                        target="_blank"
-                                        className="font-mono"
-                                    >
-                                        #{sourceRun.pr_number}
-                                    </Link>
-                                </>
-                            )}
-                            <span aria-hidden>·</span>
-                            <TZLabel time={sourceRun.created_at} />
-                        </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                        {sourceRun && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={runPath(sourceRun.id, repoFullName)}
-                                data-attr="visual-review-quarantine-source-run"
-                            >
-                                View failing run
-                            </LemonButton>
-                        )}
-                        <QuarantineAction
-                            identifier={identifier}
-                            onQuarantine={onQuarantine}
-                            mode="extend"
-                            triggerLabel={label ? `Extend (${label})` : 'Extend quarantine'}
-                            initialReason={quarantineEntry.reason}
-                            initialExpiresAt={quarantineEntry.expires_at}
-                            sourceRunId={sourceRun?.id ?? null}
-                        />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            status="danger"
-                            onClick={openConfirmation}
-                            data-attr="visual-review-history-unquarantine"
-                        >
-                            Unquarantine
-                        </LemonButton>
-                    </div>
-                </div>
-            </LemonBanner>
-        )
+    const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
+    const sourceRun = quarantineEntry.source_run ?? null
+    const openConfirmation = (): void => {
+        LemonDialog.open({
+            title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
+            description:
+                'This identifier will be gated on again in future runs. ' +
+                "Branches that haven't merged the fix may get blocked.",
+            primaryButton: {
+                children: 'Unquarantine',
+                status: 'danger',
+                onClick: onUnquarantine,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
     }
     return (
-        <div className="flex items-center justify-end">
-            <QuarantineAction
-                identifier={identifier}
-                onQuarantine={onQuarantine}
-                triggerLabel={label ? `Quarantine (${label})` : undefined}
-                runType={runType}
-            />
-        </div>
+        <LemonBanner
+            type="warning"
+            // No `action` here — extend lives inline below so the user can
+            // see "what was wrong" first (the source-run link) before
+            // choosing to extend or unquarantine.
+        >
+            <div className="text-sm flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>
+                        <span className="font-semibold">Quarantined{label && ` (${label})`}:</span>{' '}
+                        {quarantineEntry.reason || 'no reason given'}
+                    </span>
+                    {expires && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span>
+                                until {expires.toLocaleDateString()}{' '}
+                                <span className="text-muted">({dayjs(expires).fromNow()})</span>
+                            </span>
+                        </>
+                    )}
+                    {!expires && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span className="text-muted">no expiry set</span>
+                        </>
+                    )}
+                    {quarantineEntry.created_by && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                        </>
+                    )}
+                </div>
+                {sourceRun && (
+                    <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span>Failed on</span>
+                        <span className="font-mono">{sourceRun.branch}</span>
+                        <span aria-hidden>·</span>
+                        <Link
+                            to={`https://github.com/${repoFullName}/commit/${sourceRun.commit_sha}`}
+                            target="_blank"
+                            className="font-mono"
+                        >
+                            {sourceRun.commit_sha.slice(0, 8)}
+                        </Link>
+                        {sourceRun.pr_number && (
+                            <>
+                                <span aria-hidden>·</span>
+                                <Link
+                                    to={`https://github.com/${repoFullName}/pull/${sourceRun.pr_number}`}
+                                    target="_blank"
+                                    className="font-mono"
+                                >
+                                    #{sourceRun.pr_number}
+                                </Link>
+                            </>
+                        )}
+                        <span aria-hidden>·</span>
+                        <TZLabel time={sourceRun.created_at} />
+                    </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {sourceRun && (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={runPath(sourceRun.id, repoFullName)}
+                            data-attr="visual-review-quarantine-source-run"
+                        >
+                            View failing run
+                        </LemonButton>
+                    )}
+                    <QuarantineAction
+                        identifier={identifier}
+                        onQuarantine={onQuarantine}
+                        mode="extend"
+                        triggerLabel={label ? `Extend (${label})` : 'Extend quarantine'}
+                        initialReason={quarantineEntry.reason}
+                        initialExpiresAt={quarantineEntry.expires_at}
+                        sourceRunId={sourceRun?.id ?? null}
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        status="danger"
+                        onClick={openConfirmation}
+                        data-attr="visual-review-history-unquarantine"
+                    >
+                        Unquarantine
+                    </LemonButton>
+                </div>
+            </div>
+        </LemonBanner>
     )
 }
 
@@ -361,9 +353,26 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
     const repoFullName: string = repo?.repo_full_name ?? pathRepoFullName
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
     const baselineUpdates = Math.max(0, history.length - 1)
-    const isQuarantined = !!quarantineEntry
-    const isSiblingQuarantined = !!siblingQuarantineEntry
     const hasThemePair = primaryTheme !== null && siblingIdentifier !== null
+    const variants: QuarantineVariant[] = [
+        {
+            identifier,
+            label: hasThemePair ? primaryTheme : null,
+            quarantineEntry,
+            loading: quarantineEntryLoading,
+            onUnquarantine: unquarantineIdentifier,
+        },
+    ]
+    if (hasThemePair) {
+        variants.push({
+            identifier: siblingIdentifier,
+            label: primaryTheme === 'light' ? 'dark' : 'light',
+            quarantineEntry: siblingQuarantineEntry,
+            loading: siblingQuarantineEntryLoading,
+            onUnquarantine: unquarantineSibling,
+        })
+    }
+    const loadedVariants = variants.filter((variant) => !variant.loading)
 
     if (repoNotFound) {
         return <NotFound object="visual review repo" />
@@ -412,47 +421,34 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         }
                         label="Repo"
                     />
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                        {loadedVariants
+                            .filter((variant) => !variant.quarantineEntry)
+                            .map((variant) => (
+                                <QuarantineAction
+                                    key={variant.identifier}
+                                    identifier={variant.identifier}
+                                    onQuarantine={quarantineIdentifier}
+                                    triggerLabel={variant.label ? `Quarantine (${variant.label})` : undefined}
+                                    runType={runType}
+                                />
+                            ))}
+                    </div>
                 </div>
 
-                {hasThemePair ? (
-                    <div className="grid grid-cols-2 gap-2">
-                        {!quarantineEntryLoading && (
-                            <QuarantineSection
-                                identifier={identifier}
-                                runType={runType}
+                {loadedVariants.map(
+                    (variant) =>
+                        variant.quarantineEntry && (
+                            <QuarantineBanner
+                                key={variant.identifier}
+                                identifier={variant.identifier}
                                 repoFullName={repoFullName}
-                                label={primaryTheme}
-                                quarantineEntry={quarantineEntry}
-                                isQuarantined={isQuarantined}
+                                label={variant.label}
+                                quarantineEntry={variant.quarantineEntry}
                                 onQuarantine={quarantineIdentifier}
-                                onUnquarantine={unquarantineIdentifier}
+                                onUnquarantine={variant.onUnquarantine}
                             />
-                        )}
-                        {!siblingQuarantineEntryLoading && (
-                            <QuarantineSection
-                                identifier={siblingIdentifier}
-                                runType={runType}
-                                repoFullName={repoFullName}
-                                label={primaryTheme === 'light' ? 'dark' : 'light'}
-                                quarantineEntry={siblingQuarantineEntry}
-                                isQuarantined={isSiblingQuarantined}
-                                onQuarantine={quarantineIdentifier}
-                                onUnquarantine={unquarantineSibling}
-                            />
-                        )}
-                    </div>
-                ) : (
-                    !quarantineEntryLoading && (
-                        <QuarantineSection
-                            identifier={identifier}
-                            runType={runType}
-                            repoFullName={repoFullName}
-                            quarantineEntry={quarantineEntry}
-                            isQuarantined={isQuarantined}
-                            onQuarantine={quarantineIdentifier}
-                            onUnquarantine={unquarantineIdentifier}
-                        />
-                    )
+                        )
                 )}
 
                 {historyLoading || repoLoading ? (
