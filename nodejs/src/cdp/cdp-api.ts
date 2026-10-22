@@ -66,6 +66,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { EmailSendPolicy } from './services/messaging/email-send-policy'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -247,7 +248,8 @@ export class CdpApi {
         )
         this.transactionalEmailPolicy = new EmailSendPolicy(
             services.teamWorkflowsConfigService,
-            services.emailSuppressionService
+            services.emailSuppressionService,
+            new EmailValidationService(deps.emailValidationValkey)
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
