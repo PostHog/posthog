@@ -139,6 +139,15 @@ def _allowlist_payload() -> dict:
     return {"guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS]}
 
 
+@pytest.fixture(autouse=True)
+def github_access_available():
+    """Scheduling and harness tests start with the independent GitHub prerequisite satisfied."""
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.check_github_gate", return_value=None
+    ) as readiness:
+        yield readiness
+
+
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(
@@ -347,6 +356,25 @@ async def test_wildcard_dispatches_team_with_enabled_config(ateam):
         planned = await _run_activity()
 
     assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_github_blocked_scout_keeps_schedule_and_resumes_next_tick(ateam, github_access_available):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    config = await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
+    previous_run = config.last_run_at
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        github_access_available.return_value = object()
+        blocked = await _run_activity()
+        assert not any(p.team_id == ateam.id for p in blocked)
+        await database_sync_to_async(config.refresh_from_db)()
+        assert config.last_run_at == previous_run
+        assert config.enabled
+        github_access_available.return_value = None
+        recovered = await _run_activity()
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in recovered)
 
 
 @pytest.mark.asyncio

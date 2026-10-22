@@ -189,3 +189,7 @@ Missing connections, revoked installations, and missing repository access suspen
 GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed; a transient refresh failure holds research for retry instead of being treated as missing setup.
 
 Research and implementation blockers each have a timestamp for the first blocked attempt. Recovery uses a seven-day window from that timestamp; subsequent readiness checks must not extend it.
+
+Scouts share this readiness gate across scheduled dispatch, manual and workflow triggers, and the runner itself. A blocked scout does not start an agent, create a run row, or advance its schedule. Its enabled state is unchanged, so the next coordinator tick can dispatch it after access recovers.
+
+Implementation proposals remain `ready` with `implementation_blocked_reason` when GitHub is unavailable. Connection recovery and the sweep re-enter the existing autostart path, which rechecks autonomy, priority, assignment, quota, and eligibility without researching the report again. Manual implementation creation, reruns, and warm activation reject unavailable access. Already queued cloud implementations recheck before provisioning and wait in `queued`, recording `github_blocked_reason` in run state and retrying every five minutes until access recovers, the run is cancelled, or its workflow expires. Running sandboxes are not interrupted by this gate.

@@ -22,6 +22,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -2278,6 +2279,14 @@ class TestAgentCheckDispatch(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": "123"},
+            repository_cache=[{"id": 1, "name": "repository", "full_name": "example/repository"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         self.report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.RESOLVED, title="Checkout 500s"
         )

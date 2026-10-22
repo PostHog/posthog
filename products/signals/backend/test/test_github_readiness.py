@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
@@ -17,11 +18,14 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.github_readiness import (
     LEGACY_GITHUB_BLOCKERS,
+    check_implementation_github_readiness,
     check_report_github_readiness,
     enabled_recovery_signals,
 )
 from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
 from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import check_github_gate
+from products.signals.backend.scout_harness.runner import arun_signals_scout
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.repo_selection import get_team_github_readiness, resolve_team_github_integration
 
@@ -283,3 +287,55 @@ class TestGitHubReadiness(BaseTest):
         with patch(f"{TASKS}.get_team_github_readiness") as readiness:
             resume_github_blocked_reports(self.team.id)
         readiness.assert_not_called()
+
+    def test_scout_cannot_run_without_github_or_create_a_run_row(self) -> None:
+        self.integration.delete()
+        rejection = check_github_gate(self.team.id)
+        assert rejection is not None
+        self.assertEqual(rejection.reason, "github_not_connected")
+        with (
+            patch("products.signals.backend.scout_harness.runner._get_team", return_value=self.team),
+            patch("products.signals.backend.scout_harness.runner.check_github_gate", return_value=rejection),
+            patch("products.signals.backend.scout_harness.runner.sync_canonical_skills") as seed,
+        ):
+            result = async_to_sync(arun_signals_scout)(team_id=self.team.id, skill_name="signals-scout-example")
+        self.assertIsNone(result.run_id)
+        self.assertEqual(result.skip_reason, "github_not_connected")
+        seed.assert_not_called()
+
+    def test_implementation_blocker_clears_when_access_recovers(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        with patch(
+            f"{MODULE}.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.RECONNECT_REQUIRED),
+        ):
+            check_implementation_github_readiness(self.team.id, str(report.id))
+        report.refresh_from_db()
+        self.assertEqual(report.implementation_blocked_reason, "reconnect_required")
+        self.assertEqual(report.status, SignalReport.Status.READY)
+        with patch(
+            f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+        ):
+            check_implementation_github_readiness(self.team.id, str(report.id))
+        report.refresh_from_db()
+        self.assertIsNone(report.implementation_blocked_reason)
+
+    def test_recovery_rechecks_implementation_without_researching_again(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, implementation_blocked_reason="not_connected"
+        )
+        with (
+            patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
+            patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=False)),
+            patch(
+                f"{TASKS}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+            ),
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts", new_callable=AsyncMock
+            ) as start,
+            patch(f"{TASKS}.start_recovered_report", new_callable=AsyncMock) as research,
+        ):
+            resume_github_blocked_reports(self.team.id)
+        assert start.await_args is not None
+        self.assertEqual(start.await_args.kwargs["report_id"], str(report.id))
+        research.assert_not_called()

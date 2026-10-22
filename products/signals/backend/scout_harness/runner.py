@@ -56,7 +56,7 @@ from products.signals.backend.scout_harness.prompt import (
     SignalScoutRunSummary,
     build_run_prompt,
 )
-from products.signals.backend.scout_harness.run_gates import lane_has_live_run
+from products.signals.backend.scout_harness.run_gates import check_github_gate, lane_has_live_run
 from products.signals.backend.scout_harness.skill_loader import (
     SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
@@ -280,6 +280,20 @@ async def _arun_signals_scout(
     pre-check started the run, and is stamped on the run row.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+    github_rejection = await database_sync_to_async(check_github_gate, thread_sensitive=False)(
+        team.parent_team_id or team.id
+    )
+    if github_rejection is not None:
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=github_rejection.detail,
+            runtime_s=0.0,
+            skill_name=skill_name,
+            skill_version=skill_version or 0,
+            skip_reason=github_rejection.reason,
+        )
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
             team.parent_team_id or team.id, trial_launch_id

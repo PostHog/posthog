@@ -4,6 +4,10 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
+
+from posthog.models.integration import Integration
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -24,6 +28,14 @@ from products.tasks.backend.models import Task, TaskRun
 class TestRequestedImplementation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": "123"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         self.report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -82,6 +94,17 @@ class TestRequestedImplementation(BaseTest):
             task_id=str(self.task.id),
             after_run_count=1,
         )
+
+    def test_requested_implementation_refuses_missing_github_before_starting_a_run(self) -> None:
+        Integration.objects.filter(team=self.team, kind="github").delete()
+        with (
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
+            patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
+            patch.object(tasks_facade, "run_task") as run,
+            self.assertRaises(GitHubAccessUnavailable),
+        ):
+            start_requested_implementation(self.request())
+        run.assert_not_called()
 
     def test_resumes_existing_task_once_with_fresh_research(self) -> None:
         def fake_run_task(*args: object, **kwargs: object) -> SimpleNamespace:

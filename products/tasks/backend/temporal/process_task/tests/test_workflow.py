@@ -52,6 +52,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     StartAgentServerInput,
     StartAgentServerOutput,
     TaskProcessingContext,
+    check_self_driving_github_readiness,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -285,6 +286,7 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    check_self_driving_github_readiness,
                     forward_pending_user_message,
                     get_task_processing_context,
                     prepare_sandbox_for_repository,
@@ -417,6 +419,7 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    check_self_driving_github_readiness,
                     forward_pending_user_message,
                     get_task_processing_context,
                     prepare_sandbox_for_repository,
@@ -1658,6 +1661,37 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.mark.parametrize("recovered", [True, False])
+    async def test_github_wait_precedes_context_loading_and_sandbox_creation(self, monkeypatch, recovered):
+        workflow = ProcessTaskWorkflow()
+        checks = iter(["blocked", "ready" if recovered else "cancelled"])
+        activity_calls = []
+
+        async def execute(activity_fn, activity_input, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is check_self_driving_github_readiness:
+                assert workflow._context is None
+                return next(checks)
+            assert activity_fn is complete_run_stream
+
+        context = dataclasses.replace(_build_context(github_integration_id=123), environment="local")
+        load_context = AsyncMock(return_value=context)
+        wait = AsyncMock(side_effect=TimeoutError)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: datetime.now(UTC))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait)
+        monkeypatch.setattr(workflow, "_get_task_processing_context", load_context)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", create_pr=True))
+
+        assert load_context.await_count == int(recovered)
+        assert activity_calls.count(check_self_driving_github_readiness) == 2
+        assert wait.await_count == 1
+        assert result.sandbox_id is None
+
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
         # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
         # create_pr=False; scheduling the recheck for them would let the quota gate cancel

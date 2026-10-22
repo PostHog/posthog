@@ -120,6 +120,14 @@ def check_report_github_readiness(
     return False
 
 
+def check_implementation_github_readiness(team_id: int, report_id: str) -> GitHubReadiness:
+    readiness = get_team_github_readiness(team_id, verify=True)
+    SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).update(
+        implementation_blocked_reason=None if readiness.status == GitHubReadinessStatus.READY else readiness.status
+    )
+    return readiness
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections

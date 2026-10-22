@@ -5115,6 +5115,14 @@ _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_te
 class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": "123"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
         # The run action requires a live backing skill; every dispatch case needs one present.
         LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
         # The manual run honors the same enrollment + daily-budget gates as the coordinator. Enroll
@@ -5126,6 +5134,15 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
     def _run_url(self, config_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/run/"
+
+    def test_run_requires_github_access(self) -> None:
+        Integration.objects.filter(team=self.team, kind="github").delete()
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=True)
+        with patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Connect GitHub", str(response.json()))
+        start.assert_not_called()
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_run_dispatches_and_returns_workflow_id(self, _name: str, enabled: bool) -> None:

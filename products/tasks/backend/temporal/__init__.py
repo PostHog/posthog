@@ -15,6 +15,7 @@ from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
 from .process_task.activities import (
     await_agent_server_ready,
+    check_self_driving_github_readiness,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -116,6 +117,7 @@ ACTIVITIES = [
     complete_run_stream,
     emit_progress_activity,
     enforce_self_driving_run_quota,
+    check_self_driving_github_readiness,
     track_workflow_event,
     post_slack_update,
     start_dev_stack_preview,

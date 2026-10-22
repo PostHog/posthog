@@ -14,6 +14,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
@@ -91,9 +92,22 @@ def organization():
     org.delete()
 
 
+def _connect_github(team: Team) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="123",
+        config={"installation_id": "123"},
+        repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+        repository_cache_updated_at=timezone.now(),
+    )
+
+
 @pytest.fixture
 def team(organization):
-    return Team.objects.create(organization=organization, name="test-auto-start-team")
+    team = Team.objects.create(organization=organization, name="test-auto-start-team")
+    _connect_github(team)
+    return team
 
 
 def _create_org_member_with_github(email: str, organization: Organization, login: str) -> User:
@@ -860,9 +874,10 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("autostart_enabled", "concurrent_edit"), [(True, False), (False, False), (None, False), (True, True)]
+    ("autostart_enabled", "concurrent_edit", "github_connected"),
+    [(True, False, True), (False, False, True), (None, False, True), (True, True, True), (True, False, False)],
 )
-async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit):
+async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit, github_connected):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
     # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
@@ -873,6 +888,9 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="switch-org")
         team = Team.objects.create(organization=organization, name="switch-team")
+        _connect_github(team)
+        if not github_connected:
+            Integration.objects.filter(team=team, kind="github").delete()
         enabler = User.objects.create(email="enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -936,7 +954,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False and github_connected)
+    if not github_connected:
+        await sync_to_async(report.refresh_from_db)()
+        assert report.implementation_blocked_reason == "not_connected"
+        assert report.status == SignalReport.Status.READY
 
     if concurrent_edit:
         assert "A newer fix" in mock_create.call_args.kwargs["description"]
@@ -958,6 +980,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="addressed-org")
         team = Team.objects.create(organization=organization, name="addressed-team")
+        _connect_github(team)
         enabler = User.objects.create(email="addressed-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1218,6 +1241,7 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name=f"links-org-{link}")
         team = Team.objects.create(organization=organization, name="links-team")
+        _connect_github(team)
         enabler = User.objects.create(email=f"links-enabler-{link}@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1387,6 +1411,7 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="skip-count-org")
         team = Team.objects.create(organization=organization, name="skip-count-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1435,6 +1460,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="quota-org")
         team = Team.objects.create(organization=organization, name="quota-team")
+        _connect_github(team)
         enabler = User.objects.create(email="quota-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1507,6 +1533,7 @@ async def test_free_trial_gate_blocks_autostart(
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="trial-org")
         team = Team.objects.create(organization=organization, name="trial-team")
+        _connect_github(team)
         enabler = User.objects.create(email="trial-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1569,6 +1596,7 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1622,6 +1650,7 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="background-org")
         team = Team.objects.create(organization=organization, name="background-team")
+        _connect_github(team)
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
@@ -1701,6 +1730,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     def _setup() -> tuple[Team, SignalReport, User]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
+        _connect_github(team)
         enabler = User.objects.create(email="inferred-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
         SignalSourceConfig.objects.create(
@@ -1811,6 +1841,7 @@ async def test_only_the_current_passs_implementation_decision_is_read(written_du
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="stale-decision-org")
         team = Team.objects.create(organization=organization, name="stale-decision-team")
+        _connect_github(team)
         run_started_at = timezone.now() - timedelta(minutes=10)
         report = SignalReport.objects.create(
             team=team,

@@ -165,6 +165,7 @@ Defined in `backend/temporal/summary.py`.
    - Persists a `safety_judgment` artefact
 4. **Select repository** → `select_repository_activity` (`temporal/agentic/select_repository.py`) — see Repository Selection below
    - Before research starts, GitHub readiness is verified. Missing access suspends the report in `candidate` with `research_blocked_reason` and its first blocked timestamp. Connection events may resume it within seven days; only temporary failures enter the periodic retry sweep. Recovery honors consent, quotas, and current source settings.
+   - The same readiness check gates scout dispatch and execution, plus implementation starts. Scouts retain their schedule while blocked. Ready reports retain their content with `implementation_blocked_reason`; recovery rechecks autostart eligibility. Queued implementation workflows wait before sandbox creation and retry access every five minutes.
    - If no repository is selected, the workflow synthesizes a “repository selection required” title/summary and transitions to `pending_input`
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
