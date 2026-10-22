@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import dataclasses
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -120,6 +121,8 @@ async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=False),
     ):
         running = asyncio.create_task(runner.run(seed))
         await first_started.wait()
@@ -155,6 +158,8 @@ async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=False),
     ):
         running = asyncio.create_task(runner.run(seed))
         await first_started.wait()
@@ -182,6 +187,8 @@ async def test_a_failed_run_with_nothing_queued_fails_the_workflow() -> None:
     with (
         patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
         patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        patch.object(bj.workflow, "now", return_value=datetime(2026, 10, 1, tzinfo=UTC)),
+        patch.object(bj.workflow, "patched", return_value=False),
         pytest.raises(ActivityError),
     ):
         await runner.run(seed)

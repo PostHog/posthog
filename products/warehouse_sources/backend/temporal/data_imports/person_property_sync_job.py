@@ -9,7 +9,8 @@ competes with the sync workers themselves; ``start_temporal_worker`` registers i
 Failure semantics: the activity retries up to 3 times, then the (abandoned) child workflow fails
 without affecting the sync. Nothing is lost — staged files are only cleared on success and the
 dedup snapshot only advances per produced person, so the next sync's run re-reads and re-diffs.
-Every terminal failure is captured to error tracking and counted in the metrics below.
+Each failed attempt is captured to error tracking. The workflow then records the run as failed and
+counts it once in the metrics below, also when the activity was timed out, cancelled or killed.
 """
 
 import json
@@ -22,15 +23,18 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertyFailedRunInputs,
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
+    failed_run_error,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -39,9 +43,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
+INTERRUPTED_RUN_NEXT_STEP = "The next sync will try again."
+RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"
+
 PERSON_PROPERTY_SYNC_TOTAL = Counter(
     "warehouse_person_property_sync_total",
-    "Person-property sync activity attempts by outcome",
+    "Person-property sync runs by outcome",
     labelnames=["team_id", "outcome"],
 )
 
@@ -81,8 +88,8 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
             result = await run_person_property_sync(team_id=inputs.team_id, binding=binding, job_id=inputs.job_id)
     except Exception as e:
         # Re-raised so Temporal retries; captured so a terminal failure is visible in error
-        # tracking rather than dying silently in an abandoned child workflow.
-        PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+        # tracking rather than dying silently in an abandoned child workflow. The failed outcome is
+        # counted by the workflow once retries are exhausted, not here per attempt.
         log.exception("Person-property sync failed")
         capture_exception(e, inputs.properties_to_log)
         await record_failed_runs(
@@ -129,6 +136,20 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     return dataclasses.asdict(result)
 
 
+@activity.defn
+async def record_failed_person_property_sync_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    await record_failed_runs(
+        team_id=inputs.team_id,
+        binding=inputs.binding,
+        job_id=inputs.job_id,
+        trigger=inputs.trigger,
+        started_at=inputs.started_at,
+        finished_at=datetime.now(UTC).isoformat(),
+        error=inputs.error,
+    )
+    PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+
+
 @workflow.defn(name="sync-warehouse-person-properties")
 class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
     @staticmethod
@@ -138,14 +159,35 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PersonPropertySyncActivityInputs) -> None:
-        await workflow.execute_activity(
-            sync_warehouse_person_properties_activity,
-            inputs,
-            start_to_close_timeout=timedelta(hours=6),
-            heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await workflow.execute_activity(
+                sync_warehouse_person_properties_activity,
+                inputs,
+                start_to_close_timeout=timedelta(hours=6),
+                heartbeat_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError as e:
+            if workflow.patched(RECORD_FAILED_RUN_PATCH):
+                await workflow.execute_activity(
+                    record_failed_person_property_sync_runs_activity,
+                    PersonPropertyFailedRunInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.schema_id,
+                        saved_query_id=inputs.saved_query_id,
+                        job_id=inputs.job_id,
+                        trigger="scheduled",
+                        started_at=workflow.info().start_time.isoformat(),
+                        error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            raise
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES = [sync_warehouse_person_properties_activity]
+PERSON_PROPERTY_SYNC_ACTIVITIES = [
+    sync_warehouse_person_properties_activity,
+    record_failed_person_property_sync_runs_activity,
+]

@@ -325,6 +325,24 @@ class PersonPropertyBackfillActivityInputs:
         }
 
 
+@dataclasses.dataclass(frozen=True)
+class PersonPropertyFailedRunInputs:
+    """Payload the sync and backfill workflows send to record a run as failed once its activity
+    has given up. The activity cannot do this itself when it was timed out, cancelled or killed."""
+
+    team_id: int
+    schema_id: uuid.UUID | None
+    saved_query_id: uuid.UUID | None
+    job_id: str | None
+    trigger: str
+    started_at: str
+    error: str
+
+    @property
+    def binding(self) -> WarehouseBinding:
+        return _binding_from_ids(self.schema_id, self.saved_query_id)
+
+
 # --- Data-quality checks gate ---------------------------------------------------------
 
 DataQualityChecksGate = Callable[[int, "str | uuid.UUID"], bool]

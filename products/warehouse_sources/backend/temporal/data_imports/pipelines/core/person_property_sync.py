@@ -34,6 +34,7 @@ from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -888,3 +889,17 @@ async def record_failed_runs(
             trigger=trigger,
         )
         capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+
+# Failure types Temporal sets when it stops an activity from outside. The activity's own exception
+# handler does not run for these, so there is no message from the activity to show.
+_INTERRUPTION_FAILURE_TYPES = frozenset({"WorkerShutdown", "ActivityPause", "ActivityReset"})
+
+
+def failed_run_error(error: ActivityError, next_step: str) -> str:
+    """The error to show on a run whose activity gave up. An exception the activity raised keeps its
+    own message. A timeout, cancellation or worker shutdown says that the run was interrupted."""
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type and cause.type not in _INTERRUPTION_FAILURE_TYPES:
+        return cause.message
+    return f"This run was interrupted before it finished. {next_step}"
