@@ -17,6 +17,24 @@ interface ExternalSignalSourceDefinition {
 // Only warehouse tables registered in the signals emission registry belong here.
 export const EXTERNAL_SIGNAL_SOURCES = [
     {
+        source: 'asana',
+        label: 'Asana',
+        category: 'Issue tracking',
+        watches: 'Monitor new issues and updates',
+        dwSourceType: 'Asana',
+        requiredTables: ['tasks'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'azure_devops',
+        label: 'Azure DevOps',
+        category: 'Issue tracking',
+        watches: 'Monitor new work items',
+        dwSourceType: 'AzureDevOps',
+        requiredTables: ['work_item_revisions'],
+        sourceType: 'issue',
+    },
+    {
         source: 'gitea',
         label: 'Gitea',
         category: 'Issue tracking',
@@ -59,6 +77,24 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor new issues and updates',
         dwSourceType: 'Linear',
         requiredTables: ['issues'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'monday',
+        label: 'monday.com',
+        category: 'Issue tracking',
+        watches: 'Monitor new issues and updates',
+        dwSourceType: 'Monday',
+        requiredTables: ['items'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'plane',
+        label: 'Plane',
+        category: 'Issue tracking',
+        watches: 'Monitor new issues and updates',
+        dwSourceType: 'Plane',
+        requiredTables: ['work_items'],
         sourceType: 'issue',
     },
     {
