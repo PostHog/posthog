@@ -1699,6 +1699,27 @@ async def test_nonblocking_pre_provision_gates_provisioning_on_the_status_write(
     assert events == expected_events
 
 
+async def test_nonblocking_pre_provision_cancellation_does_not_wait_on_stalled_startup_steps(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    stalled = asyncio.Event()
+
+    async def stalled_slack_post() -> None:
+        await stalled.wait()
+
+    async def cancelled_sandbox() -> Mock:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", cancelled_sandbox)
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", stalled_slack_post)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(workflow_instance._get_sandbox_alongside_pre_provision_steps("run-id"), timeout=1)
+
+
 async def test_nonblocking_pre_provision_holds_slack_setup_steps_until_the_relay_starts(monkeypatch):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = dataclasses.replace(

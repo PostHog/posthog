@@ -1800,7 +1800,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             sandbox_output = await self._get_sandbox_for_repository()
-        except BaseException:
+        except asyncio.CancelledError:
+            announce.cancel()
+            track.cancel()
+            await asyncio.gather(announce, track, return_exceptions=True)
+            raise
+        except Exception:
             await asyncio.gather(announce, track, return_exceptions=True)
             raise
         await asyncio.gather(announce, track)
