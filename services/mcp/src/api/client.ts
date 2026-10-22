@@ -341,6 +341,8 @@ export class ApiClient {
         query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
+        /** Per-attempt deadline for a JSON response. Defaults to the path-based deadline. */
+        timeoutMs?: number
     }): Promise<T> {
         const pathname = opts.path.split(/[?#]/, 1)[0]!
         if (
@@ -393,7 +395,7 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions)
+        const result = await this.fetchJson<T>(url, fetchOptions, { timeoutMs: opts.timeoutMs })
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -638,18 +640,19 @@ export class ApiClient {
     }
 
     /** Pass `idempotent` for a non-GET request that has no upstream effect, so
-     *  a transport fault retries it like a safe method. */
+     *  a transport fault retries it like a safe method. Pass `timeoutMs` to
+     *  override the per-attempt deadline. */
     private async fetchJson<T>(
         url: string,
         options?: RequestInit,
-        { idempotent = false }: { idempotent?: boolean } = {}
+        { idempotent = false, timeoutMs: timeoutOverrideMs }: { idempotent?: boolean; timeoutMs?: number } = {}
     ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
-        const timeoutMs = apiRequestTimeoutMs(url)
+        const timeoutMs = timeoutOverrideMs ?? apiRequestTimeoutMs(url)
 
         for (;;) {
             let response: Response
