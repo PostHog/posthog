@@ -1,4 +1,10 @@
-import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
+import {
+    type AstRange,
+    type SelectComparison,
+    compareParsedSelects,
+    innermostSelectRangeFromAst,
+    tablesAndColumnsFromAst,
+} from './hogqlAst'
 import { parseSelect } from './hogqlParserSingleton'
 import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
@@ -135,4 +141,26 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
     }
     const ast = await parseOnMainThread(query)
     return ast ? tablesAndColumnsFromAst(ast) : {}
+}
+
+const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])
+
+/**
+ * Parses both queries and tells whether they mean the same, ignoring whitespace between tokens.
+ * Rejects when the parser cannot load, because then no answer is safe.
+ */
+export async function compareSelectQueries(query: string, other: string): Promise<SelectComparison> {
+    if (!workerUnavailable) {
+        try {
+            const result = await ask({ op: 'compareSelects', query, other })
+            // The worker URL has no content hash, so a browser can run a cached worker build that
+            // does not know this op. That build answers with the result of a different op.
+            if (SELECT_COMPARISONS.has(result)) {
+                return result
+            }
+        } catch {
+            // fall through to the main thread
+        }
+    }
+    return compareParsedSelects(await parseSelect(query, true), await parseSelect(other, true))
 }
