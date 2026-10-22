@@ -124,6 +124,7 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
     _DASHBOARD_READ: dict[str, str | int] = {
         "lc_query_type": "stats_table_paths",
         "lc_kind": "request",
+        "lc_id": "",
         "lc_feature": "query",
         "lc_access_method": "",
         "type": "QueryFinish",
@@ -141,11 +142,11 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
             f"""
             INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
                 (initial_query_start_time, event_time_microseconds, team_id, initial_query_id, is_initial_query,
-                 type, lc_query_type, lc_kind, lc_feature, lc_access_method)
+                 type, lc_query_type, lc_kind, lc_id, lc_feature, lc_access_method)
             SELECT
                 now() - INTERVAL %(hours_ago)s HOUR, now() - INTERVAL %(hours_ago)s HOUR, %(team_id)s,
                 toString(generateUUIDv4()), %(is_initial_query)s, %(type)s, %(lc_query_type)s, %(lc_kind)s,
-                %(lc_feature)s, %(lc_access_method)s
+                %(lc_id)s, %(lc_feature)s, %(lc_access_method)s
             FROM numbers(%(count)s)
             """,
             {**row, "team_id": team_id, "count": count},
@@ -153,7 +154,7 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("background_celery_replay", {"lc_kind": "celery"}),
+            ("cache_warming_task", {"lc_kind": "celery", "lc_id": "posthog.caching.warming.warm_insight_cache_task"}),
             ("dagster_warmer_without_kind", {"lc_kind": ""}),
             ("not_a_stats_table_tile", {"lc_query_type": "web_overview_query"}),
             ("cache_warmup_feature", {"lc_feature": "cache_warmup"}),
@@ -164,7 +165,7 @@ class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
         ]
     )
     def test_ranks_dashboard_reads_and_drops_other_traffic(self, _name: str, excluded: dict[str, str | int]) -> None:
-        self._archive_reads(team_id=101, count=3)
+        self._archive_reads(team_id=101, count=3, lc_kind="celery", lc_id="posthog.tasks.tasks.process_query_task")
         self._archive_reads(team_id=102, count=5)
         self._archive_reads(team_id=0, count=10)
         self._archive_reads(team_id=103, count=10, **excluded)

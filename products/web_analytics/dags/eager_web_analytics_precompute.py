@@ -213,15 +213,16 @@ def _fetch_active_wa_team_ids(limit: int, lookback_hours: int = 24) -> list[int]
     try:
         # query_log_archive keeps one row per query chain with the log_comment tags as typed columns, and its
         # sort key starts with the hour of initial_query_start_time, so this reads only the lookback window.
-        # The archive has no trigger column. Background replays (stale revalidation, warmers) run as Celery
-        # or Dagster work, so lc_kind = 'request' keeps only queries a person started from the dashboard.
+        # The archive has no trigger column. Async dashboard tiles and stale revalidations run in
+        # process_query_task, which tags them kind='celery', but a person viewing the dashboard starts both.
+        # Warmers run in other tasks or in Dagster, so they fail this filter.
         rows = sync_execute(
             """
             SELECT team_id, count() AS n
             FROM query_log_archive
             WHERE initial_query_start_time > now() - INTERVAL %(hours)s HOUR
               AND lc_query_type LIKE 'stats_table%%'
-              AND lc_kind = 'request'
+              AND (lc_kind = 'request' OR (lc_kind = 'celery' AND lc_id = 'posthog.tasks.tasks.process_query_task'))
               AND lc_feature != 'cache_warmup'
               AND lc_access_method != 'personal_api_key'
               AND type = 'QueryFinish' AND is_initial_query
