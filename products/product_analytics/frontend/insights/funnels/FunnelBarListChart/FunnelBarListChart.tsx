@@ -169,7 +169,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                     </div>
                 ))}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="@container min-w-0 flex-1">
                 <StackedBarList
                     labels={labels}
                     series={series}

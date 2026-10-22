@@ -22,9 +22,13 @@ export function FunnelBarListDropOff({
         return null
     }
     return (
-        <span className="flex items-center gap-0.5 text-sm leading-4 text-secondary @max-md:hidden">
+        <span className="flex items-center gap-0.5 text-sm leading-4 text-secondary @max-sm:hidden">
             <IconTrendingFlatDown className="text-danger" />
-            <span>{`${percentage(1 - step.conversionRates.fromPrevious, 1)} (${humanFriendlyNumber(step.droppedOffFromPrevious)} ${pluralize(step.droppedOffFromPrevious, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)}) dropped off`}</span>
+            <span>
+                {percentage(1 - step.conversionRates.fromPrevious, 1)}
+                <span className="@max-xl:hidden">{` (${humanFriendlyNumber(step.droppedOffFromPrevious)} ${pluralize(step.droppedOffFromPrevious, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)})`}</span>
+                {' dropped off'}
+            </span>
         </span>
     )
 }

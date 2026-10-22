@@ -28,7 +28,8 @@ export function FunnelBarListValue({
     return (
         <span className="text-secondary" translate="no">
             <span className="font-semibold text-primary">{percentage(rate, 1)}</span>
-            <span>{` (${humanFriendlyNumber(count)} ${pluralize(count, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)}) converted`}</span>
+            <span className="@max-xl:hidden">{` (${humanFriendlyNumber(count)} ${pluralize(count, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)})`}</span>
+            <span className="@max-sm:hidden"> converted</span>
         </span>
     )
 }

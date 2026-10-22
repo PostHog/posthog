@@ -60,7 +60,7 @@ export function FunnelBarListLabel({
             ) : (
                 <span className={nameClassName}>{name}</span>
             )}
-            {isOptional ? <span className="shrink-0 text-secondary @max-md:hidden">(optional)</span> : null}
+            {isOptional ? <span className="shrink-0 text-secondary @max-sm:hidden">(optional)</span> : null}
         </>
     )
 }
