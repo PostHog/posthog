@@ -19,26 +19,34 @@ from products.customer_analytics.backend.models import Account, AccountRelations
 EVENT_SOURCE = "customer_analytics_events"
 
 
-def _account_groups(account: Account) -> dict[str, str] | None:
+def _get_account_group_properties(account: Account) -> dict[str, Any]:
     """Map the team's account group type to this account's external_id.
 
     The ``$groups`` entry lets downstream account workflow actions prefill
     ``external_id`` via ``{groups.<type>.id}`` with zero manual input.
+
+    We also set ``$group_<index>`` ourselves because these events are personless,
+    and ingestion only adds group properties when it processes the person. Without
+    it, the ``$group_<index>`` column stays empty and queries cannot join these
+    events to the account by group key.
     """
     if not account.external_id:
-        return None
+        return {}
     group_type_index = account.team.customer_analytics_config.account_group_type_index
     if group_type_index is None:
-        return None
+        return {}
     group_types = get_group_types_for_project(account.team.project_id, caller_tag="customer_analytics/events")
     for mapping in group_types:
         if mapping["group_type_index"] == group_type_index:
-            return {mapping["group_type"]: account.external_id}
-    return None
+            return {
+                "$groups": {mapping["group_type"]: account.external_id},
+                f"$group_{group_type_index}": account.external_id,
+            }
+    return {}
 
 
 def _base_event_properties(account: Account, actor: User | None, workflow_id: str | None) -> dict[str, Any]:
-    properties: dict[str, Any] = {
+    return {
         "account_id": str(account.id),
         "account_external_id": account.external_id,
         "account_name": account.name,
@@ -46,11 +54,8 @@ def _base_event_properties(account: Account, actor: User | None, workflow_id: st
         "actor_id": actor.id if actor else None,
         "actor_email": actor.email if actor else None,
         "workflow_id": workflow_id,
+        **_get_account_group_properties(account),
     }
-    groups = _account_groups(account)
-    if groups:
-        properties["$groups"] = groups
-    return properties
 
 
 def _event_distinct_id(account: Account, actor: User | None) -> str:

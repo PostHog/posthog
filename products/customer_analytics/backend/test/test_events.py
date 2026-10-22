@@ -52,6 +52,7 @@ class TestAccountTagEvent(BaseTest):
         assert properties["account_name"] == "Acme Corp"
         assert properties["actor_type"] == "system"
         assert properties["$groups"] == {"account": "acme-1"}
+        assert properties["$group_1"] == "acme-1"
 
     def test_external_tag_remove_emits_one_event(self, mock_capture):
         self._update_tags(["enterprise"])
@@ -144,6 +145,7 @@ class TestAccountTagEvent(BaseTest):
         mock_capture.assert_called_once()
         (event,) = mock_capture.call_args.kwargs["events"]
         assert "$groups" not in event["properties"]
+        assert not any(key.startswith("$group_") for key in event["properties"])
 
     def test_no_event_when_transaction_rolls_back(self, mock_capture):
         with self.captureOnCommitCallbacks(execute=True):
