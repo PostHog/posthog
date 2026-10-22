@@ -195,9 +195,9 @@ from posthog.models.event.new_events_schema import (
     events_route_scope,
     get_new_events_cluster_host,
     new_events_cluster_host_scope,
-    pin_events_table,
-    strip_events_route,
+    strip_events_route_modifiers,
     use_new_events_schema,
+    with_pinned_events_route,
 )
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
@@ -1823,6 +1823,7 @@ R = TypeVar("R", bound=BaseModel)
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 SourceT = TypeVar("SourceT", bound=BaseModel)
+_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1879,9 +1880,6 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
         "marketing_analytics": read("marketing_analytics_config"),
         "customer_analytics": read("customer_analytics_config"),
     }
-
-
-_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
 def _pin_events_route(run: _RunMethod) -> _RunMethod:
@@ -2111,12 +2109,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return True
 
     def _query_json_with_events_schema(self) -> dict[str, Any]:
-        # A worker rebuilds this runner from the payload. The payload carries the resolved events table, so the
-        # worker reads the same table and writes the cache key this request reads.
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
         if self.modifiers.useNewEventsSchema and self._reads_events_route():
-            pin_events_table(query_json, self.modifiers.useNewEventsSchema)
+            return with_pinned_events_route(query_json, self.modifiers)
         return query_json
 
     def enqueue_async_calculation(
@@ -3162,7 +3158,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
-        strip_events_route(query, drop_empty=True)
+        query = strip_events_route_modifiers(query, drop_empty=True)
 
         cache_modifiers = events_route_cache_modifiers(to_dict(self.modifiers), reads_events=self._reads_events_route())
         payload = {
