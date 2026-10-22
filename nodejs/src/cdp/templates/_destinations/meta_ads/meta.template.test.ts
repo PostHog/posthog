@@ -484,9 +484,29 @@ describe('meta ads template', () => {
                 expected: { ge: sha256('f'), db: sha256('19900131') },
             },
             {
+                name: 'reorders a month-first date of birth into year-first order',
+                userData: { db: '10/16/1997' },
+                expected: { db: sha256('19971016') },
+            },
+            {
                 name: 'sends nothing for an unknown gender or an incomplete date of birth',
                 userData: { ge: 'other', db: '1990-01' },
                 expected: {},
+            },
+            {
+                name: 'drops a name too long to normalize safely',
+                userData: { fn: 'a'.repeat(300) },
+                expected: {},
+            },
+            {
+                name: 'recognizes the US from a list-valued country when shortening a ZIP+4 code',
+                userData: { zp: '941071234', country: ['US'] },
+                expected: { zp: sha256('94107'), country: [sha256('us')] },
+            },
+            {
+                name: 'recognizes the US from an already hashed country when shortening a ZIP+4 code',
+                userData: { zp: '941071234', country: sha256('us') },
+                expected: { zp: sha256('94107'), country: sha256('us') },
             },
             {
                 name: 'leaves fields Meta does not want hashed as they are',

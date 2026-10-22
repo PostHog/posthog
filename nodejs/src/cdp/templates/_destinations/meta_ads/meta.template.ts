@@ -160,9 +160,17 @@ fn firstBrowserId(value) {
 
 let HASHED_USER_KEYS := ['em', 'ph', 'fn', 'ln', 'ge', 'db', 'ct', 'st', 'zp', 'country']
 
+// No real name, city, state, postal code or phone number is this long. A value past this length
+// is dropped before the per-character loop below, so an oversized property cannot run it long
+// enough to exhaust the function's execution budget.
+let MAX_NORMALIZED_FIELD_LENGTH := 255
+
 // splitByString splits on UTF-16 code units, so a character outside the Basic Multilingual Plane
 // arrives as two halves that each fail to match any character. They are joined before the check.
 fn keepMatching(value, pattern) {
+    if (length(value) > MAX_NORMALIZED_FIELD_LENGTH) {
+        return ''
+    }
     let kept := ''
     let pending := ''
     for (let char in splitByString('', value)) {
@@ -186,6 +194,49 @@ fn normalizeCountry(value) {
     return match(normalized, '^[a-z]{2}\$') ? normalized : ''
 }
 
+// inputs.userData.country can hold a plain code, a list of codes, or an already hashed value, since
+// it goes through the same hashing loop as every other field. The ZIP+4 rule below only needs to
+// tell United States apart from everything else, so this recognizes 'us' in each of those shapes.
+fn isUnitedStates(value) {
+    let candidate := parseValueIfArray(value)
+    if (typeof(candidate) == 'array') {
+        candidate := candidate[1]
+    }
+    let normalized := lower(trim(toString(candidate)))
+    return normalized == 'us' or normalized == sha256Hex('us')
+}
+
+fn pad2(value) {
+    return length(value) == 1 ? concat('0', value) : value
+}
+
+fn isValidDate(year, month, day) {
+    let y := toInt(year)
+    let m := toInt(month)
+    let d := toInt(day)
+    return y != null and m != null and d != null and m >= 1 and m <= 12 and d >= 1 and d <= 31
+}
+
+// Meta requires the date of birth as YYYYMMDD, but a raw value can put the year first or last. A
+// value with no separator is assumed already in that order. One with a separator is read by where
+// its 4-digit year sits, then its month and day are validated and reordered if needed.
+fn normalizeDateOfBirth(value) {
+    if (match(value, '^[0-9]{8}\$')) {
+        return isValidDate(substring(value, 1, 4), substring(value, 5, 2), substring(value, 7, 2)) ? value : ''
+    } else if (match(value, '^[0-9]{4}[-/.][0-9]{1,2}[-/.][0-9]{1,2}\$')) {
+        let year := extractRegex(value, '^([0-9]{4})')
+        let month := pad2(extractRegex(value, '^[0-9]{4}[-/.]([0-9]{1,2})[-/.]'))
+        let day := pad2(extractRegex(value, '[-/.]([0-9]{1,2})\$'))
+        return isValidDate(year, month, day) ? concat(year, month, day) : ''
+    } else if (match(value, '^[0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{4}\$')) {
+        let month := pad2(extractRegex(value, '^([0-9]{1,2})[-/.]'))
+        let day := pad2(extractRegex(value, '^[0-9]{1,2}[-/.]([0-9]{1,2})[-/.]'))
+        let year := extractRegex(value, '([0-9]{4})\$')
+        return isValidDate(year, month, day) ? concat(year, month, day) : ''
+    }
+    return ''
+}
+
 // Meta matches a hash only when it normalized the raw value the same way before hashing it. A value
 // that cannot match after normalization is dropped rather than hashed. The rules per field:
 // https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
@@ -203,8 +254,8 @@ fn normalizeUserValue(key, value) {
         return keepMatching(normalized, '^[\\\\p{L}\\\\p{N}]\$')
     } else if (key == 'zp') {
         let postal := keepMatching(normalized, '^[\\\\p{L}\\\\p{N}]\$')
-        let country := normalizeCountry(inputs.userData.country)
-        if (country == 'us' or (empty(country) and match(normalized, '^[0-9]{5}-[0-9]{4}\$'))) {
+        let countryGiven := not empty(parseValueIfArray(inputs.userData.country))
+        if (isUnitedStates(inputs.userData.country) or (not countryGiven and match(normalized, '^[0-9]{5}-[0-9]{4}\$'))) {
             // Meta takes only the first 5 digits of a US ZIP+4 code
             if (match(postal, '^[0-9]{9}\$')) {
                 return substring(postal, 1, 5)
@@ -215,8 +266,7 @@ fn normalizeUserValue(key, value) {
     } else if (key == 'country') {
         return normalizeCountry(normalized)
     } else if (key == 'db') {
-        let digits := keepMatching(normalized, '^[0-9]\$')
-        return match(digits, '^[0-9]{8}\$') ? digits : ''
+        return normalizeDateOfBirth(normalized)
     } else if (key == 'ge') {
         if (normalized == 'f' or normalized == 'female') {
             return 'f'
