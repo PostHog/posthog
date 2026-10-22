@@ -21,10 +21,10 @@ export function watchForGoldRingsContent(
     onMatch: () => void
 ): () => void {
     const shouldStopWatching = (): boolean => {
-        if (!isCurrentNavigation() || !isGoldRingsActive(new Date(), enabled)) {
+        if (!isCurrentNavigation()) {
             return true
         }
-        if (!hasStandaloneFive(content.innerText)) {
+        if (!shouldPlayGoldRings(new Date(), enabled, content.innerText)) {
             return false
         }
 
