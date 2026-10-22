@@ -26,7 +26,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import {
     FLAG_CALLS_NOT_LOADABLE,
-    exampleFlagKey,
+    exampleFlagCall,
     matchesOnlyFlagCallsOutsideEvents,
 } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
@@ -1230,18 +1230,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         if (!response?.results?.[0]) {
                             // No matching events found
                             const flagCallsNotLoadable = values.triggerMatchesOnlyFlagCallsOutsideEvents
+                            const triggerFilters =
+                                values.triggerAction?.config.type === 'event' ? values.triggerAction.config.filters : {}
+                            const pageviewGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
                             // A test run applies the trigger filters, so a flag call trigger needs a flag call example.
-                            const exampleGlobals = createExampleEvent(
-                                values.workflow.team_id,
-                                values.workflow.name,
-                                flagCallsNotLoadable ? FEATURE_FLAG_CALLED_EVENT : '$pageview'
-                            )
-                            if (flagCallsNotLoadable && values.triggerAction?.config.type === 'event') {
-                                exampleGlobals.event.properties = {
-                                    ...exampleGlobals.event.properties,
-                                    $feature_flag: exampleFlagKey(values.triggerAction.config.filters ?? {}),
-                                }
-                            }
+                            const exampleGlobals = flagCallsNotLoadable
+                                ? exampleFlagCall(pageviewGlobals, triggerFilters ?? {})
+                                : pageviewGlobals
                             actions.setNoMatchingEvents(true)
 
                             if (flagCallsNotLoadable) {

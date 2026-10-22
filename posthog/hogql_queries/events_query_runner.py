@@ -447,10 +447,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
         if table is not FLAG_EVALUATIONS_LIST_TABLE:
             return property_to_expr(prop, self.team)
-        if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue) and prop.type in (
-            FilterLogicalOperator.AND_,
-            FilterLogicalOperator.OR_,
-        ):
+        if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue):
             # Builds the group the way property_to_expr does, so an exact flag filter inside a group also reads flag_key.
             exprs = [self._property_where_expr(value, table) for value in prop.values]
             if not exprs:

@@ -15,7 +15,6 @@ import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFilterEvents,
     CyclotronJobFiltersType,
-    EventPropertyFilter,
     HogFunctionTemplateType,
     HogFunctionType,
     PropertyFilterType,
@@ -377,10 +376,10 @@ describe('hogFunctionConfigurationLogic', () => {
     })
 
     describe('a destination on feature flag calls', () => {
-        const FLAG_CALLED = {
+        const FLAG_CALLED: CyclotronJobFilterEvents = {
             id: '$feature_flag_called',
             name: '$feature_flag_called',
-            type: 'events' as const,
+            type: 'events',
             order: 0,
             properties: [
                 {
@@ -388,10 +387,12 @@ describe('hogFunctionConfigurationLogic', () => {
                     value: 'my-flag',
                     operator: PropertyOperator.Exact,
                     type: PropertyFilterType.Event,
-                } as EventPropertyFilter,
+                },
             ],
         }
-        const PAGEVIEW = { id: '$pageview', name: '$pageview', type: 'events' as const, order: 1 }
+        const PAGEVIEW: CyclotronJobFilterEvents = { id: '$pageview', name: '$pageview', type: 'events', order: 1 }
+        const NO_MATCH_IN_30_DAYS =
+            'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
 
         function mountOnMode(
             mode: FlagEvaluationsModeEnumApi,
@@ -447,7 +448,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 'events mode',
                 FlagEvaluationsModeEnumApi.Number0,
                 [FLAG_CALLED],
-                'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+                NO_MATCH_IN_30_DAYS,
                 '$pageview',
                 undefined,
             ],
@@ -465,7 +466,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 'flag evaluations only mode with a pageview matcher',
                 FlagEvaluationsModeEnumApi.Number2,
                 [FLAG_CALLED, PAGEVIEW],
-                'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+                NO_MATCH_IN_30_DAYS,
                 '$pageview',
                 undefined,
             ],

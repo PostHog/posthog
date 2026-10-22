@@ -1,3 +1,4 @@
+import { convertPropertiesToPropertyGroup, isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAG_CALLED_EVENT, storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 
 import { performQuery } from '~/queries/query'
@@ -5,6 +6,7 @@ import { EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-gene
 import { hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     CyclotronJobFilterPropertyFilter,
+    CyclotronJobInvocationGlobals,
     EventPropertyFilter,
     FilterLogicalOperator,
     HogQLPropertyFilter,
@@ -93,6 +95,7 @@ export function withFlagCallCounts(
     if (!series) {
         return { data: [], count: 0 }
     }
+    // With no flag call rows, the series can be a Storybook mock that has no `days`.
     if (!rows) {
         return { data: series.data, count: series.count }
     }
@@ -104,18 +107,14 @@ export function withFlagCallCounts(
     }
 }
 
-/**
- * The flag key for an example flag call: the key that an exact `$feature_flag` filter in the matchers names, so the
- * example passes the matchers in a test run. A global filter wins over a matcher's own filter.
- */
-export function exampleFlagKey({ events, properties }: MatchingFiltersInput): string {
+function exampleFlagKey({ events, properties }: MatchingFiltersInput): string {
     const filters: CyclotronJobFilterPropertyFilter[] = [
         ...(properties ?? []),
         ...(events ?? []).flatMap((event) => event.properties ?? []),
     ]
     const flagKeyFilter = filters.find(
         (filter): filter is EventPropertyFilter =>
-            filter.type === PropertyFilterType.Event &&
+            isEventPropertyFilter(filter) &&
             filter.key === '$feature_flag' &&
             filter.operator === PropertyOperator.Exact
     )
@@ -123,16 +122,31 @@ export function exampleFlagKey({ events, properties }: MatchingFiltersInput): st
     return value == null ? 'example-flag' : String(value)
 }
 
+/**
+ * A copy of `globals` as a flag call that passes the matchers in a test run. It names the flag that an exact
+ * `$feature_flag` filter in the matchers names. A global filter wins over a matcher's own filter.
+ */
+export function exampleFlagCall(
+    globals: CyclotronJobInvocationGlobals,
+    matchers: MatchingFiltersInput
+): CyclotronJobInvocationGlobals {
+    return {
+        ...globals,
+        event: {
+            ...globals.event,
+            event: FEATURE_FLAG_CALLED_EVENT,
+            properties: { ...globals.event.properties, $feature_flag: exampleFlagKey(matchers) },
+        },
+    }
+}
+
 function withoutFlagCalls(properties: TrendsQuery['properties']): TrendsQuery['properties'] {
-    if (!properties) {
-        return [NOT_A_FLAG_CALL]
-    }
-    if (Array.isArray(properties)) {
-        return [...properties, NOT_A_FLAG_CALL]
-    }
     return {
         type: FilterLogicalOperator.And,
-        values: [properties, { type: FilterLogicalOperator.And, values: [NOT_A_FLAG_CALL] }],
+        values: [
+            convertPropertiesToPropertyGroup(properties),
+            { type: FilterLogicalOperator.And, values: [NOT_A_FLAG_CALL] },
+        ],
     }
 }
 

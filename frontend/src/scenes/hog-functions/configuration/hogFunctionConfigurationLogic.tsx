@@ -88,7 +88,7 @@ import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, Project
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
     FLAG_CALLS_NOT_LOADABLE,
-    exampleFlagKey,
+    exampleFlagCall,
     flagCallsOutsideEventsFilters,
     matchesOnlyFlagCallsOutsideEvents,
     performTrendsQueryWithFlagCalls,
@@ -1194,22 +1194,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
-                    const flagCallsNotLoadable =
-                        !!values.matchingFiltersInput &&
-                        matchesOnlyFlagCallsOutsideEvents(values.currentTeam, values.matchingFiltersInput)
+                    const matchers = values.matchingFiltersInput ?? {}
+                    const flagCallsNotLoadable = matchesOnlyFlagCallsOutsideEvents(values.currentTeam, matchers)
                     // A test run applies the destination filters, so a flag call destination needs a flag call example.
                     const fallbackGlobals = flagCallsNotLoadable
-                        ? {
-                              ...values.exampleInvocationGlobals,
-                              event: {
-                                  ...values.exampleInvocationGlobals.event,
-                                  event: FEATURE_FLAG_CALLED_EVENT,
-                                  properties: {
-                                      ...values.exampleInvocationGlobals.event.properties,
-                                      $feature_flag: exampleFlagKey(values.matchingFiltersInput ?? {}),
-                                  },
-                              },
-                          }
+                        ? exampleFlagCall(values.exampleInvocationGlobals, matchers)
                         : values.exampleInvocationGlobals
                     const errorMessage = flagCallsNotLoadable
                         ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example ${FEATURE_FLAG_CALLED_EVENT} event instead.`
