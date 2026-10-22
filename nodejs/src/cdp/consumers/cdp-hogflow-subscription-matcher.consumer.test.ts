@@ -1283,6 +1283,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('message and lookup failures', () => {
+        const invalidTeamIdParseErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+
         beforeEach(() => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
             // Postgres rejects a team id outside int4 on every read. The valid messages here all use team 1.
@@ -1343,8 +1346,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 good: rawInternalEvent(),
             },
         ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good }) => {
-            const invalidTeamIdParseErrors = async (): Promise<number> =>
-                (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
             const parseErrorsBefore = await invalidTeamIdParseErrors()
 
             const result = await (matcher as any)[parse]([bad, good])
