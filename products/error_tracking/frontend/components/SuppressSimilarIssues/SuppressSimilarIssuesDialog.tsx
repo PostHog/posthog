@@ -18,7 +18,7 @@ import {
 import { errorTrackingEditAccessDisabledReason } from '../../utils'
 import { SuppressScopeChoice } from './SuppressScopeChoice'
 import { suppressSimilarIssuesLogic } from './suppressSimilarIssuesLogic'
-import { SuppressScopeKey, recommendedScope } from './suppressSimilarScopes'
+import { SuppressScopeKey } from './suppressSimilarScopes'
 
 export function SuppressSimilarIssuesDialog(): JSX.Element {
     const {
@@ -33,7 +33,6 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
     } = useValues(suppressSimilarIssuesLogic)
     const { selectScope, createRule, dismissSuggestion } = useActions(suppressSimilarIssuesLogic)
 
-    const recommended = recommendedScope(scopeOptions)
     const multiple = snapshots.length > 1
     const titles: Record<SuppressScopeKey, string> = {
         exact: multiple ? 'These messages only' : 'This message only',
@@ -64,7 +63,6 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
                                     key={option.key}
                                     option={option}
                                     title={titles[option.key]}
-                                    recommended={option.key === recommended}
                                     impact={scopeImpacts?.[option.key]}
                                     impactLoading={scopeImpactsLoading}
                                 />

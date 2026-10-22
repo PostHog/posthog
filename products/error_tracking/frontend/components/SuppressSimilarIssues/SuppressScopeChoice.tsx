@@ -1,13 +1,4 @@
-import {
-    Badge,
-    Field,
-    FieldContent,
-    FieldDescription,
-    FieldLabel,
-    FieldTitle,
-    RadioGroupItem,
-    Skeleton,
-} from 'lib/ui/quill'
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle, RadioGroupItem, Skeleton } from 'lib/ui/quill'
 import { pluralize } from 'lib/utils/strings'
 
 import { MessagePattern } from './MessagePattern'
@@ -16,18 +7,11 @@ import { ScopeImpact, SuppressScopeOption } from './suppressSimilarScopes'
 export interface SuppressScopeChoiceProps {
     option: SuppressScopeOption
     title: string
-    recommended: boolean
     impact: ScopeImpact | undefined
     impactLoading: boolean
 }
 
-export function SuppressScopeChoice({
-    option,
-    title,
-    recommended,
-    impact,
-    impactLoading,
-}: SuppressScopeChoiceProps): JSX.Element {
+export function SuppressScopeChoice({ option, title, impact, impactLoading }: SuppressScopeChoiceProps): JSX.Element {
     const id = `suppress-similar-scope-${option.key}`
     const unavailable = !!option.unavailableReason
 
@@ -35,10 +19,7 @@ export function SuppressScopeChoice({
         <FieldLabel htmlFor={id} className="w-full">
             <Field orientation="horizontal" data-disabled={unavailable}>
                 <FieldContent className="min-w-0 gap-1.5">
-                    <FieldTitle>
-                        <span>{title}</span>
-                        {recommended && <Badge variant="success">Recommended</Badge>}
-                    </FieldTitle>
+                    <FieldTitle>{title}</FieldTitle>
                     {!unavailable && option.messages.length > 0 && (
                         <span className="flex flex-wrap gap-1">
                             {option.messages.map((segments, index) => (
