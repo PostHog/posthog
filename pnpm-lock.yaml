@@ -192,6 +192,9 @@ patchedDependencies:
   '@base-ui/react@1.9.0':
     hash: e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
     path: patches/@base-ui__react@1.9.0.patch
+  react-draggable@4.5.0:
+    hash: b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6
+    path: patches/react-draggable@4.5.0.patch
   '@connectrpc/connect-node@2.1.1':
     hash: a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
     path: patches/@connectrpc__connect-node@2.1.1.patch
@@ -1237,7 +1240,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       react-draggable:
         specifier: ^4.5.0
-        version: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-email-editor:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
@@ -43810,7 +43813,7 @@ snapshots:
       react: 18.3.1
       scheduler: 0.23.2
 
-  react-draggable@4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-draggable@4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       prop-types: 15.8.1
@@ -43829,7 +43832,7 @@ snapshots:
       prop-types: 15.8.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-draggable: 4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-resizable: 3.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       resize-observer-polyfill: 1.5.1
 
@@ -43840,7 +43843,7 @@ snapshots:
       prop-types: 15.8.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-draggable: 4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-resizable: 3.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       resize-observer-polyfill: 1.5.1
 
@@ -43922,7 +43925,7 @@ snapshots:
       prop-types: 15.8.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-draggable: 4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   react-shadow@20.4.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
