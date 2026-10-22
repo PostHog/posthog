@@ -6179,12 +6179,12 @@ Today (8): `Calls`, `Keywords`, `Leads`, `Sales`, `Sources`, `Stages`, `Subscrip
 
 Diffed against: <https://api-docs.hyros.com/ai-context/rest-api.txt>
 
-- [ ] `Ad Accounts (GET /api/v1.0/ad-accounts)` — resolve adAccountId on sources and attribution records to account names and platforms (high)
-- [ ] `Ads (GET /api/v1.0/ads)` — resolve adSourceId on sources and attribution records to individual ads (high)
-- [ ] `Products (GET /api/v1.0/products)` — add product prices and cost of goods to sales for profit analysis, using their existing product IDs (high)
+- [x] `Ad Accounts (GET /api/v1.0/ad-accounts)` — resolve adAccountId on sources and attribution records to account names and platforms (high)
+- [x] `Ads (GET /api/v1.0/ads)` — resolve adSourceId on sources and attribution records to individual ads (high)
+- [x] `Products (GET /api/v1.0/products)` — add product prices and cost of goods to sales for profit analysis, using their existing product IDs (high)
 - [ ] `Ads Attribution Report (GET /api/v1.0/attribution)` — produce vendor attribution metrics and ad spend across attribution models and reporting levels (high)
 - [ ] `ROAS (GET /api/v1.0/attribution/roas)` — measure collected revenue against ad spend using the vendor's fixed return calculation (high)
-- [ ] `Conversion Paths (GET /api/v1.0/conversion-paths)` — analyze ordered source touches for each conversion and calculate custom attribution models (high)
+- [x] `Conversion Paths (GET /api/v1.0/conversion-paths)` — analyze ordered source touches for each conversion and calculate custom attribution models (high)
 - [ ] `Lead Clicks (GET /api/v1.0/leads/clicks)` — analyze click histories behind attributed sales instead of only first and last touches (medium)
 - [ ] `Leads Journey (GET /api/v1.0/leads/journey)` — measure stage changes, opt-ins, email activity, and other events across each lead's timeline (medium)
 - [ ] `Custom Costs (GET /api/v1.0/custom-costs)` — include recurring and one-time business costs in campaign profitability calculations (medium)
