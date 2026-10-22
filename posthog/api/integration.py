@@ -115,10 +115,10 @@ from posthog.models.integration import (
     SnowflakeIntegrationError,
     StripeIntegration,
     TwilioIntegration,
-    defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.github_readiness import GitHubReadinessStatus, github_readiness
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
@@ -748,6 +748,16 @@ class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
+    github_readiness = serializers.SerializerMethodField(
+        help_text="GitHub connection and repository readiness for code research; null for other integrations."
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=GitHubReadinessStatus.choices, allow_null=True))
+    def get_github_readiness(self, obj: Integration) -> str | None:
+        if obj.kind != "github":
+            return None
+        return github_readiness(GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL)).status
+
     created_by = UserBasicSerializer(read_only=True)
     files_write_requestable = serializers.SerializerMethodField(
         help_text="Slack only: whether reconnecting can request the files:write scope."
@@ -779,6 +789,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "github_readiness",
         ]
         read_only_fields = [
             "id",
@@ -789,6 +800,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "github_readiness",
         ]
 
     @extend_schema_field(serializers.BooleanField())
@@ -1535,7 +1547,11 @@ class IntegrationViewSet(
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
     # default connection.
-    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
+    queryset = (
+        Integration.objects.annotate(_github_has_repositories=~Q(repository_cache=[]))
+        .defer("repository_cache")
+        .order_by("created_at", "id")
+    )
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]

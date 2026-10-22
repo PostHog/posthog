@@ -1473,6 +1473,17 @@ export const SignalReportStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type GitHubReadinessStatusEnumApi =
+    (typeof GitHubReadinessStatusEnumApi)[keyof typeof GitHubReadinessStatusEnumApi]
+
+export const GitHubReadinessStatusEnumApi = {
+    Ready: 'ready',
+    NotConnected: 'not_connected',
+    ReconnectRequired: 'reconnect_required',
+    NoRepositories: 'no_repositories',
+    TemporarilyUnavailable: 'temporarily_unavailable',
+} as const
+
 /**
  * * `small` - small
  * * `medium` - medium
@@ -2098,6 +2109,22 @@ export interface SignalReportListApi {
     readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly research_blocked_reason: GitHubReadinessStatusEnumApi | null
+    /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly implementation_blocked_reason: GitHubReadinessStatusEnumApi | null
     /**
      * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
      * @nullable
@@ -2348,6 +2375,22 @@ export interface SignalReportApi {
     readonly reviewer_assignment: ReviewerControlResponseApi | null
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /** GitHub readiness prerequisite holding research in the candidate state; null once research starts.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly research_blocked_reason: GitHubReadinessStatusEnumApi | null
+    /** GitHub readiness prerequisite holding automatic implementation; null when no blocker is recorded.
+     *
+     * * `ready` - Connected
+     * * `not_connected` - Connect GitHub
+     * * `reconnect_required` - Reconnect GitHub
+     * * `no_repositories` - Allow repository access
+     * * `temporarily_unavailable` - Checking GitHub access */
+    readonly implementation_blocked_reason: GitHubReadinessStatusEnumApi | null
     /**
      * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
      * @nullable

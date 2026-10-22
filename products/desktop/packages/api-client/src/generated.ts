@@ -15560,6 +15560,12 @@ export namespace Schemas {
         rollout: FeatureFlagRolloutSummary;
     };
     export type FlagEvaluationsModeEnum = 0 | 1 | 2;
+    export type GitHubReadinessStatusEnum =
+        | "ready"
+        | "not_connected"
+        | "reconnect_required"
+        | "no_repositories"
+        | "temporarily_unavailable";
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -16466,6 +16472,10 @@ export namespace Schemas {
          * GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
          */
         installation_status: InstallationStatusEnum | NullEnum;
+        /**
+         * GitHub connection and repository readiness for code research; null for other integrations.
+         */
+        github_readiness: GitHubReadinessStatusEnum | NullEnum;
     };
     /**
      * * `burst` - burst

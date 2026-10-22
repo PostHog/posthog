@@ -16,6 +16,10 @@ if TYPE_CHECKING:
         select_repository,
     )
     from products.tasks.backend.logic.repo_selection.cascade import select_repository_for_message
+    from products.tasks.backend.logic.repo_selection.github_readiness import (
+        get_team_github_readiness,
+        require_github_readiness,
+    )
 
 __all__ = [
     "REPO_SELECTION_DUMMY_REPOSITORY",
@@ -23,6 +27,8 @@ __all__ = [
     "RepoSelectionResult",
     "RepoSelectionUnavailableError",
     "RepoSelectionUsageLimitError",
+    "get_team_github_readiness",
+    "require_github_readiness",
     "list_team_connected_repositories",
     "resolve_team_github_integration",
     "select_repository",
@@ -47,6 +53,10 @@ _LAZY_FROM_CASCADE = frozenset({"select_repository_for_message"})
 
 
 def __getattr__(name: str) -> object:
+    if name in {"get_team_github_readiness", "require_github_readiness"}:
+        from products.tasks.backend.logic.repo_selection import github_readiness
+
+        return getattr(github_readiness, name)
     if name in _LAZY_FROM_AGENT:
         from products.tasks.backend.logic.repo_selection import agent
 

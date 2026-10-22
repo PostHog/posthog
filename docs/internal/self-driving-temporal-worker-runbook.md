@@ -179,3 +179,7 @@ Lower `INBOX_RANKING_SCORING_BATCH_SIZE` or pause the schedule.
 **Local development.**
 With `DEBUG` on, every queue collapses to `development-task-queue`.
 The local worker runs the sweep with all other workflows.
+
+## GitHub-blocked Self-Driving work
+
+GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed.

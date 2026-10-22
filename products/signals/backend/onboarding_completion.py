@@ -6,15 +6,12 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from requests import RequestException
 from rest_framework.exceptions import APIException
 
-from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import groups
-from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration.github_readiness import GitHubReadinessStatus, github_readiness
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 
@@ -90,21 +87,20 @@ class InboxOnboardingReconciler:
         return False
 
     def has_repository(self) -> bool:
-        failure: Exception | None = None
+        temporarily_unavailable = False
         retry_after = 0
         for integration in Integration.objects.filter(team_id=self.team_id, kind="github").order_by("id"):
-            github = GitHubIntegration(integration, source="signals_onboarding", priority=self.priority)
-            try:
-                repositories, _ = github.list_repositories(per_page=1)
-            except (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted, RequestException) as error:
-                failure = failure or error
-                if isinstance(error, GitHubRateLimitError):
-                    retry_after = max(retry_after, error.retry_after or 0)
-                continue
-            if repositories:
+            readiness = github_readiness(
+                GitHubIntegration(integration, source="signals_onboarding", priority=self.priority),
+                verify=True,
+                refresh_cache=False,
+            )
+            if readiness.status == GitHubReadinessStatus.READY:
                 return True
-        if failure is not None:
-            raise RepositoryCheckUnavailable(retry_after=retry_after) from failure
+            temporarily_unavailable |= readiness.status == GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+            retry_after = max(retry_after, readiness.retry_after)
+        if temporarily_unavailable:
+            raise RepositoryCheckUnavailable(retry_after=retry_after)
         return False
 
     def _capture(self, config: SignalTeamConfig) -> None:
