@@ -94,8 +94,8 @@ export interface workflowDataSuggestionsLogicActions {
         aiResult: DataSuggestionsResponseApi | null
         payload?: any
     }
-    reportCardsShown: () => {
-        value: true
+    reportCardsShown: (shownSuggestionIds?: string[]) => {
+        shownSuggestionIds: string[] | undefined
     }
     setBuildingKey: (key: string | null) => {
         key: string | null
@@ -142,7 +142,8 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     })),
     actions({
         giveUpPolling: true,
-        reportCardsShown: true,
+        // Without ids every loaded suggestion counts as shown.
+        reportCardsShown: (shownSuggestionIds?: string[]) => ({ shownSuggestionIds }),
         startSuggestion: (card: SuggestionCard) => ({ card }),
         setBuildingKey: (key: string | null) => ({ key }),
     }),
@@ -224,15 +225,21 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
         }
         return {
             // The logic can load before its cards are on screen, so the component that renders them reports the view.
-            reportCardsShown: () => {
+            reportCardsShown: ({ shownSuggestionIds }) => {
                 const aiResult = values.aiResult
-                if (aiResult?.status === 'ready' && aiResult.suggestions.length > 0) {
+                const shown =
+                    aiResult?.status === 'ready'
+                        ? aiResult.suggestions.filter(
+                              (suggestion) => !shownSuggestionIds || shownSuggestionIds.includes(suggestion.id)
+                          )
+                        : []
+                if (shown.length > 0) {
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestions shown', {
                         surface: props.surface,
-                        source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
-                        trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
-                        stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
+                        source: shown.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
+                        trigger_events: shown.map((suggestion) => suggestion.trigger_event),
+                        stages: shown.map((suggestion) => suggestion.stage),
                     })
                 }
             },

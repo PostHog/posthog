@@ -247,12 +247,17 @@ describe('EmailDomainScene', () => {
         expect(document.querySelector('[data-attr="email-domain-create-blank-workflow"]')).toBeNull()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
         expect(shownEvents()).toEqual([
-            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
+            [
+                'workflows data suggestions shown',
+                expect.objectContaining({ surface: 'email_domain_wizard', stages: ['onboarding'] }),
+            ],
         ])
 
         expect(screen.queryByText('Nudge trials before they end')).not.toBeInTheDocument()
         click('email-domain-show-more-suggestions')
+        await flush()
         expect(screen.getByText('Nudge trials before they end')).toBeInTheDocument()
+        expect(shownEvents().at(-1)?.[1]).toMatchObject({ stages: ['onboarding', 'trial'] })
 
         click('email-domain-skip-suggestions')
         expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
