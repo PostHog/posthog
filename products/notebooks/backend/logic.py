@@ -87,9 +87,8 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
 
 def make_notebook_listed(team_id: int, short_id: str, *, user: "User") -> None:
     notebook = (
-        Notebook.objects.filter(
-            team_id=team_id, short_id=short_id, deleted=False, visibility=Notebook.Visibility.INTERNAL
-        )
+        _base_queryset(team_id)
+        .filter(short_id=short_id, visibility=Notebook.Visibility.INTERNAL)
         .select_related("team")
         .defer("content", "text_content")
         .first()

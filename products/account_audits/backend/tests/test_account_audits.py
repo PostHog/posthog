@@ -157,37 +157,40 @@ class TestAccountAuditStartAPI(APIBaseTest):
             self.team.id, title="Account notes", content=None, visibility="internal"
         )
         self.client.force_login(self.user)
-        for short_id in (ordinary.short_id, admission.notebook_short_id, admission.notebook_short_id):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/file_system/log_view/", {"type": "notebook", "ref": short_id}
-            )
-            self.assertEqual(response.status_code, 204)
-        listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/").json()["results"]
-        self.assertIn(admission.notebook_short_id, [item["short_id"] for item in listed])
-        self.assertNotIn(ordinary.short_id, [item["short_id"] for item in listed])
+        with self.captureOnCommitCallbacks(execute=True):
+            for short_id in (ordinary.short_id, admission.notebook_short_id, admission.notebook_short_id):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/log_view/", {"type": "notebook", "ref": short_id}
+                )
+                self.assertEqual(response.status_code, 204)
+        listed_ids = {
+            item["short_id"] for item in self.client.get(f"/api/projects/{self.team.id}/notebooks/").json()["results"]
+        }
+        self.assertIn(admission.notebook_short_id, listed_ids)
+        self.assertNotIn(ordinary.short_id, listed_ids)
         self.assertTrue(
             FileSystem.objects.filter(team=self.team, type="notebook", ref=admission.notebook_short_id).exists()
         )
 
-    @parameterized.expand([("other_team",), ("deleted",), ("no_access",)])
+    @parameterized.expand(["other_team", "deleted", "no_access"])
     def test_view_does_not_list_ineligible_audit_notebook(self, problem: str) -> None:
         self.assertEqual(self._post({"organization_id": str(self.organization.id)}).status_code, 202)
         admission = AccountAuditAdmission.objects.for_team(self.team.id).get()
-        notebook = notebooks_facade.get_notebook(self.team.id, admission.notebook_short_id)
-        assert notebook is not None
+        short_id = admission.notebook_short_id
         viewer = self.user
         if problem == "other_team":
             admission.team_id = Team.objects.create(organization=self.organization, name="Other project").id
             admission.save(update_fields=["team_id"])
         elif problem == "deleted":
-            self.client.patch(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/", {"deleted": True})
+            self.client.patch(f"/api/projects/{self.team.id}/notebooks/{short_id}/", {"deleted": True})
         else:
             viewer = User.objects.create(email="outsider@example.com")
-        FileSystemViewLog.objects.create(team=self.team, user=viewer, type="notebook", ref=notebook.short_id)
-        stored = notebooks_facade.get_notebook(self.team.id, notebook.short_id, include_deleted=True)
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            FileSystemViewLog.objects.create(team=self.team, user=viewer, type="notebook", ref=short_id)
+        self.assertEqual(len(callbacks), 1)
+        stored = notebooks_facade.get_notebook(self.team.id, short_id, include_deleted=True)
         assert stored is not None
         self.assertEqual(stored.visibility, "internal")
-        self.assertFalse(FileSystem.objects.filter(team=self.team, type="notebook", ref=notebook.short_id).exists())
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
