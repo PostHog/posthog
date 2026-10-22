@@ -230,7 +230,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             for confirmed in (False, True)
         ]
         + [(True, False, "confirmed" if confirmed else "empty", "discovery", None) for confirmed in (False, True)]
-        + [(False, False, "unconfirmed", None, "not confirmed")]
+        + [(False, False, "unconfirmed", None, "not confirmed"), (False, False, "finished_meanwhile", None, None)]
     )
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_cancellation_survives_an_unavailable_cluster_only_when_cleanup_is_confirmed(
@@ -239,7 +239,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
         native_finished = Event()
-        matched = ("confirmed", "unconfirmed")
+        matched = ("confirmed", "unconfirmed", "finished_meanwhile")
         native_client, legacy_client = MagicMock(), MagicMock()
         native_client.__enter__.return_value = native_client
         legacy_client.__enter__.return_value = legacy_client
@@ -261,8 +261,11 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
                     raise RuntimeError("native unavailable")
                 if "system.processes" in query:
                     return [("native.example.com", "44_example-query_12345678")] if native_result in matched else []
+                columns = [("kill_status", "String"), ("query_id", "String")]
+                if native_result == "finished_meanwhile":
+                    return [], columns
                 status = "finished" if native_result == "confirmed" else "cant_cancel"
-                return [(status, "44_example-query_12345678")], [("kill_status", "String"), ("query_id", "String")]
+                return [(status, "44_example-query_12345678")], columns
             finally:
                 native_finished.set()
 
