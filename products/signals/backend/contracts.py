@@ -1065,6 +1065,37 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+class Dynamics365TicketSignalExtra(SignalExtraBase):
+    ticketnumber: str | None
+    prioritycode: str | None
+    severitycode: str | None
+    casetypecode: str | None
+    statuscode: str | None
+    createdon: str | None
+
+
+class Dynamics365TicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DYNAMICS365]
+    extra: Dynamics365TicketSignalExtra
+
+
+class ZohoCrmTicketSignalExtra(SignalExtraBase):
+    case_number: str | None
+    status: str | None
+    priority: str | None
+    type: str | None
+    case_origin: str | None
+    case_reason: str | None
+    created_time: str | None
+
+
+class ZohoCrmTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.ZOHO_CRM]
+    extra: ZohoCrmTicketSignalExtra
+
+
 # ── Search analytics ──────────────────────────────────────────────────────────────
 
 
@@ -1210,6 +1241,55 @@ class XmattersIncidentSignalInput(SignalInputBase):
     extra: XmattersIncidentSignalExtra
 
 
+# ── Security tools (scanner_finding) ──────────────────────────────────────────────
+
+
+class LaceworkScannerFindingSignalExtra(SignalExtraBase):
+    alert_type: str | None
+    severity: str | None
+    status: str | None
+    internet_exposure: str | None
+    start_time: str | None
+
+
+class LaceworkScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.LACEWORK]
+    extra: LaceworkScannerFindingSignalExtra
+
+
+class OrcaSecurityScannerFindingSignalExtra(SignalExtraBase):
+    category: str | None
+    risk_level: str | None
+    orca_score: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class OrcaSecurityScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.ORCA_SECURITY]
+    extra: OrcaSecurityScannerFindingSignalExtra
+
+
+class TenableVulnerabilityManagementScannerFindingSignalExtra(SignalExtraBase):
+    asset_uuid: str | None
+    plugin_id: str | None
+    port_number: str | None
+    protocol: str | None
+    plugin_cvss3_base_score: str | None
+    severity: str | None
+    state: str | None
+    first_found: str | None
+
+
+class TenableVulnerabilityManagementScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.TENABLE_VULNERABILITY_MANAGEMENT]
+    extra: TenableVulnerabilityManagementScannerFindingSignalExtra
+
+
 class BetterstackIncidentSignalExtra(SignalExtraBase):
     url: str | None
     started_at: str | None
@@ -1246,6 +1326,49 @@ class BigeyeIssueSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.INCIDENT]
     source_product: Literal[SignalSourceProduct.BIGEYE]
     extra: BigeyeIssueSignalExtra
+
+
+# ── Error monitors ─────────────────────────────────────────────────────────────
+
+
+class TriggerDevErrorSignalExtra(SignalExtraBase):
+    task_identifier: str | None
+    status: str | None
+    count: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class TriggerDevErrorSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.TRIGGER_DEV]
+    extra: TriggerDevErrorSignalExtra
+
+
+class ChecklyErrorGroupSignalExtra(SignalExtraBase):
+    check_id: str | None
+    error_hash: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class ChecklyErrorGroupSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CHECKLY]
+    extra: ChecklyErrorGroupSignalExtra
+
+
+class RoarkIssueSignalExtra(SignalExtraBase):
+    severity: str | None
+    status: str | None
+    event_count: str | None
+    created_at: str | None
+
+
+class RoarkIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.ROARK]
+    extra: RoarkIssueSignalExtra
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -1305,6 +1428,8 @@ SignalInput = Annotated[
     | JudgemeReviewsReviewSignalInput
     | IntercomTicketSignalInput
     | HubspotTicketSignalInput
+    | Dynamics365TicketSignalInput
+    | ZohoCrmTicketSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
@@ -1320,7 +1445,13 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | LaceworkScannerFindingSignalInput
+    | OrcaSecurityScannerFindingSignalInput
+    | TenableVulnerabilityManagementScannerFindingSignalInput
+    | TriggerDevErrorSignalInput
+    | ChecklyErrorGroupSignalInput
+    | RoarkIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1374,6 +1505,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     JudgemeReviewsReviewSignalInput,
     IntercomTicketSignalInput,
     HubspotTicketSignalInput,
+    Dynamics365TicketSignalInput,
+    ZohoCrmTicketSignalInput,
     EngineeringAnalyticsCIFlakyCheckSignalInput,
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
@@ -1390,6 +1523,12 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    LaceworkScannerFindingSignalInput,
+    OrcaSecurityScannerFindingSignalInput,
+    TenableVulnerabilityManagementScannerFindingSignalInput,
+    TriggerDevErrorSignalInput,
+    ChecklyErrorGroupSignalInput,
+    RoarkIssueSignalInput,
     CheckFailedSignalInput,
 )
 

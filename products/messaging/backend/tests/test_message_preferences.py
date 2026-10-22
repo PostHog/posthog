@@ -72,6 +72,18 @@ class TestMessagePreferences(BaseTest):
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_OUT)
         self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_OUT)
 
+    def test_set_preference_keeps_a_category_another_request_set(self):
+        MessageRecipientPreference.objects.create(team=self.team, identifier="test5@example.com", preferences={})
+        first = MessageRecipientPreference.objects.get(team=self.team, identifier="test5@example.com")
+        second = MessageRecipientPreference.objects.get(team=self.team, identifier="test5@example.com")
+
+        first.set_preference(self.category.id, PreferenceStatus.OPTED_OUT)
+        second.set_preference(self.category2.id, PreferenceStatus.OPTED_OUT)
+
+        stored = MessageRecipientPreference.objects.get(team=self.team, identifier="test5@example.com")
+        self.assertEqual(stored.get_preference(self.category.id), PreferenceStatus.OPTED_OUT)
+        self.assertEqual(stored.get_preference(self.category2.id), PreferenceStatus.OPTED_OUT)
+
     def test_get_preference(self):
         recipient = MessageRecipientPreference.objects.create(
             team=self.team, identifier="test5@example.com", preferences={}

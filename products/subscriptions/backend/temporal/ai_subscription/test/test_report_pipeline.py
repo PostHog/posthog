@@ -14,6 +14,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.logic.report_text import ReportDocument, ReportLinkItem, ReportText, ReportTextItem
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     ChartFailureReason,
@@ -223,9 +224,17 @@ async def test_planner_failure_wrapped_with_stage(_mock_bep: object) -> None:
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
+@pytest.mark.parametrize("url_case", ["short", "large_enum", "oversized_url"])
 async def test_successful_report_emits_slo_success(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock, url_case: str
 ) -> None:
+    source_urls: tuple[str, ...] = ("https://example.com/reports/weekly?view=traffic#pages",)
+    expected_urls = list(source_urls)
+    if url_case == "large_enum":
+        source_urls = tuple(f"https://example.com/{index:03}/" + "a" * 2000 for index in range(100))
+        expected_urls = list(source_urls[:29])
+    elif url_case == "oversized_url":
+        source_urls = ("https://example.com/" + "a" * 60000, *source_urls)
     mock_bep.return_value = _spec(steps=2)
     mock_run.return_value = PlanExecution(
         rendered=["### s0\n\nok", "### s1\n\nok"],
@@ -235,12 +244,20 @@ async def test_successful_report_emits_slo_success(
             QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
         ],
         charts=[],
+        source_urls=source_urls,
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.markdown == "# Report"
+    assert mock_chat.return_value.with_structured_output.call_args.kwargs["strict"] is True
+    schema = mock_chat.return_value.with_structured_output.call_args.args[0]
+    assert schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] == expected_urls
     props = _slo_completed(mock_capture)
     assert props["operation"] == "ai_subscription_prompt_generation"
     assert props["outcome"] == "success"
@@ -266,7 +283,11 @@ async def test_degraded_report_still_synthesizes(
         ],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Weekly report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -316,7 +337,7 @@ async def test_synthesis_failure_wrapped_with_stage(
         diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
+    mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
         await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -477,11 +498,15 @@ async def test_synthesis_prompt_carries_the_failure_marker(
         ],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    (messages,) = mock_chat.return_value.invoke.call_args[0]
+    (messages,) = mock_chat.return_value.with_structured_output.return_value.invoke.call_args[0]
     system_message = messages[0][1]
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
@@ -571,7 +596,11 @@ async def test_synthesis_runs_only_when_a_step_returned_rows(
 ) -> None:
     mock_bep.return_value = _spec(steps=len(run_result.rendered))
     mock_run.return_value = run_result
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(
         team=MagicMock(),
@@ -582,7 +611,7 @@ async def test_synthesis_runs_only_when_a_step_returned_rows(
     )
 
     assert result.markdown == expected_report
-    assert mock_chat.return_value.invoke.called is synthesizes
+    assert mock_chat.return_value.with_structured_output.return_value.invoke.called is synthesizes
     assert _slo_completed(mock_capture)["empty_steps"] == run_result.empty_count
 
 
@@ -735,7 +764,11 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(
         team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
@@ -767,7 +800,11 @@ async def test_unfrozen_run_returns_plan_to_persist(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -856,7 +893,11 @@ async def test_freeze_carries_post_fix_hogql(
         ]
     )
     mock_fix.return_value = fixed_hogql
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -951,7 +992,11 @@ async def test_unfreezable_plans_are_not_frozen(
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -976,7 +1021,11 @@ async def test_stale_stored_plan_self_heals_and_records_planner_update(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(
         team=MagicMock(),
@@ -1145,7 +1194,11 @@ async def test_a_report_ships_when_every_chart_render_fails(
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run()
     mock_render.return_value = ([], [ChartRenderFailure(step_index=0, reason=ChartFailureReason.RENDER_FAILED)])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -1184,7 +1237,11 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run(chart_dropped_reason=reason)
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -1225,7 +1282,11 @@ async def test_charts_render_only_for_a_flagged_team_that_includes_them(
     mock_run.return_value = _charted_run()
     mock_enabled.return_value = enabled
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     await generate_ai_report(
         team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), include_charts=include_charts
@@ -1262,7 +1323,11 @@ async def test_only_the_most_important_charts_are_rendered(
         charts=candidates,
     )
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
         await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -1317,7 +1382,11 @@ async def test_the_report_only_mentions_truncation_when_charts_were_cut(
         charts=candidates,
     )
     mock_render.return_value = (rendered, [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", cap):
         result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -1332,3 +1401,31 @@ async def test_the_report_only_mentions_truncation_when_charts_were_cut(
         assert mock_truncated.call_args.kwargs["selected"] == cap
     else:
         mock_truncated.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "label,url,expected_label",
+    [
+        ("Checkout", "https://example.com/checkout?source=campaign", "Checkout"),
+        ("https://example.com/project/1/dashboard/12", "https://example.com/project/1/dashboard/12", "dashboard/12"),
+        ("https://example.com/login?next=/checkout", "https://example.com/login?next=/checkout", "login"),
+        ("`https://example.com/project/1/dashboard/12`", "https://example.com/project/1/dashboard/12", "dashboard/12"),
+    ],
+)
+def test_report_link_labels_preserve_destinations(label: str, url: str, expected_label: str) -> None:
+    text = ReportText(items=[ReportLinkItem(kind="link", text=label, url=url)])
+    assert text.render() == f"[{expected_label}]({url})"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_preserves_original_link_destinations(mock_executor_cls: MagicMock) -> None:
+    url = "https://example.com/reports/weekly?view=traffic#pages"
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(
+            formatted="formatted table",
+            fallback_used=False,
+            response={"results": [[url, 12], [url, 8], ["/reports/weekly", 2]], "columns": ["url", "views"]},
+        )
+    )
+    execution = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    assert execution.source_urls == (url,)

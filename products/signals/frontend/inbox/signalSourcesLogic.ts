@@ -621,7 +621,9 @@ export interface signalSourcesLogicMeta {
                 | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'checkly'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -641,9 +643,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -651,6 +655,7 @@ export interface signalSourcesLogicMeta {
                 | 'rapid7_insightvm'
                 | 'raygun'
                 | 'retently'
+                | 'roark'
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
@@ -660,9 +665,12 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null,
@@ -687,7 +695,9 @@ export interface signalSourcesLogicMeta {
                 | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'checkly'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -707,9 +717,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -717,6 +729,7 @@ export interface signalSourcesLogicMeta {
                 | 'rapid7_insightvm'
                 | 'raygun'
                 | 'retently'
+                | 'roark'
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
@@ -726,9 +739,12 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null
@@ -744,7 +760,9 @@ export interface signalSourcesLogicMeta {
                 | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'checkly'
                 | 'dixa'
+                | 'dynamics365'
                 | 'featurebase'
                 | 'firehydrant'
                 | 'freshdesk'
@@ -764,9 +782,11 @@ export interface signalSourcesLogicMeta {
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
+                | 'lacework'
                 | 'linear'
                 | 'monte_carlo'
                 | 'opsgenie'
+                | 'orca_security'
                 | 'pagerduty'
                 | 'pganalyze'
                 | 'plain'
@@ -774,6 +794,7 @@ export interface signalSourcesLogicMeta {
                 | 'rapid7_insightvm'
                 | 'raygun'
                 | 'retently'
+                | 'roark'
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
@@ -783,9 +804,12 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'tenable_vulnerability_management'
+                | 'trigger_dev'
                 | 'uservoice'
                 | 'xmatters'
-                | 'zendesk',
+                | 'zendesk'
+                | 'zoho_crm',
                 ExternalSignalSourceState
             >,
             ciSignalsConfig: CISignalsConfigApi | null,

@@ -205,6 +205,16 @@ def _refuse_json_text_types(columns: Mapping[str, Any] | None) -> None:
             )
 
 
+def refuse_columns_an_import_changes(columns: Mapping[str, Any] | None, file_format: FileFormatChoice) -> None:
+    """Refuse a file whose import would change the columns a table read in place exposes."""
+    _refuse_nested_columns(columns)
+    _refuse_file_column_names(columns)
+    if file_format == "csv":
+        _refuse_padded_header_names(columns)
+    if file_format == "jsonl":
+        _refuse_json_text_types(columns)
+
+
 def table_definition_for(
     name: str,
     location: SelfManagedLocation,

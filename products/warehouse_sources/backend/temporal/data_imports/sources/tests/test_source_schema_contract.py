@@ -50,11 +50,13 @@ PASS = "pass"
 # `empty`: `get_schemas` returns no schema for a placeholder config.
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "network",
+    "AwsAthena": "network",
     "AzureBlob": "network",
     "BigQuery": "driver",
     "Baserow": "network",
     "CheckoutCom": "network",
     "ClickHouse": "network",
+    "CloudflareD1": "network",
     "CloudflareR2": "config",
     "Convex": "config",
     "CosmosDB": "config",
@@ -100,6 +102,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "request",
     "Attentive": "webhook",
+    "AwsAthena": "request",
     "AzureBlob": "request",
     "Baserow": "request",
     "BigQuery": "driver",
@@ -109,6 +112,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Clay": "request",
     "ClickHouse": "database",
     "Cliniko": "request",
+    "CloudflareD1": "request",
     "CloudflareR2": "config",
     "Convex": "cursor",
     "CosmosDB": "config",
@@ -119,6 +123,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "DoIt": "request",
     "DynamoDB": "request",
     "Elasticsearch": "request",
+    "FileUpload": "config",
     "FullStory": "request",
     "Github": "config",
     "GoogleAds": "driver",

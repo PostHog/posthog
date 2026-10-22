@@ -49,6 +49,9 @@ TIER1_SOURCES = [
     # OAuth-connected support sources
     (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
+    # CRM case tools
+    (ExternalDataSourceType.DYNAMICS365, "Cases", "dynamics365", "ticket"),
+    (ExternalDataSourceType.ZOHOCRM, "Cases", "zoho_crm", "ticket"),
     # Incident management / on-call
     (ExternalDataSourceType.PAGERDUTY, "incidents", "pagerduty", "incident"),
     (ExternalDataSourceType.OPSGENIE, "alerts", "opsgenie", "incident"),
@@ -63,6 +66,19 @@ TIER1_SOURCES = [
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Tier-2 security tools
+    (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
+    (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
+    (
+        ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
+        "vulnerabilities",
+        "tenable_vulnerability_management",
+        "scanner_finding",
+    ),
+    # Error monitors
+    (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
+    (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),
+    (ExternalDataSourceType.ROARK, "issue", "roark", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

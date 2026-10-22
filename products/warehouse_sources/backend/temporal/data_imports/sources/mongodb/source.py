@@ -554,8 +554,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         incremental_or_append: bool,
         schema_name: str | None = None,
     ) -> bool:
-        # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from
-        # its watermark, so it keeps the incremental retry budget.
+        # The `_id` checkpoint covers a full refresh. It also covers a first incremental or append
+        # sync, but this cannot see the watermark, so those runs keep the incremental retry budget.
         return not incremental_or_append
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MongoResumeConfig]:
