@@ -469,8 +469,8 @@ class TestEmail(BaseTest):
             override_instance_config("EMAIL_HOST", "localhost"),
             self.settings(
                 CUSTOMER_IO_API_KEY="cio-key",
-                WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
-                WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL="https://us.posthog.com",
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
                 WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS={"2fa_enabled": "tmpl-1"},
             ),
         ):

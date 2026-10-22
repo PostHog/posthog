@@ -63,12 +63,8 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
 
-# The Workflows transactional email API that sends PostHog's own emails. Every region sends through the US project,
-# which the project secret API key picks.
-WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY = get_from_env("WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY", "", type_cast=str)
-WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL = get_from_env(
-    "WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL", "https://us.posthog.com", type_cast=str
-)
+# Workflows sends PostHog's own emails with POSTHOG_TRANSACTIONAL_EMAIL_API_KEY at POSTHOG_HOST, the same settings as
+# posthog/transactional_email.py. Every region sends through the US project, which the key picks.
 # Comma-separated `template_name=message_template_id` pairs. They override WORKFLOWS_TEMPLATE_ID_MAP in
 # posthog/email.py, so a local or staging instance can send with its own copies of the templates.
 WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS: dict[str, str] = dict(

@@ -55,9 +55,9 @@ def inline_css(value: str) -> str:
 def is_http_email_service_available() -> bool:
     """
     Returns whether HTTP email services are available on this instance (i.e. settings are in place).
-    These are Customer.io and the Workflows transactional email API.
+    This currently only supports Customer.io. Workflows only takes over emails that this path sends.
     """
-    return bool(settings.CUSTOMER_IO_API_KEY or settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY)
+    return bool(settings.CUSTOMER_IO_API_KEY)
 
 
 def is_smtp_email_service_available() -> bool:
@@ -249,7 +249,7 @@ def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str |
     template_id = {**WORKFLOWS_TEMPLATE_ID_MAP, **settings.WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS}.get(
         template_name
     )
-    if not template_id or not settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY:
+    if not template_id or not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
         return None
     try:
         enabled = posthoganalytics.feature_enabled(
@@ -299,10 +299,10 @@ def _queue_workflows_email(
     try:
         response = requests.post(
             # The project secret API key names the project, so `@current` resolves to it.
-            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL}/api/projects/@current/messaging_templates/{template_id}/send/",
+            f"{settings.POSTHOG_HOST.rstrip('/')}/api/projects/@current/messaging_templates/{template_id}/send/",
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY}",
+                "Authorization": f"Bearer {settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY}",
                 "Idempotency-Key": idempotency_key,
             },
             json=payload,
@@ -421,7 +421,7 @@ def _send_via_http(
 ) -> None:
     """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
     if not is_http_email_service_available():
-        raise Exception("Missing Customer.io and Workflows API keys")
+        raise Exception("Missing Customer.io API key")
 
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
