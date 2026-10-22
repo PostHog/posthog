@@ -406,7 +406,8 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
 
         kwargs = facade.create_and_run_task.call_args.kwargs
-        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == expected
+        options = kwargs["options"]
+        assert (options.adapter, options.model, options.reasoning_effort) == expected
         training_run.refresh_from_db()
         assert (
             training_run.agent_runtime_adapter,
