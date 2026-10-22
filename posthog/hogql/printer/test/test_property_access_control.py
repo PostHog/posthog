@@ -161,6 +161,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
                 False,
             ),
             ("json_has_unrestricted_key", "JSONHas(properties, 'public_field')", "secret_field", False),
+            ("json_function_with_user_alias", "JSONHas(properties AS p, 'public_field') AS h, p", "secret_field", True),
             ("sibling_of_dotted_restriction", "properties.`customer.name`", "customer.ssn", False),
             ("parent_of_dotted_restriction", "properties.customer", "customer.ssn", True),
             ("flat_key_under_restriction", "properties.`secret_field.inner`", "secret_field", True),

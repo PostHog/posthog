@@ -739,11 +739,12 @@ class ClickHousePrinter(BasePrinter):
 
         A key that no restricted path overlaps reads the same value from the stored blob as from the masked one, so
         the per-row UDF call only costs time. An integer first key reads by position, which dropping keys shifts.
-        Native events documents are rebuilt by the printer and keep their own masking.
+        Native events documents are rebuilt by the printer and keep their own masking. A user-written alias keeps the
+        mask, because ClickHouse lets the rest of the query read the aliased blob.
         """
         if not self.context.restricted_properties or not isinstance(first_key, str):
             return None
-        while isinstance(document, ast.Alias):
+        while isinstance(document, ast.Alias) and document.hidden:
             document = document.expr
         if not isinstance(document, ast.Field) or not isinstance(document.type, ast.FieldType):
             return None
