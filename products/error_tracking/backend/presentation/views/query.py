@@ -84,7 +84,7 @@ from products.error_tracking.backend.presentation.views.query_serializers import
 
 logger = structlog.get_logger(__name__)
 
-# Generation took about 3s at p95 in research. The wait holds a web worker, so keep it bounded.
+# The wait holds a web worker. A read that times out returns `generating`, and generation continues in the background.
 ISSUE_SUMMARY_WAIT_SECONDS = 6.0
 
 
