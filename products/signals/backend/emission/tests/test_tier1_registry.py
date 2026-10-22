@@ -72,6 +72,11 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
     (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
     (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Work trackers
+    (ExternalDataSourceType.ASANA, "tasks", "asana", "issue"),
+    (ExternalDataSourceType.MONDAY, "items", "monday", "issue"),
+    (ExternalDataSourceType.PLANE, "work_items", "plane", "issue"),
+    (ExternalDataSourceType.AZUREDEVOPS, "work_item_revisions", "azure_devops", "issue"),
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
@@ -84,6 +89,10 @@ TIER1_SOURCES = [
         "tenable_vulnerability_management",
         "scanner_finding",
     ),
+    # Error monitors
+    (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
+    (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),
+    (ExternalDataSourceType.ROARK, "issue", "roark", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -110,8 +119,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
         name = field.rsplit(" AS ", 1)[-1]
         if product in _SURVEY_ANSWERS and name == _SURVEY_ANSWERS[product][0]:
             record[name] = _SURVEY_ANSWERS[product][1]
-        elif name in ("tags", "labels"):
-            record[name] = '["one", "two"]'
+        elif name in ("tags", "labels", "projects"):
+            record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
+        elif name == "column_values":
+            record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:
