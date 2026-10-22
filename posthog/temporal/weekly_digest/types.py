@@ -54,8 +54,15 @@ class GenerateDigestDataBatchInput(BaseModel):
     common: CommonInput
 
 
+class OrganizationIdRange(BaseModel):
+    """A half-open [start, end) range of organization ids. The last range has no end."""
+
+    start: UUID
+    end: UUID | None
+
+
 class GenerateOrganizationDigestInput(BaseModel):
-    batch: tuple[int, int]
+    organization_id_range: OrganizationIdRange
     digest: Digest
     common: CommonInput
 
@@ -68,7 +75,7 @@ class SendWeeklyDigestInput(BaseModel):
 
 
 class SendWeeklyDigestBatchInput(BaseModel):
-    batch: tuple[int, int]
+    organization_id_range: OrganizationIdRange
     dry_run: bool
     allow_already_sent: bool
     digest: Digest

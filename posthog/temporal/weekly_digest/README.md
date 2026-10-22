@@ -73,7 +73,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                        GenerateDigestDataWorkflow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Cut teams into id-range batches, count orgs for batching                │
+│  1. Cut teams and orgs into id-range batches                                │
 │                                                                             │
 │  2. Generate team-level data (parallel per batch):                          │
 │     ├── generate_dashboard_lookup                                           │
@@ -101,7 +101,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                         SendWeeklyDigestWorkflow                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  For each organization (batched):                                           │
+│  For each organization (batched by id range):                               │
 │    1. Load OrganizationDigest from Redis                                    │
 │    2. For each org member:                                                  │
 │       a. Load user's notification team set                                  │
