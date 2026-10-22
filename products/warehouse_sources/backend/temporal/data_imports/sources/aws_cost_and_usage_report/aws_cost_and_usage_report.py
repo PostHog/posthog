@@ -619,6 +619,9 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidToken": "AWS rejected the session token. Re-enter it, or leave it empty for long-lived keys.",
     "AccessDenied": "These AWS credentials cannot read the export. Grant s3:ListBucket on the bucket and s3:GetObject on the export prefix to the IAM user or role.",
     "NoSuchBucket": "The bucket does not exist. Check the bucket name.",
+    # A rejection without an error body reaches the parser as its bare status.
+    "HTTP 401": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
+    "HTTP 403": "These AWS credentials cannot read the export. Grant s3:ListBucket on the bucket and s3:GetObject on the export prefix to the IAM user or role.",
 }
 
 WRONG_REGION_MESSAGE = "The bucket is in a different AWS region. Set the region the bucket was created in."

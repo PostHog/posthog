@@ -131,6 +131,8 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         resumable_source_manager: ResumableSourceManager[CostAndUsageReportResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if inputs.schema_name not in ENDPOINTS:
+            raise ValueError(f"Unknown AWS Cost and Usage Report table: {inputs.schema_name}")
         # A reset's first attempt reads from the start. Later attempts of the run keep its progress.
         if inputs.reset_pipeline and inputs.activity_attempt == 1:
             resumable_source_manager.clear_state()
