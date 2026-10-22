@@ -7,7 +7,7 @@ export const EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON =
     'This flag is linked to an early access feature, so it can only target users. Remove the early access feature to target groups.'
 
 export const CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP =
-    'All filters in this group must match. Add another group to match a different set of filters.'
+    'AND combines filters in a group. OR combines groups.'
 
 export const MATCHING_ESTIMATE_TOOLTIP = (
     <>
