@@ -12,8 +12,7 @@ export type SignalRecordKind =
   | "scanner_finding"
   | "feedback"
   | "review"
-  | "search_opportunity"
-  | "incident";
+  | "search_opportunity";
 
 /**
  * A warehouse data source the Self-driving inbox can watch. This is the single source of
@@ -51,7 +50,6 @@ const FINDING = "Surface new security and code-quality findings";
 const FEEDBACK = "Turn product feedback and feature requests into inputs";
 const REVIEW = "Monitor new app and product reviews";
 const SEARCH = "Fix pages that rank in Google but lose clicks";
-const INCIDENT = "Surface new incidents and on-call alerts";
 
 /** Registry of warehouse-backed inbox sources, alphabetical within each category. */
 export const EXTERNAL_INBOX_SOURCES = [
@@ -441,97 +439,6 @@ export const EXTERNAL_INBOX_SOURCES = [
     dwSourceType: "GoogleSearchConsole",
     requiredTables: ["search_analytics_by_query_page"],
     recordKind: "search_opportunity",
-    setup: "dynamic",
-  },
-  // Incident management
-  {
-    product: "betterstack",
-    label: "Better Stack",
-    description: INCIDENT,
-    dwSourceType: "BetterStack",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "firehydrant",
-    label: "FireHydrant",
-    description: INCIDENT,
-    dwSourceType: "FireHydrant",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "grafana_irm",
-    label: "Grafana IRM",
-    description: INCIDENT,
-    dwSourceType: "GrafanaIRM",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "incident_io",
-    label: "incident.io",
-    description: INCIDENT,
-    dwSourceType: "IncidentIo",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "opsgenie",
-    label: "Opsgenie",
-    description: INCIDENT,
-    dwSourceType: "Opsgenie",
-    requiredTables: ["alerts"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "pagerduty",
-    label: "PagerDuty",
-    description: INCIDENT,
-    dwSourceType: "PagerDuty",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "servicenow",
-    label: "ServiceNow",
-    description: INCIDENT,
-    dwSourceType: "ServiceNow",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "solarwinds_service_desk",
-    label: "SolarWinds Service Desk",
-    description: INCIDENT,
-    dwSourceType: "SolarwindsServiceDesk",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "squadcast",
-    label: "Squadcast",
-    description: INCIDENT,
-    dwSourceType: "Squadcast",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
-    setup: "dynamic",
-  },
-  {
-    product: "xmatters",
-    label: "xMatters",
-    description: INCIDENT,
-    dwSourceType: "Xmatters",
-    requiredTables: ["incidents"],
-    recordKind: "incident",
     setup: "dynamic",
   },
 ] as const satisfies readonly ExternalInboxSource[];

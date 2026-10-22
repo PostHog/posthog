@@ -1221,6 +1221,33 @@ class BetterstackIncidentSignalInput(SignalInputBase):
     extra: BetterstackIncidentSignalExtra
 
 
+class MonteCarloAlertSignalExtra(SignalExtraBase):
+    type: str | None
+    status: str | None
+    severity: str | None
+    priority: str | None
+    url: str | None
+    created_time: str | None
+
+
+class MonteCarloAlertSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.MONTE_CARLO]
+    extra: MonteCarloAlertSignalExtra
+
+
+class BigeyeIssueSignalExtra(SignalExtraBase):
+    current_status: str | None
+    priority: str | None
+    opened_time_seconds: str | None
+
+
+class BigeyeIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.BIGEYE]
+    extra: BigeyeIssueSignalExtra
+
+
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -1335,6 +1362,8 @@ SignalInput = Annotated[
     | GrafanaIrmIncidentSignalInput
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
+    | MonteCarloAlertSignalInput
+    | BigeyeIssueSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput,
@@ -1405,6 +1434,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GrafanaIrmIncidentSignalInput,
     XmattersIncidentSignalInput,
     BetterstackIncidentSignalInput,
+    MonteCarloAlertSignalInput,
+    BigeyeIssueSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,

@@ -60,6 +60,9 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
     (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
     (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Data quality / observability
+    (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
+    (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
     # Error monitors
     (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
     (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),

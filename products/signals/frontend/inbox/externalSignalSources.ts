@@ -479,6 +479,24 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         requiredTables: ['incidents'],
         sourceType: 'incident',
     },
+    {
+        source: 'bigeye',
+        label: 'Bigeye',
+        category: 'Data quality',
+        watches: 'Surface new data quality alerts and issues',
+        dwSourceType: 'Bigeye',
+        requiredTables: ['Issues'],
+        sourceType: 'incident',
+    },
+    {
+        source: 'monte_carlo',
+        label: 'Monte Carlo',
+        category: 'Data quality',
+        watches: 'Surface new data quality alerts and issues',
+        dwSourceType: 'MonteCarlo',
+        requiredTables: ['alerts'],
+        sourceType: 'incident',
+    },
 ] as const satisfies readonly ExternalSignalSourceDefinition[]
 
 export type ExternalSignalSource = (typeof EXTERNAL_SIGNAL_SOURCES)[number]['source']
