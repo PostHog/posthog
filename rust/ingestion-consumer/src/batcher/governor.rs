@@ -26,8 +26,8 @@ pub enum Direction {
     Shrink,
 }
 
-/// One step of the law. `applied` is false when the step changed nothing on
-/// the send path: adaptation is off, or the pool is at a bound.
+/// One step of the law that moved the pool. `applied` is false when
+/// adaptation is off, so the step moved only the shadow pool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decision {
     pub direction: Direction,
@@ -62,6 +62,7 @@ pub struct GovernorSnapshot {
     pub permits: usize,
     pub ceiling: usize,
     pub free_permits: usize,
+    pub starved_messages: usize,
     pub rtt: Option<Duration>,
 }
 
@@ -110,7 +111,7 @@ pub struct Governor {
     /// and clamped on read so an empty pool does not erase it.
     deficit: usize,
     in_flight: usize,
-    starved: bool,
+    starved_messages: usize,
     last_step: Option<Instant>,
 }
 
@@ -138,7 +139,7 @@ impl Governor {
             floor: 0,
             deficit: 0,
             in_flight: 0,
-            starved: false,
+            starved_messages: 0,
             last_step: None,
         })
     }
@@ -173,6 +174,7 @@ impl Governor {
             permits: self.permits(),
             ceiling: self.ceiling,
             free_permits: self.free(),
+            starved_messages: self.starved_messages,
             rtt: self.rtt(),
         }
     }
@@ -185,17 +187,18 @@ impl Governor {
         self.in_flight = in_flight;
     }
 
-    /// Ready work waited on permits this pass.
-    pub fn starve(&mut self) {
-        self.starved = true;
+    /// The ready messages the last pass had beyond its free permits. The pool
+    /// grows only while the last pass left some, so a burst that has cleared
+    /// grows nothing.
+    pub fn set_starved_messages(&mut self, messages: usize) {
+        self.starved_messages = messages;
     }
 
     pub fn observe(&mut self, sample: Duration, now: Instant) -> Option<Decision> {
         self.rtt.observe(sample, now);
-        if self.ceiling == 0
-            || self
-                .last_step
-                .is_some_and(|last| now < last + self.settings.step_interval)
+        if self
+            .last_step
+            .is_some_and(|last| now < last + self.settings.step_interval)
         {
             return None;
         }
@@ -205,28 +208,21 @@ impl Governor {
         };
         let direction = if over_budget {
             Direction::Shrink
-        } else if self.starved {
+        } else if self.starved_messages > 0 {
             Direction::Grow
         } else {
             return None;
         };
-        self.starved = false;
-        self.last_step = Some(now);
         let deficit = self.deficit();
-        let moved = match direction {
-            Direction::Shrink if deficit < self.ceiling - self.floor => {
-                self.deficit = deficit + 1;
-                true
-            }
-            Direction::Grow if deficit > 0 => {
-                self.deficit = deficit - 1;
-                true
-            }
-            _ => false,
+        self.deficit = match direction {
+            Direction::Shrink if deficit < self.ceiling - self.floor => deficit + 1,
+            Direction::Grow if deficit > 0 => deficit - 1,
+            _ => return None,
         };
+        self.last_step = Some(now);
         Some(Decision {
             direction,
-            applied: moved && self.settings.adaptation == Adaptation::On,
+            applied: self.settings.adaptation == Adaptation::On,
         })
     }
 }
@@ -295,25 +291,37 @@ mod tests {
     }
 
     #[test]
-    fn a_starved_pass_grows_the_pool_by_one_once_the_rtt_is_within_budget() {
+    fn the_pool_grows_by_one_per_step_while_the_last_pass_was_starved_and_the_rtt_is_within_budget()
+    {
         let now = Instant::now();
         let mut governor = governor(Adaptation::On);
         assert_eq!(governor.observe(SLOW, now), applied(Direction::Shrink));
+        assert_eq!(
+            governor.observe(SLOW, now + STEP),
+            applied(Direction::Shrink)
+        );
+        assert_eq!(governor.permits(), 6);
 
-        // Long enough for the average to forget the slow sample.
+        // Long enough for the average to forget the slow samples.
         let recovered = now + RTT_TIME_CONSTANT * 10;
-        assert_eq!(governor.observe(FAST, recovered), None);
-        governor.starve();
+        governor.set_starved_messages(3);
+        governor.set_starved_messages(0);
+        assert_eq!(
+            governor.observe(FAST, recovered),
+            None,
+            "a starved pass that a later pass cleared grows nothing"
+        );
+
+        governor.set_starved_messages(3);
         assert_eq!(
             governor.observe(FAST, recovered + STEP),
             applied(Direction::Grow)
         );
-        assert_eq!(governor.permits(), 8);
         assert_eq!(
             governor.observe(FAST, recovered + STEP * 2),
-            None,
-            "the step consumed the starvation"
+            applied(Direction::Grow)
         );
+        assert_eq!(governor.permits(), 8);
     }
 
     #[test]
@@ -329,13 +337,14 @@ mod tests {
         assert_eq!(governor.permits(), 2);
         assert_eq!(
             governor.observe(SLOW, now + STEP * 6),
-            unapplied(Direction::Shrink)
+            None,
+            "a step at a bound moves nothing, so it reports nothing"
         );
         assert_eq!(governor.permits(), 2);
 
         let mut governor = self::governor(Adaptation::On);
-        governor.starve();
-        assert_eq!(governor.observe(FAST, now), unapplied(Direction::Grow));
+        governor.set_starved_messages(1);
+        assert_eq!(governor.observe(FAST, now), None);
         assert_eq!(governor.permits(), 8);
     }
 
