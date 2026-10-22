@@ -1,0 +1,120 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action": {
+            "default": "replace",
+            "description": "Add or remove only the supplied people, replace the list, or explicitly confirm it.\n\n* `add` - Add\n* `remove` - Remove\n* `replace` - Replace\n* `confirm` - Confirm",
+            "enum": ["add", "remove", "replace", "confirm"],
+            "type": "string"
+        },
+        "content": {
+            "description": "People to add, remove, or keep in a replacement. Send an empty list for confirmation.",
+            "items": {
+                "description": "Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.",
+                "properties": {
+                    "github_login": {
+                        "description": "GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "github_name": {
+                        "description": "Optional human-readable display name. Not backfilled from GitHub by the server.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "reason": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report."
+                    },
+                    "user_uuid": {
+                        "description": "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "expected_reviewers": {
+            "description": "State from the last read. Required for replacement and confirmation when corrections are enabled.",
+            "properties": {
+                "corrections_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Current corrections artefact ID, or null before corrections are stored."
+                },
+                "reviewers_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Current reviewer artefact ID, or null before the first list."
+                }
+            },
+            "required": ["reviewers_id", "corrections_id"],
+            "type": "object"
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "targets": {
+            "description": "Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
+            "items": {
+                "description": "Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.",
+                "properties": {
+                    "github_login": {
+                        "description": "GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "github_name": {
+                        "description": "Optional human-readable display name. Not backfilled from GitHub by the server.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "reason": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report."
+                    },
+                    "user_uuid": {
+                        "description": "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        }
+    },
+    "required": ["id", "content"],
+    "type": "object"
+}
