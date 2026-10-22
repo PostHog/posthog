@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
     REDACTED,
+    HookdeckMetricsTruncatedError,
     HookdeckResumeConfig,
     _format_datetime,
     _redact_secrets,
@@ -371,9 +372,6 @@ class TestHookdeckFanout:
                 _response([{"id": "req_1:web_b", "request_id": "req_1"}], None),
                 _response([{"id": "req_3:web_a", "request_id": "req_3"}], None),
             ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="created_at",
         )
 
         assert result.raised is None
@@ -384,11 +382,11 @@ class TestHookdeckFanout:
             f"/{API_VERSION}/requests/req_1/ignored_events",
             f"/{API_VERSION}/requests/req_3/ignored_events",
         ]
-        # The child endpoint has no date filter, so the watermark windows the parent instead.
-        assert result.requests[0].param("created_at[gte]") == "2026-03-04T02:58:14.000Z"
-        assert result.requests[0].param("order_by") == "created_at"
-        assert result.params("created_at[gte]")[1:] == [None, None, None]
+        # A retried old request can gain ignored events, so the parent is never windowed by date.
+        assert result.params("created_at[gte]") == [None, None, None, None]
         assert result.requests[2].param("next") == "cur_2"
+        # One completed path per request would make every checkpoint grow with the request history.
+        assert result.saved_states == []
 
     def test_transformation_executions_filter_each_child_not_the_parent(self) -> None:
         result = _driver().run(
@@ -499,3 +497,19 @@ class TestHookdeckMetrics:
         assert request.query["measures[]"] == ("max_depth", "max_age")
         assert request.query["dimensions[]"] == ("destination_id",)
         assert request.param("date_range[start]") == "2026-03-04T02:00:00.000Z"
+
+    def test_truncated_response_fails_the_sync(self) -> None:
+        result = _driver().run(
+            "events_pending_timeseries",
+            [
+                ScriptedResponse(
+                    status=200,
+                    json={
+                        "data": [{"time_bucket": "2026-03-04T02:00:00.000Z", "dimensions": {}, "metrics": {}}],
+                        "metadata": {"row_limit": 1000000, "truncated": True},
+                    },
+                )
+            ],
+        )
+
+        assert isinstance(result.raised, HookdeckMetricsTruncatedError)

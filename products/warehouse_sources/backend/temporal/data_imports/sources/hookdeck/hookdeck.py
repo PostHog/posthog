@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -213,6 +214,28 @@ def build_metrics_params(
     }
 
 
+class HookdeckMetricsTruncatedError(Exception):
+    pass
+
+
+class HookdeckMetricsPaginator(SinglePagePaginator):
+    """Fails a metrics query that hit Hookdeck's row limit.
+
+    A truncated response still carries data, and accepting it would let the watermark move past the
+    buckets Hookdeck left out.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        body = response.json()
+        metadata = body.get("metadata") if isinstance(body, dict) else None
+        if isinstance(metadata, dict) and metadata.get("truncated"):
+            raise HookdeckMetricsTruncatedError(
+                f"Hookdeck truncated the metrics response at {metadata.get('row_limit')} rows, so the sync stopped "
+                "rather than store incomplete buckets."
+            )
+
+
 def _flatten_metric_point(point: dict[str, Any]) -> dict[str, Any]:
     return {
         "time_bucket": point.get("time_bucket"),
@@ -350,20 +373,16 @@ def _fanout_source(
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str],
 ) -> SourceResponse:
-    parent_config = HOOKDECK_ENDPOINTS[fanout.parent_name]
+    parent_params = build_params(HOOKDECK_ENDPOINTS[fanout.parent_name], False, None, None)
+    child_params = build_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
 
-    if config.window_parent:
-        parent_params = build_params(
-            parent_config, should_use_incremental_field, db_incremental_field_last_value, "created_at"
-        )
-        child_params = build_params(config, False, None, None)
-    else:
-        parent_params = build_params(parent_config, False, None, None)
-        child_params = build_params(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-        )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume = (
+        resumable_source_manager.load_state()
+        if config.checkpoint_fanout and resumable_source_manager.can_resume()
+        else None
+    )
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
@@ -387,7 +406,7 @@ def _fanout_source(
         child_endpoint_extra={"data_selector": "models", "paginator": HookdeckCursorPaginator()},
         child_params_extra=child_params,
         parent_data_map=_PARENT_DATA_MAPS.get(config.name),
-        resume_hook=save_fanout_checkpoint,
+        resume_hook=save_fanout_checkpoint if config.checkpoint_fanout else None,
         initial_paginator_state=resume.fanout_state if resume else None,
     )
 
@@ -424,7 +443,7 @@ def _metrics_source(
                         metrics, should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC)
                     ),
                     "data_selector": "data",
-                    "paginator": "single_page",
+                    "paginator": HookdeckMetricsPaginator(),
                 },
             }
         ],

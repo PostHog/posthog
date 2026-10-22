@@ -73,9 +73,7 @@ class HookdeckEndpointConfig:
     page_size: int = PAGE_SIZE
     # Child endpoints are read once per row of `fanout.parent_name`.
     fanout: Optional[DependentEndpointConfig] = None
-    # The child endpoint has no date filter, so incremental runs window the parent by `created_at`
-    # instead. A child row is created no earlier than its parent, so the window never drops one.
-    window_parent: bool = False
+    checkpoint_fanout: bool = True
     # Aggregated time series from `/metrics/*`, read as one bucketed query over a date range
     # instead of a paginated list.
     metrics: Optional[HookdeckMetricsConfig] = None
@@ -160,8 +158,8 @@ HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
         # Ignored event ids embed the request id, but the parent id is kept in the key so rows from
         # different requests can never collide.
         primary_keys=["request_id", "id"],
-        incremental_fields=[_datetime_field("created_at")],
-        default_incremental_lookback_seconds=_FANOUT_LOOKBACK_SECONDS,
+        # Full refresh only: the child has no date filter, and retrying an old request re-runs its
+        # event logic and can add ignored events, so no parent creation window is safe either.
         description="Deliveries Hookdeck skipped for a request, one row per connection, with the cause (filtered, disabled, transformation failed or CLI disconnected)",
         fanout=DependentEndpointConfig(
             parent_name="requests",
@@ -169,7 +167,9 @@ HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
             resolve_field="id",
             include_from_parent=[],
         ),
-        window_parent=True,
+        # The fan-out checkpoint lists every completed parent, and this parent is every request in
+        # the retention window, so checkpointing would cost more than restarting the run.
+        checkpoint_fanout=False,
     ),
     "transformation_executions": HookdeckEndpointConfig(
         name="transformation_executions",
