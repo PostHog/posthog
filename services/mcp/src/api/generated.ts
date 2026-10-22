@@ -5157,6 +5157,100 @@ export namespace Schemas {
       total_count: number;
     }
 
+    /**
+     * * `ready` - Ready
+     * * `not_ready` - Not Ready
+     */
+    export type ActivitySummaryStatusEnum = typeof ActivitySummaryStatusEnum[keyof typeof ActivitySummaryStatusEnum];
+
+
+    export const ActivitySummaryStatusEnum = {
+      Ready: 'ready',
+      NotReady: 'not_ready',
+    } as const;
+
+    export interface ActivitySummaryFocusArea {
+      /** A main thread of the user's work, in the words of their activity. */
+      topic: string;
+      /**
+         * How much of the recent activity is about this thread: high, medium or low.
+         * @nullable
+         */
+      strength: string | null;
+      /**
+         * The last day with activity on this thread, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    export interface ActivitySummary {
+      /** `ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.
+       *
+       * * `ready` - Ready
+       * * `not_ready` - Not Ready */
+      status: ActivitySummaryStatusEnum;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.
+         * @nullable
+         */
+      profile: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /** The PostHog products the user works with, by name. */
+      products: string[];
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /**
+         * When this version of the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** The number of this version of the summary. 0 before the first. */
+      version: number;
+      /**
+         * The version of the prompt that wrote this summary.
+         * @nullable
+         */
+      prompt_version: number | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+    }
+
+    export interface ActivitySummaryVersion {
+      /** The number of this version. Higher numbers are newer. */
+      version: number;
+      /** When this version was written. */
+      generated_at: string;
+      /** The version of the prompt that wrote this version. */
+      prompt_version: number;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /**
+         * The one-page markdown profile. Set only when the request asks for one version with `version`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
     export interface ActorsPropertyTaxonomyResponse {
       sample_count: number;
       sample_values: (string | number | boolean)[];
@@ -17491,6 +17585,12 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BettermodeFeedbackSignalExtra {
+      status: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface BetterstackIncidentSignalExtra {
       url: string | null;
       started_at: string | null;
@@ -18233,7 +18333,6 @@ export namespace Schemas {
       /** @nullable */
       subscription_level?: string | null;
       has_active_subscription?: boolean;
-      deactivated?: boolean;
       is_annual_plan_customer?: boolean;
       /** @nullable */
       free_trial_until?: string | null;
@@ -18493,7 +18592,6 @@ export namespace Schemas {
       /** @nullable */
       billing_plan: string | null;
       billing_provider: BillingProviderEnum | null;
-      deactivated: boolean;
       is_annual_plan_customer: boolean;
       billing_period: BillingPeriod | null;
       trial: Trial | null;
@@ -25191,6 +25289,8 @@ export namespace Schemas {
       validation_report: ContentAutopilotValidationReport;
       /** Repository-relative export path. */
       readonly file_path: string;
+      /** Existing or intended public URL. */
+      readonly target_url: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -38076,6 +38176,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly icon_path: string | null;
+    }
+
+    export interface DiscourseFeedbackSignalExtra {
+      topic_id: string | null;
+      category_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -54186,6 +54292,14 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GainsightPxFeedbackSignalExtra {
+      score: string | null;
+      question_type: string | null;
+      content_type: string | null;
+      engagement_id: string | null;
+      date: string | null;
+    }
+
     export interface GapAction {
       /**
          * Optional knowledge source to link when accepting.
@@ -61933,6 +62047,7 @@ export namespace Schemas {
      * * `filtered_by_traffic_type` - The insight already filters on traffic type
      * * `hidden_property` - A property the check reads is hidden from you
      * * `invalid_filter` - The project's internal and test users filter cannot run
+     * * `on_request` - The check would read a lot of data, so it runs only on request
      */
     export type InsightDataCheckSkipReasonEnum = typeof InsightDataCheckSkipReasonEnum[keyof typeof InsightDataCheckSkipReasonEnum];
 
@@ -61946,6 +62061,7 @@ export namespace Schemas {
       FilteredByTrafficType: 'filtered_by_traffic_type',
       HiddenProperty: 'hidden_property',
       InvalidFilter: 'invalid_filter',
+      OnRequest: 'on_request',
     } as const;
 
     /**
@@ -62007,7 +62123,8 @@ export namespace Schemas {
        * * `too_few_sampled_events` - The sample has too few events to give a share
        * * `filtered_by_traffic_type` - The insight already filters on traffic type
        * * `hidden_property` - A property the check reads is hidden from you
-       * * `invalid_filter` - The project's internal and test users filter cannot run */
+       * * `invalid_filter` - The project's internal and test users filter cannot run
+       * * `on_request` - The check would read a lot of data, so it runs only on request */
       skip_reason: InsightDataCheckSkipReasonEnum | null;
       /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
        *
@@ -62072,6 +62189,8 @@ export namespace Schemas {
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
      * * `problem` - A check found a large issue
+     * * `partial` - Some checks could not run, and the others found no issue
+     * * `on_request` - The checks would read a lot of data, so they run only on request
      * * `no_events` - No events to check
      * * `unsupported` - This kind of insight cannot be checked
      * * `inconclusive` - No check could run
@@ -62083,6 +62202,8 @@ export namespace Schemas {
       Passed: 'passed',
       Warning: 'warning',
       Problem: 'problem',
+      Partial: 'partial',
+      OnRequest: 'on_request',
       NoEvents: 'no_events',
       Unsupported: 'unsupported',
       Inconclusive: 'inconclusive',
@@ -62122,11 +62243,13 @@ export namespace Schemas {
     }
 
     export interface InsightDataChecks {
-      /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
+      /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data for a quick check, so they did not run: send `depth` `full` to run them.
        *
        * * `passed` - No data issues found
        * * `warning` - A check found a small issue
        * * `problem` - A check found a large issue
+       * * `partial` - Some checks could not run, and the others found no issue
+       * * `on_request` - The checks would read a lot of data, so they run only on request
        * * `no_events` - No events to check
        * * `unsupported` - This kind of insight cannot be checked
        * * `inconclusive` - No check could run */
@@ -62137,6 +62260,18 @@ export namespace Schemas {
       coverage: InsightDataChecksCoverage | null;
     }
 
+    /**
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     */
+    export type InsightDataChecksDepthEnum = typeof InsightDataChecksDepthEnum[keyof typeof InsightDataChecksDepthEnum];
+
+
+    export const InsightDataChecksDepthEnum = {
+      Quick: 'quick',
+      Full: 'full',
+    } as const;
+
     export interface InsightDataChecksRequest {
       /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
       query: _InsightQuerySchema;
@@ -62145,6 +62280,11 @@ export namespace Schemas {
          * @maxLength 128
          */
       client_query_id?: string;
+      /** `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+       *
+       * * `quick` - Read within a small budget, so the checks can run on every load
+       * * `full` - Read with the same limits as the insight's own query */
+      depth?: InsightDataChecksDepthEnum;
     }
 
     export interface InsightPlatformAlertCondition {
@@ -64292,6 +64432,15 @@ export namespace Schemas {
       status: string | null;
       internet_exposure: string | null;
       start_time: string | null;
+    }
+
+    export interface LangsmithFeedbackSignalExtra {
+      key: string | null;
+      score: string | null;
+      value: string | null;
+      run_id: string | null;
+      trace_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -69450,6 +69599,14 @@ export namespace Schemas {
       readonly last_seen_at: string | null;
     }
 
+    export interface MintlifyFeedbackSignalExtra {
+      path: string | null;
+      helpful: string | null;
+      status: string | null;
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `chunk_not_uploaded` - Source map not uploaded
      * * `no_source_map_linked` - Script links no source map
@@ -71576,6 +71733,14 @@ export namespace Schemas {
       next_cursor: string | null;
       /** Scorer-version summary page; each group includes all matching results. */
       results: OfflineScorerSummary[];
+    }
+
+    export interface OkendoReviewSignalExtra {
+      rating: string | null;
+      status: string | null;
+      product_name: string | null;
+      is_recommended: string | null;
+      date_created: string | null;
     }
 
     export interface OnboardWarehouseTeamRequest {
@@ -99296,7 +99461,29 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
+    export interface SleekplanFeedbackSignalExtra {
+      status: string | null;
+      type: string | null;
+      total_up: string | null;
+      created: string | null;
+    }
+
+    export interface SprigFeedbackSignalExtra {
+      question_type: string | null;
+      survey_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface TrustpilotReviewSignalExtra {
+      stars: string | null;
+      language: string | null;
+      status: string | null;
+      source: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -131087,8 +131274,24 @@ export namespace Schemas {
     } as const;
 
     export type InsightsDataChecksRetrieveParams = {
+    /**
+     * `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     * @minLength 1
+     */
+    depth?: InsightsDataChecksRetrieveDepth;
     format?: InsightsDataChecksRetrieveFormat;
     };
+
+    export type InsightsDataChecksRetrieveDepth = typeof InsightsDataChecksRetrieveDepth[keyof typeof InsightsDataChecksRetrieveDepth];
+
+
+    export const InsightsDataChecksRetrieveDepth = {
+      Quick: 'quick',
+      Full: 'full',
+    } as const;
 
     export type InsightsDataChecksRetrieveFormat = typeof InsightsDataChecksRetrieveFormat[keyof typeof InsightsDataChecksRetrieveFormat];
 
@@ -134191,6 +134394,19 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsActivitySummaryVersionsRetrieveParams = {
+    /**
+     * The most versions to return, newest first. Capped at the number of versions kept.
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Return only this version, with its full profile. Returns 404 when the version does not exist.
+     * @minimum 1
+     */
+    version?: number;
     };
 
     export type SignalsProcessingListParams = {

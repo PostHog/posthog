@@ -156,6 +156,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
+    from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
@@ -168,6 +169,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
     from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
+    from products.signals.backend.emission.discourse_posts import DISCOURSE_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
     from products.signals.backend.emission.dynatrace_problems import DYNATRACE_CONFIG
@@ -177,6 +179,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
+    from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
@@ -192,9 +195,12 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
+    from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
+    from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
@@ -213,15 +219,18 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
+    from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
     from products.signals.backend.emission.snyk_issues import SNYK_CONFIG
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
+    from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
     from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
     from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
+    from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -319,6 +328,17 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.TRIGGERDEV, "errors", TRIGGER_DEV_CONFIG)
     register_signal_source(ExternalDataSourceType.CHECKLY, "error_groups", CHECKLY_CONFIG)
     register_signal_source(ExternalDataSourceType.ROARK, "issue", ROARK_CONFIG)
+    # Community, survey and docs feedback (record kind: feedback)
+    register_signal_source(ExternalDataSourceType.SLEEKPLAN, "Posts", SLEEKPLAN_CONFIG)
+    register_signal_source(ExternalDataSourceType.BETTERMODE, "posts", BETTERMODE_CONFIG)
+    register_signal_source(ExternalDataSourceType.DISCOURSE, "posts", DISCOURSE_CONFIG)
+    register_signal_source(ExternalDataSourceType.MINTLIFY, "feedback", MINTLIFY_CONFIG)
+    register_signal_source(ExternalDataSourceType.LANGSMITH, "feedback", LANGSMITH_CONFIG)
+    register_signal_source(ExternalDataSourceType.SPRIG, "Responses", SPRIG_CONFIG)
+    register_signal_source(ExternalDataSourceType.GAINSIGHTPX, "survey_responses", GAINSIGHT_PX_CONFIG)
+    # Business and product reviews (record kind: review)
+    register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
+    register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
 
 
 _register_all_emitters()

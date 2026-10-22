@@ -1,7 +1,7 @@
 """Signal emitter for dynatrace `problems` (record kind: incident).
 
 `status` is OPEN or CLOSED and `start_time` is epoch milliseconds, so the partition field converts it.
-The root cause and affected entities are nested JSON, parsed here.
+The root cause and affected entities are nested JSON, parsed here. Optional recent comments are not synced by the connector.
 """
 
 from typing import Any

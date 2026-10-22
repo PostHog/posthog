@@ -8,6 +8,100 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `ready` - Ready
+ * * `not_ready` - Not Ready
+ */
+export type ActivitySummaryStatusEnumApi =
+    (typeof ActivitySummaryStatusEnumApi)[keyof typeof ActivitySummaryStatusEnumApi]
+
+export const ActivitySummaryStatusEnumApi = {
+    Ready: 'ready',
+    NotReady: 'not_ready',
+} as const
+
+export interface ActivitySummaryFocusAreaApi {
+    /** A main thread of the user's work, in the words of their activity. */
+    topic: string
+    /**
+     * How much of the recent activity is about this thread: high, medium or low.
+     * @nullable
+     */
+    strength: string | null
+    /**
+     * The last day with activity on this thread, as YYYY-MM-DD.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
+export interface ActivitySummaryApi {
+    /** `ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.
+     *
+     * * `ready` - Ready
+     * * `not_ready` - Not Ready */
+    status: ActivitySummaryStatusEnumApi
+    /**
+     * Two or three sentences that capture the profile.
+     * @nullable
+     */
+    headline: string | null
+    /**
+     * A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.
+     * @nullable
+     */
+    profile: string | null
+    /** The main threads of the user's work. */
+    focus_areas: ActivitySummaryFocusAreaApi[]
+    /** The PostHog products the user works with, by name. */
+    products: string[]
+    /**
+     * What changed since the version before this one, or null when nothing changed.
+     * @nullable
+     */
+    recent_shift: string | null
+    /**
+     * When this version of the summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** The number of this version of the summary. 0 before the first. */
+    version: number
+    /**
+     * The version of the prompt that wrote this summary.
+     * @nullable
+     */
+    prompt_version: number | null
+    /** True when a newer version will replace this summary soon. */
+    stale: boolean
+}
+
+export interface ActivitySummaryVersionApi {
+    /** The number of this version. Higher numbers are newer. */
+    version: number
+    /** When this version was written. */
+    generated_at: string
+    /** The version of the prompt that wrote this version. */
+    prompt_version: number
+    /**
+     * Two or three sentences that capture the profile.
+     * @nullable
+     */
+    headline: string | null
+    /**
+     * What changed since the version before this one, or null when nothing changed.
+     * @nullable
+     */
+    recent_shift: string | null
+    /** The main threads of the user's work. */
+    focus_areas: ActivitySummaryFocusAreaApi[]
+    /**
+     * The one-page markdown profile. Set only when the request asks for one version with `version`.
+     * @nullable
+     */
+    profile: string | null
+}
+
+/**
  * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
  */
 export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
@@ -3579,6 +3673,72 @@ export interface RoarkIssueSignalExtraApi {
     created_at: string | null
 }
 
+export interface SleekplanFeedbackSignalExtraApi {
+    status: string | null
+    type: string | null
+    total_up: string | null
+    created: string | null
+}
+
+export interface BettermodeFeedbackSignalExtraApi {
+    status: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface DiscourseFeedbackSignalExtraApi {
+    topic_id: string | null
+    category_id: string | null
+    created_at: string | null
+}
+
+export interface MintlifyFeedbackSignalExtraApi {
+    path: string | null
+    helpful: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface LangsmithFeedbackSignalExtraApi {
+    key: string | null
+    score: string | null
+    value: string | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: string | null
+}
+
+export interface SprigFeedbackSignalExtraApi {
+    question_type: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface GainsightPxFeedbackSignalExtraApi {
+    score: string | null
+    question_type: string | null
+    content_type: string | null
+    engagement_id: string | null
+    date: string | null
+}
+
+export interface TrustpilotReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface OkendoReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    product_name: string | null
+    is_recommended: string | null
+    date_created: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3663,6 +3823,15 @@ export type SignalExtraApi =
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
+    | SleekplanFeedbackSignalExtraApi
+    | BettermodeFeedbackSignalExtraApi
+    | DiscourseFeedbackSignalExtraApi
+    | MintlifyFeedbackSignalExtraApi
+    | LangsmithFeedbackSignalExtraApi
+    | SprigFeedbackSignalExtraApi
+    | GainsightPxFeedbackSignalExtraApi
+    | TrustpilotReviewSignalExtraApi
+    | OkendoReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -8941,6 +9110,19 @@ export interface SignalUserAutonomyConfigCreateApi {
      * @nullable
      */
     github_open_pull_request_ready?: boolean | null
+}
+
+export type SignalsActivitySummaryVersionsRetrieveParams = {
+    /**
+     * The most versions to return, newest first. Capped at the number of versions kept.
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Return only this version, with its full profile. Returns 404 when the version does not exist.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type SignalsProcessingListParams = {
