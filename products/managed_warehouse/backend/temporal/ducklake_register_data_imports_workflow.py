@@ -275,6 +275,13 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         if flag_enabled:
             break
 
+    from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
+        internal_loading_enabled,
+        is_internal_warehouse,
+    )
+
+    if await database_sync_to_async(is_internal_warehouse)(organization_id):
+        flag_enabled = await database_sync_to_async(internal_loading_enabled)(organization_id)
     if not flag_enabled:
         return False
 

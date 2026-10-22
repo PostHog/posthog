@@ -8,10 +8,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 
 import structlog
+import posthoganalytics
 
 from posthog.models import Organization, Team, User
 
-from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +39,12 @@ class DuckgresServerAdminForm(forms.ModelForm):
         return server
 
 
+class InternalWarehousePreviewForm(forms.Form):
+    team_id = forms.IntegerField(min_value=1, label="Team ID")
+    query = forms.CharField(widget=forms.Textarea, initial="SELECT count() FROM events", max_length=100_000)
+    language = forms.ChoiceField(choices=[("hogql", "HogQL"), ("trino", "Trino SQL")])
+
+
 @admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
     form = DuckgresServerAdminForm
@@ -49,6 +56,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "flight_port",
         "database",
         "bucket",
+        "internal_testing",
         "created_at",
         "updated_at",
     )
@@ -142,8 +150,19 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     def trino_password_configured(self, obj: DuckgresServer) -> bool:
         return bool(obj.trino_password)
 
+    @admin.display(boolean=True, description="Internal testing")
+    def internal_testing(self, obj: DuckgresServer) -> bool:
+        from products.managed_warehouse.backend.facade.access import is_internal_warehouse  # noqa: PLC0415
+
+        return is_internal_warehouse(obj.organization_id)
+
     def get_urls(self):
         custom_urls = [
+            path(
+                "<path:object_id>/internal-preview/",
+                self.admin_site.admin_view(self.internal_preview_view),
+                name="managed_warehouse_duckgresserver_internal_preview",
+            ),
             path(
                 "provision/",
                 self.admin_site.admin_view(self.provision_view),
@@ -187,6 +206,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 {**self.admin_site.each_context(request), "title": "Provision managed warehouse"},
             )
 
+        self._track_action(request, "provision", None)
         organization_id = request.POST.get("organization_id", "").strip()
         team_id = request.POST.get("team_id", "").strip()
         database_name = request.POST.get("database_name", "").strip()
@@ -205,8 +225,10 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             schema_name,
             require_enabled=False,
             triggered_by=self._audit_principal(request),
+            internal_only=request.POST.get("internal_only") == "on",
         )
         if 200 <= resp.status_code < 300:
+            self._track_action(request, "provision", resp.status_code)
             # The control plane returns the root password exactly once, in this
             # response; afterwards it's stored only encrypted and can't be read
             # back. Show it once here. It is deliberately kept out of the message
@@ -219,6 +241,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 {
                     **self.admin_site.each_context(request),
                     "title": "Managed warehouse provisioned",
+                    "internal_only": request.POST.get("internal_only") == "on",
                     "organization_id": str(team.organization_id),
                     "team_id": team.id,
                     "connection": managed_warehouse._present_connection(
@@ -250,6 +273,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
+        self._track_action(request, "enable-backfill", None)
         team_id = request.POST.get("team_id", "").strip()
         schema_name = request.POST.get("schema_name", "").strip()
 
@@ -293,6 +317,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
+        self._track_action(request, "deprovision", None)
         resp = managed_warehouse.deprovision(
             server.organization_id, require_enabled=False, triggered_by=self._audit_principal(request)
         )
@@ -300,6 +325,77 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if 200 <= resp.status_code < 300:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_changelist"))
         return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        server = self._get_server_or_404(object_id)
+        return super().change_view(
+            request, object_id, form_url, {**(extra_context or {}), "internal_testing": self.internal_testing(server)}
+        )
+
+    def internal_preview_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
+        if request.method not in {"GET", "POST"}:
+            return HttpResponseNotAllowed(["GET", "POST"])
+        server = self._get_server_or_404(object_id)
+        if not request.user.is_staff or not self.has_view_permission(request, server):
+            raise PermissionDenied
+        lifecycle = get_object_or_404(
+            ManagedWarehouseSourceLifecycle,
+            organization_id=server.organization_id,
+            internal_only=True,
+            desired_active=True,
+        )
+        form = InternalWarehousePreviewForm(request.POST if request.method == "POST" else None)
+        result = None
+        if request.method == "POST" and form.is_valid():
+            team = self._resolve_team(request, str(server.organization_id), str(form.cleaned_data["team_id"]))
+            if team is not None:
+                from products.managed_warehouse.backend.presentation import views as warehouse  # noqa: PLC0415
+
+                row = warehouse._get_project_team_row(organization_id=server.organization_id, team_id=team.id)
+                if row is None:
+                    form.add_error("team_id", "Onboard this team before querying its warehouse.")
+                elif request.POST.get("action") == "load":
+                    if not self.has_change_permission(request, server):
+                        raise PermissionDenied
+                    from products.managed_warehouse.backend.tasks import load_internal_warehouse  # noqa: PLC0415
+
+                    self._track_action(request, "internal-load", None)
+                    load_internal_warehouse.delay(str(server.organization_id), team.id, lifecycle.generation)
+                    self._track_action(request, "internal-load", 202)
+                    messages.success(
+                        request,
+                        "Warehouse loading queued. Inspect the source jobs and Dagster backfills for completion.",
+                    )
+                else:
+                    from products.managed_warehouse.backend.internal_preview import (
+                        query_internal_warehouse,  # noqa: PLC0415
+                    )
+
+                    self._track_action(request, "internal-query", None)
+                    try:
+                        result = query_internal_warehouse(
+                            team, cast(User, request.user), form.cleaned_data["query"], form.cleaned_data["language"]
+                        )
+                        self._track_action(request, "internal-query", 400 if result.error else 200)
+                    except Exception:
+                        self._track_action(request, "internal-query", 500)
+                        logger.exception("internal_warehouse_preview_failed", team_id=team.id)
+                        form.add_error(
+                            None, "The warehouse query failed. Check the warehouse status and server logs, then retry."
+                        )
+        return render(
+            request,
+            "admin/managed_warehouse/duckgres_server/internal_preview.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Internal warehouse preview",
+                "server": server,
+                "form": form,
+                "result": result,
+                "rows": result.results[:100] if result else None,
+                "can_load": self.has_change_permission(request, server),
+            },
+        )
 
     def _get_server_or_404(self, object_id: str) -> DuckgresServer:
         try:
@@ -327,8 +423,21 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     def _audit_principal(self, request: HttpRequest) -> str:
         return f"django-admin:{cast(User, request.user).email}"
 
+    def _track_action(self, request: HttpRequest, action: str, status_code: int | None) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(cast(User, request.user).distinct_id),
+                event="managed warehouse admin action started"
+                if status_code is None
+                else "managed warehouse admin action completed",
+                properties={"action": action, "success": status_code is not None and 200 <= status_code < 300},
+            )
+        except Exception:
+            logger.warning("managed_warehouse_admin_tracking_failed", action=action)
+
     def _report(self, request: HttpRequest, resp, success_message: str) -> None:
         """Flash the outcome, and log a failure with its actor: views.py records successes only."""
+        self._track_action(request, request.path.rstrip("/").rsplit("/", 1)[-1], resp.status_code)
         if 200 <= resp.status_code < 300:
             messages.success(request, f"{success_message}. (status {resp.status_code})")
             return

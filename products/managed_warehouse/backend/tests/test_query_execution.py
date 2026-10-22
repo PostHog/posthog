@@ -59,6 +59,7 @@ def test_disabled_target_rejects_cached_requests(team: Team, flag_result: object
     cached_run.assert_not_called()
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "user, connection_id, raw", [(None, None, False), (User(id=9), "external-source", False), (None, None, True)]
 )
@@ -146,6 +147,7 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
     "access_method,has_project_access,error",
     [(None, False, "access to this project"), *[(method, True, "browser session") for method in AccessMethod]],
 )
+@pytest.mark.django_db
 def test_raw_target_rejects_unauthorized_callers_before_cached_results(
     team: Team, access_method: AccessMethod | None, has_project_access: bool, error: str
 ) -> None:
@@ -174,6 +176,7 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
 @pytest.mark.parametrize(
     "sql", ['SELECT CAST(JSON \'{"ratio": "100%"}\' AS JSON) AS value', "DELETE FROM example_table"]
 )
+@pytest.mark.django_db
 def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -> None:
     cursor = MagicMock()
     cursor.fetchmany.return_value = [("100%",)]
