@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+import fcntl
 
 import pytest
 from unittest.mock import patch
@@ -223,6 +224,8 @@ class TestClassifyCommand:
             ("lint:workflows", [], "verify-lint"),
             ("format:python", [], "verify-lint"),
             ("product:lint", [], "verify-lint"),
+            ("product:lint:owners", [], "verify-lint"),
+            ("desktop:lint:fix", [], "verify-lint"),
             ("tool:ruff", [], "verify-lint"),
             ("build:openapi", [], "build"),
             ("phrocs:build", [], "build"),
@@ -293,3 +296,24 @@ class TestSessionProperties:
     def test_corrupt_state_file_does_not_raise(self, tmp_path) -> None:
         (tmp_path / "state.json").write_text('{"runs": [["only-two", 1], "junk"], "terminal_sessions": 3}')
         assert _session_properties("lint")["is_rerun"] is False
+
+    def test_held_state_lock_does_not_block_the_command(self, tmp_path) -> None:
+        with (tmp_path / "state.json.lock").open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            assert _session_properties("lint")["is_rerun"] is False
+            fcntl.flock(holder, fcntl.LOCK_UN)
+        _session_properties.cache_clear()
+        assert _session_properties("lint")["is_rerun"] is True
+
+    def test_recycled_leader_pid_gets_a_new_terminal_id(self, monkeypatch) -> None:
+        for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr("os.getsid", lambda _pid: 4242)
+        monkeypatch.setattr("hogli_commands.telemetry_props._proc_start_time", lambda _pid: "1000")
+        first = _session_properties("lint")["session_id"]
+        _session_properties.cache_clear()
+        monkeypatch.setattr("hogli_commands.telemetry_props._proc_start_time", lambda _pid: "2000")
+        second = _session_properties("lint")
+        assert first is not None and first.startswith("term-")
+        assert second["session_id"] != first
+        assert second["is_rerun"] is False

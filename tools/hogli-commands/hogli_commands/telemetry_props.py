@@ -13,12 +13,14 @@ import re
 import sys
 import json
 import time
+import fcntl
 import socket
 import hashlib
 import functools
+import contextlib
 import subprocess
 import configparser
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -72,6 +74,8 @@ _PR_NUMBER_ENV_VARS = ("HOGLI_PR_NUMBER", "GITHUB_PR_NUMBER", "BUILDKITE_PULL_RE
 _GITHUB_PULL_REF = re.compile(r"^refs/pull/(\d+)/")
 
 _TELEMETRY_STATE_PATH = Path.home() / ".hogli" / "telemetry_state.json"
+_STATE_LOCK_ATTEMPTS = 5
+_STATE_LOCK_RETRY_SECONDS = 0.002
 _RERUN_WINDOW_SECONDS = 30 * 60
 _MAX_RECORDED_RUNS = 200
 # The terminal session cache is keyed by the session leader pid. After this idle age the
@@ -272,8 +276,9 @@ def classify_command(command: str | None, argv: Sequence[str] = ()) -> CommandKi
     """
     if not command:
         return "other"
-    prefix = command.partition(":")[0]
-    leaf = command.rpartition(":")[2]
+    segments = command.split(":")
+    prefix = segments[0]
+    leaf = segments[-1]
     if command == "ci:preflight":
         return "verify-preflight"
     if command == "test:e2e" or (command == "test" and any("playwright" in arg for arg in argv)):
@@ -282,7 +287,7 @@ def classify_command(command: str | None, argv: Sequence[str] = ()) -> CommandKi
         return "verify-typecheck"
     if command not in _NOT_TESTS and (prefix == "test" or leaf == "test"):
         return "verify-test"
-    if prefix in {"lint", "format"} or leaf == "lint" or command in _LINT_COMMANDS:
+    if prefix in {"lint", "format"} or "lint" in segments or command in _LINT_COMMANDS:
         return "verify-lint"
     if prefix == "build" or leaf == "build":
         return "build"
@@ -310,6 +315,33 @@ def is_rerun(runs: Sequence[RecordedRun], session_id: str, kind: str, now: float
 def _recent_runs(runs: Sequence[RecordedRun], now: float) -> list[RecordedRun]:
     recent = [run for run in runs if 0 <= now - run.at <= _RERUN_WINDOW_SECONDS]
     return recent[-_MAX_RECORDED_RUNS:]
+
+
+@contextlib.contextmanager
+def _state_lock() -> Iterator[None]:
+    """Serialize the state read-modify-write across hogli processes.
+
+    Gives up after a few milliseconds and runs unlocked, because a lost rerun record
+    costs less than a delayed command.
+    """
+    handle = None
+    try:
+        _TELEMETRY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handle = _TELEMETRY_STATE_PATH.with_name(f"{_TELEMETRY_STATE_PATH.name}.lock").open("a")
+        for attempt in range(_STATE_LOCK_ATTEMPTS):
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if attempt < _STATE_LOCK_ATTEMPTS - 1:
+                    time.sleep(_STATE_LOCK_RETRY_SECONDS)
+    except Exception:
+        pass
+    try:
+        yield
+    finally:
+        if handle is not None:
+            handle.close()
 
 
 def _load_state() -> dict[str, Any]:
@@ -342,14 +374,17 @@ def _parse_runs(raw: Any) -> list[RecordedRun]:
     return runs
 
 
-def _process_start_time(pid: int) -> str | None:
-    """Start time of *pid*, which tells apart two terminals that got the same pid."""
+def _proc_start_time(pid: int) -> str | None:
+    """Start time of *pid* from ``/proc``, which tells apart two terminals that got the same pid."""
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
         # Field 2 is the command name and can contain spaces, so split after its closing paren.
         return stat.rsplit(")", 1)[1].split()[19]
     except Exception:
-        pass
+        return None
+
+
+def _ps_start_time(pid: int) -> str | None:
     try:
         result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=1)
         started = result.stdout.strip()
@@ -362,19 +397,26 @@ def _terminal_session_id(state: dict[str, Any], now: float) -> str | None:
     """Stable id for the terminal session, shared by every hogli call made in it.
 
     The session leader (the login shell, or the harness that spawned the shell) outlives
-    each hogli process. The cache in *state* keeps the ``ps`` call off most invocations.
+    each hogli process. Where ``/proc`` gives the leader start time cheaply, every call
+    checks it, so a recycled leader pid gets a new id. Elsewhere the cache in *state*
+    keeps the ``ps`` call off most invocations.
     """
     try:
         leader = os.getsid(0)
     except Exception:
         return None
+    started = _proc_start_time(leader)
     cache = state.get("terminal_sessions")
     cache = cache if isinstance(cache, dict) else {}
     cached = cache.get(str(leader))
-    if isinstance(cached, dict) and now - float(cached.get("seen", 0)) < _TERMINAL_SESSION_TTL_SECONDS:
+    if (
+        started is None
+        and isinstance(cached, dict)
+        and now - float(cached.get("seen", 0)) < _TERMINAL_SESSION_TTL_SECONDS
+    ):
         session_id = str(cached.get("id"))
     else:
-        started = _process_start_time(leader)
+        started = started or _ps_start_time(leader)
         if started is None:
             return None
         digest = hashlib.sha256(f"{socket.gethostname()}|{leader}|{started}".encode()).hexdigest()
@@ -405,19 +447,22 @@ def _session_properties(command: str | None) -> dict[str, Any]:
     props: dict[str, Any] = {"command_kind": kind, "session_id": None, "session_id_source": None, "is_rerun": None}
     try:
         now = time.time()
-        state = _load_state()
-        session_id = _agent_session_id()
-        source = "agent" if session_id else None
-        if session_id is None:
-            session_id = _terminal_session_id(state, now)
-            source = "terminal"
-        if session_id is None:
-            return props
-        runs = _parse_runs(state.get("runs"))
-        props.update(session_id=session_id, session_id_source=source, is_rerun=is_rerun(runs, session_id, kind, now))
-        recorded = _recent_runs([*runs, RecordedRun(session_id=session_id, kind=kind, at=now)], now)
-        state["runs"] = [[run.session_id, run.kind, run.at] for run in recorded]
-        _save_state(state)
+        with _state_lock():
+            state = _load_state()
+            session_id = _agent_session_id()
+            source = "agent" if session_id else None
+            if session_id is None:
+                session_id = _terminal_session_id(state, now)
+                source = "terminal"
+            if session_id is None:
+                return props
+            runs = _parse_runs(state.get("runs"))
+            props.update(
+                session_id=session_id, session_id_source=source, is_rerun=is_rerun(runs, session_id, kind, now)
+            )
+            recorded = _recent_runs([*runs, RecordedRun(session_id=session_id, kind=kind, at=now)], now)
+            state["runs"] = [[run.session_id, run.kind, run.at] for run in recorded]
+            _save_state(state)
     except Exception:
         pass
     return props
