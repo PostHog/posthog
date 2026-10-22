@@ -35,7 +35,7 @@ ALTER TABLE {DB}.logs_volume_buckets
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
-        f"ALTER TABLE {DB}.logs34_to_volume_buckets MODIFY QUERY\n{LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}",
+        f"ALTER TABLE {DB}.logs34_to_volume_buckets MODIFY QUERY\n{LOGS34_TO_VOLUME_BUCKETS_MV_SELECT(internal_source=False)}",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=False,

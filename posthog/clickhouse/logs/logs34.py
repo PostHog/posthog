@@ -296,8 +296,16 @@ SETTINGS
 """
 
 
-def KAFKA_LOGS34_AVRO_MV_SELECT():
+# Migrations before 0359 pass `internal_source=False`, because the column does not exist yet on a
+# database that upgrades through them. 0359 adds it to every table and then rebuilds each view.
+_INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
+
+
+def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    internal_source_column = (
+        ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
+    )
     return f"""SELECT
     uuid,
     trace_id,
@@ -322,12 +330,11 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
     # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0305 passes
@@ -359,10 +366,9 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8,
-    `internal_source` LowCardinality(String)
+    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}
 )
-AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
+AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source)}
 """
 
 
@@ -401,30 +407,31 @@ _LOGS34_SERIES_KEY_COLUMNS = """        team_id,
 _LOGS34_RETENTION_DAYS_COLUMN = """        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days"""
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
+def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    outer = "\n    internal_source," if internal_source else ""
+    inner = "\n        internal_source," if internal_source else ""
+    group = ", internal_source" if internal_source else ""
     return f"""SELECT
     team_id,
     time_bucket,
     service_name,
     namespace,
     environment,
-    severity_text,
-    internal_source,
+    severity_text,{outer}
     maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
 (
     SELECT
-{_LOGS34_SERIES_KEY_COLUMNS},
-        internal_source,
+{_LOGS34_SERIES_KEY_COLUMNS},{inner}
 {_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text{group}"""
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV():
+def LOGS34_TO_VOLUME_BUCKETS_MV(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
@@ -434,17 +441,19 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.log
     `service_name` LowCardinality(String),
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
-    `severity_text` LowCardinality(String),
-    `internal_source` LowCardinality(String),
+    `severity_text` LowCardinality(String),{chr(10) + _INTERNAL_SOURCE_TYPE + "," if internal_source else ""}
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
-AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
+AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT(internal_source=internal_source)}
 """
 
 
-def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT() -> str:
+def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT(*, internal_source: bool = True) -> str:
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    outer = "\n    internal_source," if internal_source else ""
+    inner = "\n        internal_source," if internal_source else ""
+    group = ", internal_source" if internal_source else ""
     # `pattern_version = 0` marks a row the ingestion consumer never stamped. Those
     # rows would all collapse into one empty-pattern bucket per series, so they are
     # dropped. The filter is on the version, not on `pattern != ''`, because a
@@ -457,8 +466,7 @@ def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT() -> str:
     environment,
     severity_text,
     pattern_version,
-    pattern,
-    internal_source,
+    pattern,{outer}
     maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
@@ -466,16 +474,15 @@ FROM
     SELECT
 {_LOGS34_SERIES_KEY_COLUMNS},
         pattern_version,
-        pattern,
-        internal_source,
+        pattern,{inner}
 {_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
     WHERE pattern_version != 0
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern{group}"""
 
 
-def LOGS34_TO_PATTERN_BUCKETS_MV() -> str:
+def LOGS34_TO_PATTERN_BUCKETS_MV(*, internal_source: bool = True) -> str:
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.logs_pattern_buckets
@@ -487,12 +494,11 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.lo
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
     `pattern_version` UInt8,
-    `pattern` String,
-    `internal_source` LowCardinality(String),
+    `pattern` String,{chr(10) + _INTERNAL_SOURCE_TYPE + "," if internal_source else ""}
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
-AS {LOGS34_TO_PATTERN_BUCKETS_MV_SELECT()}
+AS {LOGS34_TO_PATTERN_BUCKETS_MV_SELECT(internal_source=internal_source)}
 """
 
 
