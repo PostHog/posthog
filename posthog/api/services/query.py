@@ -55,7 +55,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
@@ -68,12 +68,15 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
-    native_route_can_run,
     query_node_modifiers,
     unwrapped_source,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import events_route_is_explicit, native_events_cluster_ineligibility
+from posthog.models.event.new_events_schema import (
+    events_route_is_explicit,
+    native_events_async_enabled,
+    native_events_cluster_ineligibility,
+)
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -365,7 +368,7 @@ def process_query_dict(
     query_json: dict,
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters_json: Optional[dict] = ...,
     variables_override_json: Optional[dict] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -389,7 +392,7 @@ def process_query_dict(
     query_json: dict,
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters_json: Optional[dict] = ...,
     variables_override_json: Optional[dict] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -412,7 +415,7 @@ def process_query_dict(
     query_json: dict,
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters_json: Optional[dict] = None,
     variables_override_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
@@ -467,7 +470,7 @@ def process_query_dict(
         team,
         model.root,
         modifiers=modifiers,
-        native_events_flag_user=native_events_flag_user,
+        interactive_request=interactive_request,
         dashboard_filters=dashboard_filters,
         variables_override=variables_override,
         limit_context=limit_context,
@@ -486,23 +489,15 @@ def process_query_dict(
 
 
 def native_events_cluster_modifiers_for_user(
-    team: Team,
-    user: User | AnonymousUser,
-    query: BaseModel,
-    *,
-    execution_mode: ExecutionMode,
+    team: Team, user: User | AnonymousUser | None, query: BaseModel
 ) -> HogQLQueryModifiers | None:
-    # Personal API key traffic keeps its usual cluster; session and OAuth clients are covered.
-    if not isinstance(user, User) or get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
+    if not isinstance(user, User):
         return None
     node: object = query
     while isinstance(node, BaseModel):
         if isinstance(node, HogQLQuery):
             return None
         node = getattr(node, "source", None)
-    # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
-    if not native_route_can_run(execution_mode):
-        return None
     runnable: BaseModel = query
     while isinstance(runnable, (InsightVizNode, DataTableNode)):
         runnable = runnable.source
@@ -511,7 +506,9 @@ def native_events_cluster_modifiers_for_user(
     modifiers = query_node_modifiers(query)
     if events_route_is_explicit(team.modifiers, modifiers):
         return None
-    if native_events_cluster_ineligibility(team.pk) is not None:
+    if is_api_key_access_method(get_query_tag_value("access_method")):
+        return None
+    if not native_events_async_enabled() or native_events_cluster_ineligibility(team.pk) is not None:
         return None
     if not posthog_feature_flag_enabled(
         NATIVE_EVENTS_CLUSTER_USER_FLAG,
@@ -603,7 +600,7 @@ def process_query_model(
     query: BaseModel,
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters: Optional[DashboardFilter] = ...,
     variables_override: Optional[list[HogQLVariable]] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -627,7 +624,7 @@ def process_query_model(
     query: BaseModel,
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters: Optional[DashboardFilter] = ...,
     variables_override: Optional[list[HogQLVariable]] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -650,7 +647,7 @@ def process_query_model(
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    native_events_flag_user: User | AnonymousUser | None = None,
+    interactive_request: bool = False,
     dashboard_filters: Optional[DashboardFilter] = None,
     variables_override: Optional[list[HogQLVariable]] = None,
     limit_context: Optional[LimitContext] = None,
@@ -666,10 +663,6 @@ def process_query_model(
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
-    if native_events_flag_user is not None and modifiers is None:
-        modifiers = native_events_cluster_modifiers_for_user(
-            team, native_events_flag_user, query, execution_mode=execution_mode
-        )
     if isinstance(query, HogQLAutocomplete):
         timings = HogQLTimings()
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
@@ -741,6 +734,8 @@ def process_query_model(
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)
 
+    if interactive_request and modifiers is None:
+        modifiers = native_events_cluster_modifiers_for_user(team, user, query)
     query_runner = get_query_runner_or_none(
         query,
         team,

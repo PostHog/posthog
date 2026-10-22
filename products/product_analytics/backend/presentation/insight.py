@@ -1394,7 +1394,7 @@ class InsightSerializer(InsightBasicSerializer):
                         execution_mode=execution_mode,
                         user=request_user,
                         user_access_control=request_user_access_control,
-                        native_events_flag_user=self.context["request"].user,
+                        interactive_request=True,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,

@@ -350,7 +350,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 result = process_query_model(
                     self.team,
                     query,
-                    native_events_flag_user=request.user,
+                    interactive_request=True,
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
