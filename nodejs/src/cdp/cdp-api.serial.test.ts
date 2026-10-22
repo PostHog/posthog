@@ -14,6 +14,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -2124,11 +2125,31 @@ describe('CDP API', () => {
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: trigger } },
-                        email: { type: 'function_email', config: { template_id: 'template-email', inputs: {} } },
+                        email: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email',
+                                inputs: { email: { value: { from: { integrationId: SENDER_ID } } } },
+                            },
+                        },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
                 })
                 .build()
+
+        const SENDER_ID = 12
+        const insertSender = (id: number, config: Record<string, unknown> = {}) =>
+            insertIntegration(hub.postgres, team.id, {
+                id,
+                kind: 'email',
+                config: {
+                    email: 'security@example.com',
+                    name: 'Example',
+                    domain: 'example.com',
+                    verified: true,
+                    ...config,
+                },
+            })
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
@@ -2151,6 +2172,7 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+            await insertSender(SENDER_ID)
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
@@ -2312,6 +2334,39 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(expected)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(expected === 202 ? 1 : 0)
+        })
+
+        describe('send checks', () => {
+            it('refuses a suppressed recipient before it queues', async () => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at)
+                     VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'Manually added', 0,
+                         true, NOW(), false, NOW(), NOW())`,
+                    [team.id, 'bounced@example.com'],
+                    'suppress-recipient'
+                )
+                const rejectedBefore = await outcomeCount('recipient_suppressed')
+
+                const res = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    { ...body, to: 'bounced@example.com' }
+                )
+
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({
+                    error: 'recipient_suppressed',
+                    code: 'recipient_suppressed',
+                    detail: expect.stringContaining('bounced@example.com'),
+                    why: expect.stringContaining('bounced or was marked as spam'),
+                    fix: expect.any(String),
+                })
+                expect(await outcomeCount('recipient_suppressed')).toEqual(rejectedBefore + 1)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
         })
 
         it('refuses a send when the team is over its email quota', async () => {
