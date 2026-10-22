@@ -2240,10 +2240,18 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
 
-            it('rejects the key for a different request', async () => {
-                await sendKeyed()
+            it.each([
+                ['another recipient', {}, { to: 'someone-else@example.com' }],
+                [
+                    'other code content',
+                    { send: codeSend },
+                    { send: { ...codeSend, content: { ...codeSend.content, subject: 'Other' } } },
+                ],
+                ['the other send route', {}, { route: 'send_email' }],
+            ])('rejects the key for %s', async (_desc, first, retry) => {
+                await sendKeyed({ ...keyed, ...first })
 
-                const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+                const res = await sendKeyed({ ...keyed, ...retry })
 
                 expect(res.status).toEqual(422)
                 expect(res.body).toEqual({ error: 'idempotency_key_reused' })

@@ -133,18 +133,34 @@ class TestTransactionalEmail(APIBaseTest):
         }
         if addressed_by == "key":
             expected_payload["send"] = {"tracking": {"captureEngagement": True}}
+        if addressed_by != "url_id":
+            expected_payload["route"] = "send_email"
         assert mock_post.call_args.kwargs["json"] == expected_payload
 
-    def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(self, mock_post, _flag, capture):
+    @parameterized.expand(["url_id", "key", "id", "template_key"])
+    def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(
+        self, mock_post, _flag, capture, addressed_by
+    ):
         mock_post.return_value = MagicMock(
             status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
         )
+        if addressed_by == "template_key":
+            url, body = (
+                self.send_email_url,
+                {"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"},
+            )
+        else:
+            url, body = self._send_request(addressed_by, self.body)
 
-        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
+        response = self.client.post(url, body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "first-send", "replayed": True}
-        assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "reset:user-1:42"
+        assert response.json()["message_id"] == "first-send"
+        assert response.json()["replayed"] is True
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["idempotency_key"] == "reset:user-1:42"
+        # The route joins the key's fingerprint, so the same key on the other route is a different request.
+        assert payload.get("route") == (None if addressed_by == "url_id" else "send_email")
         assert capture.call_args.kwargs["properties"]["outcome"] == "replayed"
         assert capture.call_args.kwargs["properties"]["has_idempotency_key"] is True
 
@@ -528,6 +544,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "from": {"integrationId": self.sender.id},
                 "tracking": {"captureEngagement": True},
             },
+            "route": "send_email",
         }
         assert MessageTemplate.objects.filter(team=self.team).count() == templates_before
         assert capture.call_args.kwargs["properties"]["addressed_by"] == "template_key"
