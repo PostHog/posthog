@@ -37,6 +37,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_UNKNOWN_CHARS,
     MAX_UNKNOWNS,
     PUBLISHABLE_DRAFT_SCOPES,
+    SUPPORT_HIDDEN_USER_TOOLS,
     TICKET_TYPE_HINTS,
 )
 from products.conversations.backend.temporal.ai_reply.llms import llm_attempts
@@ -292,7 +293,7 @@ async def _draft_async(input: DraftInput) -> DraftOutput:
         posthog_mcp_scopes=mcp_scopes,
         model=DRAFT_MODEL,
         runtime_adapter=DRAFT_RUNTIME_ADAPTER,
-        mcp_exclude_tools=playbook.mcp_exclude_tools,
+        mcp_exclude_tools=(*playbook.mcp_exclude_tools, *SUPPORT_HIDDEN_USER_TOOLS),
     )
 
     chunks_text = format_knowledge_chunks(chunks)

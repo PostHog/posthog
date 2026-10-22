@@ -15,6 +15,7 @@ from parameterized import parameterized
 from temporalio.exceptions import ActivityError, RetryState
 
 from posthog.models import Organization, Team
+from posthog.temporal.oauth import resolve_scopes
 
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
@@ -37,6 +38,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_ATTEMPTS,
     MAX_VALIDATE_EVIDENCE_CHARS,
     PUBLISHABLE_DRAFT_SCOPES,
+    SUPPORT_HIDDEN_USER_TOOLS,
     TIERED_CLARIFY_PATCH,
 )
 from products.conversations.backend.temporal.ai_reply.gate import FINDINGS_WITHHELD_REASON, format_findings_comment
@@ -2307,6 +2309,19 @@ class TestDiagnosticScopes:
         _, scopes = await self._run_draft(diagnostics_allowed=False, auto_publishable=False, ticket_type="diagnostic")
         assert scopes == BASE_DRAFT_SCOPES
 
+    @parameterized.expand(
+        [
+            ("diagnostic_preset", True, False),
+            ("publishable", True, True),
+            ("base", False, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_every_scope_tier_can_connect_to_mcp(self, _name, diagnostics_allowed, auto_publishable):
+        _, scopes = await self._run_draft(diagnostics_allowed=diagnostics_allowed, auto_publishable=auto_publishable)
+        assert "user:read" in resolve_scopes(scopes)
+        assert "user-get" in self._captured["exclude_tools"]
+
     @pytest.mark.asyncio
     async def test_non_opted_in_org_stays_base_even_for_diagnostic_ticket(self):
         prompt, scopes = await self._run_draft(
@@ -2396,14 +2411,14 @@ class TestDiagnosticScopes:
     @pytest.mark.asyncio
     async def test_generic_mode_denies_docs_search_on_mcp_and_prompt(self):
         prompt, _ = await self._run_draft()
-        assert self._captured["exclude_tools"] == ("docs-search",)
+        assert self._captured["exclude_tools"] == ("docs-search", *SUPPORT_HIDDEN_USER_TOOLS)
         assert "You do not have docs-search" in prompt
         assert "docs-search: searches the official PostHog" not in prompt
 
     @pytest.mark.asyncio
     async def test_posthog_mode_keeps_docs_search(self):
         prompt, _ = await self._run_draft(docs_source="posthog")
-        assert self._captured["exclude_tools"] == ()
+        assert self._captured["exclude_tools"] == SUPPORT_HIDDEN_USER_TOOLS
         assert "docs-search: searches the official PostHog" in prompt
 
     @pytest.mark.asyncio
