@@ -47,6 +47,7 @@ describe('weekly slow tests report', () => {
         assert.equal(captured.values.for_branch, 'master')
         assert.equal(captured.values.merge_queue_glob, 'trunk-merge/%')
         assert.equal(captured.values.min_builds, 3)
+        assert.deepEqual(captured.values.service_names, ['ci-backend', 'ci-frontend'])
     })
 
     it('keeps only tests whose file exists in the master checkout and caps the pool', () => {
