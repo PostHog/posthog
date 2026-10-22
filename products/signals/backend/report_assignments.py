@@ -32,7 +32,13 @@ from products.signals.backend.pull_requests import (
     link_pull_request,
     update_pull_request_state,
 )
-from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
+from products.signals.backend.report_claims import (
+    ReportClaim,
+    actor_owns_claim,
+    claim_from_artefact,
+    get_active_claim,
+    is_user_claim_of_task_creator,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -126,23 +132,27 @@ def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClai
         attribution=actor,
     )
     if actor.task_id:
-        associations = SignalReportArtefact.objects.filter(
-            team_id=report.team_id,
-            report_id=report.id,
-            type="task_run",
-            task_id=actor.task_id,
-        )
-        if not associations.exists():
-            SignalReportArtefact.add_log(
-                team_id=report.team_id,
-                report_id=str(report.id),
-                content=TaskRunArtefact(task_id=actor.task_id, product="tasks", type="agent_run"),
-                attribution=actor,
-                claim_id=str(claim.id),
-            )
-        else:
-            associations.filter(claim__isnull=True).update(claim=claim)
+        _associate_task_with_claim(report, actor.task_id, claim)
     return claim_from_artefact(claim)
+
+
+def _associate_task_with_claim(report: SignalReport, task_id: str, claim: SignalReportArtefact) -> None:
+    associations = SignalReportArtefact.objects.filter(
+        team_id=report.team_id,
+        report_id=report.id,
+        type="task_run",
+        task_id=task_id,
+    )
+    if not associations.exists():
+        SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=TaskRunArtefact(task_id=task_id, product="tasks", type="agent_run"),
+            attribution=ArtefactAttribution.from_task(task_id),
+            claim_id=str(claim.id),
+        )
+    else:
+        associations.filter(claim__isnull=True).update(claim=claim)
 
 
 def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
@@ -175,6 +185,13 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         import_report_pull_requests(report)
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         actor = ArtefactAttribution.from_task(task_id)
+        if claim is not None and is_user_claim_of_task_creator(claim, task_id):
+            # The person who claimed the report started this task, so the task works under their
+            # claim. Replacing it would remove the person from the report while they still own the work.
+            claim_artefact = SignalReportArtefact.objects.filter(team_id=team_id, id=claim.claim_id).first()
+            if claim_artefact is not None:
+                _associate_task_with_claim(report, task_id, claim_artefact)
+            return claim
         if claim is not None and not actor_owns_claim(claim, actor):
             raise ReportClaimConflict("This report already has an active claim.")
         return claim or create_claim(report, actor)

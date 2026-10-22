@@ -8118,6 +8118,7 @@ def create_task(
                 report_id=signal_report_id,
                 relationship=signal_report_task_relationship,
                 description=validated_data.get("description"),
+                created_by_id=user_id,
             )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
@@ -8937,7 +8938,11 @@ def _reserve_report_warm_activation(
         enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
         enforce_report_task_cap(
-            team_id=task.team_id, report_id=report_id, relationship=relationship, description=description
+            team_id=task.team_id,
+            report_id=report_id,
+            relationship=relationship,
+            description=description,
+            created_by_id=task.created_by_id,
         )
         return record_report_task(
             team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
