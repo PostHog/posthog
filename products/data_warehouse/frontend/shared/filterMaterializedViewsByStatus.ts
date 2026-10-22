@@ -47,24 +47,48 @@ export function databaseSearchNeedsFieldHydration(searchTerm: string): boolean {
     )
 }
 
-function buildDatabaseSearch(searchText: string, statuses: MaterializationStatusFilter[]): string {
-    return [searchText, ...statuses.map((status) => `status:${status.toLowerCase()}`)].filter(Boolean).join(' ')
+function removeMaterializationStatusSearchTokens(searchTerm: string, status?: MaterializationStatusFilter): string {
+    const tokenMatches = [...searchTerm.matchAll(/\S+/g)].filter((match) => {
+        const parsedStatus = match[0].match(MATERIALIZATION_STATUS_TOKEN_PATTERN)?.[1].toLowerCase()
+        return parsedStatus && (!status || parsedStatus === status.toLowerCase())
+    })
+    let result = searchTerm
+
+    for (const match of tokenMatches.reverse()) {
+        let start = match.index
+        let end = start + match[0].length
+
+        if (start === 0) {
+            while (end < result.length && /\s/.test(result[end])) {
+                end++
+            }
+        } else {
+            while (start > 0 && /\s/.test(result[start - 1])) {
+                start--
+            }
+        }
+
+        result = result.slice(0, start) + result.slice(end)
+    }
+
+    return result
 }
 
 export function toggleMaterializationStatusSearchToken(
     searchTerm: string,
     status: MaterializationStatusFilter
 ): string {
-    const { searchText, materializationStatusFilters } = parseDatabaseSearch(searchTerm)
-    const statuses = materializationStatusFilters.includes(status)
-        ? materializationStatusFilters.filter((value) => value !== status)
-        : [...materializationStatusFilters, status]
+    const { materializationStatusFilters } = parseDatabaseSearch(searchTerm)
+    if (materializationStatusFilters.includes(status)) {
+        return removeMaterializationStatusSearchTokens(searchTerm, status)
+    }
 
-    return buildDatabaseSearch(searchText, statuses)
+    const separator = searchTerm && !/\s$/.test(searchTerm) ? ' ' : ''
+    return `${searchTerm}${separator}status:${status.toLowerCase()}`
 }
 
 export function clearMaterializationStatusSearchTokens(searchTerm: string): string {
-    return parseDatabaseSearch(searchTerm).searchText
+    return removeMaterializationStatusSearchTokens(searchTerm)
 }
 
 export function matchesMaterializationStatus(

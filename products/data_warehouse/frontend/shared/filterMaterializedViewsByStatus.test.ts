@@ -30,6 +30,13 @@ describe('filterMaterializedViewsByStatus', () => {
         expect(withBoth).toEqual('orders status:failed status:running')
         expect(toggleMaterializationStatusSearchToken(withBoth, 'Failed')).toEqual('orders status:running')
         expect(clearMaterializationStatusSearchTokens(withBoth)).toEqual('orders')
+        expect(toggleMaterializationStatusSearchToken('status:failed  orders', 'Running')).toEqual(
+            'status:failed  orders status:running'
+        )
+        expect(toggleMaterializationStatusSearchToken('orders  status:failed  revenue', 'Failed')).toEqual(
+            'orders  revenue'
+        )
+        expect(clearMaterializationStatusSearchTokens('status:failed  orders status:running')).toEqual('orders')
     })
 
     it.each([

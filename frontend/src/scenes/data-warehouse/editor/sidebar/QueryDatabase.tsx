@@ -118,6 +118,18 @@ const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeD
     })
 }
 
+export const getQueryDatabaseTreeData = (
+    displayedTreeData: TreeDataItem[],
+    extraTreeSections: TreeDataItem[] | undefined,
+    searchText: string
+): TreeDataItem[] => {
+    if (!extraTreeSections?.length) {
+        return displayedTreeData
+    }
+
+    return [...filterTreeSections(extraTreeSections, searchText), ...displayedTreeData]
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
@@ -392,18 +404,12 @@ export const QueryDatabase = ({
     }, [treeRef, setTreeRef])
 
     const treeData = useMemo(() => {
-        if (!connectionId && materializationStatusFilters.length > 0) {
-            return displayedTreeData
-        }
-        if (!extraTreeSections?.length) {
-            return displayedTreeData
-        }
         // Filtered here rather than by the caller: the tree swaps in its own filtered data while
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return [...filterTreeSections(extraTreeSections, searchText), ...displayedTreeData]
-    }, [connectionId, extraTreeSections, displayedTreeData, materializationStatusFilters, searchText])
+        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, displayedTreeData, searchText])
 
     const tree = (
         <LemonTree
