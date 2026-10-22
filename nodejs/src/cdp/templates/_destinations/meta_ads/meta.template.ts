@@ -37,20 +37,21 @@ const multiContents =
     "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'quantity': x.quantity, 'item_price': x.price}), arrayFilter(x -> (not empty(x.sku) or not empty(x.product_id)) and not empty(x.quantity), event.properties.products ?? []))}"
 const numItems = '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
 
-// Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`. Sources in order: a value
-// the site stores itself, the $fbc PostHog stamps when it sees the fbclid, and an fbclid on this
-// event. The last one only applies when the person holds no $fbc, because a click PostHog already
-// dated must not come back undated. The code drops a value Meta would reject as too old.
+// Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`. Candidates in order: a
+// value the event carries, a value the site stores on the person, and the $fbc PostHog stamps when it
+// sees the fbclid. The code sends the newest one Meta would accept. An fbclid on this event only
+// applies when none of them is set, because a click already dated must not come back redated.
 const fbc =
-    "{person.properties.fbc ?? person.properties.$fbc ?? (not empty(event.properties.fbclid) ? f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{event.properties.fbclid}' : '')}"
+    "{not empty(event.properties.fbc) or not empty(person.properties.fbc) or not empty(person.properties.$fbc) ? [event.properties.fbc, person.properties.fbc, person.properties.$fbc] : (not empty(event.properties.fbclid) ? f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{event.properties.fbclid}' : '')}"
 
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 
 // Meta's _fbp cookie value, `fb.<subdomainIndex>.<creationTimeMs>.<randomNumber>`. It identifies a
-// browser rather than a click, so PostHog cannot derive it. Sources in order: a value the site
-// stores itself, and the $fbp the SDK reads from the cookie the pixel mints.
-const fbp = "{person.properties.fbp ?? person.properties.$fbp ?? ''}"
+// browser rather than a click, so PostHog cannot derive it. Candidates in order: values the event
+// carries, then values on the person, each first the site's own and then the $fbp the SDK reads
+// from the cookie the pixel mints. The code sends the first well-formed one.
+const fbp = '{[event.properties.fbp, event.properties.$fbp, person.properties.fbp, person.properties.$fbp]}'
 
 export const template: HogFunctionTemplate = {
     free: false,
@@ -85,8 +86,10 @@ if (not empty(inputs.testEventCode)) {
     body.test_event_code := inputs.testEventCode
 }
 
-if (not empty(inputs.eventSourceUrl)) {
-    body.data.1.event_source_url := inputs.eventSourceUrl
+// Meta expects the full address of the page the event happened on, so anything else is left out
+let sourceUrl := typeof(inputs.eventSourceUrl) == 'string' ? trim(inputs.eventSourceUrl) : ''
+if (match(sourceUrl, '^(?i:https?)://[^/?#[:space:]]+([/?#][^[:space:]]*)?\$')) {
+    body.data.1.event_source_url := sourceUrl
 }
 
 // Helper function to parse JSON arrays from string values
@@ -111,20 +114,160 @@ fn freshClickId(value) {
     if (typeof(value) != 'string') {
         return null
     }
-    if (not match(value, '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?\$')) {
+    let trimmed := trim(value)
+    if (not match(trimmed, '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?\$')) {
         return null
     }
     // A click cannot precede the conversion it caused. The tolerance holds a click and the pageview
     // that reports it, stamped from one browser clock, in either order.
-    let ageMs := toUnixTimestampMilli(event.timestamp) - toFloat(splitByString('.', value)[3])
+    let ageMs := toUnixTimestampMilli(event.timestamp) - toFloat(splitByString('.', trimmed)[3])
     if (ageMs < ${-CLOCK_SKEW_TOLERANCE_MS} or ageMs >= ${NINETY_DAYS_MS}) {
         return null
     }
-    return value
+    return trimmed
+}
+
+// The newest valid click wins, so a stale or malformed value cannot hide a valid one behind it.
+// On a tie, the earlier candidate wins.
+fn newestClickId(value) {
+    let newest := null
+    let newestTime := null
+    for (let candidate in (typeof(value) == 'array' ? value : [value])) {
+        let fresh := freshClickId(candidate)
+        if (fresh != null) {
+            let clickTime := toFloat(splitByString('.', fresh)[3])
+            if (newestTime == null or clickTime > newestTime) {
+                newest := fresh
+                newestTime := clickTime
+            }
+        }
+    }
+    return newest
+}
+
+// The first well-formed browser ID wins. It is sent as is, never hashed or regenerated.
+fn firstBrowserId(value) {
+    for (let candidate in (typeof(value) == 'array' ? value : [value])) {
+        if (typeof(candidate) == 'string') {
+            let trimmed := trim(candidate)
+            if (match(trimmed, '^fb[.][0-9]+[.][0-9]+[.][0-9]+([.][A-Za-z0-9_-]+)?\$')) {
+                return trimmed
+            }
+        }
+    }
+    return null
+}
+
+let HASHED_USER_KEYS := ['em', 'ph', 'fn', 'ln', 'ge', 'db', 'ct', 'st', 'zp', 'country']
+
+// splitByString splits on UTF-16 code units, so a character outside the Basic Multilingual Plane
+// arrives as two halves that each fail to match any character. They are joined before the check.
+fn keepMatching(value, pattern) {
+    let kept := ''
+    let pending := ''
+    for (let char in splitByString('', value)) {
+        let token := char
+        if (not empty(pending)) {
+            token := concat(pending, char)
+            pending := ''
+        } else if (not empty(char) and not match(char, '^(?s:.)\$')) {
+            pending := char
+            token := ''
+        }
+        if (not empty(token) and match(token, pattern)) {
+            kept := concat(kept, token)
+        }
+    }
+    return kept
+}
+
+fn normalizeCountry(value) {
+    let normalized := lower(trim(toString(value)))
+    return match(normalized, '^[a-z]{2}\$') ? normalized : ''
+}
+
+// Meta matches a hash only when it normalized the raw value the same way before hashing it. A value
+// that cannot match after normalization is dropped rather than hashed. The rules per field:
+// https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
+fn normalizeUserValue(key, value) {
+    let normalized := lower(trim(toString(value)))
+    if (key == 'em') {
+        return match(normalized, '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+\$') ? normalized : ''
+    } else if (key == 'ph') {
+        // Digits only, country code included, no leading zeros, at most 15 digits as in E.164
+        let digits := trimLeft(keepMatching(normalized, '^[0-9]\$'), '0')
+        return match(digits, '^[1-9][0-9]{6,14}\$') ? digits : ''
+    } else if (key == 'fn' or key == 'ln' or key == 'ct') {
+        return keepMatching(normalized, '^[\\\\p{L}\\\\p{M}]\$')
+    } else if (key == 'st') {
+        return keepMatching(normalized, '^[\\\\p{L}\\\\p{N}]\$')
+    } else if (key == 'zp') {
+        let postal := keepMatching(normalized, '^[\\\\p{L}\\\\p{N}]\$')
+        let country := normalizeCountry(inputs.userData.country)
+        if (country == 'us' or (empty(country) and match(normalized, '^[0-9]{5}-[0-9]{4}\$'))) {
+            // Meta takes only the first 5 digits of a US ZIP+4 code
+            if (match(postal, '^[0-9]{9}\$')) {
+                return substring(postal, 1, 5)
+            }
+            return match(postal, '^[0-9]{5}\$') ? postal : ''
+        }
+        return postal
+    } else if (key == 'country') {
+        return normalizeCountry(normalized)
+    } else if (key == 'db') {
+        let digits := keepMatching(normalized, '^[0-9]\$')
+        return match(digits, '^[0-9]{8}\$') ? digits : ''
+    } else if (key == 'ge') {
+        if (normalized == 'f' or normalized == 'female') {
+            return 'f'
+        } else if (normalized == 'm' or normalized == 'male') {
+            return 'm'
+        }
+        return ''
+    }
+    return normalized
+}
+
+// A value that is already a SHA-256 hash is sent as is, so a mapping that hashes before sending does
+// not get hashed twice.
+fn hashUserValue(key, value) {
+    if (empty(value)) {
+        return null
+    }
+    let raw := lower(trim(toString(value)))
+    if (match(raw, '^[a-f0-9]{64}\$')) {
+        return raw
+    }
+    let normalized := normalizeUserValue(key, value)
+    return empty(normalized) ? null : sha256Hex(normalized)
+}
+
+fn hashUserData(key, value) {
+    let parsed := parseValueIfArray(value)
+    if (typeof(parsed) != 'array') {
+        return hashUserValue(key, parsed)
+    }
+    let hashes := []
+    for (let item in parsed) {
+        let hashed := hashUserValue(key, item)
+        if (not empty(hashed)) {
+            hashes := arrayPushBack(hashes, hashed)
+        }
+    }
+    return hashes
 }
 
 for (let key, value in inputs.userData) {
-    let cleaned := key == 'fbc' ? freshClickId(value) : parseValueIfArray(value)
+    let cleaned := null
+    if (key == 'fbc') {
+        cleaned := newestClickId(value)
+    } else if (key == 'fbp') {
+        cleaned := firstBrowserId(value)
+    } else if (has(HASHED_USER_KEYS, key)) {
+        cleaned := hashUserData(key, value)
+    } else {
+        cleaned := parseValueIfArray(value)
+    }
     if (not empty(cleaned)) {
         body.data.1.user_data[key] := cleaned
     }
@@ -232,11 +375,16 @@ if (res.status >= 400) {
             type: 'dictionary',
             label: 'User data',
             description:
-                'A map that contains customer information data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters',
+                'A map that contains customer information data. Send raw values for em, ph, fn, ln, ge, db, ct, st, zp, and country: they are normalized and hashed before sending, and a value that is already a SHA-256 hash is sent as is. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters',
             default: {
-                em: '{sha256Hex(lower(person.properties.email))}',
-                fn: '{sha256Hex(lower(person.properties.first_name))}',
-                ln: '{sha256Hex(lower(person.properties.last_name))}',
+                em: '{person.properties.email}',
+                ph: '{person.properties.phone}',
+                fn: '{person.properties.first_name}',
+                ln: '{person.properties.last_name}',
+                ct: '{person.properties.$geoip_city_name}',
+                st: '{person.properties.$geoip_subdivision_1_code}',
+                zp: '{person.properties.$geoip_postal_code}',
+                country: '{person.properties.$geoip_country_code}',
                 fbc,
                 fbp,
                 client_user_agent: '{event.properties.$raw_user_agent}',
