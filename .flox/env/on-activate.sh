@@ -55,12 +55,8 @@ _save_failure_log() {
 }
 
 # ── Step runner ─────────────────────────────────────────────────────
-# Runs a command with a spinner and live output preview.
+# Runs a command and shows its progress with wait_bg_step.
 # Usage: run_step "Label" command [args...]
-#   - Shows a braille spinner with elapsed time while the command runs.
-#   - Below the spinner line, the last line of command output scrolls in-place.
-#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
-#   - Non-interactive: falls back to a simple "... Label" / "✓ Label" pair.
 run_step() {
   local label="$1"
   shift
@@ -72,70 +68,78 @@ run_step() {
   local start_time
   start_time=$(date +%s)
 
-  # Non-interactive fallback
+  "$@" > "$tmpfile" 2>&1 &
+  wait_bg_step "$label" $! "$start_time" "$tmpfile"
+}
+
+# Waits for a step running as a background process and reports its outcome.
+# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+#   - Shows a braille spinner with elapsed time while the process runs.
+#   - Below the spinner line, the last line of its log scrolls in-place.
+#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
+#   - Non-interactive: prints "... Label" while it runs, then the status line.
+wait_bg_step() {
+  local label="$1"
+  local pid="$2"
+  local start_time="$3"
+  local tmpfile="$4"
+
+  # A non-interactive shell starts background jobs with SIGINT ignored, so
+  # Ctrl+C would otherwise leave the step running after activation exits.
+  trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true; echo; exit 130' INT
+
   if [[ ! -t 1 ]]; then
     echo -ne "  ... ${label}"
-    if "$@" > "$tmpfile" 2>&1; then
-      echo -e "\r  ${C_GREEN}✓${C_RESET} ${label}"
-    else
-      echo -e "\r  ${C_RED}✗${C_RESET} ${label}  (failed)"
-      _save_failure_log "$label" "$tmpfile"
-      return 1
-    fi
-    return 0
-  fi
+  else
+    local frame=0
+    local had_output=false
 
-  # Run command in background
-  "$@" > "$tmpfile" 2>&1 &
-  local pid=$!
+    # Spinner loop
+    while kill -0 "$pid" 2>/dev/null; do
+      local elapsed=$(( $(date +%s) - start_time ))
+      local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
 
-  local frame=0
-  local had_output=false
+      # Read last line of output
+      local last_line=""
+      if [[ -s "$tmpfile" ]]; then
+        last_line=$(tail -n 1 "$tmpfile" 2>/dev/null)
+        last_line="${last_line//$'\r'/}"
+        last_line="${last_line:0:70}"
+      fi
 
-  # Spinner loop
-  while kill -0 "$pid" 2>/dev/null; do
-    local elapsed=$(( $(date +%s) - start_time ))
-    local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
+      # Redraw: clear previous output line if we had one
+      if [[ "$had_output" == true ]]; then
+        echo -ne "\033[A\033[2K"  # up one, clear line
+      fi
+      # Clear spinner line and redraw
+      printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
 
-    # Read last non-empty line from output
-    local last_line=""
-    if [[ -s "$tmpfile" ]]; then
-      last_line=$(tail -n 1 "$tmpfile" 2>/dev/null | tr -d '\r' | cut -c1-70)
-    fi
+      # Show output preview below spinner
+      if [[ -n "$last_line" ]]; then
+        printf "\n\033[2K    ${C_DIM}%s${C_RESET}" "$last_line"
+        had_output=true
+      else
+        had_output=false
+      fi
 
-    # Redraw: clear previous output line if we had one
+      frame=$(( frame + 1 ))
+      sleep 0.08
+    done
+
+    # Clear output preview line, then move back up to the spinner line
     if [[ "$had_output" == true ]]; then
-      echo -ne "\033[A\033[2K"  # up one, clear line
+      echo -ne "\r\033[2K\033[A"
     fi
-    # Clear spinner line and redraw
-    printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
-
-    # Show output preview below spinner
-    if [[ -n "$last_line" ]]; then
-      printf "\n    ${C_DIM}%s${C_RESET}" "$last_line"
-      had_output=true
-    else
-      had_output=false
-    fi
-
-    frame=$(( frame + 1 ))
-    sleep 0.08
-  done
+  fi
 
   local exit_code=0
   wait "$pid" 2>/dev/null || exit_code=$?
+  trap - INT
   local elapsed=$(( $(date +%s) - start_time ))
-
-  # Clear output preview line
-  if [[ "$had_output" == true ]]; then
-    echo -ne "\033[A\033[2K"
-  fi
 
   # Final status line
   if [[ $exit_code -eq 0 ]]; then
     printf "\r\033[2K  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    # Clear the line below (old output preview may linger)
-    if [[ "$had_output" == true ]]; then printf "\033[2K"; fi
   else
     printf "\r\033[2K  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
     # Save failure log and show last few lines of output on failure
@@ -167,29 +171,6 @@ _read_ami_stamp() {
   local file="$1"
   [[ -f "$file" ]] || return 0
   tr -d '[:space:]' < "$file" 2>/dev/null || true
-}
-
-# Waits for a step that was started earlier as a background subshell and
-# reports its outcome. Mirrors run_step's final status line without a
-# spinner -- the work has usually completed by the time wait is called.
-# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
-wait_bg_step() {
-  local label="$1"
-  local pid="$2"
-  local start_time="$3"
-  local tmpfile="$4"
-
-  local exit_code=0
-  wait "$pid" 2>/dev/null || exit_code=$?
-  local elapsed=$(( $(date +%s) - start_time ))
-
-  if [[ $exit_code -eq 0 ]]; then
-    printf "  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-  else
-    printf "  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    _save_failure_log "$label" "$tmpfile"
-    return $exit_code
-  fi
 }
 
 # Inline step (instant, no spinner)
@@ -283,12 +264,12 @@ _activation_start=$(date +%s)
 
 # ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
-# of them reads or writes the other's outputs. Kick the two non-spinner
-# ones off in the background BEFORE foregrounding uv sync, so the wall
+# of them reads or writes the other's outputs. Kick the other two
+# off in the background BEFORE foregrounding uv sync, so the wall
 # clock is bounded by the slowest single step instead of the sum. uv sync
 # stays foregrounded because the completion + man-page steps that follow
-# depend on the venv it populates, and because its run_step spinner remains
-# the user-visible progress indicator for activate.
+# depend on the venv it populates. wait_bg_step shows a spinner for each
+# background step that is still running when activation reaches it.
 #
 # uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
 # lockfile recorded at bake time): when the on-disk hash matches the baked
