@@ -1448,6 +1448,8 @@ class TestDeltaliteWritePath:
         assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
         assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
+        # (1, 8) is already the widest plan here, so nothing is borrowed.
+        assert (log_kwargs["governor_borrow_mpp"], log_kwargs["governor_borrow_applied"]) == (None, False)
         # The measured peak sits next to the prediction, with the concurrency to filter solo runs.
         assert (log_kwargs["governor_peak_rss_mb"], log_kwargs["governor_rss_delta_mb"]) == (650.0, 150.0)
         assert log_kwargs["governor_concurrent_upserts"] == log_kwargs["governor_max_concurrent_upserts"] == 1
