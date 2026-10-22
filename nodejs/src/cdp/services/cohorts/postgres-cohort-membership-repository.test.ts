@@ -79,7 +79,7 @@ describe('PostgresCohortMembershipRepository', () => {
                 cohort_id: 102,
                 person_id: person,
                 in_cohort: false,
-                version: '2026-10-20 10:00:00.123000',
+                version: '2026-10-20 10:00:00.123456',
             },
             { team_id: teamId, cohort_id: 104, person_id: person, in_cohort: true },
             { team_id: teamId + 1, cohort_id: 103, person_id: person, in_cohort: true },
@@ -89,7 +89,7 @@ describe('PostgresCohortMembershipRepository', () => {
 
         expect(Object.fromEntries(result.get(person) ?? [])).toEqual({
             101: { inCohort: true, version: null },
-            102: { inCohort: false, version: Date.parse('2026-10-20T10:00:00.123Z') },
+            102: { inCohort: false, version: Date.parse('2026-10-20T10:00:00.123Z') * 1000 + 456 },
         })
     })
 

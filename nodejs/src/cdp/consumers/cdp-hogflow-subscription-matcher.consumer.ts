@@ -126,6 +126,10 @@ const counterHogflowMatcherWatchersSkipped = new Counter({
 // rebalance drops them, as it drops the batch-local state of any matcher pod.
 const COHORT_CHANGE_MAX_ATTEMPTS = 5
 const COHORT_CHANGE_MAX_RETRIES = 10_000
+// A run can enroll just after its person joined a goal cohort, before the membership writer stored the join.
+// The enrollment check then misses the join, so the matcher checks a change again once the watcher can exist.
+const COHORT_CHANGE_RECHECK_DELAY_MS = 60_000
+const COHORT_CHANGE_MAX_RECHECKS = 50_000
 
 const counterHogflowMatcherMembershipChanges = new Counter({
     name: 'cdp_hogflow_matcher_cohort_membership_changes_total',
@@ -256,6 +260,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private recentCohortMembershipChanges = new RecentCohortMembershipChanges()
     // Changes whose goal check failed on a membership lookup, by attempts so far. They run again with the next batch.
     private cohortChangeRetries = new Map<CohortMembershipChangeOverlay, number>()
+    // Changes on an active goal cohort, by the time they run once more.
+    private cohortChangeRechecks = new Map<CohortMembershipChangeOverlay, number>()
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -863,16 +869,36 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public async processCohortMembershipChanges(batch: CohortMembershipChangeOverlay[]): Promise<void> {
         const retries = this.cohortChangeRetries
         this.cohortChangeRetries = new Map()
-        // Retried changes are older than the batch, so they go first.
-        const changes = [...retries.keys(), ...batch]
+        const now = Date.now()
+        const rechecks = [...this.cohortChangeRechecks].filter(([, dueAt]) => dueAt <= now)
+        for (const [change] of rechecks) {
+            this.cohortChangeRechecks.delete(change)
+        }
+        // Retried and rechecked changes are older than the batch, so they go first.
+        const changes = [...retries.keys(), ...rechecks.map(([change]) => change), ...batch]
         if (changes.length === 0) {
             return
         }
         try {
-            const conversionsCounted = await this.claimCohortGoalWatchers(changes, retries)
+            const conversionsCounted = await this.claimCohortGoalWatchers(changes, retries).catch((error) => {
+                // A failed run keeps the retries and rechecks it took, so they run again with the next one.
+                for (const [change, attempts] of retries) {
+                    if (!this.cohortChangeRetries.has(change)) {
+                        this.cohortChangeRetries.set(change, attempts)
+                    }
+                }
+                for (const [change, dueAt] of rechecks) {
+                    this.cohortChangeRechecks.set(change, dueAt)
+                }
+                throw error
+            })
             counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
             // A goal on several cohorts can need a change from an earlier batch that the table has not stored yet.
             changes.forEach((change) => this.recentCohortMembershipChanges.record(change))
+            // The conversions are already claimed, so a failure here only loses the rechecks.
+            await this.scheduleCohortChangeRechecks(batch).catch((error) => {
+                logger.warn('⚠️', 'Could not schedule cohort membership rechecks', { error: String(error) })
+            })
         } finally {
             await this.flushConversionOutputs()
         }
@@ -882,7 +908,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         changes: CohortMembershipChangeOverlay[],
         retries: Map<CohortMembershipChangeOverlay, number>
     ): Promise<number> {
-        const people = [...new Map(changes.map((c) => [`${c.teamId}:${c.personId}`, c])).values()]
+        const people = [
+            ...new Map(
+                changes.map((c) => [
+                    `${c.teamId}:${c.personId.toLowerCase()}`,
+                    { teamId: c.teamId, personId: c.personId.toLowerCase() },
+                ])
+            ).values(),
+        ]
         const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
         let found
         try {
@@ -909,15 +942,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 return []
             }
             const personChanges = changesByPerson.get(`${row.team_id}:${String(row.person_id).toLowerCase()}`) ?? []
-            // A change from before the run enrolled cannot convert it. The enrollment check already saw
-            // the membership that change left behind.
-            const enrolledAt = new Date(row.created_at).getTime()
+            const enrolledAt = new Date(row.created_at).getTime() * 1000
             const converting = (change: CohortMembershipChangeOverlay): boolean =>
                 change.changedAt >= enrolledAt && goalCohortIds.includes(change.cohortId)
-            if (!personChanges.some(converting)) {
+            // A change from before the run enrolled converts only if the person still holds the state it left.
+            // The watcher exists, so the enrollment check did not see that state: the table had not stored the
+            // change yet, or the lookup failed.
+            const beforeEnrollment = personChanges.find(
+                (change) => change.changedAt < enrolledAt && goalCohortIds.includes(change.cohortId)
+            )
+            if (!beforeEnrollment && !personChanges.some(converting)) {
                 return []
             }
-            return [{ row, goalCohortIds: goalCohortIds as number[], personChanges, converting }]
+            return [{ row, goalCohortIds: goalCohortIds as number[], personChanges, converting, beforeEnrollment }]
         })
         if (watchers.length === 0) {
             return 0
@@ -926,9 +963,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
         const storedRows = new BatchCohortGoalMembership(this.cohortMembershipRepository)
         await storedRows.load(
-            // A goal on one cohort reads only the change, so only goals on several cohorts need the table.
+            // A change after enrollment decides a goal on one cohort alone. Every other check needs the table.
             watchers
-                .filter(({ goalCohortIds }) => goalCohortIds.length > 1)
+                .filter(({ goalCohortIds, beforeEnrollment }) => goalCohortIds.length > 1 || beforeEnrollment)
                 .map(({ row, goalCohortIds }) => ({
                     teamId: row.team_id,
                     personId: row.person_id,
@@ -937,15 +974,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
 
         const converted: ConvertedWatcher[] = []
-        for (const { row, goalCohortIds, personChanges, converting } of watchers) {
+        for (const { row, goalCohortIds, personChanges, converting, beforeEnrollment } of watchers) {
             const replay = storedRows.replay(
                 row.team_id,
                 row.person_id,
                 goalCohortIds,
                 this.recentCohortMembershipChanges.get(row.team_id, row.person_id)
             )
+            const matchesGoal = async (cohortIds: number[]): Promise<boolean> =>
+                await runFilterBytecode(
+                    row.goal.properties,
+                    withCohortIds(membershipChangeFilterGlobals(row.person_id), cohortIds),
+                    { hogFlowId: row.function_id }
+                )
             // The goal is checked after each change in order, so a join followed by a leave in the same
             // batch still converts, as it does when the two changes arrive in separate batches.
+            let checked: 'converted' | 'unknown' | 'not_converted' = 'not_converted'
             for (const change of personChanges) {
                 const cohortIds = converting(change) ? replay.memberCohortIdsAt(change) : undefined
                 replay.apply(change)
@@ -953,17 +997,53 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     continue
                 }
                 if (cohortIds === null) {
+                    // Each unknown change is retried, and the changes after it are still checked.
                     this.retryCohortChange(change, retries.get(change) ?? 0)
-                    break
+                    checked = 'unknown'
+                    continue
                 }
-                const filterGlobals = withCohortIds(membershipChangeFilterGlobals(row.person_id), cohortIds)
-                if (await runFilterBytecode(row.goal.properties, filterGlobals, { hogFlowId: row.function_id })) {
-                    converted.push({ row, distinctId: row.distinct_id ?? undefined, conversionType: 'property' })
+                if (await matchesGoal(cohortIds)) {
+                    checked = 'converted'
                     break
                 }
             }
+            if (checked === 'not_converted' && beforeEnrollment) {
+                const cohortIds = replay.memberCohortIds()
+                if (cohortIds === null) {
+                    this.retryCohortChange(beforeEnrollment, retries.get(beforeEnrollment) ?? 0)
+                } else if (await matchesGoal(cohortIds)) {
+                    checked = 'converted'
+                }
+            }
+            if (checked === 'converted') {
+                converted.push({ row, distinctId: row.distinct_id ?? undefined, conversionType: 'property' })
+            }
         }
         return this.claimConversions(converted)
+    }
+
+    // A change on an active goal cohort runs once more after a delay, for runs that enroll in the meantime.
+    private async scheduleCohortChangeRechecks(candidates: CohortMembershipChangeOverlay[]): Promise<void> {
+        if (candidates.length === 0) {
+            return
+        }
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams([
+            ...new Set(candidates.map((change) => change.teamId)),
+        ])
+        const dueAt = Date.now() + COHORT_CHANGE_RECHECK_DELAY_MS
+        for (const change of candidates) {
+            const onActiveGoal = (hogFlowsByTeam[change.teamId] ?? []).some((flow) =>
+                cohortOnlyGoalIds(flow.conversion?.filters)?.includes(change.cohortId)
+            )
+            if (!onActiveGoal) {
+                continue
+            }
+            if (this.cohortChangeRechecks.size >= COHORT_CHANGE_MAX_RECHECKS) {
+                counterHogflowMatcherMembershipChanges.labels({ outcome: 'recheck_dropped' }).inc()
+                continue
+            }
+            this.cohortChangeRechecks.set(change, dueAt)
+        }
     }
 
     private retryCohortChange(change: CohortMembershipChangeOverlay, attempts: number): void {
@@ -1452,6 +1532,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
                 captureException(err)
             })
+            // Retries and rechecks also run with each membership batch. The timer runs them on a quiet topic.
+            if (this.cohortChangeRetries.size > 0 || this.cohortChangeRechecks.size > 0) {
+                void this.processCohortMembershipChanges([]).catch((err) => {
+                    logger.error('⚠️', 'Failed to check pending cohort membership changes', { err })
+                    captureException(err)
+                })
+            }
         }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
         // Not work the process should stay alive for: periodic maintenance that the next start picks
         // up. Unref'd, a consumer that was started but never stopped cannot hold the event loop open —
@@ -1679,8 +1766,9 @@ function parseProducerVersion(lastUpdated: string | undefined): number | undefin
     if (!lastUpdated || !PRODUCER_VERSION_FORMAT.test(lastUpdated)) {
         return undefined
     }
-    const parsed = Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`)
-    return Number.isNaN(parsed) ? undefined : parsed
+    const milliseconds = Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`)
+    // Microseconds, the precision the membership table stores, so a change and a row compare exactly.
+    return Number.isNaN(milliseconds) ? undefined : milliseconds * 1000 + Number(lastUpdated.slice(23, 26))
 }
 
 // The inCohort and notInCohort STL functions read the cohort_ids global.

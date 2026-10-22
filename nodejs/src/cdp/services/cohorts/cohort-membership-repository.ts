@@ -45,7 +45,7 @@ export interface CohortMembershipRepository {
 
 export interface StoredCohortRow {
     inCohort: boolean
-    // The row's version stamp in milliseconds since the epoch, or null when the writer stored it without one.
+    // The row's version stamp in microseconds since the epoch, or null when the writer stored it without one.
     version: number | null
 }
 

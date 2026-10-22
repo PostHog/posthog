@@ -82,13 +82,13 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
                 person_id: string
                 cohort_id: string
                 in_cohort: boolean
-                version_ms: string | null
+                version_us: string | null
             }>(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 // The version is converted in SQL because pg parses the '-infinity' sentinel to a non-date value.
                 `SELECT person_id, cohort_id, in_cohort,
                         CASE WHEN version = '-infinity' THEN NULL
-                             ELSE floor(extract(epoch FROM version) * 1000) END AS version_ms
+                             ELSE floor(extract(epoch FROM version) * 1000000) END AS version_us
                  FROM cohort_membership
                  WHERE team_id = $1
                    AND person_id = ANY($2::uuid[])
@@ -101,7 +101,7 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
             const person = memberships.get(row.person_id) ?? new Map<number, StoredCohortRow>()
             person.set(Number(row.cohort_id), {
                 inCohort: row.in_cohort,
-                version: row.version_ms === null ? null : Number(row.version_ms),
+                version: row.version_us === null ? null : Number(row.version_us),
             })
             memberships.set(row.person_id, person)
         }

@@ -490,7 +490,15 @@ export class HogFlowExecutorService {
             enrolledBy?.event !== COHORT_MEMBERSHIP_CHANGED_EVENT ||
             typeof version !== 'string' ||
             typeof cohortId !== 'number' ||
-            (status !== 'entered' && status !== 'left')
+            (status !== 'entered' && status !== 'left') ||
+            !(invocation.hogFlow.conversion?.filters ?? []).some((filter: unknown) => {
+                const { type, value } = (filter ?? {}) as { type?: unknown; value?: unknown }
+                return (
+                    type === 'cohort' &&
+                    (typeof value === 'number' || typeof value === 'string') &&
+                    Number(value) === cohortId
+                )
+            })
         ) {
             return null
         }

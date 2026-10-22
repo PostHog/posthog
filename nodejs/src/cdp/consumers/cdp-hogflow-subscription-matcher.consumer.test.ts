@@ -1686,9 +1686,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     ],
                     cohort_ids: [COHORT_ID, OTHER_COHORT_ID],
                 })
+            // Versions are in microseconds, the precision the membership table stores.
             const storedRow = (inCohort: boolean, lastUpdated: string): { inCohort: boolean; version: number } => ({
                 inCohort,
-                version: Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`),
+                version:
+                    Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`) * 1000 +
+                    Number(lastUpdated.slice(23, 26)),
             })
 
             const runChanges = async (messages: any[]): Promise<void> => {
@@ -1706,13 +1709,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     cohortGoalWatcher(),
                     [],
                     1,
-                ],
-                [
-                    'a join from before the run enrolled',
-                    [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
-                    cohortGoalWatcher(),
-                    [],
-                    0,
                 ],
                 // Without a version stamp, the change cannot be placed after the enrollment.
                 [
@@ -1774,7 +1770,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     new Error('behavioral cohorts DB unavailable'),
                     0,
                 ],
-            ])('counts %s as %d conversions', async (_name, messages, row, memberCohortIds, conversions) => {
+            ])('counts the conversion for %s', async (_name, messages, row, memberCohortIds, conversions) => {
                 matcher.memberCohortIds = memberCohortIds
                 matcher.watcherRows = [row]
 
@@ -1782,6 +1778,106 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
                 expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(conversions)
+            })
+
+            // The run enrolled at 09:30 and still has its watcher, so the enrollment check missed the join.
+            it.each<
+                [string, any[], Record<number, { inCohort: boolean; version: number }> | null, Error | null, number]
+            >([
+                [
+                    'the table has not stored the join',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
+                    null,
+                    null,
+                    1,
+                ],
+                [
+                    'the table stored a newer leave',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
+                    { [COHORT_ID]: storedRow(false, '2026-10-22 09:10:00.000000') },
+                    null,
+                    0,
+                ],
+                // The two stamps share a millisecond, so only microseconds order them.
+                [
+                    'the table stored a leave later in the same millisecond',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.123100' })],
+                    { [COHORT_ID]: storedRow(false, '2026-10-22 09:00:00.123900') },
+                    null,
+                    0,
+                ],
+                [
+                    'the table stored a leave earlier in the same millisecond',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.123900' })],
+                    { [COHORT_ID]: storedRow(false, '2026-10-22 09:00:00.123100') },
+                    null,
+                    1,
+                ],
+                [
+                    'a later leave before enrollment comes in the same batch',
+                    [
+                        membershipChange({ last_updated: '2026-10-22 09:00:00.000000' }),
+                        membershipChange({ status: 'left', last_updated: '2026-10-22 09:05:00.000000' }),
+                    ],
+                    null,
+                    null,
+                    0,
+                ],
+                [
+                    'the membership table is unavailable',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
+                    null,
+                    new Error('behavioral cohorts DB unavailable'),
+                    0,
+                ],
+            ])(
+                'judges a join from before enrollment when %s',
+                async (_name, messages, storedCohortRows, lookupError, conversions) => {
+                    matcher.storedCohortRows = storedCohortRows
+                    matcher.memberCohortIds = lookupError ?? []
+                    matcher.watcherRows = [cohortGoalWatcher()]
+
+                    await runChanges(messages)
+
+                    expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
+                }
+            )
+
+            // The run enrolled just after the join, and its enrollment check read a table that had not stored it.
+            it('checks a join again once a run that enrolled after it has its watcher', async () => {
+                const now = jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-22T09:00:01Z').getTime())
+                try {
+                    matcher.setHogFlows({
+                        goal: makeHogFlow({
+                            id: 'flow-1',
+                            team_id: 1,
+                            waitUntil: false,
+                            conversion: {
+                                window: '7d',
+                                filters: [{ key: 'id', type: 'cohort', value: COHORT_ID, operator: 'in' }],
+                                bytecode: inCohortBytecode(),
+                            },
+                        } as any),
+                    })
+                    // The person already has a watcher from another workflow, on another cohort.
+                    const otherWatcher = cohortGoalWatcher({ cohort_ids: [OTHER_COHORT_ID] })
+                    otherWatcher.id = 'watcher-other'
+                    matcher.watcherRows = [otherWatcher]
+                    await runChanges([membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })])
+
+                    matcher.watcherRows = [
+                        otherWatcher,
+                        { ...cohortGoalWatcher(), created_at: new Date('2026-10-22T09:00:02Z') },
+                    ]
+                    await runChanges([])
+                    expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+
+                    now.mockReturnValue(new Date('2026-10-22T09:01:02Z').getTime())
+                    await runChanges([])
+                    expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+                } finally {
+                    now.mockRestore()
+                }
             })
 
             it('retries a membership lookup that fails once', async () => {
@@ -1804,6 +1900,40 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 await runChanges([])
                 expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            })
+
+            // The join of the other cohort came after this join, so the person was never in both at once.
+            it('does not judge a change against a later state of another cohort', async () => {
+                matcher.storedCohortRows = { [OTHER_COHORT_ID]: storedRow(true, '2026-10-22 10:05:00.000000') }
+                matcher.watcherRows = [bothCohortsWatcher()]
+
+                await runChanges([membershipChange({ last_updated: '2026-10-22 10:01:00.000000' })])
+
+                expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+            })
+
+            it('retries every change of a person whose lookup failed, not only the first', async () => {
+                matcher.lookupFailuresBeforeSuccess = 2
+                matcher.memberCohortIds = [OTHER_COHORT_ID]
+                matcher.watcherRows = [bothCohortsWatcher()]
+
+                await runChanges([
+                    membershipChange({ status: 'left', last_updated: '2026-10-22 10:01:00.000000' }),
+                    membershipChange({ last_updated: '2026-10-22 10:02:00.000000' }),
+                ])
+                expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+
+                await runChanges([])
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            })
+
+            it('looks up watchers by the lowercase person id', async () => {
+                matcher.watcherRows = [cohortGoalWatcher()]
+
+                await runChanges([membershipChange({ person_id: COHORT_PERSON_UUID.toUpperCase() })])
+
+                const lookup = matcher.calls.find(({ sql }) => sql.includes('FROM conversion_watchers'))
+                expect(lookup?.params[1]).toEqual([COHORT_PERSON_UUID])
             })
 
             // The table stored a leave of the other cohort that is newer than this batch's join of it.

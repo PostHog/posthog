@@ -13,7 +13,7 @@ export type CohortMembershipChangeOverlay = {
     personId: string
     cohortId: number
     inCohort: boolean
-    // The change's version stamp, in milliseconds since the epoch.
+    // The change's version stamp, in microseconds since the epoch.
     changedAt: number
 }
 
@@ -194,14 +194,15 @@ export class BatchCohortGoalMembership {
                 states.set(cohortId, state)
             }
         }
-        return new CohortGoalReplay(goalCohortIds, states)
+        return new CohortGoalReplay(goalCohortIds, states, stored !== undefined)
     }
 }
 
 export class CohortGoalReplay {
     constructor(
         private goalCohortIds: number[],
-        private states: Map<number, CohortState>
+        private states: Map<number, CohortState>,
+        private storedRowsLoaded: boolean
     ) {}
 
     apply(change: CohortMembershipChangeOverlay): void {
@@ -214,10 +215,27 @@ export class CohortGoalReplay {
     /**
      * The goal cohorts the person is in at the moment of a change, or null while the state of one of
      * them is unknown. The changed cohort takes the change's state even when a newer state is known,
-     * because the person was in that state when the change happened.
+     * because the person was in that state when the change happened. Another cohort's state from after
+     * the change counts as out of that cohort, because the state at the change is unknown: a reconcile run
+     * re-stamps a stored row without a transition, and the newest change can follow several. Counting it
+     * as out can miss a conversion, but never counts a false one, and the later change gets its own check.
      */
     memberCohortIdsAt(change: CohortMembershipChangeOverlay): number[] | null {
-        const states = new Map(this.states).set(change.cohortId, changeState(change))
+        const states = new Map<number, CohortState>()
+        for (const [cohortId, state] of this.states) {
+            const later = state.version !== null && state.version > change.changedAt
+            states.set(cohortId, later ? { inCohort: false, version: state.version } : state)
+        }
+        return this.memberCohortIdsOf(states.set(change.cohortId, changeState(change)))
+    }
+
+    // The goal cohorts the person is in by the newest known states. Null without the stored rows, which can
+    // hold a state newer than every change.
+    memberCohortIds(): number[] | null {
+        return this.storedRowsLoaded ? this.memberCohortIdsOf(this.states) : null
+    }
+
+    private memberCohortIdsOf(states: Map<number, CohortState>): number[] | null {
         if (this.goalCohortIds.some((cohortId) => !states.has(cohortId))) {
             return null
         }
