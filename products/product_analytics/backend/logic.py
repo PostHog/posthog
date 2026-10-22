@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -115,6 +115,22 @@ def recent_viewers_by_insight(
         if len(bucket) < max_per_insight:
             bucket.append(view.user)
     return viewers_by_insight
+
+
+def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], since: datetime) -> dict[int, int]:
+    # InsightViewed holds one row per team, user and insight, so counting rows counts viewers.
+    rows = (
+        InsightViewed.objects.filter(
+            team_id=team_id,
+            insight_id__in=insight_ids,
+            last_viewed_at__gte=since,
+            user__isnull=False,
+        )
+        .values("insight_id")
+        .annotate(viewers=Count("id"))
+        .values_list("insight_id", "viewers")
+    )
+    return dict(rows)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
