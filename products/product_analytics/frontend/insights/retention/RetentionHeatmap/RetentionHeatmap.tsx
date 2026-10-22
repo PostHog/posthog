@@ -5,7 +5,12 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { Heatmap, type HeatmapCellDatum, type HeatmapCellStyle } from '@posthog/quill-charts'
+import {
+    Heatmap,
+    type HeatmapCellDatum,
+    type HeatmapCellStyle,
+    type HeatmapTooltipContext,
+} from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -171,6 +176,17 @@ export function RetentionHeatmap({
         [rowAt, openModal]
     )
 
+    // The chart runs with zero margins, so the cursor height maps straight to a row of the list.
+    const tooltip = useCallback(
+        ({ dataIndex, hoverPosition }: HeatmapTooltipContext): JSX.Element | null => {
+            const row = hoverPosition ? rows[Math.floor(hoverPosition.y / rowHeight)] : undefined
+            return row?.inProgress[dataIndex] ? (
+                <div className="bg-surface-tooltip text-primary-inverse rounded px-2 py-1">Period in progress</div>
+            ) : null
+        },
+        [rows, rowHeight]
+    )
+
     const highlightedColumns = useMemo(
         () =>
             [selectedInterval, hoveredColumn].filter(
@@ -186,7 +202,6 @@ export function RetentionHeatmap({
             hideXAxis: true,
             hideYAxis: true,
             margins: { top: 0, right: 0, bottom: 0, left: 0 },
-            tooltip: { enabled: false },
             cellLabel,
             cellStyle,
             highlightedColumns,
@@ -277,6 +292,7 @@ export function RetentionHeatmap({
                             cells={cells}
                             theme={chartTheme}
                             config={config}
+                            tooltip={tooltip}
                             onCellClick={canOpenPeople ? onCellClick : undefined}
                         />
                     </div>
