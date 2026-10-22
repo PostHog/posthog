@@ -57,7 +57,44 @@ const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
     return { remote, remoteQueries: { results: 'revenue' } }
 }
 
+const product = (name: string, extra: Partial<SearchItem> = {}): SearchItem => ({
+    id: name,
+    name,
+    category: 'tools',
+    ...extra,
+})
+
 describe('buildSections', () => {
+    test.each<[string, string, Record<string, string[]>]>([
+        [
+            'pins name matches above results, exact match first, but never a tab row',
+            'logs',
+            { 'top-match': ['Logs', 'Logs explorer'], results: ['Dashboard 1'], products: ['Logs live tail'] },
+        ],
+        ['never pins a keyword-only match', 'observability', { results: ['Dashboard 1'], products: ['Logs'] }],
+    ])('%s', (_, localQuery, expected) => {
+        const local = {
+            ...emptyLocal(),
+            products: [
+                product('Logs explorer'),
+                product('Logs', { searchKeywords: ['observability'] }),
+                product('Logs live tail', { category: 'tabs', parentName: 'Logs explorer' }),
+            ],
+        }
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { [localQuery]: [dashboard('entry', '1')] }, displayedKey: localQuery }
+        const sections = buildSections(
+            input('search', { local, localQuery, remote, remoteQueries: { results: localQuery } })
+        )
+        const names = Object.fromEntries(
+            sections.map((section) => [
+                section.key,
+                section.rows.map((row) => (row.kind === 'item' ? row.item.name : row.key)),
+            ])
+        )
+        expect(names).toEqual(expected)
+    })
+
     test.each<[string, SectionsInput, string, number]>([
         ['remote results', input('search', remoteResults(itemsWithRepeats(RESULTS_LIMIT))), 'results', RESULTS_LIMIT],
         [

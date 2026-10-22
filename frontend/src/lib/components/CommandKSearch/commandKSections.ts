@@ -1,5 +1,5 @@
 import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
-import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
+import { SETTINGS_THEME_ITEM_ID, filterSearchItems, splitTopMatches } from 'lib/components/Search/utils'
 
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
@@ -17,6 +17,7 @@ export type CommandKMode = 'empty' | 'key' | 'value' | 'search'
 export type CommandKSectionKey =
     | 'filters'
     | 'suggestions'
+    | 'top-match'
     | 'recents'
     | 'starred'
     | LocalSource
@@ -58,6 +59,7 @@ export const emptyRemoteSlots = (): RemoteSlots =>
 const SECTION_LABELS: Record<CommandKSectionKey, string> = {
     filters: 'Filters',
     suggestions: 'Suggestions',
+    'top-match': 'Top match',
     recents: 'Recents',
     starred: 'Starred',
     results: 'Results',
@@ -254,17 +256,30 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             )
         )
     }
-    sections.push(input.suggestions, withViewAll(remoteSectionFor('results'), input.viewAll))
+    let topMatch: CommandKSection | null = null
+    const localSections: (CommandKSection | null)[] = []
     if (mode !== 'value' && localQuery) {
         for (const source of LOCAL_SOURCES) {
-            const filtered = filterLocal(source, local[source], localQuery)
+            let filtered = filterLocal(source, local[source], localQuery)
+            if (source === 'products') {
+                const { topMatches, rest } = splitTopMatches(filtered, localQuery)
+                // The rows keep the Products section, so opening one reports the same section as before.
+                topMatch = topMatches.length > 0 ? readySection('top-match', itemRows(source, topMatches)) : null
+                filtered = rest
+            }
             const themeItem = source === 'settings' ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
                 : itemRows(source, filtered, SECONDARY_LIMIT)
-            sections.push(rows.length > 0 ? readySection(source, rows) : null)
+            localSections.push(rows.length > 0 ? readySection(source, rows) : null)
         }
     }
+    sections.push(
+        input.suggestions,
+        topMatch,
+        withViewAll(remoteSectionFor('results'), input.viewAll),
+        ...localSections
+    )
     if (mode !== 'value') {
         sections.push(...REMOTE_SOURCES.filter((source) => source !== 'results').map(remoteSectionFor))
         if (input.askAiQuestion) {

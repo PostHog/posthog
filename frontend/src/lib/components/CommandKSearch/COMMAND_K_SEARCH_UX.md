@@ -92,10 +92,11 @@ The input is always in exactly one mode, decided from the token under the cursor
 
 - Free text plus all committed chips go to the file system endpoint in one request. Typing a value that names exactly one option (`is:dashboard`) commits it as a chip without Space, as if its suggestion were picked.
 - Sections, in this fixed order, covering everything the current palette finds:
-  1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines).
-  2. In-memory lists, filtered on every keystroke: **Products**, **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**.
-  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
-  4. **Ask PostHog AI**.
+  1. **Top match**: up to 3 products whose name starts with the free text, exact name matches first. They move out of **Products**, so no product shows twice. Tab rows never pin. The current palette pins the same rows above Recents.
+  2. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines).
+  3. In-memory lists, filtered on every keystroke: **Products**, **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**.
+  4. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
+  5. **Ask PostHog AI**.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 
