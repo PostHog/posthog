@@ -488,7 +488,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // callers not to send pathological frames, same as the replica.
         if let Err(e) = server
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
-            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
+            // Identity pods share one fleet-wide load, so a shed pod means the
+            // fleet is saturated. RESOURCE_EXHAUSTED stops the router from
+            // retrying the shed on another saturated pod.
+            .layer(
+                GrpcLoadShedLayer::new(max_concurrent_requests)
+                    .with_code(tonic::Code::ResourceExhausted),
+            )
             .add_service(
                 PersonHogIdentityServer::new(service)
                     .accept_compressed(CompressionEncoding::Gzip)
