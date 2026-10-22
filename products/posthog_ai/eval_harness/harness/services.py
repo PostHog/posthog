@@ -328,9 +328,14 @@ def start_mcp_server(
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode.
+        # skill delivery mode. dashboard-widgets gates the widget batch tools that
+        # the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "dashboard-widgets": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
