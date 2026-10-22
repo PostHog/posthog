@@ -238,6 +238,7 @@
         "html-to-image": "^1.11.13",
         "husky": "catalog:",
         "image-blob-reduce": "^4.1.0",
+        "ipaddr.js": "2.2.0",
         "kea": "catalog:",
         "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
