@@ -1248,6 +1248,60 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+class DynatraceIncidentSignalExtra(SignalExtraBase):
+    display_id: str | None
+    status: str | None
+    severity_level: str | None
+    impact_level: str | None
+    start_time: str | None
+    root_cause_entity: str | None
+    affected_entities: list[str]
+
+
+class DynatraceIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.DYNATRACE]
+    extra: DynatraceIncidentSignalExtra
+
+
+class StatuspageIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    impact: str | None
+    shortlink: str | None
+    created_at: str | None
+
+
+class StatuspageIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.STATUSPAGE]
+    extra: StatuspageIncidentSignalExtra
+
+
+class CronitorIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    state: str | None
+    created: str | None
+    started: str | None
+
+
+class CronitorIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.CRONITOR]
+    extra: CronitorIncidentSignalExtra
+
+
+class InstatusIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    started: str | None
+    components: list[str]
+
+
+class InstatusIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.INSTATUS]
+    extra: InstatusIncidentSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1320,7 +1374,11 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | DynatraceIncidentSignalInput
+    | StatuspageIncidentSignalInput
+    | CronitorIncidentSignalInput
+    | InstatusIncidentSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1390,6 +1448,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    DynatraceIncidentSignalInput,
+    StatuspageIncidentSignalInput,
+    CronitorIncidentSignalInput,
+    InstatusIncidentSignalInput,
     CheckFailedSignalInput,
 )
 
