@@ -165,6 +165,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
+    from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
@@ -208,6 +209,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
+    from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
@@ -259,6 +261,9 @@ def _register_all_emitters() -> None:
     # OAuth-connected support sources (record kind: ticket)
     register_signal_source(ExternalDataSourceType.INTERCOM, "conversations", INTERCOM_CONFIG)
     register_signal_source(ExternalDataSourceType.HUBSPOT, "tickets", HUBSPOT_CONFIG)
+    # CRM case tools (record kind: ticket)
+    register_signal_source(ExternalDataSourceType.DYNAMICS365, "Cases", DYNAMICS365_CONFIG)
+    register_signal_source(ExternalDataSourceType.ZOHOCRM, "Cases", ZOHO_CRM_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG

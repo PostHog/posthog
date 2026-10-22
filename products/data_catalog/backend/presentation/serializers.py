@@ -219,6 +219,52 @@ class MetricSerializer(serializers.ModelSerializer):
         return api.compute_drift([obj])[obj.id]
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricCreate")
+class MetricCreateSerializer(MetricSerializer):
+    """Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name."""
+
+    overwrite = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Replace the fields of the live metric that already holds this name. When false, a taken name "
+        "returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an "
+        "approved metric with a changed name, description, unit, or definition resets it to 'proposed'.",
+    )
+
+    class Meta(MetricSerializer.Meta):
+        fields = [*MetricSerializer.Meta.fields, "overwrite"]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExisting")
+class MetricNameConflictExistingSerializer(serializers.Serializer):
+    """The live metric that holds the name a create was sent with."""
+
+    name = serializers.CharField(help_text="Name of the existing metric.")
+    status = serializers.CharField(help_text="Lifecycle state of the existing metric: 'proposed' or 'approved'.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExtra")
+class MetricNameConflictExtraSerializer(serializers.Serializer):
+    existing_metric = MetricNameConflictExistingSerializer(
+        help_text="The metric that holds the name. Send overwrite true to replace it."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflict")
+class MetricNameConflictSerializer(serializers.Serializer):
+    """The 409 body of a create whose name a live metric already holds."""
+
+    type = serializers.CharField(help_text="Error class the API attaches to every error body.")
+    code = serializers.CharField(help_text="Always 'metric_name_taken'.")
+    detail = serializers.CharField(help_text="Human-readable reason, safe to show as is.")
+    attr = serializers.CharField(allow_null=True, help_text="Always null: the conflict is not tied to one field.")
+    extra = MetricNameConflictExtraSerializer(
+        required=False,
+        help_text="Absent when the existing metric is hidden from the caller because it reads a table they cannot access.",
+    )
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
 class MetricBulkNamesRequestSerializer(serializers.Serializer):
     """Input for the bulk metric actions: the metric names to act on."""
