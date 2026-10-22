@@ -461,6 +461,7 @@ rules:
                               |TracingView
                               |UploadedMedia
                               |UserInterview
+                              |UserActivitySummaryQueueState
                               |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
@@ -928,6 +929,7 @@ rules:
                         |TracingView
                         |UploadedMedia
                         |UserInterview
+                        |UserActivitySummaryQueueState
                         |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
