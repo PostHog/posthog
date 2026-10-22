@@ -24,13 +24,6 @@ function playGoldRings(): void {
     void goldRingsAudio.play().catch(() => undefined)
 }
 
-function isEditableTarget(event: KeyboardEvent): boolean {
-    const target = event.composedPath()[0]
-    return (
-        target instanceof HTMLElement && !!target.closest('input, textarea, select, [contenteditable], .monaco-editor')
-    )
-}
-
 export function listenForGoldRingsKeys(isEnabled: () => boolean): () => void {
     let progress = 0
     let lastKeyAt = 0
@@ -59,14 +52,11 @@ export function listenForGoldRingsKeys(isEnabled: () => boolean): () => void {
         if (!isEnabled() || isGoldRingsMuted() || !isPlainKey(event)) {
             return
         }
-        if (event.target instanceof HTMLInputElement && event.target.type === 'password') {
-            return
-        }
         if (trackOptOutKey(event.key)) {
             return
         }
 
-        if (event.key === '5' && !isEditableTarget(event) && isGoldRingsActive(new Date())) {
+        if (event.key === '5' && isGoldRingsActive(new Date())) {
             playGoldRings()
         }
     }

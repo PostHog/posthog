@@ -74,31 +74,13 @@ describe('holiday gold rings keys', () => {
         stopListening()
     })
 
-    test('ignores password fields', () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date(2026, 11, 25))
-        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
-        const input = document.createElement('input')
-        input.type = 'password'
-        document.body.appendChild(input)
-        const stopListening = listenForGoldRingsKeys(() => true)
-
-        for (const key of 'IhateXmas5') {
-            input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }))
-        }
-
-        expect(isGoldRingsMuted()).toBe(false)
-        expect(play).not.toHaveBeenCalled()
-        stopListening()
-        input.remove()
-    })
-
     test.each([
         ['an input', '<input data-key-target />'],
+        ['a password input', '<input type="password" data-key-target />'],
         ['a textarea', '<textarea data-key-target></textarea>'],
         ['contenteditable text', '<div contenteditable="true"><span data-key-target></span></div>'],
         ['a code editor', '<div class="monaco-editor"><span data-key-target></span></div>'],
-    ])('does not play while typing in %s', (_name, markup) => {
+    ])('plays without swallowing 5 while typing in %s', (_name, markup) => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date(2026, 11, 25))
         const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
@@ -107,11 +89,11 @@ describe('holiday gold rings keys', () => {
         document.body.appendChild(container)
         const stopListening = listenForGoldRingsKeys(() => true)
 
-        container
-            .querySelector('[data-key-target]')
-            ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: '5' }))
+        const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: '5' })
+        container.querySelector('[data-key-target]')?.dispatchEvent(event)
 
-        expect(play).not.toHaveBeenCalled()
+        expect(play).toHaveBeenCalledTimes(1)
+        expect(event.defaultPrevented).toBe(false)
         stopListening()
         container.remove()
     })
