@@ -393,6 +393,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Ashby",
     "Automox",
     "Avalara",
+    "AwsAthena",
     "AwsBudgets",
     "AwsComputeOptimizer",
     "AwsCostAndUsageReport",
