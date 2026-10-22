@@ -287,8 +287,15 @@ function LogsFilterSettingsButton(): JSX.Element {
     )
 
     const hasLogItems = allItemsByItemType['logs']?.length > 0
+    const showLogsUpsell = logsInitialLoadRequested && !logsLoading && !logsLoadError && !hasLogItems
 
-    if (logsInitialLoadRequested && !logsLoading && !logsLoadError && !hasLogItems) {
+    useEffect(() => {
+        if (showLogsUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'logs' })
+        }
+    }, [showLogsUpsell])
+
+    if (showLogsUpsell) {
         return (
             <div className="SettingsBar--button--square">
                 <LemonDropdown

@@ -1,16 +1,9 @@
-import posthog from 'posthog-js'
-
 import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 export function SessionLogsUnavailableNotice({ sessionId }: { sessionId: string }): JSX.Element {
-    useOnMountEffect(() => {
-        posthog.capture('recording inspector upsell shown', { type: 'logs' })
-    })
-
     return (
         <div className="flex flex-col gap-1.5 p-2 max-w-100" data-attr="player-inspector-logs-unavailable-notice">
             <span className="font-semibold">No logs in this session</span>
