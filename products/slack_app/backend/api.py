@@ -4289,11 +4289,8 @@ def post_thread_join_prompt(
     capture_slack_event(integration, "slack app thread join requested", slack_user_id=joiner_slack_user_id)
 
 
-def _thread_join_context(payload: dict) -> dict[str, Any] | None:
-    """The live join prompt this click answers, when the thread creator is the one clicking.
-
-    Either answer closes the prompt, so the token and the pending marker go with it.
-    """
+def _thread_join_context(payload: dict) -> tuple[str, dict[str, Any]] | None:
+    """The live join prompt this click answers, when the thread creator is the one clicking."""
     context_token = _extract_context_token(payload)
     context = _decode_picker_context(context_token) if context_token else None
     if not context or context.get("kind") != THREAD_JOIN_CONTEXT_KIND:
@@ -4301,6 +4298,11 @@ def _thread_join_context(payload: dict) -> dict[str, Any] | None:
     # The prompt is ephemeral, so only the creator sees it, but the answer acts for them.
     if payload.get("user", {}).get("id", "") != context.get("owner_slack_user_id"):
         return None
+    return context_token, context
+
+
+def _close_thread_join_prompt(context_token: str, context: dict[str, Any], response_url: str) -> None:
+    """Forget an answered prompt, so the same person can ask again with their next message."""
     cache.delete(_picker_context_cache_key(context_token))
     cache.delete(
         _thread_join_pending_key(
@@ -4310,20 +4312,25 @@ def _thread_join_context(payload: dict) -> dict[str, Any] | None:
             context["joiner_slack_user_id"],
         )
     )
-    return context
+    _delete_ephemeral_via_response_url(response_url)
 
 
 def _handle_thread_join_allow(payload: dict) -> HttpResponse:
-    """Let the person join the thread, then send the message that asked to join."""
+    """Let the person join the thread, then send the message that asked to join.
+
+    The prompt stays open until the message is sent, so a click that fails on a database or
+    Temporal error can be repeated. Only an answer that can never succeed closes it early.
+    """
     response_url = payload.get("response_url", "")
-    context = _thread_join_context(payload)
+    found = _thread_join_context(payload)
     slack_team_id = payload.get("team", {}).get("id", "")
-    if context is None or not slack_team_id:
+    if found is None:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
+    context_token, context = found
     integration_id = context.get("integration_id")
-    if not isinstance(integration_id, int):
-        _delete_ephemeral_via_response_url(response_url)
+    if not slack_team_id or not isinstance(integration_id, int):
+        _close_thread_join_prompt(context_token, context, response_url)
         return HttpResponse(status=200)
     integration = (
         Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
@@ -4337,7 +4344,7 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
     joiner_slack_user_id = context.get("joiner_slack_user_id")
     event = context.get("event")
     if integration is None or not isinstance(joiner_slack_user_id, str) or not isinstance(event, dict):
-        _delete_ephemeral_via_response_url(response_url)
+        _close_thread_join_prompt(context_token, context, response_url)
         return HttpResponse(status=200)
 
     mapping = (
@@ -4350,13 +4357,13 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
         .first()
     )
     if mapping is None:
-        _delete_ephemeral_via_response_url(response_url)
+        _close_thread_join_prompt(context_token, context, response_url)
         return HttpResponse(status=200)
     # The message re-enters the pipeline past the webhook's gates, so the joiner's access to the
     # mapped project is checked again here.
     joiner = _is_org_member(integration, joiner_slack_user_id)
     if joiner is None or not _can_access_team(joiner, integration):
-        _delete_ephemeral_via_response_url(response_url)
+        _close_thread_join_prompt(context_token, context, response_url)
         return HttpResponse(status=200)
     # The unique constraint makes a double click or a retry a no-op.
     SlackThreadJoin.objects.for_team(mapping.team_id).get_or_create(
@@ -4373,23 +4380,29 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
         posthog_user=joiner,
         untagged_followup=bool(context.get("untagged_followup")),
         untagged_followup_confirmed=bool(context.get("untagged_followup_confirmed")),
+        thread_join_approved=True,
         is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
     )
+    _close_thread_join_prompt(context_token, context, response_url)
     capture_slack_event(
         integration,
         "slack app thread join allowed",
         slack_user_id=payload.get("user", {}).get("id"),
     )
-    _delete_ephemeral_via_response_url(response_url)
     return HttpResponse(status=200)
 
 
 def _handle_thread_join_decline(payload: dict) -> HttpResponse:
     """Drop the message and tell the person who asked. Nothing is stored, so they can ask again later."""
-    context = _thread_join_context(payload)
-    _delete_ephemeral_via_response_url(payload.get("response_url", ""))
-    integration_id = context.get("integration_id") if context else None
-    if context is None or not isinstance(integration_id, int):
+    response_url = payload.get("response_url", "")
+    found = _thread_join_context(payload)
+    if found is None:
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    context_token, context = found
+    _close_thread_join_prompt(context_token, context, response_url)
+    integration_id = context.get("integration_id")
+    if not isinstance(integration_id, int):
         return HttpResponse(status=200)
     integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
@@ -4882,6 +4895,7 @@ def _start_mention_workflow(
     untagged_followup_confirmed: bool = False,
     untagged_question: bool = False,
     untagged_question_confirmed: bool = False,
+    thread_join_approved: bool = False,
     is_ext_shared_channel: bool = False,
     awaited_request_reply: bool = False,
     fork_source_channel: str | None = None,
@@ -4927,6 +4941,7 @@ def _start_mention_workflow(
         untagged_followup_confirmed=untagged_followup_confirmed,
         untagged_question=untagged_question,
         untagged_question_confirmed=untagged_question_confirmed,
+        thread_join_approved=thread_join_approved,
         is_ext_shared_channel=is_ext_shared_channel,
         fork_source_channel=fork_source_channel,
         fork_source_thread_ts=fork_source_thread_ts,

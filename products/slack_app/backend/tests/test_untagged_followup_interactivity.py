@@ -331,6 +331,27 @@ class TestUntaggedFollowupInteractivity(TestCase):
             assert mock_start.call_args.args[0] == self.event
             assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
 
+    def test_an_approval_that_fails_to_send_can_be_clicked_again(self, mock_slack_cls, mock_post):
+        # A database or Temporal error must not lose the message that asked to join.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow",
+                side_effect=[RuntimeError("temporal down"), "wf"],
+            ) as mock_start,
+        ):
+            with self.assertRaises(RuntimeError):
+                self._click(THREAD_JOIN_ACTION_ALLOW, "U_ALICE")
+            self._click(THREAD_JOIN_ACTION_ALLOW, "U_ALICE")
+
+        assert mock_start.call_count == 2
+        assert mock_start.call_args.args[0] == self.event
+        assert mock_start.call_args.kwargs["thread_join_approved"] is True
+        assert cache.get(_picker_context_cache_key(self.context_token)) is None
+
     def test_declining_tells_the_person_who_asked(self, mock_slack_cls, mock_post):
         # Their message was held without the processing reaction, so only this notice says what happened.
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
