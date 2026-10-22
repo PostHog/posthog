@@ -95,7 +95,21 @@ class ScoutEnvironmentSupport:
             "pull_request_id",
         }
     )
-    TASK_FIELDS = frozenset({"title", "description", "origin_product", "internal", "created_by_id", "deleted"})
+    TASK_FIELDS = frozenset(
+        {
+            "title",
+            "title_manually_set",
+            "task_number",
+            "description",
+            "origin_product",
+            "internal",
+            "created_by_id",
+            "deleted",
+            "archived",
+            "archived_at",
+            "last_activity_at",
+        }
+    )
     PULL_REQUEST_FIELDS = frozenset(
         {"repository", "number", "url", "state", "review_decision", "merged_at", "checked_at"}
     )
@@ -113,6 +127,8 @@ class ScoutEnvironmentSupport:
             "expires_at",
             "merged_at",
             "checked_at",
+            "archived_at",
+            "last_activity_at",
         }
     )
 

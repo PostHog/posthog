@@ -230,6 +230,9 @@ class TestScoutEnvironmentState(BaseTest):
                             "origin_product": "signal_report",
                             "internal": True,
                             "created_by_id": "source-owner",
+                            "archived": True,
+                            "archived_at": created_at.isoformat(),
+                            "last_activity_at": created_at.isoformat(),
                         },
                     )
                 ],

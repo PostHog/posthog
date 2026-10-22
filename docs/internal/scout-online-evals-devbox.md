@@ -26,8 +26,9 @@ A source plan can include `companion_skill_names` for skills the scout reads.
 The bundle preserves their versions, files, categories, authors and owners, and
 verifies their restored content before each trial. Only the primary skill gets
 a scout config; importing a companion does not schedule it.
-Starting state can include backing tasks, work-claim artefacts and pull requests
-so report ownership and review state remain linked after IDs are remapped.
+Starting state can include backing tasks with their archive state and activity
+timestamps, work-claim artefacts and pull requests so report ownership and review
+state remain linked after IDs are remapped.
 Each claim must belong to the artefact's report. Task channels and external
 connections still require separate restore support.
 
