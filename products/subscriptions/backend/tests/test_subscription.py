@@ -4846,6 +4846,24 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    def test_update_recipients_is_rejected_when_a_selected_tile_is_hidden(self):
+        insight = self._insight_over_a_governed_view()
+        dashboard = self._dashboard_with_tiles(insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.add(insight)
+        # A hidden tile leaves the delivery; a tile restore brings it back without a subscription write.
+        DashboardTile.objects.filter(dashboard=dashboard, insight=insight).update(deleted=True)
+        self._deny_warehouse_tables()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+                {"target_value": "attacker@example.com"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "governed_view" in response.json()["detail"]
+
     @parameterized.expand(
         [
             ("a new recipient", {}, {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),

@@ -33,6 +33,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.saved_query.editing import (
     INCREMENTAL_CONFIG_CHANGED_REFUSAL,
@@ -2056,16 +2057,33 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.is_materialized = True
 
         mock_table = DataWarehouseTable.objects.create(
-            team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
+            team=self.team, name="event_view", format="Parquet", url_pattern="s3://bucket/path"
         )
         db_saved_query.table = mock_table
         db_saved_query.save()
+        Node.objects.filter(saved_query=db_saved_query).update(type=NodeType.MAT_VIEW)
+        view_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="event_view",
+            source_table_key="event",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=db_saved_query).values_list("type", flat=True)), [NodeType.VIEW]
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=saved_query_id, activity="materialization_disabled"
+            ).exists()
+        )
 
         db_saved_query.refresh_from_db()
         self.assertIsNone(db_saved_query.sync_frequency_interval)
@@ -2078,6 +2096,8 @@ class TestSavedQuery(APIBaseTest):
         # Check the table has been deleted
         mock_table.refresh_from_db()
         self.assertTrue(mock_table.deleted)
+        view_join.refresh_from_db()
+        self.assertFalse(view_join.deleted)
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(
