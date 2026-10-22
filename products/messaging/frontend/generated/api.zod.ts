@@ -17,6 +17,16 @@ export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyCcMax = 10
+
+export const messagingSendEmailCreateBodyBccMax = 10
+
+export const messagingSendEmailCreateBodyTagsItemNameMax = 256
+
+export const messagingSendEmailCreateBodyTagsItemValueMax = 256
+
+export const messagingSendEmailCreateBodyTagsMax = 10
+
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     to: zod.email().describe('Email address of the recipient.'),
     identifiers: zod
@@ -79,6 +89,46 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies go to. Not with `template.id`.'),
+    cc: zod
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyCcMax)
+        .optional()
+        .describe(
+            'Addresses that get a visible copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.'
+        ),
+    bcc: zod
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyBccMax)
+        .optional()
+        .describe(
+            'Addresses that get a hidden copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.'
+        ),
+    headers: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`.'
+        ),
+    tags: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyTagsItemNameMax)
+                    .describe(
+                        "Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's."
+                    ),
+                value: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyTagsItemValueMax)
+                    .describe('Tag value: ASCII letters, numbers, `_` and `-`.'),
+            })
+        )
+        .max(messagingSendEmailCreateBodyTagsMax)
+        .optional()
+        .describe(
+            "Name and value pairs, at most 10, that PostHog adds to the email's engagement events as `$email_tags`. Not with `template.id`."
+        ),
     capture_engagement: zod
         .boolean()
         .optional()

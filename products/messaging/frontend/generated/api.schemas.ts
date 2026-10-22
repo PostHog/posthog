@@ -12,6 +12,11 @@
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
+/**
+ * Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`.
+ */
+export type SendEmailApiHeaders = { [key: string]: string }
+
 export interface TransactionalEmailIdentifiersApi {
     /**
      * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
@@ -28,6 +33,19 @@ export interface TemplateReferenceApi {
     hash?: string
     /** ID of the template, for templates made in PostHog. Give either `key` or `id`. */
     id?: string
+}
+
+export interface EmailTagApi {
+    /**
+     * Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.
+     * @maxLength 256
+     */
+    name: string
+    /**
+     * Tag value: ASCII letters, numbers, `_` and `-`.
+     * @maxLength 256
+     */
+    value: string
 }
 
 export interface SendEmailApi {
@@ -52,6 +70,23 @@ export interface SendEmailApi {
      * @maxItems 10
      */
     reply_to?: string[]
+    /**
+     * Addresses that get a visible copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.
+     * @maxItems 10
+     */
+    cc?: string[]
+    /**
+     * Addresses that get a hidden copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.
+     * @maxItems 10
+     */
+    bcc?: string[]
+    /** Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`. */
+    headers?: SendEmailApiHeaders
+    /**
+     * Name and value pairs, at most 10, that PostHog adds to the email's engagement events as `$email_tags`. Not with `template.id`.
+     * @maxItems 10
+     */
+    tags?: EmailTagApi[]
     /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends. */
     capture_engagement?: boolean
     /** Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`. */

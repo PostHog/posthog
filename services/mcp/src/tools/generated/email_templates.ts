@@ -349,6 +349,18 @@ const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSche
         if (params.reply_to !== undefined) {
             body['reply_to'] = params.reply_to
         }
+        if (params.cc !== undefined) {
+            body['cc'] = params.cc
+        }
+        if (params.bcc !== undefined) {
+            body['bcc'] = params.bcc
+        }
+        if (params.headers !== undefined) {
+            body['headers'] = params.headers
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }

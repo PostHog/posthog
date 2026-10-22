@@ -1,13 +1,43 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "bcc": {
+            "description": "Addresses that get a hidden copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "capture_engagement": {
             "description": "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends.",
             "type": "boolean"
         },
+        "cc": {
+            "description": "Addresses that get a visible copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "from": {
             "description": "Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`.",
             "type": "string"
+        },
+        "headers": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         },
         "html": {
             "description": "HTML body of the rendered email. Only with `template_key`.",
@@ -52,6 +82,27 @@
         "subject": {
             "description": "Subject of the rendered email. Only with `template_key`.",
             "type": "string"
+        },
+        "tags": {
+            "description": "Name and value pairs, at most 10, that PostHog adds to the email's engagement events as `$email_tags`. Not with `template.id`.",
+            "items": {
+                "properties": {
+                    "name": {
+                        "description": "Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.",
+                        "maxLength": 256,
+                        "type": "string"
+                    },
+                    "value": {
+                        "description": "Tag value: ASCII letters, numbers, `_` and `-`.",
+                        "maxLength": 256,
+                        "type": "string"
+                    }
+                },
+                "required": ["name", "value"],
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "template": {
             "description": "The template to send, by key or by id. Leave it out to send content your code rendered, with `template_key`.",
