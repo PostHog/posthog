@@ -197,3 +197,35 @@ export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
         updated_at: '2026-08-26T12:00:00Z',
     },
 ]
+
+export const EXAMPLE_FAILED_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
+    ...EXAMPLE_PROPOSAL_LIST,
+    id: '00000000-0000-4000-8000-000000000213',
+    lifecycle_status: 'failed',
+    title: 'Track AI crawler traffic',
+    target_query: 'How do I track AI crawler traffic on my website?',
+    file_path: 'docs/web-analytics/ai-crawlers.md',
+    validation_report: {
+        ...EXAMPLE_PROPOSAL.validation_report,
+        passed: false,
+        checks: [
+            ...EXAMPLE_PROPOSAL.validation_report.checks,
+            {
+                check_key: 'grounding',
+                label: 'Sourced facts',
+                passed: false,
+                message: 'These claims aren\'t backed by a source: "Crawler visits never count toward pageviews."',
+                blocking: true,
+            },
+        ],
+    },
+}
+
+export const EXAMPLE_FAILED_DRAFT_OPPORTUNITY: ContentAutopilotOpportunityApi = {
+    ...EXAMPLE_OPPORTUNITIES[0],
+    id: '00000000-0000-4000-8000-000000000303',
+    proposal_id: EXAMPLE_FAILED_PROPOSAL_LIST.id,
+    run_id: EXAMPLE_RUN.id,
+    title: 'How do I track AI crawler traffic on my website?',
+    status: 'drafted',
+}

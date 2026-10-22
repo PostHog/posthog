@@ -19,6 +19,8 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 import { webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { ContentAutopilotPageTarget, opportunitiesNeedRefresh, pageToUpdate, proposalPagePath } from './utils'
+
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 
 export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
@@ -61,7 +63,6 @@ export interface ContentAutopilotProfileDraft {
     sourceUrls: string
     contentBoundaries: string
     brandRules: string
-    searchConsoleEnabled: boolean
 }
 
 const EMPTY_PROFILE_DRAFT: ContentAutopilotProfileDraft = {
@@ -70,7 +71,6 @@ const EMPTY_PROFILE_DRAFT: ContentAutopilotProfileDraft = {
     sourceUrls: '',
     contentBoundaries: '/',
     brandRules: '',
-    searchConsoleEnabled: true,
 }
 
 const WORKSPACE_POLL_INTERVAL_MS = 10_000
@@ -137,7 +137,6 @@ const draftFromProfile = (profile: ContentAutopilotSiteProfileApi): ContentAutop
     sourceUrls: profile.source_urls.join('\n'),
     contentBoundaries: profile.content_boundaries.join('\n'),
     brandRules: profile.brand_rules.join('\n'),
-    searchConsoleEnabled: profile.search_console_enabled ?? true,
 })
 
 const getErrorMessage = (error: unknown): string => {
@@ -178,7 +177,9 @@ export interface contentAutopilotLogicValues {
     opportunities: ContentAutopilotOpportunityApi[] | null
     opportunitiesError: string | null
     opportunitiesLoading: boolean
+    opportunityProposals: Record<string, ContentAutopilotProposalListApi>
     opportunitySearch: string
+    pagesToUpdate: Record<string, ContentAutopilotPageTarget | null>
     profile: ContentAutopilotSiteProfileApi | null
     profileDataLoaded: boolean
     profileDataSettled: ContentAutopilotProfileDataSettled
@@ -569,6 +570,15 @@ export interface contentAutopilotLogicMeta {
             selectedProposal: ContentAutopilotProposalApi | null,
             proposedMarkdown: string
         ) => boolean
+        opportunityProposals: (
+            opportunities: ContentAutopilotOpportunityApi[] | null,
+            siteProposals: ContentAutopilotProposalListApi[]
+        ) => Record<string, ContentAutopilotProposalListApi>
+        pagesToUpdate: (
+            opportunities: ContentAutopilotOpportunityApi[] | null,
+            opportunityProposals: Record<string, ContentAutopilotProposalListApi>,
+            profile: ContentAutopilotSiteProfileApi | null
+        ) => Record<string, ContentAutopilotPageTarget | null>
         readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
         draftRows: (
             siteProposals: ContentAutopilotProposalListApi[],
@@ -909,7 +919,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         source_urls: splitLines(values.profileDraft.sourceUrls),
                         content_boundaries: splitLines(values.profileDraft.contentBoundaries),
                         brand_rules: splitLines(values.profileDraft.brandRules),
-                        search_console_enabled: values.profileDraft.searchConsoleEnabled,
                     }
                     const profile = values.onboardingOpen ? null : values.profile
                     if (profile) {
@@ -1063,6 +1072,37 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (selectedProposal: ContentAutopilotProposalApi | null, proposedMarkdown: string): boolean =>
                 selectedProposal !== null && proposedMarkdown !== selectedProposal.proposed_markdown,
         ],
+        opportunityProposals: [
+            (selectors) => [selectors.opportunities, selectors.siteProposals],
+            (
+                opportunities: ContentAutopilotOpportunityApi[] | null,
+                proposals: ContentAutopilotProposalListApi[]
+            ): Record<string, ContentAutopilotProposalListApi> => {
+                const proposalsById = new Map(proposals.map((proposal) => [proposal.id, proposal]))
+                return Object.fromEntries(
+                    (opportunities ?? []).flatMap((opportunity) => {
+                        const proposal = opportunity.proposal_id
+                            ? proposalsById.get(opportunity.proposal_id)
+                            : undefined
+                        return proposal ? [[opportunity.id, proposal]] : []
+                    })
+                )
+            },
+        ],
+        pagesToUpdate: [
+            (selectors) => [selectors.opportunities, selectors.opportunityProposals, selectors.profile],
+            (
+                opportunities: ContentAutopilotOpportunityApi[] | null,
+                opportunityProposals: Record<string, ContentAutopilotProposalListApi>,
+                profile: ContentAutopilotSiteProfileApi | null
+            ): Record<string, ContentAutopilotPageTarget | null> =>
+                Object.fromEntries(
+                    (opportunities ?? []).map((opportunity) => [
+                        opportunity.id,
+                        pageToUpdate(opportunity, opportunityProposals[opportunity.id], profile?.domain ?? ''),
+                    ])
+                ),
+        ],
         readyDraftCount: [
             (selectors) => [selectors.siteProposals],
             (proposals: ContentAutopilotProposalListApi[]): number =>
@@ -1083,7 +1123,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                             title: proposal.title,
                             question: proposal.target_query,
                             isNewPage: proposal.proposal_type === 'new_content',
-                            path: proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : '',
+                            path: proposalPagePath(proposal),
                             updatedAt: proposal.updated_at,
                             proposal,
                         })
@@ -1252,10 +1292,12 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             cache.refreshOpportunitiesAfterLoad = true
             actions.loadOpportunities()
         },
-        loadOpportunitiesSuccess: () => {
+        loadOpportunitiesSuccess: ({ opportunities }) => {
             if (cache.refreshOpportunitiesAfterLoad) {
                 cache.refreshOpportunitiesAfterLoad = false
-                actions.refreshOpportunities()
+                if (opportunitiesNeedRefresh(opportunities, Date.now())) {
+                    actions.refreshOpportunities()
+                }
             }
         },
         loadSiteProfilesSuccess: () => {
