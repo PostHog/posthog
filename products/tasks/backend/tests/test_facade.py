@@ -1445,6 +1445,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
+        self.assertEqual(new_run.state.get("billing_product"), None if expected_stage else "posthog_ai")
+        task.refresh_from_db()
+        self.assertEqual(task.origin_product, Task.OriginProduct.SIGNAL_REPORT)
 
     @parameterized.expand(
         [
@@ -2255,36 +2258,27 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
     @parameterized.expand([(None,), ("implementation",), ("discussion",)])
-    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
-        # The inbox "start work from report" path (write serializer binds `signal_report`).
-        # Every relationship label is gated: the label is client-selected and manual tasks run
-        # PR-capable by default, so a "discussion" label must not dodge the limit.
-        from django.apps import apps
-
-        from posthog.exceptions import QuotaLimitExceeded
-
-        SignalReport = apps.get_model("signals", "SignalReport")
-        report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
-        with (
-            self._enforced_gate(),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
-            self.assertRaises(QuotaLimitExceeded),
-        ):
-            facade.create_task(
+    def test_manual_report_creation_uses_phai_instead_of_self_driving_quota(self, relationship):
+        report = apps.get_model("signals", "SignalReport").objects.create(team=self.team, status="ready")
+        apps.get_model("signals", "SignalReportArtefact").objects.create(
+            team=self.team,
+            report=report,
+            type="repo_selection",
+            content='{"repository": "example/repository", "reason": "Matches the example application"}',
+        )
+        with self._enforced_gate():
+            dto = facade.create_task(
                 self.team.id,
                 self.user.id,
                 validated_data={
-                    "title": "Implementation: t",
+                    "title": "Implementation",
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
                     "signal_report_task_relationship": relationship,
                 },
             )
-        self.assertFalse(Task.objects.filter(team=self.team).exists())
-        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
-        # backstop's `task_create`.
-        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+        self.assertEqual(Task.objects.get(id=dto.id).signal_report_id, report.id)
 
 
 class TestSelfDrivingQuotaRefreshDispatch(TestCase):
@@ -2616,55 +2610,35 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         SignalReport = apps.get_model("signals", "SignalReport")
         return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
 
-    @parameterized.expand([(None,), ("implementation",)])
-    def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):
-        # A trial org gets reports, not pull requests: the manual Create PR path is refused with
-        # the trial code, so a client can show the trial message, and the held-back PR is counted.
-        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
-
+    @parameterized.expand([(None,), ("implementation",), ("discussion",)])
+    def test_manual_report_tasks_are_not_self_driving_trial_usage(self, relationship):
         report = self._report()
-        with (
-            self._on_trial(),
-            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
-            self.assertRaises(FreeTrialPullRequestRefused) as raised,
-        ):
-            facade.create_task(
+        apps.get_model("signals", "SignalReportArtefact").objects.create(
+            team=self.team,
+            report=report,
+            type="repo_selection",
+            content='{"repository": "example/repository", "reason": "Matches the example application"}',
+        )
+        with self._on_trial():
+            dto = facade.create_task(
                 self.team.id,
                 self.user.id,
                 validated_data={
-                    "title": "Implementation: t",
+                    "title": "Report task",
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
                     "signal_report_task_relationship": relationship,
                 },
             )
-        self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
-        self.assertFalse(Task.objects.filter(team=self.team).exists())
-        self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "manual_create"})
+        self.assertEqual(Task.objects.get(id=dto.id).signal_report_id, report.id)
 
-    def test_create_task_allows_discussion_from_report_on_trial(self):
-        # Discuss answers questions about a report and stays open on a trial; only Create PR is held back.
-        report = self._report()
-        with self._on_trial():
-            dto = facade.create_task(
-                self.team.id,
-                self.user.id,
-                validated_data={
-                    "title": "Discuss: t",
-                    "description": "d",
-                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
-                    "signal_report": report,
-                    "signal_report_task_relationship": "discussion",
-                },
-            )
-        self.assertTrue(Task.objects.filter(id=dto.id).exists())
-
-    @parameterized.expand([("implementation", True), ("discussion", False)])
-    def test_run_task_refuses_an_existing_report_implementation_on_trial(self, relationship, expect_refusal):
-        # The create-time gate cannot see a task that already existed when sales turned the flag
-        # on. Starting or retrying that task opens the pull request the trial promises to withhold,
-        # and bills the trial org for it. A discussion opens none, so it keeps running.
+    @parameterized.expand(
+        [("implementation", True, True), ("implementation", False, False), ("discussion", False, False)]
+    )
+    def test_run_task_trial_gate_applies_only_to_pipeline_implementation(
+        self, relationship, pipeline_rerun, expect_refusal
+    ):
         from products.signals.backend.free_trial import FreeTrialPullRequestRefused
         from products.signals.backend.task_run_artefacts import record_report_task
 
@@ -2688,11 +2662,23 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         ):
             if expect_refusal:
                 with self.assertRaises(FreeTrialPullRequestRefused) as raised:
-                    facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                    facade.run_task(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        validated_data={"mode": "background"},
+                        pipeline_rerun=pipeline_rerun,
+                    )
                 self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
                 self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "task_run"})
             else:
-                result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                result = facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "background"},
+                    pipeline_rerun=pipeline_rerun,
+                )
                 assert result is not None and result.error is None
         self.assertEqual(task.runs.exists(), not expect_refusal)
 

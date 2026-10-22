@@ -668,6 +668,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._self_driving_quota_checks_active
             and self._context is not None
             and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            and (self.context.state or {}).get("billing_product") != "posthog_ai"
             # Research / repo-selection / custom-agent sessions run with create_pr=False and can
             # never open the billable PR; rechecking them would let the quota gate cancel
             # in-flight research.
@@ -1669,6 +1670,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 if (
                     self._context
                     and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and (self.context.state or {}).get("billing_product") != "posthog_ai"
                     and workflow.patched("signals-publish-spend-on-completion")
                 ):
                     try:

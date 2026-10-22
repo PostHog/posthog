@@ -103,6 +103,7 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
+        task__runs__state__billing_product__isnull=True,
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.

@@ -390,7 +390,7 @@ def record_task_cost_delta(*, team_id: int, run_id: UUID, cost_delta_microusd: i
         _save_spend(spend)
 
 
-def register_report_task_spend(*, team_id: int, run_id: str, task_id: str, report_id: str, stage: str | None) -> None:
+def register_report_task_spend(*, team_id: int, run_id: str, report_id: str, stage: str | None) -> None:
     signal_id: str | None
     try:
         with transaction.atomic():
@@ -405,12 +405,7 @@ def register_report_task_spend(*, team_id: int, run_id: str, task_id: str, repor
             elif legacy is not None:
                 signal_id, stage = str(legacy.signal_id), legacy.stage
             else:
-                if (
-                    stage not in {"research", "implementation", "repo_selection"}
-                    and not SignalReportTask.objects.filter(
-                        team_id=team_id, task_id=task_id, relationship="implementation"
-                    ).exists()
-                ):
+                if stage not in {"research", "implementation", "repo_selection"}:
                     return
                 signal_id = report_triggering_signal(team_id=team_id, report_id=report_id)
             record_task_spend(

@@ -149,10 +149,24 @@ class TestSignalsBilling(BaseTest):
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
 
-    def test_report_with_pr_billed_flat(self) -> None:
+    @parameterized.expand([(None, 1500), ("posthog_ai", 0)])
+    def test_report_with_pr_billed_only_when_not_billed_as_phai(self, product: str | None, credits: int) -> None:
         report = self._report()
-        self._pr_run(report, created_at=_at(10))
-        self.assertEqual(self._credits(), {self.team.id: 1500})
+        run = self._pr_run(report, created_at=_at(10))
+        if product:
+            run.state = {"billing_product": product}
+            run.save(update_fields=["state"])
+        self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
+        self.assertEqual(first_billable_pr_run(report.id) is not None, bool(credits))
+        # A manual successor must not erase an earlier report charge on the same Task.
+        _task_run_model().objects.create(
+            team=self.team,
+            task=run.task,
+            created_at=_at(11),
+            output={"pr_url": "https://github.com/x/y/pull/2"},
+            state={"billing_product": "posthog_ai"},
+        )
+        self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
 
     def test_report_without_pr_not_billed(self) -> None:
         self._report()

@@ -654,10 +654,11 @@ describe("resolveAiProduct", () => {
 describe("shared routing contract", () => {
   it.each(routingCases.resolve_ai_product)(
     "resolves $origin_product/$ai_stage -> $expected",
-    ({ origin_product, ai_stage, internal, expected }) => {
+    ({ origin_product, ai_stage, internal, billing_product, expected }) => {
       const product = resolveGatewayProduct({
         isInternal: internal,
         originProduct: origin_product,
+        billingProduct: billing_product,
       });
       expect(resolveAiProduct({ product, aiStage: ai_stage })).toBe(expected);
     },
@@ -665,11 +666,19 @@ describe("shared routing contract", () => {
 
   it.each(routingCases.routed)(
     "routes $origin_product/$ai_stage under [$allowlist] -> $expected",
-    ({ origin_product, ai_stage, internal, allowlist, expected }) => {
+    ({
+      origin_product,
+      ai_stage,
+      internal,
+      billing_product,
+      allowlist,
+      expected,
+    }) => {
       const target = resolveGatewayTarget({
         product: resolveGatewayProduct({
           isInternal: internal,
           originProduct: origin_product,
+          billingProduct: billing_product,
         }),
         aiStage: ai_stage,
         posthogHost: "https://us.posthog.com",

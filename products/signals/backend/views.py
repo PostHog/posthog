@@ -128,11 +128,6 @@ from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
-from products.signals.backend.free_trial import (
-    FREE_TRIAL_PR_MESSAGE,
-    FreeTrialPullRequestRefused,
-    capture_signal_report_free_trial_paused,
-)
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -3214,9 +3209,6 @@ class SignalReportViewSet(
 
         if report_action.disabled_reason is not None:
             capture("blocked")
-            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
-                capture_signal_report_free_trial_paused(self.team, report_id=str(report.id), stage="report_action")
-                raise FreeTrialPullRequestRefused()
             error_status: int = (
                 status.HTTP_403_FORBIDDEN
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON

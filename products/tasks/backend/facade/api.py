@@ -525,6 +525,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
         "ai_agent_name",
         "ai_stage",
+        "billing_product",
         "auto_publish",
         "benjamin_enabled",
         "claude_model_access",
@@ -2981,6 +2982,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        "billing_product",
         # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
         GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
@@ -3387,7 +3389,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
     """
     try:
-        if old_pr_url:
+        if old_pr_url or (run.state or {}).get("billing_product") == "posthog_ai":
             return
         new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
@@ -3421,10 +3423,9 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 def enforce_self_driving_free_trial(
     team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
 ) -> None:
-    """Refuse to create or start a PR-opening self-driving task while the team's org is on a
-    Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
-    auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
-    way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
+    """Refuse automatic implementation while the team's org is on a Self-driving free trial.
+    User-started report work uses PostHog AI credits instead. Emits
+    `signal_report_free_trial_paused` at ``stage``. Raises
     ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
     the trial message.
 
@@ -3445,10 +3446,8 @@ def enforce_self_driving_free_trial(
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
-    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
-    credits quota with enforcement on. The implementation task is the step that leads to the
-    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
-    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
+    """Refuse automatic implementation while the team's org is over its self-driving
+    credits quota with enforcement on. Emits `signal_report_quota_paused`
     at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
     dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
     """
@@ -7782,9 +7781,6 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        is_pull_request_run_request,
-    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -8087,23 +8083,12 @@ def create_task(
 
     # The write serializer binds the report as `signal_report` (a PK field); direct callers may
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
-    # Gated regardless of the relationship label: the label is client-selected and manually
-    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
     signal_report_id = (
         str(getattr(report_ref, "id", report_ref))
         if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
-    if signal_report_id:
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
-        # Create PR and the discussions that push to the report's PR are held back on a trial. Other
-        # discussions keep working, and one can still open a PR that billing never counts. That is
-        # an accepted risk of a sales trial.
-        if signal_report_task_relationship in (None, "implementation") or is_pull_request_run_request(
-            validated_data.get("description")
-        ):
-            enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
         raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
@@ -8635,6 +8620,7 @@ def _find_idling_warm_run(
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
+            **({"state__billing_product": "posthog_ai"} if origin_product == Task.OriginProduct.SIGNAL_REPORT else {}),
             branch=branch or None,
             **repository_filter,
             **({"task__signal_report_id": signal_report_id} if signal_report_id else {}),
@@ -8708,6 +8694,11 @@ def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
     run = task.latest_run
     if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        return None
+    if (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (run.state or {}).get("billing_product") != "posthog_ai"
+    ):
         return None
     if not (run.state or {}).get("await_user_message"):
         return None
@@ -8923,18 +8914,12 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 def _reserve_report_warm_activation(
     team: Team, task: Task, *, relationship: str | None, description: str | None = None
 ) -> Model:
-    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        is_pull_request_run_request,
-    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
     )
 
     report_id = str(task.signal_report_id)
-    enforce_self_driving_pr_quota(team, report_id=report_id)
-    if is_pull_request_run_request(description):
-        enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
         enforce_report_task_cap(
             team_id=task.team_id, report_id=report_id, relationship=relationship, description=description
@@ -9344,7 +9329,7 @@ def run_task(
 
     Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this. A report implementation raises
+    gate (429) is applied by the view before calling this. An automatic implementation rerun raises
     ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
     ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
     fresh run and stamps the protected implementation stage from the verified report-task link.
@@ -9389,15 +9374,11 @@ def run_task(
     )
     is_implementation = False
     if report_id_for_slot_check is not None:
-        # Free trial gate: the create-time gate refuses a new implementation, but a task created
-        # before sales turned the flag on can still be started or retried from here, and its pull
-        # request bills the trial org. Only the implementation relationship opens one, so a
-        # discussion keeps running. Outside the transaction below, because the flag read does
-        # network I/O and must not hold the report row lock.
+        # Resolve the trial flag outside the transaction: network I/O must not hold the report lock.
         is_implementation = is_report_implementation_task(
             team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
         )
-        if is_implementation:
+        if is_implementation and pipeline_rerun:
             enforce_self_driving_free_trial(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,

@@ -2180,6 +2180,7 @@ export class AgentServer {
       originProduct: launch.originProduct,
       signalReportId: launch.signalReportId,
       aiStage: launch.aiStage,
+      billingProduct: launch.billingProduct,
       aiAgentName: launch.aiAgentName,
       taskId: payload.task_id,
       taskRunId: payload.run_id,

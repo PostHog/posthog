@@ -911,6 +911,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
 
+            # A manual resume can share an internal Task with an automated run. Freeze billing
+            # on this run so historical PR charges and pipeline attribution do not change.
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and state.get("ai_stage") not in {
+                "research",
+                "implementation",
+                "repo_selection",
+                "custom_agent",
+            }:
+                state["billing_product"] = "posthog_ai"
+
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
@@ -954,7 +964,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 register_report_task_spend(
                     team_id=task.team_id,
                     run_id=str(task_run.id),
-                    task_id=str(task.id),
                     report_id=str(task.signal_report_id),
                     stage=state.get("ai_stage"),
                 )

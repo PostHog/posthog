@@ -740,6 +740,27 @@ class TestSignalSpend(BaseTest):
         spend.refresh_from_db()
         assert spend.finalized_at == finalized_at
 
+    @parameterized.expand([("inbox",), ("",)])
+    def test_manual_report_run_leaves_finalized_signal_spend_unchanged(self, stage: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
+        )
+        run = self._run(report=report, stage="implementation")
+        SignalReportTask.objects.create(team=self.team, report=report, task=run.task, relationship="implementation")
+        self._set_task_cost(run, 100)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        before = SignalSpend.objects.for_team(self.team.id).values().get()
+        assert before["finalized_at"] is not None
+        resumed = self._run(task=run.task, stage=stage)
+        self._set_task_cost(resumed, 200)
+        resumed.status = TaskRun.Status.COMPLETED
+        resumed.save(update_fields=["status"])
+        self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
+        assert SignalSpend.objects.for_team(self.team.id).values().get() == before
+
     def test_resumed_task_belongs_to_new_signal_and_preserves_finalized_owner(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
         report = SignalReport.objects.create(
@@ -755,7 +776,7 @@ class TestSignalSpend(BaseTest):
         self.assertIsNotNone(before["finalized_at"])
         report.triggering_signal_id = other
         report.save(update_fields=["triggering_signal_id"])
-        resumed = self._run(task=run.task, stage="")
+        resumed = self._run(task=run.task, stage="implementation")
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.FAILED
         resumed.save(update_fields=["status"])
@@ -768,7 +789,6 @@ class TestSignalSpend(BaseTest):
         register_report_task_spend(
             team_id=self.team.id,
             run_id=str(run.id),
-            task_id=str(run.task_id),
             report_id=str(report.id),
             stage="implementation",
         )

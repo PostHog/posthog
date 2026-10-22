@@ -1659,13 +1659,11 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
-    def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
-        # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
-        # create_pr=False; scheduling the recheck for them would let the quota gate cancel
-        # in-flight research.
+    @pytest.mark.parametrize("create_pr, state", [(False, {}), (True, {"billing_product": "posthog_ai"})])
+    def test_quota_recheck_not_scheduled_outside_automatic_implementation(self, create_pr, state):
         wf = ProcessTaskWorkflow()
         wf._context = dataclasses.replace(
-            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=False
+            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=create_pr, state=state
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
@@ -2592,37 +2590,39 @@ class TestProcessTaskWorkflowUnit:
         assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails",
+        "origin_product, billing_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails",
         [
-            (None, False, 1, None, "completed", False),
-            (None, False, 1, True, "completed", False),
+            (None, None, False, 1, None, "completed", False),
+            (None, None, False, 1, True, "completed", False),
             # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
             # this run has no work to continue from.
-            ("workflow", False, 1, False, "failed", False),
+            ("workflow", None, False, 1, False, "failed", False),
             # Every other origin keeps completing: the run is the snapshot its reader or its resume
             # flow picks up, and a red run in the task list would report breakage that never was.
-            (None, False, 1, False, "completed", False),
-            ("slack", False, 1, False, "completed", False),
-            ("user_created", False, 1, None, "completed", False),
-            ("signal_report", False, 1, None, "completed", False),
-            ("signals_scout", False, 1, None, "completed", False),
-            ("signal_report", False, 1, None, "completed", True),
-            ("signals_scout", False, 1, None, "completed", True),
+            (None, None, False, 1, False, "completed", False),
+            ("slack", None, False, 1, False, "completed", False),
+            ("user_created", None, False, 1, None, "completed", False),
+            ("signal_report", None, False, 1, None, "completed", False),
+            ("signal_report", "posthog_ai", False, 1, None, "completed", False),
+            ("signals_scout", None, False, 1, None, "completed", False),
+            ("signal_report", None, False, 1, None, "completed", True),
+            ("signals_scout", None, False, 1, None, "completed", True),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, None, "failed", False),
+            ("onboarding", None, False, 1, None, "failed", False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, None, "completed", False),
+            ("onboarding", None, True, 1, None, "completed", False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, None, "completed", False),
+            ("onboarding", None, False, 0, None, "completed", False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
         self,
         monkeypatch,
         origin_product,
+        billing_product,
         pr_progress_emitted,
         ci_repetitions,
         end_of_turn_received,
@@ -2633,7 +2633,10 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
-        context = _build_context(github_integration_id=123, origin_product=origin_product)
+        context = dataclasses.replace(
+            _build_context(github_integration_id=123, origin_product=origin_product),
+            state={"billing_product": billing_product} if billing_product else {},
+        )
         update_task_run_status_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
 
@@ -2708,7 +2711,9 @@ class TestProcessTaskWorkflowUnit:
         finish_spend_mock = AsyncMock(side_effect=finish_spend)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
-        assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
+        assert finish_spend_mock.await_count == (
+            1 if origin_product in {"signal_report", "signals_scout"} and billing_product != "posthog_ai" else 0
+        )
 
         assert result.success is True
         if spend_fails:
