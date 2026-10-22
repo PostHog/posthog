@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,11 @@ from parameterized import parameterized
 from posthog.schema import MarketingAnalyticsDrillDownLevel
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
+from posthog.clickhouse.query_log_archive import (
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
+)
 from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
@@ -137,7 +142,14 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == []
 
 
+@pytest.mark.usefixtures("clickhouse_database")
 class TestRecentlyActiveTeamIds(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        sync_execute(SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL())
+        sync_execute(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL())
+
     def _archive_query(self, team_id: int, query_type: str, days_ago: int) -> None:
         sync_execute(
             f"""
