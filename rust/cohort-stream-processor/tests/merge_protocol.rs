@@ -29,7 +29,7 @@ use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig,
     OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, ReadLane, Stage2Key,
-    StoreConfig, StoreHandle, TombstoneKey,
+    StoreConfig, StoreHandle, TombstoneKey, STORE_SCHEMA_VERSION, STORE_SCHEMA_VERSION_TOPIC_IDS,
 };
 use cohort_stream_processor::workers::{
     compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
@@ -855,6 +855,73 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
         2,
         "compressed history not double-counted by the duplicate copy"
     );
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TopicOneCarrier {
+    Leaf,
+    PersonDedup,
+}
+
+#[test]
+fn a_transfer_with_a_topic_one_mark_stamps_a_store_that_held_only_topic_zero_marks() {
+    let topic_one = SourcePartition::new(1, 10);
+    for carrier in [TopicOneCarrier::Leaf, TopicOneCarrier::PersonDedup] {
+        let dir = TempDir::new().unwrap();
+        let (store, filters, p_new_part, p_new, mut transfer) = seed_and_drain(&dir);
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION),
+            "the drain and its outbox entry carried only clickhouse_events_json marks",
+        );
+        let lsk = transfer.leaves[0].decode_leaf_state_key().unwrap();
+        match carrier {
+            TopicOneCarrier::Leaf => transfer.leaves[0]
+                .record
+                .applied_offsets
+                .record(topic_one, 3),
+            TopicOneCarrier::PersonDedup => transfer
+                .person_dedup
+                .as_mut()
+                .expect("P_old had a person record")
+                .applied_offsets
+                .record(topic_one, 3),
+        }
+
+        let outcome = handle_transfer(
+            p_new_part,
+            &store,
+            &filters,
+            &transfer,
+            (5, 7),
+            COHORT_PARTITION_COUNT,
+        )
+        .unwrap();
+        assert!(
+            matches!(outcome, ApplyOutcome::Applied { .. }),
+            "{carrier:?}"
+        );
+
+        let p_old = transfer.old_person_uuid;
+        let landed = match carrier {
+            TopicOneCarrier::Leaf => {
+                let key = BehavioralKey::new(p_new_part, TEAM as u64, p_new, lsk);
+                let bytes = store.get_behavioral(&key).unwrap().unwrap();
+                StatefulRecord::decode(&bytes).unwrap().redirect_dedup[&p_old]
+                    .is_replay(topic_one, 3)
+            }
+            TopicOneCarrier::PersonDedup => {
+                record_at(&store, p_new_part, p_new).unwrap().redirect_dedup[&p_old]
+                    .is_replay(topic_one, 3)
+            }
+        };
+        assert!(landed, "{carrier:?}: P_new's row holds the topic-1 mark");
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION_TOPIC_IDS),
+            "{carrier:?}: the apply that wrote the store's first topic-1 mark stamped it",
+        );
+    }
 }
 
 /// A re-drain with the same source coordinates but different payload (e.g. rebuilt state) is dropped.

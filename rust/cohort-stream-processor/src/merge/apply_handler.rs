@@ -246,6 +246,9 @@ fn apply_into(
         transfer.merged_at_ms,
     )?;
     store.write_batch(|batch| {
+        if transfer.has_other_topics() {
+            batch.require_topic_ids_stamp();
+        }
         for write in &fallback_register_writes {
             if let Some(state) = &write.state {
                 batch.put_stage2(&write.key, &state.encode_transferred_fallback());

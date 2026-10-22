@@ -29,7 +29,9 @@ use uuid::Uuid;
 pub use cohort_core::fingerprint::CatalogFingerprint;
 use cohort_core::seed::ScannedAtMs;
 
-use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets, SourcePartition};
+use crate::stage1::state::{
+    dedup_has_other_topics, dedup_is_replay, dedup_record, AppliedOffsets, SourcePartition,
+};
 use crate::stage1::transition::TransitionKind;
 
 /// The record-level argMax key: last-write-wins ordered by event time then source offset. "Fresh"
@@ -178,6 +180,12 @@ pub struct PersonDedup {
     pub redirect_dedup: BTreeMap<Uuid, AppliedOffsets>,
 }
 
+impl PersonDedup {
+    pub(crate) fn has_other_topics(&self) -> bool {
+        dedup_has_other_topics(&self.applied_offsets, &self.redirect_dedup)
+    }
+}
+
 /// The durable per-person value. See the module docs for the field roles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersonRecord {
@@ -235,6 +243,10 @@ impl PersonRecord {
             sp,
             so,
         );
+    }
+
+    pub(crate) fn has_other_topics(&self) -> bool {
+        dedup_has_other_topics(&self.applied_offsets, &self.redirect_dedup)
     }
 
     /// Extract this record's replay-dedup for a merge transfer. Carries only the offsets — never the
@@ -673,11 +685,7 @@ pub enum PersonRecordCodecError {
 ///
 /// Entries sort by `(topic_id, partition)`.
 fn encode(record: &PersonRecord) -> Vec<u8> {
-    let topic_ids = record.applied_offsets.has_other_topics()
-        || record
-            .redirect_dedup
-            .values()
-            .any(AppliedOffsets::has_other_topics);
+    let topic_ids = record.has_other_topics();
     let mut out = Vec::with_capacity(58 + 4 + record.matched.len() * 16);
     out.push(FORMAT_VERSION);
     out.push(if topic_ids { FLAG_TOPIC_IDS } else { 0 });

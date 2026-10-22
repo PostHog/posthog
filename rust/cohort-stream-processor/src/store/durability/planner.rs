@@ -240,7 +240,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::store::durability::{CheckpointLineage, PodOrdinal};
-    use crate::store::DbIdentity;
+    use crate::store::{DbIdentity, STORE_SCHEMA_VERSION};
 
     fn attempt_dir(base: &Path, checkpoint_id: &str) -> PathBuf {
         CheckpointLineage::new(PodOrdinal::STANDALONE)
@@ -253,6 +253,7 @@ mod tests {
             PodOrdinal::STANDALONE,
             attempt_timestamp,
             DbIdentity::for_test("db"),
+            STORE_SCHEMA_VERSION,
         )
     }
 

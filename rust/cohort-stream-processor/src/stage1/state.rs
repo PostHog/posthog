@@ -119,7 +119,7 @@ impl SourcePartition {
         Self::new(Self::CLICKHOUSE_EVENTS_JSON_TOPIC_ID, partition)
     }
 
-    fn is_clickhouse_events_json(self) -> bool {
+    pub(crate) fn is_clickhouse_events_json(self) -> bool {
         self.topic_id == Self::CLICKHOUSE_EVENTS_JSON_TOPIC_ID
     }
 }
@@ -290,6 +290,10 @@ impl StatefulRecord {
         );
     }
 
+    pub(crate) fn has_other_topics(&self) -> bool {
+        dedup_has_other_topics(&self.applied_offsets, &self.redirect_dedup)
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("StatefulRecord is plain data and always serializes")
     }
@@ -313,6 +317,13 @@ pub(crate) fn dedup_is_replay(
             .get(ancestor)
             .is_some_and(|offsets| offsets.is_replay(source_partition, source_offset)),
     }
+}
+
+pub(crate) fn dedup_has_other_topics(
+    main: &AppliedOffsets,
+    redirect: &BTreeMap<Uuid, AppliedOffsets>,
+) -> bool {
+    main.has_other_topics() || redirect.values().any(AppliedOffsets::has_other_topics)
 }
 
 /// Origin-aware offset advance over a moved-out dedup pair.

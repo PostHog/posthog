@@ -397,8 +397,8 @@ impl CheckpointSweeper {
             checkpoint_store.create_checkpoint(&checkpoint_dir)
         })
         .await;
-        match create_result {
-            Ok(Ok(())) => {}
+        let store_schema = match create_result {
+            Ok(Ok(store_schema)) => store_schema,
             Ok(Err(e)) => {
                 warn!(error = %e, "checkpoint tick: create_checkpoint failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
@@ -409,7 +409,7 @@ impl CheckpointSweeper {
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
-        }
+        };
 
         // 6. Write offsets.json after create_checkpoint (so it is never frozen mid-write) but before
         //    planning, so the planner tracks it as a non-SST file and the S3 upload carries it.
@@ -442,7 +442,7 @@ impl CheckpointSweeper {
         );
         let plan = match plan_checkpoint(
             &attempt_dir,
-            CheckpointMetadata::new(self.lineage.ordinal(), attempt_timestamp, db),
+            CheckpointMetadata::new(self.lineage.ordinal(), attempt_timestamp, db, store_schema),
             self.config.s3_key_prefix.clone(),
             kind.previous(),
             None,
@@ -668,6 +668,7 @@ fn dir_size_and_count(dir: &Path) -> (u64, u64) {
 mod tests {
     use super::*;
     use crate::store::durability::PodOrdinal;
+    use crate::store::STORE_SCHEMA_VERSION;
 
     #[test]
     fn should_upload_fires_on_the_first_and_every_nth_tick() {
@@ -708,6 +709,7 @@ mod tests {
             PodOrdinal::STANDALONE,
             Utc::now(),
             DbIdentity::for_test("db"),
+            STORE_SCHEMA_VERSION,
         );
         let incremental = UploadKind::Incremental(&baseline);
         let full = UploadKind::Full(FullReason::ChainExpired);
@@ -735,6 +737,7 @@ mod tests {
                 PodOrdinal::STANDALONE,
                 now - chrono::Duration::minutes(15),
                 DbIdentity::for_test(db),
+                STORE_SCHEMA_VERSION,
             );
             baseline.full_upload_at = now - age;
             baseline

@@ -46,7 +46,7 @@ use crate::observability::metrics::{
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
 use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, PartitionOwnership, StoreSource};
-use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
+use crate::store::{opens_store_schema, CohortStore, StoreError, OPENED_STORE_SCHEMAS};
 
 pub(crate) const RETRY_START: Duration = Duration::from_secs(30);
 pub(crate) const RETRY_MAX: Duration = Duration::from_secs(300);
@@ -147,7 +147,7 @@ fn schema_mismatch(checkpoint_id: &str, found: u32, wipe_on_schema_mismatch: boo
         failed(
             checkpoint_id,
             format_args!(
-                "store schema {found}, this build writes {STORE_SCHEMA_VERSION}; set \
+                "store schema {found}, this build reads {OPENED_STORE_SCHEMAS:?}; set \
                  COHORT_WIPE_ON_SCHEMA_MISMATCH=true to pass over it"
             ),
         )
@@ -595,7 +595,7 @@ impl<W: ReplayWindow> Restore<'_, W> {
                 found: manifest.split(),
             })));
         }
-        if store_schema != STORE_SCHEMA_VERSION {
+        if !opens_store_schema(store_schema) {
             return Ok(Some(schema_mismatch(
                 checkpoint_id,
                 store_schema,
@@ -790,7 +790,7 @@ mod tests {
     use crate::store::durability::lineage::PodOrdinal;
     use crate::store::durability::stage::MARKER_FILENAME;
     use crate::store::durability::{CheckpointDownloader, CheckpointInfo};
-    use crate::store::StoreConfig;
+    use crate::store::{StoreConfig, STORE_SCHEMA_VERSION, STORE_SCHEMA_VERSION_TOPIC_IDS};
 
     const EVENTS: &str = "cohort_stream_events";
 
@@ -939,16 +939,16 @@ mod tests {
             split: PartitionOwnership,
             at: DateTime<Utc>,
         ) -> CheckpointMetadata {
-            let store = CohortStore::open(&StoreConfig {
-                path: self.root.path().join("source"),
-                ..StoreConfig::default()
-            })
-            .unwrap();
+            let store = self.source_store();
             std::fs::create_dir_all(parent).unwrap();
-            let metadata =
-                CheckpointMetadata::new(split.ordinal(), at, store.db_identity().unwrap());
-            let dir = parent.join(&metadata.id);
-            store.create_checkpoint(&dir).unwrap();
+            let dir = parent.join(CheckpointMetadata::generate_id(at));
+            let store_schema = store.create_checkpoint(&dir).unwrap();
+            let metadata = CheckpointMetadata::new(
+                split.ordinal(),
+                at,
+                store.db_identity().unwrap(),
+                store_schema,
+            );
             let slices: BTreeSet<u16> = split.partitions().collect();
             let events = InputPositions::new(
                 InputTopic::new(EVENTS),
@@ -963,6 +963,14 @@ mod tests {
                 .unwrap();
             metadata.save(&dir.join(METADATA_FILENAME)).unwrap();
             metadata
+        }
+
+        fn source_store(&self) -> CohortStore {
+            CohortStore::open(&StoreConfig {
+                path: self.root.path().join("source"),
+                ..StoreConfig::default()
+            })
+            .unwrap()
         }
 
         fn local_checkpoint(&self) -> CheckpointMetadata {
@@ -1008,6 +1016,7 @@ mod tests {
                     PodOrdinal::STANDALONE,
                     metadata.attempt_timestamp + chrono::Duration::minutes(15),
                     metadata.db_identity.clone(),
+                    metadata.store_schema,
                 ),
                 "checkpoints".to_string(),
             );
@@ -1318,6 +1327,29 @@ mod tests {
         PendingRestore::resume(&boot.live(), &window(), 1)
             .unwrap()
             .expect("the new restore carries a readable marker");
+    }
+
+    #[tokio::test]
+    async fn a_checkpoint_of_a_store_stamped_for_topic_ids_records_the_stamp_and_restores() {
+        let boot = Boot::new();
+        boot.source_store()
+            .write_batch(|b| b.require_topic_ids_stamp())
+            .unwrap();
+
+        let metadata = boot.local_checkpoint();
+        assert_eq!(metadata.store_schema, STORE_SCHEMA_VERSION_TOPIC_IDS);
+        let Ok(BootStore::Restored(_)) = boot.prepare(&window()).await else {
+            panic!("this build restores a checkpoint stamped for topic ids");
+        };
+        let restored = CohortStore::open(&StoreConfig {
+            path: boot.live(),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_eq!(
+            restored.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION_TOPIC_IDS),
+        );
     }
 
     #[tokio::test]

@@ -26,8 +26,9 @@ pub use keyspace::{
     PersonRecords, SliceCoverageKey, SliceCoverages,
 };
 pub use rocks::{
-    BatchBuilder, CfStats, CohortStore, DbIdentity, EventSnapshotRaw, Stage2DirtyTrackingGuard,
-    StoreConfig, StoreError, StoreStats, STORE_SCHEMA_VERSION,
+    opens_store_schema, BatchBuilder, CfStats, CohortStore, DbIdentity, EventSnapshotRaw,
+    Stage2DirtyTrackingGuard, StoreConfig, StoreError, StoreStats, OPENED_STORE_SCHEMAS,
+    STORE_SCHEMA_VERSION, STORE_SCHEMA_VERSION_TOPIC_IDS,
 };
 pub use staged::StagedBatch;
 

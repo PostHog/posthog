@@ -10,7 +10,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -40,6 +40,7 @@ use super::keyspace::{
     META_POD_PARTITIONS, META_SCHEMA_VERSION, META_SLICE_COVERAGE,
 };
 use super::staged::{StagedBatch, StagedOp};
+use crate::merge::transfer::PendingTransfer;
 use crate::observability::metrics::{
     CHECKPOINT_DURATION_SECONDS, SLICES_ADOPTED_TOTAL, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL,
     STORE_ERRORS_TOTAL, STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS,
@@ -47,23 +48,36 @@ use crate::observability::metrics::{
     WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
 use crate::partitions::PartitionOwnership;
+use crate::stage1::person_record::PersonRecord;
+use crate::stage1::state::StatefulRecord;
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
 /// A layout revision (key codec, value shape) that keeps the same CF set MUST bump this so an older
 /// store fails fast instead of being misread; an on-disk CF *outside* `Cf::ALL` is caught independently
 /// by `open_cf_descriptors` (see [`CohortStore::open_inner`]).
 ///
-/// The same version is also stamped into checkpoint `metadata.json` and checked on restore
+/// Checkpoint `metadata.json` records the store's live stamp, and a restore checks it
 /// (`store/durability/recovery.rs`) with the live store's rule: a mismatched checkpoint blocks the
 /// boot, unless `wipe_on_schema_mismatch` lets the restore pass over it as unusable. A future bump
 /// must keep both guards in mind.
 ///
-/// Replay marks keyed by source topic do not bump this. A value whose marks all come from
-/// `clickhouse_events_json` keeps its version 3 bytes. A value that holds another topic's mark
-/// has a form that a build without topic ids cannot decode, so that build reads the row as corrupt.
-/// Such a build must not open a store that holds one, and nothing here refuses it. See "Running a
-/// shuffler on another topic" in `docs/internal/realtime-cohorts/event-routing.md`.
+/// A fresh store starts at this version. Its first replay mark from a topic other than
+/// `clickhouse_events_json` moves it to [`STORE_SCHEMA_VERSION_TOPIC_IDS`]. See "Running a shuffler
+/// on another topic" in `docs/internal/realtime-cohorts/event-routing.md`.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
+
+/// The stamp of a store that holds a replay mark from a topic other than `clickhouse_events_json`.
+/// Such a value has a form that a build without topic ids cannot decode. The batch that writes the
+/// store's first such mark also writes this stamp, and the stamp never goes back. A build without
+/// topic ids opens only [`STORE_SCHEMA_VERSION`], so it refuses this store instead of reading those
+/// rows as corrupt.
+pub const STORE_SCHEMA_VERSION_TOPIC_IDS: u32 = 4;
+
+pub const OPENED_STORE_SCHEMAS: [u32; 2] = [STORE_SCHEMA_VERSION, STORE_SCHEMA_VERSION_TOPIC_IDS];
+
+pub fn opens_store_schema(version: u32) -> bool {
+    OPENED_STORE_SCHEMAS.contains(&version)
+}
 
 const OP_OPEN: &str = "open";
 const OP_DESTROY: &str = "destroy";
@@ -208,10 +222,10 @@ pub enum StoreError {
     UnknownKey { kind: &'static str },
 
     #[error(
-        "store schema mismatch: on-disk version {found:?} != expected {expected}; refusing to open \
-         (set COHORT_WIPE_ON_SCHEMA_MISMATCH=true to wipe and recreate)"
+        "store schema mismatch: on-disk version {found:?} is not one of {OPENED_STORE_SCHEMAS:?}; \
+         refusing to open (set COHORT_WIPE_ON_SCHEMA_MISMATCH=true to wipe and recreate)"
     )]
-    SchemaMismatch { found: Option<u32>, expected: u32 },
+    SchemaMismatch { found: Option<u32> },
 
     /// The store's slices belong to a split that does not cover this pod's partitions, so its
     /// slices for them may be missing or another pod's. `None` when the record is unreadable.
@@ -365,6 +379,9 @@ pub struct CohortStore {
     /// See [`StoreConfig::read_sample_ratio`]; `>= 1`.
     read_sample_ratio: u32,
     dirty_tracking: Arc<Stage2DirtyTracking>,
+    /// Whether the store's stamp is [`STORE_SCHEMA_VERSION_TOPIC_IDS`]. It turns on at open or after
+    /// the commit that writes that stamp. It never turns off.
+    topic_ids_stamped: Arc<AtomicBool>,
 }
 
 impl CohortStore {
@@ -402,7 +419,7 @@ impl CohortStore {
                     counter!(STORE_SCHEMA_MISMATCH_WIPES_TOTAL).increment(1);
                     warn!(
                         path = ?config.path,
-                        expected = STORE_SCHEMA_VERSION,
+                        opens = ?OPENED_STORE_SCHEMAS,
                         "store schema mismatch with wipe-on-mismatch set: destroying and recreating",
                     );
                     destroy_db(&db_opts, &config.path)?;
@@ -456,13 +473,15 @@ impl CohortStore {
             // Floor at 1: `next % ratio` must not divide by zero.
             read_sample_ratio: config.read_sample_ratio.max(1),
             dirty_tracking: Arc::new(Stage2DirtyTracking::default()),
+            topic_ids_stamped: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Check that the store at `path` is whole and of this build's schema, without writing to it: it
-    /// opens read-only with this build's column families and carries [`STORE_SCHEMA_VERSION`]. The
-    /// open's consistency check, on under RocksDB's default `paranoid_checks`, refuses a store
-    /// missing any SST its MANIFEST names or holding one at another size.
+    /// opens read-only with this build's column families and carries a stamp that
+    /// [`opens_store_schema`] accepts. The open's consistency check, on under RocksDB's default
+    /// `paranoid_checks`, refuses a store missing any SST its MANIFEST names or holding one at
+    /// another size.
     pub fn validate_read_only(path: &Path) -> Result<(), StoreError> {
         let config = StoreConfig {
             path: path.to_path_buf(),
@@ -496,9 +515,10 @@ impl CohortStore {
         Ok(DbIdentity(String::from_utf8_lossy(&id).into_owned()))
     }
 
-    /// Compare the `cf_meta` schema stamp against [`STORE_SCHEMA_VERSION`]. A fresh store (one that
-    /// did not exist before this open) is stamped and passes; an existing store must match. On
-    /// mismatch, either fail typed or signal a wipe-and-retry per `wipe_on_schema_mismatch`.
+    /// Check the `cf_meta` schema stamp with [`opens_store_schema`]. A fresh store (one that did not
+    /// exist before this open) is stamped [`STORE_SCHEMA_VERSION`] and passes; an existing store
+    /// must carry a stamp this build opens. On mismatch, either fail typed or signal a
+    /// wipe-and-retry per `wipe_on_schema_mismatch`.
     fn check_schema(
         &self,
         path_existed: bool,
@@ -508,23 +528,26 @@ impl CohortStore {
             self.stamp_new_store()?;
             return Ok(SchemaCheck::Ok);
         }
-        let found = self
+        let found = self.schema_version()?;
+        match found {
+            Some(version) if opens_store_schema(version) => {
+                self.topic_ids_stamped
+                    .store(version == STORE_SCHEMA_VERSION_TOPIC_IDS, Ordering::Release);
+                Ok(SchemaCheck::Ok)
+            }
+            _ if wipe_on_schema_mismatch => Ok(SchemaCheck::WipeAndRetry),
+            _ => Err(StoreError::SchemaMismatch { found }),
+        }
+    }
+
+    pub fn schema_version(&self) -> Result<Option<u32>, StoreError> {
+        Ok(self
             .get(Cf::Meta, META_SCHEMA_VERSION.0)?
             .and_then(|bytes| {
                 bytes
                     .get(0..4)
                     .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
-            });
-        if found == Some(STORE_SCHEMA_VERSION) {
-            Ok(SchemaCheck::Ok)
-        } else if wipe_on_schema_mismatch {
-            Ok(SchemaCheck::WipeAndRetry)
-        } else {
-            Err(StoreError::SchemaMismatch {
-                found,
-                expected: STORE_SCHEMA_VERSION,
-            })
-        }
+            }))
     }
 
     /// Stamp a new store with the schema version (big-endian `u32`) and the coverage stamp.
@@ -996,9 +1019,15 @@ impl CohortStore {
             merge_tombstones: self.cf(Cf::MergeTombstones)?,
             meta: self.cf(Cf::Meta)?,
             dirty_tracking: &self.dirty_tracking,
+            requires_topic_ids_stamp: false,
+            writes_other_topic_marks: false,
         };
         build(&mut builder);
-        self.commit(builder.batch, OP_WRITE_BATCH)
+        self.commit_values(
+            builder.batch,
+            builder.requires_topic_ids_stamp,
+            builder.writes_other_topic_marks,
+        )
     }
 
     /// Replay an owned [`StagedBatch`] into one atomic `WriteBatch`, in staging order, and commit it.
@@ -1008,11 +1037,13 @@ impl CohortStore {
     /// metrics do not distinguish the two paths.
     pub fn apply(&self, staged: &StagedBatch) -> Result<(), StoreError> {
         let mut batch = WriteBatch::default();
+        let mut writes_other_topic_marks = false;
         for op in staged.ops() {
             match op {
                 StagedOp::Put { cf, key, value } => {
                     batch.put_cf(self.cf(*cf)?, key, value);
                     self.mark_staged_stage2_dirty(&mut batch, *cf, key);
+                    writes_other_topic_marks |= debug_holds_other_topic_marks(*cf, value);
                 }
                 StagedOp::Delete { cf, key } => {
                     batch.delete_cf(self.cf(*cf)?, key);
@@ -1020,7 +1051,46 @@ impl CohortStore {
                 }
             }
         }
-        self.commit(batch, OP_WRITE_BATCH)
+        self.commit_values(
+            batch,
+            staged.requires_topic_ids_stamp(),
+            writes_other_topic_marks,
+        )
+    }
+
+    fn commit_values(
+        &self,
+        mut batch: WriteBatch,
+        requires_topic_ids_stamp: bool,
+        writes_other_topic_marks: bool,
+    ) -> Result<(), StoreError> {
+        debug_assert!(
+            !writes_other_topic_marks
+                || requires_topic_ids_stamp
+                || self.topic_ids_stamped.load(Ordering::Acquire),
+            "a batch writes a replay mark from another topic into a store without the topic-ids \
+             stamp, and does not require the stamp",
+        );
+        // The flag turns on only after the stamp commits. With the WAL on, atomic flush and the
+        // default point-in-time WAL recovery, RocksDB recovers a prefix of the writes it accepted.
+        // So a batch that skips the stamp never survives a crash without the batch that wrote it.
+        let stamps = requires_topic_ids_stamp && !self.topic_ids_stamped.load(Ordering::Acquire);
+        if stamps {
+            batch.put_cf(
+                self.cf(Meta::CF)?,
+                Meta::encode(&META_SCHEMA_VERSION),
+                STORE_SCHEMA_VERSION_TOPIC_IDS.to_be_bytes(),
+            );
+        }
+        self.commit(batch, OP_WRITE_BATCH)?;
+        if stamps && !self.topic_ids_stamped.swap(true, Ordering::AcqRel) {
+            info!(
+                schema_version = STORE_SCHEMA_VERSION_TOPIC_IDS,
+                "the store holds a replay mark from another topic; a build without topic ids now \
+                 refuses it",
+            );
+        }
+        Ok(())
     }
 
     fn mark_staged_stage2_dirty(&self, batch: &mut WriteBatch, cf: Cf, encoded_key: &[u8]) {
@@ -1250,7 +1320,11 @@ impl CohortStore {
     /// Take a frozen, point-in-time RocksDB checkpoint of the whole DB into `path`. RocksDB
     /// hard-links the immutable SSTs into `path`, so `path` must be on the **same filesystem** as
     /// the store path and **must not be a child** of it (RocksDB refuses a nested checkpoint path).
-    pub fn create_checkpoint(&self, path: &Path) -> Result<(), StoreError> {
+    ///
+    /// Returns the schema stamp to record for the checkpoint. The read happens after the
+    /// checkpoint, and the stamp only rises. So the checkpoint holds this stamp or an earlier one,
+    /// and an older build never admits a checkpoint with a stamp it does not open.
+    pub fn create_checkpoint(&self, path: &Path) -> Result<u32, StoreError> {
         let started = Instant::now();
         let result = rocksdb::checkpoint::Checkpoint::new(&self.db)
             .and_then(|cp| cp.create_checkpoint(path));
@@ -1261,7 +1335,9 @@ impl CohortStore {
                 op: OP_CHECKPOINT,
                 source,
             }
-        })
+        })?;
+        self.schema_version()?
+            .ok_or(StoreError::SchemaMismatch { found: None })
     }
 
     /// Scan up to `limit` of one partition's `cf_behavioral` slice as `(BehavioralKey, raw_value)` in
@@ -1475,9 +1551,16 @@ pub struct BatchBuilder<'db> {
     merge_tombstones: &'db ColumnFamily,
     meta: &'db ColumnFamily,
     dirty_tracking: &'db Stage2DirtyTracking,
+    requires_topic_ids_stamp: bool,
+    writes_other_topic_marks: bool,
 }
 
 impl<'db> BatchBuilder<'db> {
+    /// See [`StagedBatch::require_topic_ids_stamp`].
+    pub fn require_topic_ids_stamp(&mut self) {
+        self.requires_topic_ids_stamp = true;
+    }
+
     /// The held handle for one CF, returned at the store's `'db` lifetime rather than `&self` so it
     /// does not alias the `&mut self.batch` callers immediately take.
     fn handle(&self, cf: Cf) -> &'db ColumnFamily {
@@ -1498,6 +1581,7 @@ impl<'db> BatchBuilder<'db> {
     pub fn put<K: Keyspace>(&mut self, key: &K::Key, value: &[u8]) {
         let handle = self.handle(K::CF);
         self.batch.put_cf(handle, K::encode(key), value);
+        self.writes_other_topic_marks |= debug_holds_other_topic_marks(K::CF, value);
     }
 
     /// Delete a typed key from its keyspace's CF.
@@ -1558,6 +1642,7 @@ impl<'db> BatchBuilder<'db> {
     pub fn put_pending_transfer(&mut self, key: &PendingTransferKey, value: &[u8]) {
         self.batch
             .put_cf(self.pending_transfers, key.encode(), value);
+        self.writes_other_topic_marks |= debug_holds_other_topic_marks(Cf::PendingTransfers, value);
     }
 
     /// Clear an outbox slot once its transfer is acked.
@@ -1589,6 +1674,7 @@ impl<'db> BatchBuilder<'db> {
     /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`].
     pub fn put_raw(&mut self, cf: OpaqueCf, key: &[u8], value: &[u8]) {
         self.batch.put_cf(self.handle(cf.cf()), key, value);
+        self.writes_other_topic_marks |= debug_holds_other_topic_marks(cf.cf(), value);
         if matches!(cf, OpaqueCf::Stage2) {
             if let Ok(key) = Stage2Key::decode(key) {
                 self.mark_stage2_dirty(&key);
@@ -1632,6 +1718,26 @@ fn successor(key: &[u8]) -> Vec<u8> {
     next.extend_from_slice(key);
     next.push(0x00);
     next
+}
+
+/// Debug builds decode each value so that a write path that adds another topic's mark without
+/// requiring the stamp fails the assertion in `commit_values`. Release builds return `false`.
+fn debug_holds_other_topic_marks(cf: Cf, value: &[u8]) -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+    match cf {
+        Cf::Behavioral => {
+            StatefulRecord::decode(value).is_ok_and(|record| record.has_other_topics())
+        }
+        Cf::PersonRecords => {
+            PersonRecord::decode(value).is_ok_and(|record| record.has_other_topics())
+        }
+        Cf::PendingTransfers => {
+            PendingTransfer::decode(value).is_ok_and(|pending| pending.transfer.has_other_topics())
+        }
+        _ => false,
+    }
 }
 
 /// Outcome of the open-time schema-version check.
@@ -1762,31 +1868,103 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_stamps_the_schema_version_and_a_reopen_matches() {
+    fn the_stamp_rises_to_topic_ids_with_the_first_batch_that_requires_it_and_stays_there() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("db");
+        let config = StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        };
+        let topic_zero_key = behavioral_key();
+        let topic_one_key = behavioral_key_for(3, 2);
         {
-            let store = CohortStore::open(&StoreConfig {
-                path: path.clone(),
-                ..StoreConfig::default()
-            })
-            .unwrap();
+            let store = CohortStore::open(&config).unwrap();
+            store
+                .write_batch(|b| b.put::<Behavioral>(&topic_zero_key, b"topic 0"))
+                .unwrap();
             assert_eq!(
-                store
-                    .get(Cf::Meta, META_SCHEMA_VERSION.0)
-                    .unwrap()
-                    .as_deref(),
-                Some(STORE_SCHEMA_VERSION.to_be_bytes().as_slice()),
-                "a fresh store stamps the current schema version",
+                store.schema_version().unwrap(),
+                Some(STORE_SCHEMA_VERSION),
+                "a store with only clickhouse_events_json marks keeps the version 3 stamp",
             );
         }
-        // A reopen matches the stamp and opens cleanly.
-        CohortStore::open(&StoreConfig {
-            path,
-            wipe_on_start: false,
+
+        let store = CohortStore::open(&config).unwrap();
+        let mut staged = StagedBatch::default();
+        staged.put::<Behavioral>(&topic_one_key, b"topic 1");
+        staged.require_topic_ids_stamp();
+        let before = store.db.latest_sequence_number();
+        store.apply(&staged).unwrap();
+        let wal_batches: Vec<usize> = store
+            .db
+            .get_updates_since(before)
+            .unwrap()
+            .map(|update| update.unwrap().1.len())
+            .collect();
+        assert_eq!(
+            wal_batches,
+            vec![2],
+            "the topic-1 value and the stamp reach the WAL as one write batch",
+        );
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION_TOPIC_IDS),
+            "the batch with the store's first topic-1 mark stamps it, so a build that opens only \
+             version 3 refuses it",
+        );
+        // A crash right after the batch: nothing flushed the memtables or synced the WAL.
+        drop(store);
+
+        let store = CohortStore::open(&config).unwrap();
+        assert_eq!(
+            store.get_behavioral(&topic_one_key).unwrap().as_deref(),
+            Some(b"topic 1".as_slice()),
+        );
+        store
+            .write_batch(|b| b.put::<Behavioral>(&topic_zero_key, b"topic 0 again"))
+            .unwrap();
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION_TOPIC_IDS),
+            "a reopen keeps the stamp, and a batch without another topic's mark leaves it",
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_batch_that_adds_another_topics_mark_without_requiring_the_stamp_panics_in_debug_builds() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        use crate::stage1::state::{AppliedOffsets, SourcePartition, Stage1State};
+
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
             ..StoreConfig::default()
         })
         .unwrap();
+        let mut applied = AppliedOffsets::default();
+        applied.record(SourcePartition::new(1, 10), 3);
+        let behavioral = StatefulRecord::new(
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 0,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            applied.clone(),
+        );
+        let mut person = PersonRecord::absent();
+        person.applied_offsets = applied;
+
+        let through_builder = catch_unwind(AssertUnwindSafe(|| {
+            store.write_batch(|b| b.put::<Behavioral>(&behavioral_key(), &behavioral.encode()))
+        }));
+        let mut staged = StagedBatch::default();
+        staged.put::<PersonRecords>(&record_key(3, 1), &person.encode());
+        let through_staged = catch_unwind(AssertUnwindSafe(|| store.apply(&staged)));
+
+        assert!(through_builder.is_err(), "write_batch");
+        assert!(through_staged.is_err(), "apply");
+        assert_eq!(store.schema_version().unwrap(), Some(STORE_SCHEMA_VERSION));
     }
 
     #[test]
@@ -1818,13 +1996,7 @@ mod tests {
             ..StoreConfig::default()
         });
         assert!(
-            matches!(
-                result,
-                Err(StoreError::SchemaMismatch {
-                    found: Some(999),
-                    expected,
-                }) if expected == STORE_SCHEMA_VERSION
-            ),
+            matches!(result, Err(StoreError::SchemaMismatch { found: Some(999) })),
             "expected a typed schema mismatch",
         );
 

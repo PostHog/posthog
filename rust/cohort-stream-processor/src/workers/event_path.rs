@@ -512,6 +512,12 @@ pub(crate) fn fold_event(
     );
 
     let mut staged = StagedBatch::default();
+    // Every row this event writes records the event's own mark.
+    if !SourcePartition::from(event).is_clickhouse_events_json()
+        && (!pending.is_empty() || record_put.is_some())
+    {
+        staged.require_topic_ids_stamp();
+    }
     let mut write_stats = WriteStats {
         variant_writes: Vec::new(),
         record_size: None,

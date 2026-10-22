@@ -102,13 +102,20 @@ Only a later backfill whose seeds cover the event restores it.
 ## Schema version
 
 The store records a schema version in `cf_meta`.
-Opening a store whose stamp is missing or different fails, unless `COHORT_WIPE_ON_SCHEMA_MISMATCH` allows a wipe.
+Opening a store whose stamp is missing or is not one the binary reads fails, unless `COHORT_WIPE_ON_SCHEMA_MISMATCH` allows a wipe.
 A store with an unknown column family fails to open even with that flag.
 There are no in-place migrations.
 An incompatible key or value change bumps the version, and the store is rebuilt from nothing, which means re-running backfills.
-Replay marks from a topic other than `clickhouse_events_json` share this version.
-A row whose marks all come from `clickhouse_events_json` has the same bytes that a binary without topic ids writes.
-A row or merge transfer that holds another topic's mark uses a form that such a binary cannot decode, so it reads that row as corrupt.
+
+Replay marks from a topic other than `clickhouse_events_json` move a store from version 3 to version 4:
+
+- A created store starts at version 3.
+- A row whose marks all come from `clickhouse_events_json` has the same bytes that a binary without topic ids writes, so a store that holds only such rows stays at version 3.
+- The write batch that commits the store's first mark from another topic also writes version 4, so the mark and the stamp commit together. The stamp never goes back to 3.
+- The event path and a merge apply are the only writes that add a mark to a store. Every other write keeps the marks of a row it read from the same store.
+- This binary opens version 3 and version 4. A binary without topic ids opens only version 3, so it refuses a store that holds another topic's mark instead of reading those rows as corrupt.
+
+A checkpoint records the stamp in its `metadata.json`, read from the store after the checkpoint is taken, so the metadata never names an older version than the checkpoint holds.
 [Running a shuffler on another topic](event-routing.md#running-a-shuffler-on-another-topic) gives the rollback rule that follows.
 
 ## Restarting
@@ -158,7 +165,7 @@ A local attempt without one is passed over for the attempt before it, and a remo
 A remote checkpoint whose split does not cover this pod is unusable and does not count toward the depth either.
 The restore judges each candidate from its `metadata.json` and `offsets.json` before the bulk download:
 
-- its store schema must be this build's,
+- its store schema must be one this build opens,
 - its metadata and manifest formats must be ones this build reads,
 - its manifest's split must cover this pod's, which means it owns every partition this pod owns,
 - its manifest must record a position on the events topic,
@@ -168,7 +175,7 @@ A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of 
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
 A download that times out fails, and the search stops there, because older candidates are about as large.
-The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
+The stage must open read-only with this build's column families and a schema this build opens, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
 The replay window is then checked again, because a download can outlast part of it.
 The restore rewrites `uploaded.json` for the restored store, writes the `restore.json` marker into the stage, and renames the stage onto the store path.
 A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.

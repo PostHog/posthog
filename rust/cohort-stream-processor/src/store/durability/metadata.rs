@@ -8,7 +8,7 @@ use tracing::debug;
 
 use super::format_version;
 use super::lineage::{CheckpointLineage, PodOrdinal};
-use crate::store::{DbIdentity, STORE_SCHEMA_VERSION};
+use crate::store::DbIdentity;
 
 /// Filename of the checkpoint metadata JSON file, in a remote attempt directory and in a local one.
 pub const METADATA_FILENAME: &str = "metadata.json";
@@ -42,8 +42,9 @@ pub struct CheckpointMetadata {
     /// The lineage this checkpoint belongs to.
     pub ordinal: PodOrdinal,
     pub attempt_timestamp: DateTime<Utc>,
-    /// The [`STORE_SCHEMA_VERSION`] the checkpointed DB was written under. A restore checks it
-    /// before downloading anything.
+    /// The checkpointed DB's schema stamp, as
+    /// [`create_checkpoint`](crate::store::CohortStore::create_checkpoint) reports it. A
+    /// restore checks it before downloading anything.
     pub store_schema: u32,
     /// The checkpointed DB's id. An SST file name is unique only within one DB, so an incremental
     /// upload reuses this checkpoint's files only for a DB with the same id.
@@ -61,13 +62,14 @@ impl CheckpointMetadata {
         ordinal: PodOrdinal,
         attempt_timestamp: DateTime<Utc>,
         db_identity: DbIdentity,
+        store_schema: u32,
     ) -> Self {
         Self {
             version: METADATA_VERSION,
             id: Self::generate_id(attempt_timestamp),
             ordinal,
             attempt_timestamp,
-            store_schema: STORE_SCHEMA_VERSION,
+            store_schema,
             db_identity,
             full_upload_at: attempt_timestamp,
             files: Vec::new(),
@@ -183,10 +185,17 @@ mod tests {
     use chrono::TimeZone;
     use tempfile::TempDir;
 
+    use crate::store::STORE_SCHEMA_VERSION;
+
     fn metadata(ordinal: PodOrdinal) -> CheckpointMetadata {
         let attempt = Utc.with_ymd_and_hms(2026, 10, 9, 16, 0, 5).unwrap()
             + chrono::Duration::milliseconds(123);
-        CheckpointMetadata::new(ordinal, attempt, DbIdentity::for_test("db-a"))
+        CheckpointMetadata::new(
+            ordinal,
+            attempt,
+            DbIdentity::for_test("db-a"),
+            STORE_SCHEMA_VERSION,
+        )
     }
 
     #[test]

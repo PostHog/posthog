@@ -207,6 +207,16 @@ impl MergeStateTransfer {
             || !self.membership_registers.is_empty()
             || self.person_dedup.is_some()
     }
+
+    pub(crate) fn has_other_topics(&self) -> bool {
+        self.leaves
+            .iter()
+            .any(|leaf| leaf.record.has_other_topics())
+            || self
+                .person_dedup
+                .as_ref()
+                .is_some_and(PersonDedup::has_other_topics)
+    }
 }
 
 /// Staged transfer in `cf_pending_transfers`. Survives a crash between the drain batch and the

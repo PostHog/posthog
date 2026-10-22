@@ -125,8 +125,13 @@ Starting one commits the pipeline to these conditions:
 - The topic's retention is no longer than the firehose's.
   The processor sizes its tombstone retention from the firehose's retention, and a straggler that outlives the tombstone is not redirected.
 - The processor cannot roll back to a build without topic ids.
-  Such a build reads every row that holds a mark from another topic as corrupt.
-  Rolling back is safe only after a wipe of the store and of every checkpoint taken since the shuffler started, because a restore brings those marks back.
+  Such a build cannot decode a row or a merge transfer that holds a mark from another topic.
+  The batch that writes a store's first such mark moves the store to [schema version](state-store-and-durability.md#schema-version) 4, and every checkpoint taken after it records 4.
+  A build without topic ids opens only version 3, so it treats that store and those checkpoints as a schema mismatch: the store fails to open, and such a checkpoint blocks the restore.
+  Under `COHORT_WIPE_ON_SCHEMA_MISMATCH`, that build wipes the store and passes over those checkpoints instead.
+  A store that never received such a mark stays at version 3 and still opens in that build.
+  The stamp protects stored rows only: stop the shuffler first, because that build files any of its events left in `cohort_stream_events` under `clickhouse_events_json`.
+  A merge transfer already on `cohort_merge_state_transfer` that holds such a mark still fails to decode in that build, and its state is lost.
 
 ## Partition affinity
 

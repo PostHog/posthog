@@ -40,11 +40,28 @@ pub(crate) enum StagedOp {
 #[derive(Default)]
 pub struct StagedBatch {
     ops: Vec<StagedOp>,
+    requires_topic_ids_stamp: bool,
 }
 
 impl StagedBatch {
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
+    }
+
+    /// Declare that a value in this batch holds a replay mark from a topic other than
+    /// `clickhouse_events_json`. Unless the store already carries
+    /// [`STORE_SCHEMA_VERSION_TOPIC_IDS`](super::STORE_SCHEMA_VERSION_TOPIC_IDS), the commit writes
+    /// that stamp in this batch, so the stamp and the value commit together.
+    ///
+    /// Only a path that adds a mark to the store needs it: the event path and a merge apply. A
+    /// path that rewrites a row it read from this store keeps marks that the store's stamp
+    /// already covers.
+    pub fn require_topic_ids_stamp(&mut self) {
+        self.requires_topic_ids_stamp = true;
+    }
+
+    pub(crate) fn requires_topic_ids_stamp(&self) -> bool {
+        self.requires_topic_ids_stamp
     }
 
     pub fn len(&self) -> usize {

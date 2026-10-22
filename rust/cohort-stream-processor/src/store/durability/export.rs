@@ -109,7 +109,7 @@ mod tests {
     use crate::store::durability::{
         CheckpointInfo, CheckpointMetadata, PodOrdinal, UploadCancelledError,
     };
-    use crate::store::DbIdentity;
+    use crate::store::{DbIdentity, STORE_SCHEMA_VERSION};
 
     #[derive(Debug)]
     struct MockUploader {
@@ -170,6 +170,7 @@ mod tests {
             PodOrdinal::STANDALONE,
             timestamp,
             DbIdentity::for_test("db"),
+            STORE_SCHEMA_VERSION,
         );
         let info = CheckpointInfo::new(metadata, "checkpoints".to_string());
         CheckpointPlan {

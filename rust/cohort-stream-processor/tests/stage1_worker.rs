@@ -34,7 +34,8 @@ use cohort_stream_processor::stage1::{
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     Behavioral, BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonPrefix,
-    PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle,
+    PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle, STORE_SCHEMA_VERSION,
+    STORE_SCHEMA_VERSION_TOPIC_IDS,
 };
 use cohort_stream_processor::workers::seed_run::RunBudget;
 use cohort_stream_processor::workers::{
@@ -785,7 +786,10 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
 
 #[test]
 fn low_offset_on_another_source_partition_is_not_masked_by_a_high_offset() {
-    for leave_source in [events_json(20), SourcePartition::new(1, 10)] {
+    for (leave_source, stamp) in [
+        (events_json(20), STORE_SCHEMA_VERSION),
+        (SourcePartition::new(1, 10), STORE_SCHEMA_VERSION_TOPIC_IDS),
+    ] {
         let (_dir, store) = temp_store();
         let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
         let p = person(1);
@@ -794,6 +798,7 @@ fn low_offset_on_another_source_partition_is_not_masked_by_a_high_offset() {
         let enter = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 100);
         let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
         assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+        assert_eq!(store.schema_version().unwrap(), Some(STORE_SCHEMA_VERSION));
 
         // Leave at a low offset, with a newer event time so argMax applies it.
         let leave = CohortStreamEvent {
@@ -817,6 +822,11 @@ fn low_offset_on_another_source_partition_is_not_masked_by_a_high_offset() {
         let applied = person_record_at(&store, p).unwrap().applied_offsets;
         assert_high_water(&applied, events_json(10), 100);
         assert_high_water(&applied, leave_source, 3);
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(stamp),
+            "a mark from {leave_source} leaves the store at stamp {stamp}",
+        );
     }
 }
 
@@ -846,6 +856,12 @@ fn second_topic_low_offset_on_the_same_partition_folds_into_every_behavioral_var
             record_at(&store, lsk, alice).unwrap().applied_offsets,
             expected,
             "{:?}",
+            filters.by_lsk[&lsk].variant,
+        );
+        assert_eq!(
+            store.schema_version().unwrap(),
+            Some(STORE_SCHEMA_VERSION_TOPIC_IDS),
+            "{:?}: a behavioral row alone stamps the store",
             filters.by_lsk[&lsk].variant,
         );
     }
