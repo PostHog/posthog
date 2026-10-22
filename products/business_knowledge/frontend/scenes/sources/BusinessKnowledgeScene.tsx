@@ -71,7 +71,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Business knowledge"
-                description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
+                description="Upload text, public URLs, or files so AI can understand your business context, vision, and policies."
                 resourceType={{ type: 'business_knowledge' }}
                 actions={
                     todayRailNav ? (
