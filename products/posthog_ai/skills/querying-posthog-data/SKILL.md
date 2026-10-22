@@ -56,13 +56,17 @@ Keep a valid existing query when it fits the task. Choose the method again when 
 
 ## Render query results
 
+Use a chart for time series, category breakdowns, funnels, and retention unless the user explicitly requests a table. The user does not need to ask for a chart. Select a display that fits the question before you run the query.
+
 Choose the presentation path from the harness's capabilities, independently of the query method. A query tool having a UI resource does not mean every harness displays it, especially when the call runs inside `exec`.
 
 - **Already displayed:** direct tool calls and some exec harnesses render query results inline. When the harness says the interactive view is visible (for example, the response says "The user already sees this result as an interactive view"), summarize the conclusion without rendering the same chart again.
 - **Exec returned data without a chart:** if the harness exposes the top-level `posthog:render-ui` tool and the query tool is in its `tool_name` enum, call it after the query succeeds. Pass the same tool name and validated input (for example, `tool_name: "query-trends"` with the successful trends input as `tool_input`). Call `render-ui` directly, not through `exec`. The widget fetches its own data; pass query inputs, not result rows or a new SQL query.
 - **No supported UI tool:** follow the harness's rendering instructions or provide a written summary. Keep the typed query; lack of an inline chart is not a reason to switch to SQL.
 
-Keep a concise written conclusion alongside the visualization.
+Keep a concise written conclusion alongside the visualization. State the main change or comparison and include only the values needed to support it. Do not copy the full series, breakdown, funnel steps, or retention grid into a Markdown table. If the user explicitly requests a table, provide it with the matching typed query tool.
+
+Before you finish, check that the result is visible through one of the supported chart paths above. A successful data query alone does not show a chart. Do not save a new insight only to display an answer unless the user asks you to save it. If no chart path is available, state that limitation and give a concise summary.
 
 ## When to use this skill
 

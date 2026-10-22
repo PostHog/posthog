@@ -89,6 +89,8 @@ Keep SQL examples for SQL tasks rather than requiring agents to reconstruct type
 
 Rendering guidance must account for the harness: direct tools and some exec hosts display query apps inline, while other exec hosts need the separate top-level `render-ui` tool. Skip duplicate rendering only when the harness or response indicates that the view is already displayed. Otherwise, if `render-ui` is available and its enum includes the query tool, render with the same tool name and validated input after the query succeeds. If no UI path is available, summarize or follow the harness's presentation instructions; do not change a supported typed query to SQL just to display a chart.
 
+Use charts by default for time series, category breakdowns, funnels, and retention unless the user explicitly requests a table. Keep the written conclusion concise instead of copying the full result into a Markdown table. Check that the chart is visible before finishing. A successful data query alone does not show a chart. If no chart path is available, state the limitation. Save a new insight only when the user requests it.
+
 ### When to write a skill
 
 The decision flow:
