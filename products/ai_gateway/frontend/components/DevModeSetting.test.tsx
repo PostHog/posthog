@@ -1,11 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { aiGatewayDevTokensUsageRetrieve } from '../generated/api'
+import { aiGatewayDevTokensRevokeCreate, aiGatewayDevTokensUsageRetrieve } from '../generated/api'
 import type { DevTokenUsageApi, MintedDevTokenApi } from '../generated/api.schemas'
 import { devModeLogic } from '../logics/devModeLogic'
 import { DevModeSetting } from './DevModeSetting'
@@ -56,5 +56,23 @@ describe('<DevModeSetting />', () => {
 
         const token = screen.getByText(MINTED.token)
         expect(token.closest('.ph-no-capture')).not.toBeNull()
+    })
+
+    it.each([
+        ['succeeds', true],
+        ['fails', false],
+    ])('holds the revoke pending state until the request %s', async (_name, succeeds) => {
+        let settle: () => void = () => {}
+        jest.mocked(aiGatewayDevTokensRevokeCreate).mockReturnValue(
+            new Promise((resolve, reject) => {
+                settle = () => (succeeds ? resolve({ revoked_count: 2 }) : reject({ detail: 'nope' }))
+            })
+        )
+
+        devModeLogic.actions.revokeToken(null)
+        expect(devModeLogic.values.revoking).toEqual({ id: null })
+
+        settle()
+        await waitFor(() => expect(devModeLogic.values.revoking).toBeNull())
     })
 })

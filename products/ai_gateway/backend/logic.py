@@ -7,6 +7,7 @@ change who a call is attributed to.
 from __future__ import annotations
 
 import hmac
+import json
 import base64
 import hashlib
 import secrets
@@ -14,19 +15,19 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 import requests
 import structlog
+from urllib3.exceptions import NewConnectionError
 
-from posthog.api.email_verification import email_verification_pending
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.redis import get_client
 
 from .facade.contracts import DevToken, DevTokenRefused, DevTokenUsage, MintedDevToken
 from .facade.enums import DevTokenClient, DevTokenStatus
@@ -61,7 +62,8 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
     """Impersonation is request state, so the caller checks it before this."""
     if not user.is_active or not user.is_staff:
         return DevTokenRefused("not_staff", "Developer mode is only available to PostHog staff.", 403)
-    if not (user.email or "").lower().endswith(STAFF_EMAIL_DOMAIN) or email_verification_pending(user):
+    # None is a legacy account that predates verification.
+    if not (user.email or "").lower().endswith(STAFF_EMAIL_DOMAIN) or user.is_email_verified is False:
         return DevTokenRefused("not_staff", "Developer mode needs a verified @posthog.com email.", 403)
     if not user.distinct_id:
         return DevTokenRefused(
@@ -143,10 +145,7 @@ def _call_mint(user: User, cap: Decimal) -> dict:
         "product": DEV_PRODUCT,
         "user": user.distinct_id,
     }
-    try:
-        response = _gateway_post("/v1/tokens", body)
-    except requests.RequestException as e:
-        raise DevTokenRefused("mint_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
+    response = _gateway_post("/v1/tokens", body)
     if response.status_code != 201:
         logger.warning("ai_gateway_dev_mint_refused", status=response.status_code)
         raise DevTokenRefused(
@@ -176,11 +175,26 @@ def _log(user: User, row: DevGatewayToken, activity: str, changes: list[Change])
     )
 
 
+def _never_sent(error: requests.RequestException) -> bool:
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    if not isinstance(error, (requests.Timeout, requests.ConnectionError)):
+        return True
+    # Refused connections and DNS failures arrive as a MaxRetryError whose reason is a NewConnectionError.
+    return isinstance(getattr(error.args[0] if error.args else None, "reason", None), NewConnectionError)
+
+
 def mint(user: User, client: DevTokenClient) -> MintedDevToken:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         row = _reserve(user, client)
         try:
             minted = _call_mint(user, row.cap_usd)
+        except requests.RequestException as e:
+            logger.warning("ai_gateway_dev_mint_unreachable", token_id=str(row.id), exc_info=True)
+            # A read timeout or dropped response may follow a successful mint, so that reservation keeps counting.
+            if _never_sent(e):
+                row.delete()
+            raise DevTokenRefused("mint_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
         except Exception:
             row.delete()
             raise
@@ -244,8 +258,10 @@ def revoke(user: User, token_id: str | None) -> int:
         try:
             response = _gateway_post("/v1/tokens/revoke", {"token_hashes": [row.token_hash for row in targets]})
         except requests.RequestException as e:
+            logger.warning("ai_gateway_dev_revoke_unreachable", user_id=user.pk, exc_info=True)
             raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
         if response.status_code != 200:
+            logger.warning("ai_gateway_dev_revoke_refused", user_id=user.pk, status=response.status_code)
             raise DevTokenRefused(
                 "revoke_failed",
                 f"The AI gateway rejected the revoke (HTTP {response.status_code}). Try again in a minute.",
@@ -282,15 +298,21 @@ def authorize_cli(user: User, code_challenge: str) -> str:
     """Issues a one-time code the browser hands to the CLI's loopback listener. Only the
     holder of the PKCE verifier behind `code_challenge` can exchange it."""
     code = secrets.token_urlsafe(32)
-    cache.set(_code_key(code), {"user_id": user.pk, "challenge": code_challenge}, CLI_CODE_TTL_SECONDS)
+    # The plain client talks to the primary, so the exchange can't miss a grant on a lagging replica.
+    get_client().set(
+        _code_key(code), json.dumps({"user_id": user.pk, "challenge": code_challenge}), ex=CLI_CODE_TTL_SECONDS
+    )
     return code
 
 
 def exchange_cli_code(code: str, code_verifier: str) -> MintedDevToken:
-    key = _code_key(code)
-    grant = cache.get(key)
-    # delete() reports whether this caller removed the key, so a replayed code loses the race.
-    if not isinstance(grant, dict) or not cache.delete(key):
+    # GET and DEL in one MULTI, so a replayed code reads nothing. GETDEL would need Redis 6.2.
+    pipe = get_client().pipeline(transaction=True)
+    pipe.get(_code_key(code))
+    pipe.delete(_code_key(code))
+    raw, _ = pipe.execute()
+    grant = json.loads(raw) if raw else None
+    if not isinstance(grant, dict):
         raise DevTokenRefused("invalid_code", "code is unknown, expired or already used", 400)
     if not hmac.compare_digest(_s256(code_verifier), grant["challenge"]):
         raise DevTokenRefused("invalid_code", "code_verifier does not match the code_challenge", 400)

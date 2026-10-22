@@ -15,8 +15,18 @@ const STATUS_TAG: Record<DevTokenApi['status'], { label: string; type: 'success'
 }
 
 export function DevModeSetting(): JSX.Element {
-    const { usage, usageLoading, minted, mintedLoading, refusal, remainingUsd, canMint, cliRequest, liveTokenCount } =
-        useValues(devModeLogic)
+    const {
+        usage,
+        usageLoading,
+        minted,
+        mintedLoading,
+        refusal,
+        remainingUsd,
+        canMint,
+        cliRequest,
+        liveTokenCount,
+        revoking,
+    } = useValues(devModeLogic)
     const { mint, revokeToken, authorizeCli, dismissCliRequest } = useActions(devModeLogic)
 
     if (refusal && !usage) {
@@ -121,7 +131,13 @@ export function DevModeSetting(): JSX.Element {
                         width: 0,
                         render: (_, token) =>
                             token.status === 'live' ? (
-                                <LemonButton status="danger" size="small" onClick={() => revokeToken(token.id)}>
+                                <LemonButton
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => revokeToken(token.id)}
+                                    loading={revoking?.id === token.id}
+                                    disabledReason={revoking ? 'Revoking' : undefined}
+                                >
                                     Revoke
                                 </LemonButton>
                             ) : null,
@@ -130,7 +146,14 @@ export function DevModeSetting(): JSX.Element {
             />
             {liveTokenCount > 1 ? (
                 <div>
-                    <LemonButton status="danger" type="secondary" size="small" onClick={() => revokeToken(null)}>
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
+                        size="small"
+                        onClick={() => revokeToken(null)}
+                        loading={revoking?.id === null}
+                        disabledReason={revoking ? 'Revoking' : undefined}
+                    >
                         Revoke all
                     </LemonButton>
                 </div>

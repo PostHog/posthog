@@ -261,6 +261,8 @@ const SIMPLE_ACTIVITY_VERBS: Record<string, string> = {
     created: 'created',
     restored: 'restored',
     updated: 'updated',
+    minted: 'created',
+    revoked: 'revoked',
 }
 
 function describeComment(

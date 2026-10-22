@@ -1,3 +1,4 @@
+import time
 import base64
 import hashlib
 from datetime import timedelta
@@ -6,7 +7,7 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.conf import settings
 from django.db import connection
 from django.test import (
     Client as DjangoClient,
@@ -16,7 +17,9 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
@@ -86,6 +89,7 @@ class TestDevTokens(APIBaseTest):
             ("outside_email", {"email": "someone@example.com"}, "not_staff"),
             ("lookalike_domain", {"email": "someone@evilposthog.com"}, "not_staff"),
             ("no_distinct_id", {"distinct_id": ""}, "not_staff"),
+            ("unverified_email", {"is_email_verified": False}, "not_staff"),
         ]
     )
     def test_ineligible_user_never_reaches_the_gateway(self, _name, fields, code):
@@ -96,16 +100,6 @@ class TestDevTokens(APIBaseTest):
             response = self.client.post(URL)
         assert response.status_code == 403
         assert response.json()["code"] == code
-        post.assert_not_called()
-
-    def test_unverified_email_never_reaches_the_gateway(self):
-        with (
-            patch("products.ai_gateway.backend.logic.email_verification_pending", return_value=True),
-            patch(_POST) as post,
-        ):
-            response = self.client.post(URL)
-        assert response.status_code == 403
-        assert response.json()["code"] == "not_staff"
         post.assert_not_called()
 
     def test_unconfigured_instance_never_reaches_the_gateway(self):
@@ -194,12 +188,50 @@ class TestDevTokens(APIBaseTest):
         reserve = next(i for i, sql in enumerate(sqls) if sql.startswith('INSERT INTO "ai_gateway_devgatewaytoken"'))
         assert lock < window_sum < reserve
 
-    def test_failed_mint_does_not_spend_the_daily_cap(self):
-        with patch(_POST, return_value=_response(500)):
+    @parameterized.expand(
+        [
+            ("refused", {"return_value": _response(500)}, False),
+            ("unreadable_body", {"return_value": _response(201, {"token": "phe_x"})}, False),
+            ("read_timeout", {"side_effect": requests.ReadTimeout()}, True),
+            ("connection_reset", {"side_effect": requests.ConnectionError(ProtocolError("reset"))}, True),
+            ("connect_timeout", {"side_effect": requests.ConnectTimeout()}, False),
+            (
+                "connection_refused",
+                {
+                    "side_effect": requests.ConnectionError(
+                        MaxRetryError(None, "/v1/tokens", NewConnectionError(None, "refused"))
+                    )
+                },
+                False,
+            ),
+            ("invalid_url", {"side_effect": requests.exceptions.InvalidURL()}, False),
+        ]
+    )
+    def test_failed_mint_keeps_the_reservation_only_when_ambiguous(self, _name, post_kwargs, kept):
+        with patch(_POST, **post_kwargs):
             response = self.client.post(URL)
         assert response.status_code == 503
         assert response.json()["code"] == "mint_failed"
-        assert not self._rows(user=self.user).exists()
+        assert self._rows(user=self.user, token_hash__isnull=True).exists() == kept
+
+    @parameterized.expand(
+        [
+            ("create", "", {}),
+            ("cli_authorize", "cli_authorize/", {"code_challenge": CHALLENGE}),
+        ]
+    )
+    def test_stale_session_must_reauthenticate_to_mint(self, _name, path, body):
+        session = self.client.session
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session.save()
+        with patch(_POST) as post:
+            response = self.client.post(f"{URL}{path}", body)
+        assert response.status_code == 403
+        assert response.json()["code"] == "sensitive_action_required_reauth"
+        post.assert_not_called()
+        assert self.client.post(f"{URL}revoke/", {}).status_code == 200
 
     def test_revoke_sends_only_the_callers_hashes(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None, is_staff=True)
@@ -253,14 +285,6 @@ class TestDevTokens(APIBaseTest):
         with patch(_POST) as post:
             replay = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
         assert replay.status_code == 400
-        post.assert_not_called()
-
-    def test_cli_exchange_refuses_a_code_another_request_consumed(self):
-        code = self._authorize()
-        with patch.object(cache, "delete", return_value=False), patch(_POST) as post:
-            response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
-        assert response.status_code == 400
-        assert response.json()["code"] == "invalid_code"
         post.assert_not_called()
 
     def test_cli_exchange_refuses_a_deactivated_user(self):
