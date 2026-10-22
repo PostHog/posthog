@@ -1006,7 +1006,7 @@ export interface surveyNotificationModalLogicValues {
     surveyLoading: boolean // surveyLogic
     surveyNotifications: HogFunctionType[] // surveyLogic
     surveyNotificationsLoading: boolean // surveyLogic
-    currentTeam: TeamType | TeamPublicType | null // teamLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     copiedNotification: HogFunctionType | null
     editingNotification: HogFunctionType | null
     hasSlackIntegration: boolean
@@ -1268,7 +1268,7 @@ export interface surveyNotificationModalLogicMeta {
         ) => IntegrationType | null
         templateGlobals: (
             survey: NewSurvey | Survey,
-            currentTeam: TeamType | TeamPublicType | null
+            currentTeam: TeamPublicType | TeamType | null
         ) => CyclotronJobInvocationGlobals
         submitDisabledReason: (
             survey: NewSurvey | Survey,

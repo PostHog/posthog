@@ -270,7 +270,7 @@ describe('CDP API', () => {
                         ...hogFunction.inputs,
                         body: {
                             value: { project_url: '{project.url}' },
-                            bytecode: { project_url: await compileHog("f'{project.url}'") },
+                            bytecode: { project_url: ['_H', 1, 32, 'url', 32, 'project', 1, 2] },
                         },
                     },
                 },
