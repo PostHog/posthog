@@ -31,7 +31,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_sentiment import execute_sentiment_eval_activity
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import GENERATION_NOT_FOUND, EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
     EmitEvaluationEventInputs,
@@ -403,6 +403,20 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 f"No evaluation result for type: {evaluation_type}",
                 non_retryable=True,
             )
+
+        # The generation left ai_events, so no $ai_evaluation event can describe it and the emit
+        # activity would fail to read it. The backfill counts the run as skipped, not failed.
+        if result.get("skip_reason") == GENERATION_NOT_FOUND:
+            missing_result: WorkflowResult = {
+                "skipped": True,
+                "skip_reason": GENERATION_NOT_FOUND,
+                "message": result["reasoning"],
+                "evaluation_id": evaluation["id"],
+                "evaluation_type": evaluation_type,
+            }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                missing_result["verdict"] = None
+            return missing_result
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(
