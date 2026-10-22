@@ -48,8 +48,10 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
-def _discard_published_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> None:
+def _link_or_discard_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> bool:
     with transaction.atomic():
+        if link_table_if_materializing(saved_query.team_id, saved_query.id, saved_query_table.id):
+            return True
         unlink_table(saved_query.team_id, saved_query.id, saved_query_table.id)
         discard_backing_table(saved_query.team_id, saved_query_table.id)
     LOGGER.info(
@@ -58,14 +60,14 @@ def _discard_published_table(saved_query: DataWarehouseSavedQuery, saved_query_t
         saved_query_id=str(saved_query.id),
         table_id=str(saved_query_table.id),
     )
+    return False
 
 
 @database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
-    if not link_table_if_materializing(saved_query.team_id, saved_query.id, saved_query_table.id):
-        _discard_published_table(saved_query, saved_query_table)
+    if not _link_or_discard_table(saved_query, saved_query_table):
         return
 
     if not inputs.incremental:

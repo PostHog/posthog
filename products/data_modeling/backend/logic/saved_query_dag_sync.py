@@ -626,11 +626,16 @@ def link_table_if_materializing(team_id: int, saved_query_id: UUID | str, table_
     """Link a published table to the saved query, unless the query stopped asking to materialize."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    asks_to_materialize = Q(is_materialized=True) | Q(origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
-    linked = DataWarehouseSavedQuery.objects.filter(asks_to_materialize, team_id=team_id, id=saved_query_id).update(
-        table_id=table_id, updated_at=timezone.now()
-    )
-    return linked > 0
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+    with transaction.atomic():
+        intent = saved_query.select_for_update().values_list("is_materialized", "origin").first()
+        if intent is None:
+            return False
+        is_materialized, origin = intent
+        if not is_materialized and origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+            return False
+        saved_query.update(table_id=table_id, updated_at=timezone.now())
+    return True
 
 
 def unlink_table(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> None:
