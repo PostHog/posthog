@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react'
+import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
 
 import { InputGroup, InputGroupAddon } from '@posthog/quill-primitives'
 
@@ -21,6 +21,27 @@ export function QuillComposerLayout({
     controls,
     meta,
 }: QuillComposerLayoutProps): JSX.Element {
+    const chipsRowRef = useRef<HTMLDivElement>(null)
+    const chipsContentRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        const row = chipsRowRef.current
+        const content = chipsContentRef.current
+        if (!row || !content || typeof ResizeObserver === 'undefined') {
+            return
+        }
+        const sync = (): void => {
+            const hasChips = Array.from(content.children).some((child) => (child as HTMLElement).offsetHeight > 0)
+            row.style.setProperty('height', hasChips ? `${content.offsetHeight}px` : '0px', 'important')
+        }
+        row.style.setProperty('padding-block', '0px', 'important')
+        sync()
+        row.dataset.ready = 'true'
+        const observer = new ResizeObserver(sync)
+        observer.observe(content)
+        return () => observer.disconnect()
+    }, [])
+
     return (
         <div className="flex flex-col gap-1">
             <InputGroup
@@ -41,10 +62,16 @@ export function QuillComposerLayout({
             >
                 {chips && (
                     <InputGroupAddon
+                        ref={chipsRowRef}
                         align="block-start"
-                        className="min-h-0 flex-wrap gap-2 transition-[height,padding] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] [interpolate-size:allow-keywords] empty:hidden starting:h-0! starting:py-0! motion-reduce:transition-none *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                        className="min-h-0 overflow-hidden data-[ready=true]:transition-[height] data-[ready=true]:duration-200 data-[ready=true]:ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none!"
                     >
-                        {chips}
+                        <div
+                            ref={chipsContentRef}
+                            className="flex w-full flex-wrap gap-2 pt-2 pb-1.5 *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                        >
+                            {chips}
+                        </div>
                     </InputGroupAddon>
                 )}
                 <div className="relative w-full min-w-0">{field}</div>
