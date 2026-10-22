@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -8,14 +8,18 @@ import type { ContentAutopilotProposalListApi } from 'products/web_analytics/fro
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 
-const statusTag = (proposal: ContentAutopilotProposalListApi): JSX.Element => {
+const proposalStatusTag = (proposal: ContentAutopilotProposalListApi): JSX.Element => {
     switch (proposal.lifecycle_status) {
         case 'ready_for_review':
             return <LemonTag type="success">Ready to review</LemonTag>
         case 'generating':
-            return <LemonTag type="completion">Drafting</LemonTag>
+            return (
+                <LemonTag type="completion" icon={<Spinner />}>
+                    Drafting
+                </LemonTag>
+            )
         case 'exported':
-            return <LemonTag type="primary">Downloaded</LemonTag>
+            return <LemonTag type="default">Downloaded</LemonTag>
         case 'rejected':
             return <LemonTag type="muted">Rejected</LemonTag>
         case 'failed':
@@ -29,18 +33,15 @@ const statusTag = (proposal: ContentAutopilotProposalListApi): JSX.Element => {
     }
 }
 
-const pagePath = (proposal: ContentAutopilotProposalListApi): string =>
-    proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : ''
-
 export const ContentAutopilotDrafts = (): JSX.Element | null => {
-    const { reviewQueue, workspaceErrors } = useValues(contentAutopilotLogic)
+    const { draftRows, workspaceErrors } = useValues(contentAutopilotLogic)
     const { selectProposal, setWorkspaceTab } = useActions(contentAutopilotLogic)
 
-    if (reviewQueue.length === 0 && workspaceErrors.proposals) {
+    if (draftRows.length === 0 && workspaceErrors.proposals) {
         return null
     }
 
-    if (reviewQueue.length === 0) {
+    if (draftRows.length === 0) {
         return (
             <LemonCard hoverEffect={false} className="p-8 text-center">
                 <h3 className="m-0">No drafts yet</h3>
@@ -61,58 +62,55 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
 
     return (
         <LemonTable
-            dataSource={reviewQueue}
+            dataSource={draftRows}
             rowKey="id"
             columns={[
                 {
                     title: 'Draft',
                     key: 'title',
-                    render: (_, proposal) => (
+                    render: (_, row) => (
                         <div className="py-2 min-w-60">
-                            <div className="font-semibold">{proposal.title}</div>
-                            <div className="text-xs text-muted mt-1">{proposal.target_query}</div>
+                            <div className="font-semibold">{row.title}</div>
+                            {row.question ? <div className="text-xs text-muted mt-1">{row.question}</div> : null}
                         </div>
                     ),
                 },
                 {
                     title: 'Change',
                     key: 'change',
-                    render: (_, proposal) => (
+                    render: (_, row) => (
                         <div className="text-sm">
-                            <div>{proposal.proposal_type === 'new_content' ? 'New page' : 'Updates a page'}</div>
-                            <div className="text-xs text-muted truncate max-w-80">{pagePath(proposal)}</div>
+                            <div>{row.isNewPage ? 'New page' : 'Updates a page'}</div>
+                            <div className="text-xs text-muted truncate max-w-80">{row.path}</div>
                         </div>
                     ),
                 },
                 {
                     title: 'Status',
                     key: 'status',
-                    render: (_, proposal) => statusTag(proposal),
+                    render: (_, row) =>
+                        row.proposal ? proposalStatusTag(row.proposal) : <LemonTag type="muted">Queued</LemonTag>,
                 },
                 {
                     title: 'Updated',
                     key: 'updated',
-                    render: (_, proposal) => <TZLabel time={proposal.updated_at} />,
+                    render: (_, row) => <TZLabel time={row.updatedAt} />,
                 },
                 {
                     key: 'actions',
-                    render: (_, proposal) => (
-                        <div className="flex justify-end">
-                            <LemonButton
-                                size="small"
-                                type={proposal.lifecycle_status === 'ready_for_review' ? 'primary' : 'secondary'}
-                                onClick={() => selectProposal(proposal.id)}
-                                disabledReason={
-                                    proposal.lifecycle_status === 'generating'
-                                        ? 'This draft is still being written'
-                                        : undefined
-                                }
-                                data-attr="content-autopilot-review-draft"
-                            >
-                                Review
-                            </LemonButton>
-                        </div>
-                    ),
+                    render: (_, { proposal }) =>
+                        proposal && proposal.lifecycle_status !== 'generating' ? (
+                            <div className="flex justify-end">
+                                <LemonButton
+                                    size="small"
+                                    type={proposal.lifecycle_status === 'ready_for_review' ? 'primary' : 'secondary'}
+                                    onClick={() => selectProposal(proposal.id)}
+                                    data-attr="content-autopilot-review-draft"
+                                >
+                                    Review
+                                </LemonButton>
+                            </div>
+                        ) : null,
                 },
             ]}
         />

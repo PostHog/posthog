@@ -649,6 +649,15 @@ WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
     )
 )
 
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every

@@ -8,6 +8,10 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 from django.utils import timezone
 
+from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
+from posthog.models import TaggedItem
+from posthog.models.tag import tagify
+
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
@@ -70,9 +74,16 @@ def rewrite_content(
     return occurrences
 
 
+def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[MessageTemplate]:
+    # The contract reads prefetched_tags, so a page costs one tag query rather than one per row.
+    return queryset.prefetch_related(
+        models.Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+    )
+
+
 def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
     # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
-    return MessageTemplate.objects.filter(team_id=team_id, deleted=False).order_by("-created_at", "-pk")
+    return _with_tags(MessageTemplate.objects.filter(team_id=team_id, deleted=False)).order_by("-created_at", "-pk")
 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
@@ -90,16 +101,32 @@ def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
 
 
 def create_template(team_id: int, created_by_id: int | None, fields: dict[str, Any]) -> MessageTemplate:
-    template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
-    _apply_fields(template, fields)
-    template.save(force_insert=True)
+    fields = dict(fields)
+    tags = fields.pop("tags", None)
+    with transaction.atomic():
+        template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
+        _apply_fields(template, fields)
+        template.save(force_insert=True)
+        if tags:
+            set_tags_on_object(tags, template)
     return template
 
 
 def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any]) -> MessageTemplate:
-    template = team_template(team_id, template_id)
-    _apply_fields(template, fields)
-    template.save()
+    fields = dict(fields)
+    tags = fields.pop("tags", None)
+    with transaction.atomic():
+        template = team_template(team_id, template_id)
+        # The editor sends the tags with every save, so only write them when they change.
+        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(template)
+        # Tags live on their own rows. Saving the template too would write back every column this
+        # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
+        if fields:
+            _apply_fields(template, fields)
+            template.save()
+        if tags_changed:
+            set_tags_on_object(tags, template)
+            cleanup_orphan_tags(team_id)
     return template
 
 

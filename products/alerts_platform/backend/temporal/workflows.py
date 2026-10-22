@@ -22,7 +22,6 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
-    increment_transition_events_emitted,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -37,7 +36,7 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.sync import database_sync_to_async_pool
 
-    from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation, emit_transition_events
+    from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
@@ -81,14 +80,18 @@ DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
 # attempt left looks fresh to every one of those retries.
 BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
-# Delivery runs started before the transition events existed replay without them.
+# A delivery run that recorded TRANSITION_EVENTS_PATCH and not NO_TRANSITION_EVENTS_PATCH still
+# schedules the emit activity, so its replay matches its history. Once no such run can be open
+# (under five minutes per part after the deploy that added NO_TRANSITION_EVENTS_PATCH), delete
+# that branch, TRANSITION_EVENTS_PATCH and the activity. Replace the check with
+# `workflow.deprecate_patch(NO_TRANSITION_EVENTS_PATCH)`: every newer run carries that marker.
 TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
+NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
-# One schedule-to-close for the transition events and three for the send attempts. The last send
-# attempt can start one attempt and one delay past the limit.
-DELIVERY_EXECUTION_TIMEOUT = 4 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
+# The last attempt can start one attempt and one delay past the limit.
+DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
 
 
 @frozen
@@ -120,20 +123,8 @@ async def alerts_platform_deliver_activity() -> None:
 
 @activity.defn
 async def alerts_platform_emit_transitions_activity(request: AlertDeliveryRequest) -> None:
-    """Emits the `$alert_transition` events of one evaluation, apart from native delivery.
-
-    Its own activity, so a held thread or a failing destination never delays or repeats them.
-    """
-    emitted = await database_sync_to_async_pool(emit_transition_events)(request)
-    if emitted:
-        await LOGGER.ainfo(
-            "alerts_platform_transition_events_emitted",
-            source=request.source.value,
-            configuration_id=request.configuration_id,
-            evaluation_key=request.evaluation_key,
-            emitted=emitted,
-        )
-        safe_record(increment_transition_events_emitted, request.source.value, emitted)
+    """Emits nothing. Only a run that recorded TRANSITION_EVENTS_PATCH schedules it, and the flag that
+    enabled the event was never on, so the run gets the result it always got."""
 
 
 @activity.defn
@@ -176,7 +167,8 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
-        emitted=outcome.emitted,
+        emitted_transitions=outcome.emitted_transitions,
+        emitted_events=outcome.emitted_events,
     )
 
 
@@ -186,16 +178,14 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
-        """Emits every part's transition events, then delivers each part in turn.
+        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
 
-        Emission comes first for every part, so a held thread on one part never delays another
-        part's events. Parts deliver in turn, so a split evaluation's sends to one destination
-        never overlap. A failure does not stop the steps after it. The first failure fails the
-        run once every part has had its attempts, a failed send before a failed emission.
+        A part that fails does not stop the parts after it. The first failure fails the run once
+        every part has had its attempts, a failed send before a failed emission.
         """
         parts = [inputs] if inputs.parts <= 1 else [replace(inputs, part=part) for part in range(inputs.parts)]
         emission_failures: list[ActivityError] = []
-        if workflow.patched(TRANSITION_EVENTS_PATCH):
+        if not workflow.patched(NO_TRANSITION_EVENTS_PATCH) and workflow.patched(TRANSITION_EVENTS_PATCH):
             for request in parts:
                 try:
                     await self._emit(request)

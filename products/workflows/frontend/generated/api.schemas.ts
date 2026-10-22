@@ -1869,6 +1869,63 @@ export interface BroadcastConversionCandidatesApi {
 }
 
 /**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
+    /**
+     * List of object UUIDs to update tags on.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
+    reason: string
+}
+
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
+/**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */
 export interface EmailSendingSuspensionStatusApi {

@@ -26,7 +26,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -364,7 +363,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             team=self.team,
             user=self.user,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
+            modifiers=self.modifiers,
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
 

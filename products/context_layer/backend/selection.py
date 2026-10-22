@@ -133,7 +133,7 @@ def bounded_request[T](team_id: int, operation: Callable[[float], T]) -> T:
         raise SelectionUnavailable() from error
 
 
-def selection_mode(run: TaskRun) -> str:
+def selection_mode(run: TaskRun, actor: User) -> str:
     if (
         run.task.runtime != Task.Runtime.ACP
         or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
@@ -144,6 +144,7 @@ def selection_mode(run: TaskRun) -> str:
     value = get_feature_flag_or_none(
         "phai-context-selection",
         str(run.task_id),
+        person_properties={"email": actor.email, "is_staff": actor.is_staff},
         groups={"organization": str(run.team.organization_id), "project": str(run.team_id)},
         group_properties={"organization": {"id": str(run.team.organization_id)}, "project": {"id": str(run.team_id)}},
         send_feature_flag_events=False,
@@ -370,7 +371,7 @@ class ContextSelector:
     def prepare(self, deadline: float) -> PreparedContext:
         try:
             time_remaining(deadline)
-            self.mode = selection_mode(self.run)
+            self.mode = selection_mode(self.run, self.actor)
             if self.mode == "disabled":
                 return PreparedContext()
             if not self.selection.prompt.strip() or self.mode == "control":

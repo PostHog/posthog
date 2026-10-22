@@ -148,7 +148,7 @@ export function NewMetricModal(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     type="primary"
-                    onClick={createMetric}
+                    onClick={() => createMetric()}
                     loading={isCreatingMetric}
                     disabledReason={submitDisabledReason}
                     data-attr="data-catalog-create-metric-submit"

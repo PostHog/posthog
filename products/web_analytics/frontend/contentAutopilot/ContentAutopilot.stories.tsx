@@ -122,19 +122,6 @@ ReadyForReview.decorators = [
     }),
 ]
 
-export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
-ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
-ActiveRun.decorators = [
-    workspaceHandlers({
-        profiles: [EXAMPLE_PROFILE],
-        runs: [{ ...EXAMPLE_RUN, run_status: 'generating', completed_at: null }],
-    }),
-]
-
 export const FailedRun: StoryFn<typeof ContentAutopilot> = () => (
     <div className="p-6">
         <ContentAutopilot />
@@ -186,7 +173,7 @@ ProposalReview.decorators = [
     }),
 ]
 
-export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => {
+const DraftsTabStory = (): JSX.Element => {
     const { profileDataLoaded } = useValues(contentAutopilotLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     useEffect(() => {
@@ -200,6 +187,19 @@ export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => {
         </div>
     )
 }
+
+export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
+ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
+ActiveRun.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [{ ...EXAMPLE_RUN, run_status: 'generating', completed_at: null }],
+        proposals: [{ ...EXAMPLE_PROPOSAL_LIST, lifecycle_status: 'generating' }],
+        opportunities: [{ ...EXAMPLE_OPPORTUNITIES[0], status: 'queued', proposal_id: null }],
+    }),
+]
+
+export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
 DraftsTab.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],

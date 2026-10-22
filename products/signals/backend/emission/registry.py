@@ -154,6 +154,8 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
+    from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
@@ -164,6 +166,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
+    from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
@@ -173,13 +176,18 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
+    from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
+    from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
+    from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
+    from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
@@ -191,10 +199,14 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
+    from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
     from products.signals.backend.emission.snyk_issues import SNYK_CONFIG
+    from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
+    from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
+    from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
@@ -251,6 +263,20 @@ def _register_all_emitters() -> None:
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
     )
+    # Incident management / on-call (record kind: incident)
+    register_signal_source(ExternalDataSourceType.PAGERDUTY, "incidents", PAGERDUTY_CONFIG)
+    register_signal_source(ExternalDataSourceType.OPSGENIE, "alerts", OPSGENIE_CONFIG)
+    register_signal_source(ExternalDataSourceType.INCIDENTIO, "incidents", INCIDENT_IO_CONFIG)
+    register_signal_source(ExternalDataSourceType.FIREHYDRANT, "incidents", FIREHYDRANT_CONFIG)
+    register_signal_source(ExternalDataSourceType.SQUADCAST, "incidents", SQUADCAST_CONFIG)
+    register_signal_source(ExternalDataSourceType.SERVICENOW, "incidents", SERVICENOW_CONFIG)
+    register_signal_source(ExternalDataSourceType.SOLARWINDSSERVICEDESK, "incidents", SOLARWINDS_SERVICE_DESK_CONFIG)
+    register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
+    register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
+    register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    # Data quality / observability (record kind: incident)
+    register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
+    register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
 
 
 _register_all_emitters()

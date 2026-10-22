@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@base-ui/react':
-      specifier: 1.8.0
-      version: 1.8.0
+      specifier: 1.9.0
+      version: 1.9.0
     '@parcel/packager-ts':
       specifier: 2.16.4
       version: 2.16.4
@@ -189,6 +189,9 @@ overrides:
   '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+  '@base-ui/react@1.9.0':
+    hash: e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
+    path: patches/@base-ui__react@1.9.0.patch
   '@connectrpc/connect-node@2.1.1':
     hash: a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
     path: patches/@connectrpc__connect-node@2.1.1.patch
@@ -583,7 +586,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dagrejs/dagre':
         specifier: ^1.1.5
         version: 1.1.5
@@ -857,6 +860,9 @@ importers:
       '@posthog/products-tracing':
         specifier: workspace:*
         version: link:../products/tracing
+      '@posthog/products-uptime-monitoring':
+        specifier: workspace:*
+        version: link:../products/uptime_monitoring
       '@posthog/products-visual-review':
         specifier: workspace:*
         version: link:../products/visual_review
@@ -2209,7 +2215,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-tokens':
         specifier: workspace:^
         version: link:../tokens
@@ -2289,7 +2295,7 @@ importers:
     devDependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
@@ -3584,6 +3590,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@tanstack/react-virtual':
+        specifier: '*'
+        version: 3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3722,7 +3731,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dnd-kit/core':
         specifier: '*'
         version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4196,6 +4205,12 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4338,6 +4353,9 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-subscriptions:
+        specifier: 'catalog:'
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.438.12(@types/react@18.3.27)(react@18.3.1)
@@ -4792,6 +4810,9 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.11.3(@types/react@18.3.27)(posthog-js@1.438.12(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -5346,6 +5367,18 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/uptime_monitoring:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/user_interviews: {}
 
@@ -6012,6 +6045,21 @@ importers:
 
 packages:
 
+  use-sync-external-store@1.7.0:
+    resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
+    peerDependencies:
+      react: 18.3.1
+  reselect@5.3.0:
+    resolution: {integrity: sha512-XGoLeRAVzUTcJ1qkxPQhDJyIZ5d6zzZD9nT7AEZOaaU9UbWclhycElmhO+VD5bFeLuzhPBaOV2oXC8uG35ZSpg==}
+  '@base-ui/utils@0.5.0':
+    resolution: {integrity: sha512-dYGGcEttjkYiMoa5nHm8vLaJ2UcuTWxo3BFAwOYXeRg/q7UVVvA6cacEIXEs3FgBfK1CGtW1ptElqs7wsx+t9A==}
+    peerDependencies:
+      '@types/react': 18.3.27
+      react: 18.3.1
+      react-dom: 18.3.1
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
   '@aashutoshrathi/word-wrap@1.2.6':
     resolution: {integrity: sha512-1Yjs2SvM8TflER/OD3cOjhWWOZb58A2t7wpE2S9XfBYTiIl+XFhQG2bjy4Pu1I+EAlCNUzRDYDdFwFYUKvXcIA==}
     engines: {node: '>=0.10.0'}
@@ -7247,8 +7295,8 @@ packages:
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
 
-  '@base-ui/react@1.8.0':
-    resolution: {integrity: sha512-P0/1sxo6SBVZOklKMIedvTWqw2s2IQzi9x5bIVsXu980cuSOD4NeuRSs+/L7LZQfDkZP/uRZyGPyfFl/B1oH+Q==}
+  '@base-ui/react@1.9.0':
+    resolution: {integrity: sha512-S8CSYosASBKtpL8SWUfS78rFElfLijiCgA7oHOK22jCJ95FULsYyKwBNFOgudt0RA+/7yNc7F81bOvQnRgbBiQ==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
       '@date-fns/tz': ^1.2.0
@@ -24032,6 +24080,21 @@ packages:
 
 snapshots:
 
+  reselect@5.3.0: {}
+
+  use-sync-external-store@1.7.0(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+  '@base-ui/utils@0.5.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@babel/runtime': 7.29.7
+      '@floating-ui/utils': 0.2.12
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      reselect: 5.3.0
+      use-sync-external-store: 1.7.0(react@18.3.1)
+    optionalDependencies:
+      '@types/react': 18.3.27
   '@aashutoshrathi/word-wrap@1.2.6': {}
 
   '@actions/expressions@0.3.61': {}
@@ -26335,17 +26398,16 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@base-ui/react@1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@base-ui/react@1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.7
-      '@base-ui/utils': 0.4.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@base-ui/utils': 0.5.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/react-dom': 2.1.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/utils': 0.2.12
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      use-sync-external-store: 1.6.0(react@18.3.1)
+      use-sync-external-store: 1.7.0(react@18.3.1)
     optionalDependencies:
-      '@date-fns/tz': 1.4.1
       '@types/react': 18.3.27
       date-fns: 4.1.0
 

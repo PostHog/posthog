@@ -320,6 +320,17 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         allow_blank=True,
         help_text="Display name of the referenced cohort. Injected on read and echoed back by clients.",
     )
+    # Declared so that DropsUnknownKeysMixin treats an echoed value as known. A read-only field
+    # never reaches validated_data. A structurally valid write therefore drops the value, even
+    # while unknown keys are preserved.
+    cohort_deleted = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the referenced cohort is deleted or does not exist. Injected on read and ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        read_only=True,
+        help_text="True when no cohort with the referenced id exists in the project. Injected on read and ignored on write.",
+    )
     group_key_names = serializers.JSONField(
         required=False,
         allow_null=True,

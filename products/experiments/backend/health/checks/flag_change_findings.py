@@ -12,14 +12,18 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.change_wording import (
     delay,
+    duration,
     not_checked_because,
     not_checked_next_step,
+    suggested_start,
     the_change,
 )
 from products.experiments.backend.health.context import (
+    MIN_EXPOSED_UNITS_TO_WARN,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -143,6 +147,7 @@ def change_finding(
     history: FlagHistory,
     effect: ChangeEffect,
     *,
+    kind: ExperimentHealthFlagChangeKind,
     code: ExperimentHealthFindingCode,
     subcode: str,
     severity: ExperimentHealthFindingSeverity,
@@ -157,12 +162,45 @@ def change_finding(
         severity=severity,
         title=title,
         detail=" ".join(sentences),
-        evidence=change_evidence(
-            history, effect, kind_evidence=kind_evidence, exposed_before_change=history.exposed_before_first
-        ),
+        evidence={
+            **change_evidence(
+                history, effect, kind_evidence=kind_evidence, exposed_before_change=history.exposed_before_first
+            ),
+            # pinned: capped at MIN_EXPOSED_UNITS_TO_WARN, so the cap means "at least". None when unknown.
+            "units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
+        },
         actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref=diagnostic_ref,
     )
+
+
+def few_exposed_units(history: FlagHistory, kind: ExperimentHealthFlagChangeKind) -> int | None:
+    """The persons or groups exposed before the last counted change of a kind, when they are too few for a warning.
+    None when there were enough, or when the count is unknown, which keeps the warning."""
+    count = history.exposed_units_before_last.get(kind)
+    return count if count is not None and count < MIN_EXPOSED_UNITS_TO_WARN else None
+
+
+def exposed_when(history: FlagHistory, effect: ChangeEffect, count: int) -> str:
+    after_launch = duration((effect.last.changed_at - history.launched_at).total_seconds())
+    change = "The change" if effect.change_count == 1 else "The last change"
+    return f"{change} came {after_launch} after launch, when {_units(count, history.counts_groups)} had been exposed."
+
+
+def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[str]:
+    """The next step for the few persons or groups exposed before the last change. Empty when there were none."""
+    if count == 0:
+        return []
+    start_at = suggested_start(effect.last.changed_at, history.team_timezone)
+    return [f"Move the start date to {start_at} so the results count only exposures after it."]
+
+
+def _units(count: int, counts_groups: bool) -> str:
+    if count == 0:
+        return "no group" if counts_groups else "nobody"
+    if counts_groups:
+        return "1 group" if count == 1 else f"{count} groups"
+    return "1 person" if count == 1 else f"{count} people"
 
 
 def not_checked_finding(

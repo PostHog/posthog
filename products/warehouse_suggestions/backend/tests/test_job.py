@@ -2,7 +2,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -23,7 +22,6 @@ TODAY = date.today()
 NOW = datetime.combine(TODAY, time(hour=9), tzinfo=UTC)
 BEFORE_THE_WINDOW = NOW - timedelta(days=2 * RULES.window_days)
 SCENES = ("SQLEditor", "Dashboard")
-INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -82,8 +80,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with patch(INCREMENTAL_FLAG, return_value=True):
-            result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(

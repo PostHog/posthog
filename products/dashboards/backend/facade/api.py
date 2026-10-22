@@ -194,6 +194,23 @@ def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     return _refs_in_given_order(dashboard_ids)
 
 
+def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
+    """The listed dashboards each insight of this team sits on, oldest tile first, in one query.
+
+    Deleted tiles, dashboards and insights do not count. An insight on no such dashboard has no key.
+    """
+    rows = (
+        DashboardTile.objects.filter(dashboard__team_id=team_id, insight_id__in=insight_ids, insight__deleted=False)
+        .exclude(dashboard__creation_mode=Dashboard.CreationMode.UNLISTED)
+        .order_by("insight_id", "id")
+        .values_list("insight_id", "dashboard_id", "dashboard__name")
+    )
+    refs: dict[int, list[DashboardRef]] = {}
+    for insight_id, dashboard_id, name in rows:
+        refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
+    return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
+
+
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
     """Which of these ids are not a live dashboard of this team, in the order they were given.
 

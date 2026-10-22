@@ -88,6 +88,15 @@ const inboxReportArtefactsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.claim_id !== undefined) {
             body['claim_id'] = params.claim_id
         }
@@ -1297,6 +1306,15 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -2725,6 +2743,15 @@ const signalsScoutEditReport = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }

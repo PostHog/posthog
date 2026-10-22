@@ -37,7 +37,7 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
 } from '../generated/api.schemas'
-import { OFFLINE_ALL_UPLOAD_STATES } from './offlineOverviewState'
+import { OFFLINE_ALL_UPLOAD_STATES, offlineFiltersFromUrl } from './offlineOverviewState'
 import {
     previousOfflinePeriod,
     resolveOfflineDateRange,
@@ -49,7 +49,10 @@ export interface OfflineScorerHistoryProps {
     scorerId: string
     teamId: number
 }
-export interface OfflineHistoryFilters extends ResourceTagFilters {
+export interface OfflineHistoryFilters
+    extends
+        ResourceTagFilters,
+        Pick<AiObservabilityOfflineScorersHistoryListParams, 'created_by' | 'created_by_is_null'> {
     version: string
     date_from: string
     date_to: string | null
@@ -75,6 +78,7 @@ const DEFAULT_FILTERS: OfflineHistoryFilters = {
 
 function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     const filters = { ...DEFAULT_FILTERS }
+    const { created_by, created_by_is_null } = offlineFiltersFromUrl(search)
     for (const key of Object.keys(filters) as (keyof OfflineHistoryFilters)[]) {
         if (typeof search[key] === 'string' || ((key === 'date_to' || key === 'compare_to') && search[key] === null)) {
             Object.assign(filters, { [key]: search[key] })
@@ -89,7 +93,7 @@ function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     if (filters.date_from === 'all' && filters.compare === 'previous') {
         filters.compare = 'none'
     }
-    return { ...filters, ...cleanTagFilters(search) }
+    return { ...filters, ...cleanTagFilters(search), created_by, created_by_is_null }
 }
 
 export function offlineScorerHistoryUrl(
@@ -525,6 +529,8 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
                 limit: 50,
                 statuses: filters.statuses,
                 run_source: filters.run_source || undefined,
+                created_by: filters.created_by,
+                created_by_is_null: filters.created_by_is_null,
                 tags: JSON.stringify(filters.tags),
                 tag_match: filters.tag_match,
             }),

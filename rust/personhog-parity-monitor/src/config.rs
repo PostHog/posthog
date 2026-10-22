@@ -21,6 +21,15 @@ pub struct Config {
     pub personhog_kafka_tls: bool,
     pub personhog_distinct_id_topic: String,
     pub personhog_merge_events_topic: String,
+    /// The two `clickhouse_person` feeds; persons are compared only when
+    /// both are set.
+    pub node_person_topic: Option<String>,
+    pub personhog_person_topic: Option<String>,
+    /// Comma separated top level property keys left out of the person
+    /// comparison: their values depend on the order each backend applied a
+    /// merge's writes in.
+    #[envconfig(default = "$creator_event_uuid")]
+    pub parity_person_ignored_properties: String,
 
     /// Has to exceed the publisher's drain lag, or every pair settles
     /// one-sided before the personhog copy arrives.
@@ -35,7 +44,7 @@ pub struct Config {
     /// Defaults to the grace. Zero turns the warmup off, for a fixture
     /// whose readers start before any traffic.
     pub parity_warmup_seconds: Option<u64>,
-    /// Retained rows and merges across both feeds; each costs about half a
+    /// Retained rows, merges and persons across both feeds; each costs about half a
     /// kilobyte.
     #[envconfig(default = "1000000")]
     pub parity_max_entries: usize,
@@ -68,6 +77,7 @@ pub struct FeedConfig {
     pub kafka_tls: bool,
     pub distinct_id_topic: String,
     pub merge_events_topic: String,
+    pub person_topic: Option<String>,
 }
 
 impl Config {
@@ -79,6 +89,7 @@ impl Config {
                 kafka_tls: self.node_kafka_tls,
                 distinct_id_topic: self.node_distinct_id_topic.clone(),
                 merge_events_topic: self.node_merge_events_topic.clone(),
+                person_topic: self.node_person_topic.clone(),
             },
             FeedConfig {
                 side: Side::Personhog,
@@ -86,8 +97,30 @@ impl Config {
                 kafka_tls: self.personhog_kafka_tls,
                 distinct_id_topic: self.personhog_distinct_id_topic.clone(),
                 merge_events_topic: self.personhog_merge_events_topic.clone(),
+                person_topic: self.personhog_person_topic.clone(),
             },
         ]
+    }
+
+    pub fn compares_persons(&self) -> Result<bool, String> {
+        let set = |topic: &Option<String>| topic.as_deref().is_some_and(|t| !t.is_empty());
+        match (
+            set(&self.node_person_topic),
+            set(&self.personhog_person_topic),
+        ) {
+            (true, true) => Ok(true),
+            (false, false) => Ok(false),
+            _ => Err("set NODE_PERSON_TOPIC and PERSONHOG_PERSON_TOPIC together".to_string()),
+        }
+    }
+
+    pub fn person_ignored_properties(&self) -> HashSet<String> {
+        self.parity_person_ignored_properties
+            .split(',')
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     pub fn teams(&self) -> Result<Option<HashSet<i64>>, String> {
@@ -164,6 +197,35 @@ mod tests {
             Ok(Some(HashSet::from([2, 15])))
         );
         assert!(config(&[("PARITY_TEAMS", "2,all")]).teams().is_err());
+    }
+
+    #[test]
+    fn persons_are_compared_only_with_both_topics() {
+        let cases = [
+            ("neither", vec![], Ok(false)),
+            (
+                "both",
+                vec![("NODE_PERSON_TOPIC", "n"), ("PERSONHOG_PERSON_TOPIC", "p")],
+                Ok(true),
+            ),
+            ("only node", vec![("NODE_PERSON_TOPIC", "n")], Err(())),
+            (
+                "only personhog",
+                vec![("PERSONHOG_PERSON_TOPIC", "p")],
+                Err(()),
+            ),
+        ];
+        for (name, vars, expected) in cases {
+            assert_eq!(
+                config(&vars).compares_persons().map_err(|_| ()),
+                expected,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            config(&[]).person_ignored_properties(),
+            HashSet::from(["$creator_event_uuid".to_string()])
+        );
     }
 
     #[test]

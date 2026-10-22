@@ -150,7 +150,7 @@ jobs:
                   export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
                   export PATH="$PWD:$PATH"
 
-                  cd ../posthog
+                  cd "$GITHUB_WORKSPACE"
                   antlr | grep "Version"
                   npm run grammar:build && git diff --exit-code
               env:

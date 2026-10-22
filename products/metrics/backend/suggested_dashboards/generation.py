@@ -129,7 +129,9 @@ def start_generation(team_id: int, request: GenerationRequest) -> str | None:
             "status": MetricsDashboardTemplate.Status.GENERATING,
             "metric_names": sorted(request.metric_names),
             "source_team_id": team_id,
-            "generation": GenerationRecord(model=MODEL, requested_name=request.name).model_dump(mode="json"),
+            "generation": GenerationRecord(
+                model=MODEL, requested_name=request.name, requested_metric_names=sorted(request.metric_names)
+            ).model_dump(mode="json"),
         },
     )
     return str(template.id) if created else None

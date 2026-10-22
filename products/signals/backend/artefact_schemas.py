@@ -299,6 +299,44 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
+class ReviewerState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reviewers_id: UUID | None = None
+    corrections_id: UUID | None = None
+
+
+class ReviewerCorrections(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    pinned: tuple[SuggestedReviewerEntry, ...] = ()
+    excluded: tuple[SuggestedReviewerEntry, ...] = ()
+    confirmed: bool = False
+    needs_review: bool = False
+
+
+class ReviewerProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    expected_state: ReviewerState
+    source: str = "automatic"
+    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
+    retry_reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> ReviewerProposal:
+        if self.outcome == "lookup_failed" and not self.retry_reason:
+            raise ValueError("A failed lookup needs a retry reason.")
+        return self
+
+
+class ReviewerEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["add", "remove", "replace", "confirm"]
+    expected_state: ReviewerState | None = None
+
+
 class ChannelAssignment(BaseModel):
     """The space that currently owns a report. The latest assignment wins."""
 
@@ -1186,6 +1224,7 @@ StatusArtefactContent = (
     | PriorityAssessment
     | RepoSelectionResult
     | SuggestedReviewers
+    | ReviewerCorrections
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
@@ -1227,6 +1266,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "reviewer_corrections": ReviewerCorrections,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1281,6 +1321,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
+        "reviewer_corrections",
         "task_run",
         "video_segment",
         "title_change",

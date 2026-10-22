@@ -64,7 +64,7 @@ export function TaskRunComposer({
         isSubmitting,
         isBusy,
         queuedMessages,
-        queueHeld,
+        queueHold,
         isTerminal,
         selectedModel,
         defaultModel,
@@ -260,7 +260,7 @@ export function TaskRunComposer({
                                       : undefined
                             }
                             steerPending={steerPending || isSubmitting || !!cancellationState}
-                            held={queueHeld}
+                            hold={queueHold}
                             onEditingChange={setQueueEditing}
                         />
                     </Composer.Banner>

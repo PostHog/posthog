@@ -12,6 +12,7 @@ to wording in the wrapper text show up as a diff in
 """
 
 import pytest
+from unittest.mock import patch
 
 from posthog.models.integration import Integration
 
@@ -95,10 +96,23 @@ def test_artifact_delivery_mode_offers_only_what_delivery_accepts(granted_scopes
     # missing one still gets charts while dropping to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
-    assert slack_artifact_delivery_state_updates(integration) == {
+    with patch("products.slack_app.backend.facade.api.is_slack_app_chart_links_enabled", return_value=False):
+        state = slack_artifact_delivery_state_updates(integration)
+
+    assert state == {
         "slack_artifact_delivery": expected_mode,
         "slack_chart_delivery": True,
+        "slack_chart_links": False,
     }
+
+
+def test_chart_links_ride_on_the_flag():
+    integration = Integration(kind="slack", config={"scope": "chat:write"})
+
+    with patch("products.slack_app.backend.facade.api.is_slack_app_chart_links_enabled", return_value=True):
+        state = slack_artifact_delivery_state_updates(integration)
+
+    assert state["slack_chart_links"] is True
 
 
 def test_build_description_renders_labeled_mention_for_each_author():

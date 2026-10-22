@@ -15,7 +15,6 @@ from products.data_modeling.backend.facade.api import (
     SavedQueryFrequencyBounds,
     definition_database,
     get_saved_query_columns,
-    incremental_enabled,
     propose_incremental_config,
     saved_query_target_bounds,
     upstream_table_refs,
@@ -58,14 +57,10 @@ class _Proposal:
 
 
 class _IncrementalProposer:
-    """Proposes incremental keys for one team run, reading the flag and building the team database at most once."""
+    """Proposes incremental keys for one team run, building the team database at most once."""
 
     def __init__(self, team_id: int) -> None:
         self._team_id = team_id
-
-    @cached_property
-    def _enabled(self) -> bool:
-        return incremental_enabled(self._team_id)
 
     @cached_property
     def _database(self) -> Database | None:
@@ -76,7 +71,7 @@ class _IncrementalProposer:
             return None
 
     def config_for(self, saved_query: SavedQueryDefinition) -> IncrementalConfig | None:
-        if not self._enabled or self._database is None:
+        if self._database is None:
             return None
         column_types = get_saved_query_columns(self._team_id, saved_query.id)
         return propose_incremental_config(saved_query.hogql, column_types, database=self._database)

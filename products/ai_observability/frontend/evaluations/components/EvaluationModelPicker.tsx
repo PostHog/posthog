@@ -35,23 +35,35 @@ export function EvaluationModelPicker(): JSX.Element {
     const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
 
     return (
-        <div className="bg-bg-light border rounded p-6">
+        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
             <h3 className="text-lg font-semibold mb-2">Judge model</h3>
             <p className="text-muted text-sm mb-4">
                 Choose how to judge responses, then select a model from your configured AI providers.
             </p>
 
-            <div className="space-y-4">
+            <div className="@container/judge-model space-y-4">
                 <LemonField.Pure label="Judge method">
                     <LemonSegmentedButton<JudgeMethod>
                         value={judgeMethod}
                         onChange={setJudgeMethod}
+                        className="max-w-full"
                         disabledReason={loading ? 'Loading model capabilities.' : undefined}
                         options={[
-                            { value: 'llm', label: 'LLM with explanation' },
+                            {
+                                value: 'llm',
+                                label: (
+                                    <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
+                                        LLM with explanation
+                                    </span>
+                                ),
+                            },
                             {
                                 value: 'decision',
-                                label: 'Decision model',
+                                label: (
+                                    <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
+                                        Decision model
+                                    </span>
+                                ),
                                 disabledReason: !featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS]
                                     ? 'Decision model evaluations are not enabled for this project.'
                                     : undefined,

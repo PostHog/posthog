@@ -326,8 +326,8 @@ importers:
         specifier: ^1.60.0
         version: 1.60.0
       '@posthog/rollup-plugin':
-        specifier: ^1.6.1
-        version: 1.6.1(rollup@4.62.2)
+        specifier: ^1.6.2
+        version: 1.6.2(rollup@4.62.2)
       '@storybook/addon-a11y':
         specifier: 10.4.1
         version: 10.4.1(storybook@10.4.1(@testing-library/dom@10.4.1)(@types/react@19.2.17)(prettier@3.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
@@ -6229,8 +6229,8 @@ packages:
   '@posthog/browser-common@0.9.5':
     resolution: {integrity: sha512-oXnBgZvM8UQ84IcBLfGP0WSGd9rA0PCGR37H8Pw0NszJRwxwbJnFXIUih0pvI/ze2eGmzkIEC9i3SwC+bMAgjQ==}
 
-  '@posthog/cli@0.16.2':
-    resolution: {integrity: sha512-h8bpf9ffBUH/Z9IoyGV+wiI+vS8rIPorKT3eKQXuzuwawO0G7Qvy+hDd7HQ9YJjHByYZ77yPPQvrSs4WsqTUCg==}
+  '@posthog/cli@0.18.12':
+    resolution: {integrity: sha512-/eT9riWOkBb9uwsdOxQgW3fan/T3hwT8rvwZCzPl3DAgSBEhzpP59usD0fyFS++X2967E5AQe74nrBw1rywf6A==}
     engines: {node: '>=14.14', npm: '>=6'}
     hasBin: true
 
@@ -6244,8 +6244,8 @@ packages:
       react: 19.2.6
       react-dom: 19.2.6
 
-  '@posthog/plugin-utils@2.0.0':
-    resolution: {integrity: sha512-PC94+3zeEQ2IkhiU+pskOIOEkAFKZvwVixvrwpRfy+cl4b6gkTuHN44vp5OeG5ndfQOLJQF5onx8/K7yZC3i1g==}
+  '@posthog/plugin-utils@2.0.1':
+    resolution: {integrity: sha512-ZiQfUcgY65EjF2vkqL4Aau6sx0aqvSWoXaGSGu9Solnmv6e6VRjQbAU0SCKbxpJxcEsCJof9vmvnrFTQIEOUAQ==}
 
   '@posthog/quill-charts@0.3.0-beta.29':
     resolution: {integrity: sha512-zuIP2dgt8hPOFmINAsueBMMnTEOlB5CXqWwqJBAWFM9cYlxIhd3IUZqRfwUC1Ockr/Yw0EqKwZwBAa7rLzdxvw==}
@@ -6268,8 +6268,8 @@ packages:
       react: 19.2.6
       react-native: '*'
 
-  '@posthog/rollup-plugin@1.6.1':
-    resolution: {integrity: sha512-oVViFAZnIT3YVPahXzvvZtsPHISWikoYpqF+Hb4YMvufeVmTeljhFeg/hH5Y7b9UYhYbbv0JE7UQRfeSZZ6R+A==}
+  '@posthog/rollup-plugin@1.6.2':
+    resolution: {integrity: sha512-6aOAx34tP6M8H4+3y9ydVeM/bK06ak+UUJgEA7pQCygkdHOsPcVFI6Tnd+rV4ZWQEMQDj6ZHZy9K5X7IIWj6Tg==}
     peerDependencies:
       rollup: 4.59.0
 
@@ -21550,7 +21550,7 @@ snapshots:
       '@posthog/core': 1.59.1
       '@posthog/types': 1.416.0
 
-  '@posthog/cli@0.16.2':
+  '@posthog/cli@0.18.12':
     dependencies:
       detect-libc: 2.1.2
 
@@ -21571,7 +21571,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/plugin-utils@2.0.0':
+  '@posthog/plugin-utils@2.0.1':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -21616,10 +21616,10 @@ snapshots:
       react: 19.2.6
       react-native: 0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6)
 
-  '@posthog/rollup-plugin@1.6.1(rollup@4.62.2)':
+  '@posthog/rollup-plugin@1.6.2(rollup@4.62.2)':
     dependencies:
-      '@posthog/cli': 0.16.2
-      '@posthog/plugin-utils': 2.0.0
+      '@posthog/cli': 0.18.12
+      '@posthog/plugin-utils': 2.0.1
       magic-string: 0.30.21
       rollup: 4.62.2
 

@@ -57,6 +57,7 @@ const mockScoreDefinition: ScoreDefinition = {
         hedgehog_config: null,
     },
     created_at: '2026-03-11T00:00:00Z',
+    updated_by: null,
     updated_at: '2026-03-11T00:00:00Z',
     team: MOCK_DEFAULT_TEAM.id,
 }
@@ -124,7 +125,7 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setFilters({ page: 3 }, false)
-            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true' })
+            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true', created_by: 42 })
         }).toFinishAllListeners()
 
         expect(logic.values.filters).toEqual({
@@ -132,12 +133,14 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             tag_match: 'any',
             page: 1,
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: 'true',
             order_by: 'name',
         })
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: true,
             order_by: 'name',

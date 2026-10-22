@@ -1308,6 +1308,18 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
         close_task.delay.assert_not_called()
+        status_events = [
+            call.kwargs["properties"]
+            for call in _mock_capture.call_args_list
+            if call.kwargs.get("event") == "signal_report_status_changed"
+        ]
+        if relationship == "implementation":
+            assert len(status_events) == 1
+            assert status_events[0].get("resolution_reason") == ("pr_merged" if merged else None)
+            assert status_events[0].get("dismissal_cause") == (None if merged else "pr_closed_without_merge")
+            assert status_events[0]["dismissal_reason"] is None
+        else:
+            assert status_events == []
         if relationship == "implementation":
             assignment = SignalReportAssignment.objects.for_team(self.team.id).filter(report=self.report).first()
             self.assertEqual(assignment.actor_kind if assignment else None, actor_kind)

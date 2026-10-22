@@ -125,6 +125,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -418,6 +419,7 @@ rules:
                               |PlatformAlertConfiguration
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -599,6 +601,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -882,6 +885,7 @@ rules:
                         |PlatformAlertConfiguration
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -1031,6 +1035,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney

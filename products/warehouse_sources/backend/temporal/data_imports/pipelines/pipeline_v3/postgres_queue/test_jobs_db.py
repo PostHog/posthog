@@ -13,6 +13,10 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ExportSignalMessage,
+    ReplaceScopeRef,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -1073,6 +1077,7 @@ class TestPendingBatchToExportSignal:
                 "data_folder": "/tmp/data",
                 "primary_keys": ["id"],
                 "cdc_write_mode": "upsert",
+                "replace_scope": {"column": "_file_name", "manifest_path": "s3://bucket/replace_scope.parquet"},
             },
             latest_attempt=2,
         )
@@ -1092,6 +1097,10 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+        # Without the scope the loader would append the run's rows next to the rows they replace.
+        assert ExportSignalMessage.from_dict(signal).replace_scope == ReplaceScopeRef(
+            column="_file_name", manifest_path="s3://bucket/replace_scope.parquet"
+        )
 
 
 @pytest.mark.django_db(transaction=True)

@@ -63,11 +63,6 @@ def _exit_for_signal(signum, _frame):
 def main():
     """Main entry point for the toolbox command."""
     try:
-        # If we're in a flox environment, exit
-        if "FLOX_ENV" in os.environ:
-            print("⚠️ Please exit the flox environment by typing `exit` before connecting to a toolbox.")  # noqa: T201
-            sys.exit(0)
-
         # Set up argument parser
         parser = argparse.ArgumentParser(
             description="Connect to a toolbox pod and manage pod claims. This script will automatically connect you to your latest claimed pod.",

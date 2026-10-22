@@ -249,6 +249,13 @@
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Monitoring", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
+            "path": "Uptime monitoring",
+            "category": "Unreleased",
+            "iconType": "uptime_monitoring",
+            "type": null,
+            "intents": ["uptime_monitoring"]
+        },
+        {
             "path": "Visual review",
             "category": "Unreleased",
             "iconType": null,

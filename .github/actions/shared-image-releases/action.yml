@@ -1,0 +1,25 @@
+name: Shared image releases
+description: Inspect source policy and shared-image publication repositories
+inputs:
+    working-directory:
+        description: Relative path to the executing repository checkout
+        required: false
+    shared-image-operation:
+        description: Shared-image operation to execute
+        required: false
+        default: inspect
+    shared-image-policy:
+        description: Path to the canonical shared-image manifest in the executing checkout
+        required: false
+        default: .github/shared-image-releases.yaml
+    shared-image-repository:
+        description: Common build repository from workflow configuration
+        required: true
+outputs:
+    channels:
+        description: Whether the policy has configured publication channels
+    bindings:
+        description: JSON resolved publication bindings keyed by image and channel for inspect
+runs:
+    using: node24
+    main: dist/index.js

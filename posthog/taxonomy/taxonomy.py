@@ -3098,8 +3098,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_interface": {
             "label": "MCP interface",
-            "description": "The interface that produced the event. Set by the @posthog/mcp analytics SDK on every capture and exception event it sends.",
-            "examples": ["mcp"],
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
         },
         "$mcp_consumer": {
             "label": "MCP consumer",

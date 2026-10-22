@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
@@ -13,10 +15,13 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -51,6 +56,8 @@ import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from '.
 import { limitReachedTooltip } from './scannerCopy'
 import { scannerStatus } from './scannerStatus'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
+
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -111,6 +118,45 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
                 </>
             }
         />
+    )
+}
+
+// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
+const FIELD_GUIDE_DISMISS_KEY = 'replay-vision-field-guide-callout'
+
+function FieldGuideBanner(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-vision-field-guide-banner-shown">
+            <LemonBanner
+                type="info"
+                dismissKey={FIELD_GUIDE_DISMISS_KEY}
+                onClose={() => posthog.capture('replay-vision-field-guide-banner-dismissed')}
+                // Negative margins let the hog overflow the banner edges without making the banner taller.
+                // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
+                icon={
+                    <HedgehogExplorer className="hidden @lg:block pointer-events-none relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />
+                }
+            >
+                <p>
+                    <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}
+                    <Link
+                        to="https://posthog.com/field-guide"
+                        target="_blank"
+                        data-attr="replay-vision-field-guide-banner-link"
+                    >
+                        field guide
+                    </Link>{' '}
+                    to the rage-clickers, tab-hoppers, and other wild users you'll spot in user recordings.
+                </p>
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
     )
 }
 
@@ -270,16 +316,7 @@ export function ReplayScannersScene(): JSX.Element {
 
             <IngestionLimitBanner />
 
-            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
-                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
-                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
-                    launch, so re-enable the ones you want to keep running. See{' '}
-                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
-                        how credits are priced
-                    </VisionDocsLink>{' '}
-                    in the docs, or check the Usage tab for current spend.
-                </LemonBanner>
-            )}
+            <FieldGuideBanner />
 
             <LemonTabs
                 activeKey={activeTab}

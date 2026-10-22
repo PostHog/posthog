@@ -126,8 +126,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("foreign_record_output", [], True, "post", "record_output", 403),
             ("harness_write", [], True, "patch", "run_summary", status.HTTP_200_OK),
             ("malformed_stamp_fails_closed", "conversations-tickets-notes-create", True, "post", "ticket_notes", 403),
-            ("not_narrowed", None, True, "post", "ticket_reply", status.HTTP_201_CREATED),
-            ("unbound_token", NOTES_ONLY, False, "post", "ticket_reply", status.HTTP_201_CREATED),
+            ("not_narrowed", None, True, "patch", "ticket", status.HTTP_200_OK),
+            ("unbound_token", NOTES_ONLY, False, "patch", "ticket", status.HTTP_200_OK),
         ]
     )
     def test_narrowed_scout_writes_only_through_picked_tools(

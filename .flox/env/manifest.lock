@@ -170,7 +170,7 @@
       "uv": {
         "pkg-path": "flox/uv",
         "pkg-group": "uv",
-        "version": "^0.12.13"
+        "version": "^0.13.4"
       },
       "watchman": {
         "pkg-path": "watchman"
@@ -3515,27 +3515,29 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/a8y18r7j66m92vivvncz2w8ghkf7mnzz-uv-0.12.13.drv",
+      "derivation": "/nix/store/8wrc0f0k3y78hbhpb1v2gxq9xfjmyrjd-uv-0.13.4.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
       "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/floxenvs?rev=83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "name": "uv-0.12.13",
+      "locked_url": "https://github.com/flox/floxenvs?rev=9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "name": "uv-0.13.4",
       "pname": "uv",
-      "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "rev_count": 23668,
-      "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:18:29.293303Z",
+      "rev": "9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "rev_count": 29770,
+      "rev_date": "2026-10-20T20:01:24Z",
+      "scrape_date": "2026-10-21T20:48:32.042127Z",
       "stabilities": [
-        "unstable"
+        "unstable",
+        "stable",
+        "staging"
       ],
       "unfree": false,
-      "version": "0.12.13",
+      "version": "0.13.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/3bip5f4c0yvc35jgnpbiva56q7j59scz-uv-0.12.13"
+        "out": "/nix/store/mrv2f0mabq6ma5ji0jxwybsp0m4i5mqj-uv-0.13.4"
       },
       "system": "aarch64-darwin",
       "group": "uv",
@@ -3544,27 +3546,29 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/ssz9zjd5kswpvqks3a84njfw1shydgam-uv-0.12.13.drv",
+      "derivation": "/nix/store/q0zkwasvl112380s1accrvc96qp6kwy7-uv-0.13.4.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
       "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/floxenvs?rev=83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "name": "uv-0.12.13",
+      "locked_url": "https://github.com/flox/floxenvs?rev=9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "name": "uv-0.13.4",
       "pname": "uv",
-      "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "rev_count": 23668,
-      "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:18:29.293317Z",
+      "rev": "9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "rev_count": 29770,
+      "rev_date": "2026-10-20T20:01:24Z",
+      "scrape_date": "2026-10-21T20:48:32.042448Z",
       "stabilities": [
-        "unstable"
+        "unstable",
+        "stable",
+        "staging"
       ],
       "unfree": false,
-      "version": "0.12.13",
+      "version": "0.13.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/3m09dq6ymbpl3w82ppzp1av18cq32ssi-uv-0.12.13"
+        "out": "/nix/store/63p29pzz8z7zcpp42v8al90s7v9n1mly-uv-0.13.4"
       },
       "system": "aarch64-linux",
       "group": "uv",
@@ -3573,27 +3577,29 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/y3zly3yn0cx8biakfd4lz3yl1gcb2r4m-uv-0.12.13.drv",
+      "derivation": "/nix/store/glf66frf3wxq4zkzczkz0arxbyj9nd83-uv-0.13.4.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
       "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/floxenvs?rev=83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "name": "uv-0.12.13",
+      "locked_url": "https://github.com/flox/floxenvs?rev=9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "name": "uv-0.13.4",
       "pname": "uv",
-      "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
-      "rev_count": 23668,
-      "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:18:29.293318Z",
+      "rev": "9d308c55b4a6f76c914ce9b75ab66fbe47568165",
+      "rev_count": 29770,
+      "rev_date": "2026-10-20T20:01:24Z",
+      "scrape_date": "2026-10-21T20:48:32.042451Z",
       "stabilities": [
-        "unstable"
+        "unstable",
+        "stable",
+        "staging"
       ],
       "unfree": false,
-      "version": "0.12.13",
+      "version": "0.13.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/kkzrnvkq32znrzxskjb94bl6dvw8f6kl-uv-0.12.13"
+        "out": "/nix/store/5vb174n4ny6bf0fdknfcz4wnv1449x1g-uv-0.13.4"
       },
       "system": "x86_64-linux",
       "group": "uv",

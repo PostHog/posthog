@@ -3570,8 +3570,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         report = SignalReport.objects.create(team=self.team)
         # Free-form labels share the discussion bucket — otherwise a made-up label resets the cap.
-        labels = ["discussion", "brainstorm", "discussion"]
-        self.assertEqual(len(labels), MAX_DISCUSSION_TASKS_PER_REPORT)
+        labels = [("discussion", "brainstorm")[index % 2] for index in range(MAX_DISCUSSION_TASKS_PER_REPORT)]
         for label in labels:
             self.assertEqual(self._post_signal_report_task(report.id, label).status_code, status.HTTP_201_CREATED)
 
@@ -17400,6 +17399,39 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
     def detail_url(self, image_id):
         return f"{self.base_url}{image_id}/"
+
+    @parameterized.expand(
+        [
+            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", 200),
+            (
+                "origin_on_the_default_vm_base",
+                '{"origin_products": ["user_created"], "default_base_origin_products": ["posthog_ai"]}',
+                "posthog_ai",
+                200,
+            ),
+            (
+                "origin_fully_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 100}}',
+                "posthog_ai",
+                200,
+            ),
+            (
+                "origin_partly_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 50}}',
+                "posthog_ai",
+                403,
+            ),
+            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
+            ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
+        ]
+    )
+    def test_list_checks_the_vm_runtime_for_the_requested_origin(self, _name, payload, origin_product, expected):
+        self._vm_flag_payload = payload
+        query = f"?origin_product={origin_product}" if origin_product else ""
+
+        response = self.client.get(f"{self.base_url}{query}")
+
+        self.assertEqual(response.status_code, expected)
 
     def test_create_spawns_linked_builder_task_with_vm_override(self):
         response = self.client.post(

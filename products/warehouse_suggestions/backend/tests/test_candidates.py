@@ -3,7 +3,6 @@ from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -39,7 +38,6 @@ VIEW_ID = uuid4()
 AT_CERTIFY_FLOORS = {"human_users": 5, "human_days": 20}
 HOUR = timedelta(hours=1)
 DAY = timedelta(hours=24)
-INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -215,12 +213,10 @@ class TestMaterializeRules(SimpleTestCase):
 class TestMaterializeRefreshMode(BaseTest):
     @parameterized.expand(
         [
-            ("grouped_by_day", DAILY_COUNTS, True, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
-            ("flag_off", DAILY_COUNTS, False, WarehouseSuggestionRefreshMode.FULL, None, ()),
+            ("grouped_by_day", DAILY_COUNTS, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
             (
                 "limited_query",
                 "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10",
-                True,
                 WarehouseSuggestionRefreshMode.FULL,
                 None,
                 (),
@@ -228,7 +224,6 @@ class TestMaterializeRefreshMode(BaseTest):
             (
                 "grouped_over_a_nondeterministic_view",
                 DAILY_COUNTS.replace("FROM events", "FROM sampled_events"),
-                True,
                 WarehouseSuggestionRefreshMode.FULL,
                 None,
                 (),
@@ -239,7 +234,6 @@ class TestMaterializeRefreshMode(BaseTest):
         self,
         _name: str,
         hogql: str,
-        flag_on: bool,
         refresh_mode: WarehouseSuggestionRefreshMode,
         incremental_key: str | None,
         unique_key: tuple[str, ...],
@@ -264,8 +258,7 @@ class TestMaterializeRefreshMode(BaseTest):
             team_id=self.team.pk,
         )
 
-        with patch(INCREMENTAL_FLAG, return_value=flag_on):
-            [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
+        [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
         assert isinstance(draft.payload, MaterializePayload)
         expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0

@@ -50,6 +50,8 @@ const createSendPushNotificationInvocation = (
     } as any
 
     invocation.state.vmState = { stack: [] } as any
+    // The step's Distinct ID input names the run's own person, the template default.
+    invocation.state.globals.event.distinct_id = 'test-distinct-id'
 
     if (personProperties) {
         invocation.state.globals.person = {
@@ -68,6 +70,7 @@ describe('PushNotificationService', () => {
     let valkeyStore: Map<string, string>
     let mockValkeySet: jest.Mock
     let mockValkey: any
+    let personsManager: { getCyclotronPerson: jest.Mock }
 
     const mockTrackedFetch = jest.fn()
 
@@ -117,7 +120,15 @@ describe('PushNotificationService', () => {
             ),
         } as any
 
-        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockValkey)
+        personsManager = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
+
+        service = new PushNotificationService(
+            integrationManager,
+            encryptedFields,
+            fetchUtils,
+            mockValkey,
+            personsManager as any
+        )
     })
 
     afterEach(() => {
@@ -309,6 +320,7 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
+                    personsManager as any,
                     new MessageAssetsService({ produce: jest.fn() } as any)
                 )
             })
@@ -370,6 +382,7 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
+                    personsManager as any,
                     {
                         buildRowForPush: () => {
                             throw new Error('boom')
@@ -603,6 +616,166 @@ describe('PushNotificationService', () => {
         })
     })
 
+    describe('recipient named by the step', () => {
+        // The run's person is whoever the trigger ran for; the step's Distinct ID input can name
+        // someone else (a manual run's person is the clicker, not the app user being tested).
+        const runPersonKey = deviceSubscriptionKey('test-project', 'run-person-token')
+        const namedPersonKey = deviceSubscriptionKey('test-project', 'named-person-token')
+
+        const namedPerson = (properties: Record<string, any>) => ({
+            id: 'named-person-id',
+            name: 'Named',
+            url: '',
+            distinct_id: 'named-user',
+            properties,
+        })
+
+        const invocationNaming = (distinctId: string): CyclotronJobInvocationHogFunction => {
+            const invocation = createSendPushNotificationInvocation({
+                [runPersonKey]: encryptedFields.encrypt('run-person-token'),
+            })
+            ;(invocation.queueParameters as any).distinctId = distinctId
+            invocation.hogFunction.template_id = 'template-native-push'
+            invocation.state.actionId = 'push'
+            return invocation
+        }
+
+        const sentTokens = (): string[] =>
+            mockTrackedFetch.mock.calls.map((call: any) => parseJSON(call[0].fetchParams.body).message.token)
+
+        const ok = () => ({
+            fetchError: null,
+            fetchResponse: { status: 200, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        const unregistered = () => ({
+            fetchError: null,
+            fetchResponse: {
+                status: 404,
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
+                    ),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 10,
+        })
+
+        it('sends to the devices of the person the input names, not the run person', async () => {
+            personsManager.getCyclotronPerson.mockResolvedValue(
+                namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
+            )
+            mockTrackedFetch.mockResolvedValue(ok())
+
+            // Trailing whitespace from the editor must not turn a valid id into an unknown person.
+            const result = await service.executeSendPushNotification(invocationNaming('named-user  '))
+
+            expect(personsManager.getCyclotronPerson).toHaveBeenCalledWith(1, 'named-user', 'distinct_id', {
+                forceFresh: true,
+            })
+            expect(sentTokens()).toEqual(['named-person-token'])
+            expect(result.deliveredToRecipient).toBe(true)
+        })
+
+        it.each([
+            ['test-distinct-id', 'test-distinct-id'],
+            ['  test-distinct-id ', 'test-distinct-id'],
+            ['', 'test-distinct-id'],
+            [' user-42 ', ' user-42 '],
+        ])(
+            'reads the run person without a lookup when the input is %j and the run distinct_id is %j',
+            async (distinctId, runDistinctId) => {
+                mockTrackedFetch.mockResolvedValue(ok())
+                const invocation = invocationNaming(distinctId)
+                invocation.state.globals.event.distinct_id = runDistinctId
+
+                await service.executeSendPushNotification(invocation)
+
+                expect(personsManager.getCyclotronPerson).not.toHaveBeenCalled()
+                expect(sentTokens()).toEqual(['run-person-token'])
+            }
+        )
+
+        it.each([
+            [
+                'a custom destination',
+                (invocation: CyclotronJobInvocationHogFunction) => delete invocation.state.actionId,
+            ],
+            [
+                'a workflow step built on another template',
+                (invocation: CyclotronJobInvocationHogFunction) =>
+                    (invocation.hogFunction.template_id = 'template-webhook'),
+            ],
+        ])('keeps %s on the run person when it names someone else', async (_, notAPushStep) => {
+            mockTrackedFetch.mockResolvedValue(ok())
+            const invocation = invocationNaming('named-user')
+            notAPushStep(invocation)
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(personsManager.getCyclotronPerson).not.toHaveBeenCalled()
+            expect(sentTokens()).toEqual(['run-person-token'])
+        })
+
+        it('skips with a warning naming the input when it matches no person', async () => {
+            // Falling back to the run person here would notify someone the step did not name.
+            const result = await service.executeSendPushNotification(invocationNaming('nobody'))
+
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+            expect(result.error).toBeUndefined()
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                expect.stringContaining('No person found for distinct_id: nobody')
+            )
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
+            expect(result.deliveredToRecipient).toBe(false)
+        })
+
+        it('names the person it checked in the no-token warning', async () => {
+            personsManager.getCyclotronPerson.mockResolvedValue(namedPerson({}))
+
+            const result = await service.executeSendPushNotification(invocationNaming('named-user'))
+
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                'No active FCM device token found for distinct_id: named-user'
+            )
+        })
+
+        it('prunes a dead token from the named person and leaves the run snapshot alone', async () => {
+            personsManager.getCyclotronPerson.mockResolvedValue(
+                namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
+            )
+            mockTrackedFetch.mockResolvedValue(unregistered())
+            const invocation = invocationNaming('named-user')
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.capturedPostHogEvents).toEqual([
+                expect.objectContaining({ distinct_id: 'named-user', properties: { $unset: [namedPersonKey] } }),
+            ])
+            // The snapshot belongs to the run person, whose token is still live.
+            expect(result.invocation.state.globals.person?.properties).toHaveProperty(runPersonKey)
+        })
+
+        it('reschedules when the person lookup fails, and fails once the retries are spent', async () => {
+            personsManager.getCyclotronPerson.mockRejectedValue(new Error('personhog unavailable'))
+            const invocation = invocationNaming('named-user')
+
+            const first = await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+            expect(first.finished).toBe(false)
+            expect(first.invocation.queueScheduledAt).toBeDefined()
+            expect(first.invocation.queueParameters).toEqual(invocation.queueParameters)
+            expect(first.invocation.queueMetadata).toEqual(expect.objectContaining({ tries: 1 }))
+            expect(first.metrics).toEqual([])
+
+            invocation.queueMetadata = { tries: 3 } // == maxRetries
+            await expect(service.executeSendPushNotification(invocation)).rejects.toThrow('personhog unavailable')
+        })
+    })
+
     describe('APNS path', () => {
         const apnsIntegration = {
             id: 2,
@@ -686,7 +859,14 @@ describe('PushNotificationService', () => {
         ])('presents one APNS provider token for %s', async (_name, podCount) => {
             const pods = Array.from(
                 { length: podCount },
-                () => new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockValkey)
+                () =>
+                    new PushNotificationService(
+                        integrationManager,
+                        encryptedFields,
+                        fetchUtils,
+                        mockValkey,
+                        personsManager as any
+                    )
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
@@ -734,7 +914,13 @@ describe('PushNotificationService', () => {
                     return fn({ get: (key: string) => valkeyStore.get(key) ?? null, set: mockValkeySet })
                 }),
             } as any
-            const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, flakyValkey)
+            const pod = new PushNotificationService(
+                integrationManager,
+                encryptedFields,
+                fetchUtils,
+                flakyValkey,
+                personsManager as any
+            )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
                 fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
@@ -776,7 +962,13 @@ describe('PushNotificationService', () => {
                     return fn({ get: (key: string) => valkeyStore.get(key) ?? null, set: mockValkeySet })
                 }),
             } as any
-            const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, flakyValkey)
+            const pod = new PushNotificationService(
+                integrationManager,
+                encryptedFields,
+                fetchUtils,
+                flakyValkey,
+                personsManager as any
+            )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
                 fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
@@ -811,7 +1003,8 @@ describe('PushNotificationService', () => {
                 integrationManager,
                 encryptedFields,
                 fetchUtils,
-                failingValkey
+                failingValkey,
+                personsManager as any
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
@@ -1121,7 +1314,8 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockValkey
+                    mockValkey,
+                    personsManager as any
                 )
                 const retried = await otherPod.executeSendPushNotification(rescheduled.invocation)
 
@@ -1140,7 +1334,8 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockValkey
+                    mockValkey,
+                    personsManager as any
                 ).executeSendPushNotification(otherKeyCarried)
                 expect(failed.finished).toBe(true)
                 expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
@@ -1156,7 +1351,8 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockValkey
+                    mockValkey,
+                    personsManager as any
                 ).executeSendPushNotification(
                     createSendPushNotificationInvocation({
                         '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
@@ -1215,7 +1411,8 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockValkey
+                    mockValkey,
+                    personsManager as any
                 ).executeSendPushNotification(rescheduled.invocation)
 
                 expect(retried.finished).toBe(false)
@@ -1273,9 +1470,13 @@ describe('PushNotificationService', () => {
             })
 
             it('signs no new tokens for a rejected key while Valkey is down', async () => {
-                const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, {
-                    useClient: jest.fn(() => null),
-                } as any)
+                const pod = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    { useClient: jest.fn(() => null) } as any,
+                    personsManager as any
+                )
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
 
                 for (let i = 0; i < 3; i++) {

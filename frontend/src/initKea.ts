@@ -25,6 +25,8 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadRecommendations',
+    'startAnalysis',
     'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
     'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
     'fetchSpans',
@@ -115,6 +117,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
+    loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
     loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',

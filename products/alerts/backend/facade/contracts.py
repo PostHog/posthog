@@ -13,6 +13,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.schema_enums import AlertState
 
 from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
@@ -81,6 +82,8 @@ class HogFunctionPathReason(StrEnum):
     # body the HogFunction sends.
     NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native insight delivery sends no incident actions, so a PagerDuty destination would open none.
+    PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
 
 @frozen
@@ -134,3 +137,51 @@ class AlertInternalEvent:
 
 class AlertInternalEventsNotDelivered(Exception):
     """The broker did not take every event, so the caller retries."""
+
+
+@frozen
+class MovedAlertRuntime:
+    """Where an alert the platform owns stands, in the insight alert's terms."""
+
+    state: AlertState
+    next_check_at: datetime | None
+    last_notified_at: datetime | None
+
+
+@frozen
+class MovedAlertLastCheck:
+    checked_at: datetime
+    value: float | None
+
+
+@frozen
+class MovedAlertStatus:
+    """What the insight alert API shows for an alert the platform owns, in place of its own row."""
+
+    # None when the platform holds no runtime for the alert.
+    runtime: MovedAlertRuntime | None
+    # None when the alert has no recent check, or the platform's history could not be read.
+    last_check: MovedAlertLastCheck | None
+
+
+@frozen
+class MovedAlertCheck:
+    """One check of an alert the platform owns, in the insight alert's terms."""
+
+    # The same on every read, so a client can key on it.
+    id: UUID
+    checked_at: datetime
+    value: float | None
+    state: AlertState
+    error_message: str | None
+
+
+@frozen
+class MovedAlertCheckPage:
+    # How many checks the requested window holds, past this page too.
+    total: int
+    checks: tuple[MovedAlertCheck, ...]
+
+
+class PlatformCannotOwn(ValueError):
+    """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""

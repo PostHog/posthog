@@ -5,6 +5,7 @@ from urllib.parse import ParseResult, urlparse
 
 from posthog.dataclasses import frozen
 
+from products.web_analytics.backend.content_autopilot.edits import heading_levels
 from products.web_analytics.backend.content_autopilot.research import ResearchBundle
 from products.web_analytics.backend.content_autopilot.site_discovery import site_host
 
@@ -12,9 +13,13 @@ MIN_WORDS = 250
 LENGTH_TOLERANCE = 1.5
 OVERLAP_WINDOW_CHARS = 40
 MAX_REPORTED_ITEMS = 5
+MAX_REPORTED_ITEM_CHARS = 120
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _WORD_RE = re.compile(r"\S+")
+_WHITESPACE_RE = re.compile(r"\s+")
+_WRAPPING_QUOTES = "\"'`“”‘’"
+_TRAILING_PUNCTUATION = ",;:-"
 STRUCTURED_DATA_TYPES = frozenset({"Article", "FAQPage"})
 
 
@@ -67,8 +72,16 @@ def _has_host(url: str) -> bool:
     return bool(parsed and parsed.netloc)
 
 
+def _quote(item: str, limit: int = MAX_REPORTED_ITEM_CHARS) -> str:
+    text = _WHITESPACE_RE.sub(" ", item).strip().strip(_WRAPPING_QUOTES).strip()
+    if len(text) > limit:
+        cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+        text = f"{cut.rstrip(_TRAILING_PUNCTUATION)}…"
+    return f'"{text}"'
+
+
 def _summarize(items: list[str]) -> str:
-    shown = ", ".join(f"`{item[:120]}`" for item in items[:MAX_REPORTED_ITEMS])
+    shown = ", ".join(_quote(item) for item in items[:MAX_REPORTED_ITEMS])
     extra = len(items) - MAX_REPORTED_ITEMS
     return f"{shown} and {extra} more" if extra > 0 else shown
 
@@ -84,15 +97,15 @@ class _StructureProblem:
 
 
 def _structure_problems(markdown: str) -> dict[str, _StructureProblem]:
-    lines = markdown.splitlines()
-    h1_count = sum(1 for line in lines if line.startswith("# "))
+    levels = heading_levels(markdown)
+    h1_count = levels.count(1)
     words = word_count(markdown)
     problems: dict[str, _StructureProblem] = {}
     if h1_count != 1:
         problems["h1"] = _StructureProblem(
             severity=abs(h1_count - 1), message=f"it has {h1_count} H1 headings instead of one"
         )
-    if not any(line.startswith("## ") for line in lines):
+    if 2 not in levels:
         problems["h2"] = _StructureProblem(severity=1, message="it has no H2 sections")
     if words < MIN_WORDS:
         problems["words"] = _StructureProblem(
@@ -269,6 +282,7 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
         return ValidationCheck(
             check_key="url", label="Page URL", passed=True, message="This updates an existing page.", blocking=True
         )
+    quoted_path = _quote(url_path, 200)
     segments = url_path.split("?", 1)[0].split("#", 1)[0].split("/")
     well_formed = (
         url_path.startswith("/") and not url_path.startswith("//") and "." not in segments and ".." not in segments
@@ -278,7 +292,7 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
             check_key="url",
             label="Page URL",
             passed=False,
-            message=f"`{url_path[:200]}` isn't a root-relative path. Use a path like `/docs/new-page`.",
+            message=f'{quoted_path} isn\'t a root-relative path. Use a path like "/docs/new-page".',
             blocking=True,
         )
     if not site_urls:
@@ -286,7 +300,7 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
             check_key="url",
             label="Page URL",
             passed=True,
-            message=f"The sitemap couldn't be read, so check that `{url_path}` isn't already a page.",
+            message=f"The sitemap couldn't be read, so check that {quoted_path} isn't already a page.",
             blocking=True,
         )
     taken = _normalize_path(url_path) in {_url_path(url) for url in site_urls}
@@ -294,7 +308,7 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
         check_key="url",
         label="Page URL",
         passed=not taken,
-        message=f"`{url_path[:200]}` is already a page on the site." if taken else f"`{url_path}` is free to use.",
+        message=f"{quoted_path} is already a page on the site." if taken else f"{quoted_path} is free to use.",
         blocking=True,
     )
 

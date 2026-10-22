@@ -17694,6 +17694,14 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "cohort_deleted": {
+                    "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                    "type": "boolean"
+                },
+                "cohort_missing": {
+                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                    "type": "boolean"
+                },
                 "cohort_name": {
                     "type": "string"
                 },
@@ -21335,6 +21343,11 @@
             "properties": {
                 "connectionId": {
                     "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
+                "executionTarget": {
+                    "description": "Select the native managed Trino catalog instead of the default PostHog catalog.",
+                    "enum": ["default", "managed_trino"],
                     "type": "string"
                 },
                 "includeFields": {
@@ -27292,6 +27305,7 @@
                 "logs",
                 "tracing",
                 "metrics",
+                "uptime_monitoring",
                 "workflows",
                 "broadcasts",
                 "notebook",
@@ -41226,6 +41240,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "uptime_monitoring",
                 "metrics",
                 "visual_review",
                 "web_analytics",
@@ -50349,7 +50364,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

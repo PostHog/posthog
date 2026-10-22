@@ -537,6 +537,27 @@ class TestDashboardWidgets(APIBaseTest):
         assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
+    @parameterized.expand(
+        [
+            ("single_type", "?widget_type=logs_list", {"logs_list"}),
+            ("comma_separated", "?widget_type=logs_list,survey_results", {"logs_list", "survey_results"}),
+            ("repeated_param", "?widget_type=logs_list&widget_type=survey_results", {"logs_list", "survey_results"}),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_filters_by_widget_type(self, _name: str, query: str, expected: set[str]) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/widget_catalog/{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert {entry["widget_type"] for entry in response.json()["results"]} == expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_rejects_unknown_widget_type(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/widget_catalog/?widget_type=logs_list,not_a_widget"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not_a_widget" in response.json()["detail"]
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_add_widget_via_batch_endpoint(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -1410,19 +1431,18 @@ class TestDashboardWidgetOpenApiSchema(APIBaseTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
+    @parameterized.expand([("AddDashboardWidgetRequest",), ("UpdateDashboardWidgetRequest",)])
+    def test_batch_widget_openapi_schema_lists_every_type_and_leaves_config_untyped(self, component_name: str) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        component = schema["components"]["schemas"]["AddDashboardWidgetRequest"]
+        components = schema["components"]["schemas"]
+        properties = components[component_name]["properties"]
+        widget_type = properties["widget_type"]
+        widget_type_ref = widget_type.get("$ref") or widget_type["allOf"][0]["$ref"]
+        widget_type_enum = components[widget_type_ref.split("/")[-1]]["enum"]
 
-        assert component["discriminator"]["propertyName"] == "widget_type"
-        assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)
-
-    def test_update_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
-        schema = SchemaGenerator().get_schema(request=None, public=True)
-        component = schema["components"]["schemas"]["UpdateDashboardWidgetRequest"]
-
-        assert component["discriminator"]["propertyName"] == "widget_type"
-        assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)
+        assert set(widget_type_enum) == set(EXPECTED_WIDGET_TYPES)
+        assert properties["config"]["type"] == "object"
+        assert not {"oneOf", "anyOf", "allOf", "$ref", "properties"} & set(properties["config"])
 
     def test_batch_add_rejects_unknown_widget_type(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

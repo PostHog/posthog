@@ -1475,6 +1475,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     KLAR = "Klar", "Klar"
     CONECTOCRM = "ConectoCRM", "ConectoCRM"
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
+    PARTICLE = "Particle", "Particle"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

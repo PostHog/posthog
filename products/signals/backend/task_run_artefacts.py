@@ -60,7 +60,7 @@ __all__ = [
 # implementation. Inference on these tasks is unbilled (per-PR pricing), so without a cap a
 # single report is an unlimited font of free agent runs; the number only needs to cover honest
 # "ask a follow-up in a fresh task" use, since conversation *within* a task is unlimited.
-MAX_DISCUSSION_TASKS_PER_REPORT = 3
+MAX_DISCUSSION_TASKS_PER_REPORT = 10
 
 # `scout` excluded too: it labels the scout run that authored the report, is server-written, and
 # is rejected as a client-asserted relationship by the tasks write serializer.

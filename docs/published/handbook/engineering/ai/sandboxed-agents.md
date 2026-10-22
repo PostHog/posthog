@@ -742,6 +742,7 @@ or stream echo, and never submits the message again.
 
 The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
 The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Person-property conditions use the current actor's email and staff status, so an email-targeted rollout applies to that actor's eligible tasks while percentage and variant bucketing remain task-based.
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
 Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.

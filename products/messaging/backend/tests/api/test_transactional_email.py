@@ -289,6 +289,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert first.status_code == status.HTTP_200_OK, first.json()
         hog_flow_id = first.json()["transactional_hog_flow_id"]
         assert second.json()["transactional_hog_flow_id"] == hog_flow_id
+        assert second.json()["content"]["email"]["from"] == {"integrationId": self.sender.id}
         workflow = self._workflow(hog_flow_id)
         assert workflow["status"] == "active"
         assert workflow["origin_product"] == "transactional_emails"
@@ -303,12 +304,14 @@ class TestTransactionalEmail(APIBaseTest):
             ("template_without_subject", "template_not_sendable"),
             ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
+            ("custom_address_off_the_chosen_senders_domain", "template_not_sendable"),
         ]
     )
     def test_rejects_making_a_template_transactional_it_cannot_send(
         self, mock_post, _flag, _capture, case, expected_code
     ):
         template = self._template()
+        body: dict[str, Any] = {}
         if case in ("marketing_template", "deleted_marketing_category"):
             template.message_category = MessageCategory.objects.create(
                 team=self.team,
@@ -324,10 +327,22 @@ class TestTransactionalEmail(APIBaseTest):
         elif case == "unverified_sender":
             self.sender.config = {"verified": False}
             self.sender.save()
+        elif case == "custom_address_off_the_chosen_senders_domain":
+            self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
+            self.sender.save()
+            other = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="hello@example.org",
+                config={"verified": True, "email": "hello@example.org", "domain": "example.org"},
+            )
+            sender = {"integrationId": self.sender.id, "email": "security@example.com"}
+            template.content = {"email": {**template.content["email"], "from": sender}}
+            body = {"from_integration_id": other.id}
         template.save()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", {}, format="json"
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", body, format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -338,10 +353,20 @@ class TestTransactionalEmail(APIBaseTest):
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
         MessageTemplate.objects.filter(id=self.template.id).update(draft_content={"email": {"subject": "Draft"}})
+        security = Integration.objects.create(
+            team=self.team, kind="email", integration_id="security@example.com", config={"verified": True}
+        )
+        email_content = {
+            "subject": "A new subject",
+            "html": "<p>New</p>",
+            # A templated address is only known at send time, so publish accepts it.
+            "from": {"integrationId": security.id, "name": "PostHog Security", "email": "{{ variables.alias }}"},
+            "replyTo": "security@example.com",
+        }
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-                {"content": {"email": {"subject": "A new subject", "html": "<p>New</p>"}}},
+                {"content": {"email": email_content}},
                 format="json",
             )
 
@@ -352,6 +377,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert workflow["version"] == 2
         email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
+        assert email["from"] == {
+            "integrationId": security.id,
+            "name": "PostHog Security",
+            "email": "{{ variables.alias }}",
+        }
+        assert email["replyTo"] == "security@example.com"
         assert response.json()["draft_content"] is None
 
     def test_saving_a_draft_leaves_the_sent_email_unchanged(self, mock_post, _flag, _capture):
@@ -397,21 +428,70 @@ class TestTransactionalEmail(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
-    def test_rejects_an_update_that_would_stop_a_transactional_template_sending(self, mock_post, _flag, _capture):
-        category = MessageCategory.objects.create(
-            team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
-        )
+    def test_tagging_a_transactional_template_leaves_its_workflow_untouched(self, mock_post, _flag, _capture):
+        before = self._workflow(self.hog_flow_id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-            {"message_category": str(category.id)},
+            {"tags": ["growth"]},
             format="json",
         )
 
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        after = self._workflow(self.hog_flow_id)
+        assert (after["version"], after["updated_at"]) == (before["version"], before["updated_at"])
+
+    @parameterized.expand(
+        [
+            ("marketing_category", "marketing_template"),
+            ("unverified_sender", "sender_unavailable"),
+            ("another_projects_sender", "invalid_input"),
+            ("custom_address_off_the_senders_domain", "invalid_input"),
+            ("custom_address_that_is_not_an_address", "invalid_input"),
+            ("custom_address_too_long", "max_length"),
+            ("sender_without_an_id", "invalid_input"),
+        ]
+    )
+    def test_rejects_an_update_that_would_stop_a_transactional_template_sending(
+        self, mock_post, _flag, _capture, case, expected_code
+    ):
+        before = MessageTemplate.objects.get(id=self.template.id)
+        if case == "marketing_category":
+            category = MessageCategory.objects.create(
+                team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+            )
+            body: dict[str, Any] = {"message_category": str(category.id)}
+        elif case == "sender_without_an_id":
+            body = {"content": {"email": {**before.content["email"], "from": {"name": "Security"}}}}
+        elif case.startswith("custom_address"):
+            self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
+            self.sender.save()
+            address = {
+                "custom_address_off_the_senders_domain": "security@example.org",
+                "custom_address_that_is_not_an_address": "Security team",
+                "custom_address_too_long": f"{'a' * 250}@example.com",
+            }[case]
+            email = {**before.content["email"], "from": {"integrationId": self.sender.id, "email": address}}
+            body = {"content": {"email": email}}
+        else:
+            other_team = (
+                self.team if case == "unverified_sender" else self.create_team_with_organization(self.organization)
+            )
+            sender = Integration.objects.create(
+                team=other_team, kind="email", integration_id="other@example.com", config={"verified": False}
+            )
+            email = {**before.content["email"], "from": {"integrationId": sender.id}}
+            body = {"content": {"email": email}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", body, format="json"
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "marketing_template"
-        self.template.refresh_from_db()
-        assert self.template.message_category_id is None
+        assert response.json()["code"] == expected_code
+        after = MessageTemplate.objects.get(id=self.template.id)
+        assert (after.message_category_id, after.content) == (None, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
 

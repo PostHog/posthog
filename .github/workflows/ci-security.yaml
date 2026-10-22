@@ -20,7 +20,7 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run Semgrep checks
         permissions:
             contents: read

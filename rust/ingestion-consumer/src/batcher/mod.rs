@@ -14,6 +14,7 @@
 //! the failure decision stays in the consumer loop.
 
 mod driver;
+pub mod governor;
 pub mod in_flight;
 pub mod key_queues;
 pub mod packer;
@@ -32,6 +33,7 @@ use common_kafka_consumer::GroupCompletion;
 use tokio::sync::mpsc;
 
 use self::driver::StateMachineDriver;
+use self::governor::GovernorSnapshot;
 use self::state_machine::{BatcherSnapshot, BatcherStateMachine};
 use self::worker_pool::WorkerPoolSource;
 use crate::debug_recorder::DebugRecorder;
@@ -132,6 +134,10 @@ impl BatcherObserver {
             None => BatcherSnapshot {
                 pending_messages: self.pending_messages(),
                 in_flight_messages: self.total_in_flight(),
+                governor: GovernorSnapshot {
+                    adaptation: self.load.adaptation,
+                    ..GovernorSnapshot::default()
+                },
                 ..BatcherSnapshot::default()
             },
         }

@@ -883,6 +883,14 @@ def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTempl
     return service.reject(user, template_id)
 
 
+def regenerate_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.regenerate(user, template_id)
+
+
 def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:
     """The PNG that a generation round rendered of the preview dashboard."""
     from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path

@@ -6015,7 +6015,11 @@ email@example.org,
             "This cohort is used in 'Filter out internal and test users' for 1 environment(s):",
             response.json()["detail"],
         )
-        self.assertIn(self.team.name, response.json()["detail"])
+        self.assertIn(f"{self.team.name} (environment {self.team.id})", response.json()["detail"])
+        self.assertIn(
+            "cohort deletion blocked",
+            [call.args[1] for call in patch_capture.call_args_list],
+        )
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -6706,8 +6710,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(data["feature_flags"]["has_more"])
         self.assertEqual(data["feature_flags"]["results"][0]["key"], "my-flag")
         self.assertEqual(data["feature_flags"]["results"][0]["name"], "My Flag")
-        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertFalse(data["feature_flags"]["results"][0]["archived"])
+        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["test_account_filters"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -6722,33 +6728,78 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["test_account_filters"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_used_in_includes_inactive_flags(self, patch_calculate_cohort, patch_capture):
+    def test_used_in_includes_inactive_and_archived_flags(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Target Cohort", "groups": [{"properties": {"team_id": 5}}]},
         )
         cohort_id = response.json()["id"]
 
+        filters = {"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]}
         FeatureFlag.objects.create(
             team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            filters=filters,
             name="Inactive Flag",
             key="inactive-flag",
             created_by=self.user,
             active=False,
         )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters=filters,
+            name="Archived Flag",
+            key="archived-flag",
+            created_by=self.user,
+            active=False,
+            archived=True,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         flags = response.json()["feature_flags"]["results"]
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0]["key"], "inactive-flag")
+        self.assertEqual(
+            [(flag["key"], flag["archived"]) for flag in flags],
+            [("inactive-flag", False), ("archived-flag", True)],
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_returns_environments_using_cohort_in_test_account_filters(
+        self, patch_calculate_cohort, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Target Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        other_cohort = Cohort.objects.create(team=self.team, name="Other Cohort")
+
+        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        self.team.save()
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        sibling.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        sibling.save()
+        unrelated = Team.objects.create(organization=self.organization, project=self.team.project, name="Unrelated")
+        unrelated.test_account_filters = [{"key": "id", "value": other_cohort.pk, "type": "cohort"}]
+        unrelated.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        block = response.json()["test_account_filters"]
+        self.assertEqual(block["total"], 2)
+        self.assertFalse(block["has_more"])
+        self.assertEqual(
+            sorted(environment["id"] for environment in block["results"]), sorted([self.team.id, sibling.id])
+        )
+        self.assertIn("Staging", [environment["name"] for environment in block["results"]])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -6769,7 +6820,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7085,7 +7136,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["insights"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7121,8 +7172,8 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7149,6 +7200,43 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(block["results"]), COHORT_USED_IN_PAGE_SIZE)
         self.assertEqual(block["total"], COHORT_USED_IN_PAGE_SIZE + 1)
         self.assertTrue(block["has_more"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_keeps_blocking_flags_when_truncating(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Many Flags Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        flag_filters = {"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]}
+        for i in range(COHORT_USED_IN_PAGE_SIZE):
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters=flag_filters,
+                name=f"Archived flag {i}",
+                key=f"archived-flag-{i}",
+                created_by=self.user,
+                active=False,
+                archived=True,
+            )
+        # Created last, so it has the highest id and only survives truncation if blocking flags sort first.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters=flag_filters,
+            name="Paused flag",
+            key="paused-flag",
+            created_by=self.user,
+            active=False,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        block = response.json()["feature_flags"]
+        self.assertEqual(len(block["results"]), COHORT_USED_IN_PAGE_SIZE)
+        self.assertEqual(block["results"][0]["key"], "paused-flag")
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7201,7 +7289,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

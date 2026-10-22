@@ -9,6 +9,8 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
 import { analyticsSpacesLogic } from 'scenes/analytics/analyticsSpacesLogic'
+import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
+import { ANALYTICS_TYPE_INFO } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -19,9 +21,9 @@ import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
 
-/** The Analyses sub-nav: the three ways to browse, the collections a person pinned, and what to keep an eye on. */
+/** The Analytics sub-nav: the ways to browse, pinned collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { collapsedSections, fromPostHog } = useValues(todayAnalyticsLogic)
+    const { collapsedSections, fromPostHog, recentAnalytics } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
     const { pinnedSpaces, pinning } = useValues(analyticsSpacesLogic)
     const { togglePin } = useActions(analyticsSpacesLogic)
@@ -107,32 +109,34 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         />
                     ))}
                 </TodayPaneSection>
-                <TodayPaneSection
-                    label="Monitor"
-                    open={isOpen('monitor')}
-                    count={2}
-                    showCount={false}
-                    onToggle={() => toggleSection('monitor')}
-                    divider
-                    dataAttr="analytics-section-monitor"
-                >
-                    <TodayPaneRow
-                        value="monitor:alerts"
-                        label="Alerts"
-                        icon={<IconBell />}
-                        to={urls.alerts()}
-                        active={path === urls.alerts()}
-                        dataAttr="analytics-sidebar-monitor"
-                    />
-                    <TodayPaneRow
-                        value="monitor:subscriptions"
-                        label="Subscriptions"
-                        icon={<IconNotification />}
-                        to={`${urls.subscriptions()}?tab=mine`}
-                        active={path === urls.subscriptions()}
-                        dataAttr="analytics-sidebar-monitor"
-                    />
-                </TodayPaneSection>
+                {recentAnalytics.length > 0 && (
+                    <TodayPaneSection
+                        label="Recents"
+                        open={isOpen('recents')}
+                        count={recentAnalytics.length}
+                        showCount={false}
+                        onToggle={() => toggleSection('recents')}
+                        divider
+                        dataAttr="analytics-section-recents"
+                    >
+                        {recentAnalytics.map((item) => (
+                            <TodayPaneRow
+                                key={`${item.type}:${item.id}`}
+                                value={`recent:${item.type}:${item.id}`}
+                                label={item.name}
+                                icon={
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    <span style={{ color: ANALYTICS_TYPE_INFO[item.type].color }}>
+                                        <AnalyticsTypeIcon type={item.type} />
+                                    </span>
+                                }
+                                to={item.href}
+                                active={path === removeProjectIdIfPresent(item.href)}
+                                dataAttr="analytics-sidebar-recent"
+                            />
+                        ))}
+                    </TodayPaneSection>
+                )}
                 {fromPostHog.length > 0 && (
                     <TodayPaneSection
                         label="By PostHog"
@@ -163,6 +167,32 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         })}
                     </TodayPaneSection>
                 )}
+                <TodayPaneSection
+                    label="Monitor"
+                    open={isOpen('monitor')}
+                    count={2}
+                    showCount={false}
+                    onToggle={() => toggleSection('monitor')}
+                    divider
+                    dataAttr="analytics-section-monitor"
+                >
+                    <TodayPaneRow
+                        value="monitor:alerts"
+                        label="Alerts"
+                        icon={<IconBell />}
+                        to={urls.alerts()}
+                        active={path === urls.alerts()}
+                        dataAttr="analytics-sidebar-monitor"
+                    />
+                    <TodayPaneRow
+                        value="monitor:subscriptions"
+                        label="Subscriptions"
+                        icon={<IconNotification />}
+                        to={`${urls.subscriptions()}?tab=mine`}
+                        active={path === urls.subscriptions()}
+                        dataAttr="analytics-sidebar-monitor"
+                    />
+                </TodayPaneSection>
             </TodayPaneSearchList>
         </div>
     )

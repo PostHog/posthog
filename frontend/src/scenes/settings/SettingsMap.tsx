@@ -723,7 +723,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-quality',
         title: 'Data quality',
-        flag: 'DATA_QUALITY_CHECKS',
         group: 'Products',
         settings: [
             {

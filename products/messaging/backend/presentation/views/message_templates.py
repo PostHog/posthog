@@ -29,6 +29,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
+from posthog.models.integration import Integration
+from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -53,12 +55,14 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
+    SENDER_ADDRESS_MAX_LENGTH,
     DeliveryUnavailable,
     TransactionalEmailError,
     check_transactional_update,
     lock_transactional_workflow_id,
     make_transactional,
     send_transactional_email,
+    sender_address_error,
     sync_transactional_workflow,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
@@ -107,6 +111,51 @@ class UnlayerDesignField(serializers.JSONField):
     pass
 
 
+class EmailTemplateSenderSerializer(serializers.Serializer):
+    email = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SENDER_ADDRESS_MAX_LENGTH,
+        help_text="Address to send from instead of the sender's own. Must be on the sender's verified domain. "
+        "Supports Liquid templating. Leave out or empty to use the sender's address.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. "
+        "Leave out or empty to use the sender's name.",
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # Keys match the workflow email step, which a transactional template's sender is copied into.
+        fields["integrationId"] = serializers.IntegerField(
+            help_text="ID of the project's email sender integration that sends this email. Transactional sends "
+            "need a verified sender."
+        )
+        return fields
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # A partial update doesn't enforce required nested fields, so the sender is checked here.
+        integration_id = data.get("integrationId")
+        if integration_id is None:
+            raise serializers.ValidationError({"integrationId": "Choose an email sender."})
+        if not Integration.objects.filter(team_id=self.context["team_id"], kind="email", id=integration_id).exists():
+            raise serializers.ValidationError({"integrationId": "No email sender with this ID in this project."})
+        return data
+
+
+def _without_legacy_sender(email: Any, *, reading: bool) -> Any:
+    # Only a transactional template stores a sender object. A blank template, a template saved before senders
+    # existed, and one saved from a destination's email editor hold a string or an empty object instead.
+    if not isinstance(email, dict) or "from" not in email:
+        return email
+    sender = email["from"]
+    # A write that names a sender but no integration is rejected later, so only reads drop it.
+    is_legacy = not isinstance(sender, dict) or not (sender.get("integrationId") if reading else any(sender.values()))
+    return {key: value for key, value in email.items() if key != "from"} if is_legacy else email
+
+
 class EmailTemplateSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
@@ -136,6 +185,27 @@ class EmailTemplateSerializer(serializers.Serializer):
         "truth. The server renders the sent email from it, and it opens as editable blocks in the editor. "
         "Full schema in the designing-email-templates skill.",
     )
+
+    def to_internal_value(self, data: Any) -> Any:
+        return super().to_internal_value(_without_legacy_sender(data, reading=False))
+
+    def to_representation(self, instance: Any) -> Any:
+        return super().to_representation(_without_legacy_sender(instance, reading=True))
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["from"] = EmailTemplateSenderSerializer(
+            required=False,
+            help_text="The sender a transactional template sends from. A template made transactional without "
+            "one gets the sender it was made transactional with.",
+        )
+        fields["replyTo"] = serializers.CharField(
+            required=False,
+            allow_blank=True,
+            help_text="Reply-to address for a transactional template. Separate several addresses with commas. "
+            "Supports Liquid templating. Leave empty to use the sender's default reply-to.",
+        )
+        return fields
 
 
 class MessageTemplateContentSerializer(serializers.Serializer):
@@ -177,6 +247,11 @@ class MessageTemplateCategoryField(serializers.Field):
         return value
 
 
+# Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
+_MAX_TEMPLATE_TAGS = 10
+_MAX_TAG_LENGTH = 255  # Tag.name column limit.
+
+
 class MessageTemplateSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=400, help_text="Human-readable template name shown in the library.")
@@ -185,6 +260,15 @@ class MessageTemplateSerializer(serializers.Serializer):
         required=False,
         style={"base_template": "textarea.html"},
         help_text="What the template is for and when to use it.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=_MAX_TAG_LENGTH),
+        required=False,
+        max_length=_MAX_TEMPLATE_TAGS,
+        help_text=(
+            "Tags for organizing templates, for example by team or use case. Tags are shared with the rest of "
+            "the project. Omit to keep the current tags, send an empty list to remove them all."
+        ),
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -225,6 +309,13 @@ class MessageTemplateSerializer(serializers.Serializer):
         "`content` publishes it and clears the draft. Set null to discard the draft.",
     )
 
+    def validate_tags(self, tags: list[str]) -> list[str]:
+        # The stored name is the tagified one, and lowercasing can lengthen a string: "\u0130" becomes two
+        # code points. Checking the submitted length alone lets an over-long name reach Tag.name.
+        if any(len(tagify(tag)) > _MAX_TAG_LENGTH for tag in tags):
+            raise serializers.ValidationError(f"A tag may be at most {_MAX_TAG_LENGTH} characters once lowercased.")
+        return tags
+
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
         email = data.get("content", {}).get("email") if data.get("content") else None
@@ -233,6 +324,9 @@ class MessageTemplateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
+        # Checked on publish only, so a draft still saves while someone types the address.
+        if email and email.get("from") and (error := sender_address_error(self.context["team_id"], email["from"])):
+            raise serializers.ValidationError({"content": {"email": {"from": {"email": error}}}})
         # Programmatically authored templates often supply html without a design, which the
         # visual editor can't open. Wrap the html in a single custom HTML block; the stored
         # html stays untouched, so nothing about the sent email changes.
@@ -493,6 +587,12 @@ class MessageTemplatesViewSet(
             updated = save_template_draft(self.team_id, template.id, fields["draft_content"])
             self._emit_resource_edited(updated)
             return Response(self._serialize(updated))
+        if fields.keys() == {"tags"}:
+            # Tags are library metadata. Sends never read them, so a tag edit skips the sendability check
+            # and must not write a new version of the template's transactional workflow.
+            updated = update_template(self.team_id, template.id, fields)
+            self._emit_resource_edited(updated)
+            return Response(self._serialize(updated))
         if "content" in fields:
             fields["draft_content"] = None
         # Sends use the workflow's copy, so the template and its new workflow version are saved together,
@@ -691,7 +791,8 @@ class MessageTemplatesViewSet(
         summary="Make a template transactional",
         description=(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
-            "with its own metrics, run history and versions. Calling it again on a transactional template changes "
+            "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
+            "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],

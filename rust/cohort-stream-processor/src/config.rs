@@ -461,6 +461,14 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
+    /// Size at which RocksDB rolls its info `LOG` file.
+    #[envconfig(from = "COHORT_MAX_LOG_FILE_SIZE_BYTES", default = "268435456")]
+    pub cohort_max_log_file_size_bytes: NonZeroUsize,
+
+    /// Number of info `LOG` files RocksDB keeps.
+    #[envconfig(from = "COHORT_KEEP_LOG_FILE_NUM", default = "10")]
+    pub cohort_keep_log_file_num: NonZeroUsize,
+
     /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
     /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
     /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
@@ -1130,6 +1138,8 @@ impl Config {
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
+            max_log_file_size_bytes: self.cohort_max_log_file_size_bytes,
+            keep_log_file_num: self.cohort_keep_log_file_num,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
             ownership,
             ..StoreConfig::default()
@@ -1336,6 +1346,8 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_max_log_file_size_bytes: NonZeroUsize::new(268_435_456).unwrap(),
+            cohort_keep_log_file_num: NonZeroUsize::new(10).unwrap(),
             cohort_person_record_ttl_days: 0,
             cohort_store_offload_mode: OffloadMode::All,
             cohort_store_event_read_permits: 16,
@@ -2611,6 +2623,8 @@ mod tests {
         assert!(defaults.cohort_compact_on_deletion_enabled);
         assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
         assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.cohort_max_log_file_size_bytes.get(), 268_435_456);
+        assert_eq!(defaults.cohort_keep_log_file_num.get(), 10);
         assert_eq!(defaults.partition_channel_buffer, 128);
 
         let env: std::collections::HashMap<String, String> = [
@@ -2619,6 +2633,8 @@ mod tests {
             ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
             ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
             ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("COHORT_MAX_LOG_FILE_SIZE_BYTES", "1048576"),
+            ("COHORT_KEEP_LOG_FILE_NUM", "3"),
             ("PARTITION_CHANNEL_BUFFER", "256"),
         ]
         .into_iter()
@@ -2630,6 +2646,8 @@ mod tests {
         assert!(!config.cohort_compact_on_deletion_enabled);
         assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
         assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.cohort_max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(config.cohort_keep_log_file_num.get(), 3);
         assert_eq!(config.partition_channel_buffer, 256);
     }
 
@@ -2641,6 +2659,8 @@ mod tests {
         config.cohort_compact_on_deletion_enabled = false;
         config.cohort_periodic_compaction_seconds = 3600;
         config.cohort_max_background_jobs = 2;
+        config.cohort_max_log_file_size_bytes = NonZeroUsize::new(1_048_576).unwrap();
+        config.cohort_keep_log_file_num = NonZeroUsize::new(3).unwrap();
 
         let store = config.store_config(PartitionOwnership::single(64));
         assert_eq!(store.block_cache_bytes, 3_221_225_472);
@@ -2648,6 +2668,8 @@ mod tests {
         assert!(!store.compact_on_deletion);
         assert_eq!(store.periodic_compaction_seconds, 3600);
         assert_eq!(store.max_background_jobs, 2);
+        assert_eq!(store.max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(store.keep_log_file_num.get(), 3);
     }
 
     #[test]

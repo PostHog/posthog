@@ -122,6 +122,8 @@ patchedDependencies:
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
+    # A mounted tooltip root must not keep its closed popup's detached DOM alive.
+    '@base-ui/react@1.9.0': patches/@base-ui__react@1.9.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 allowBuilds:
@@ -198,7 +200,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.8.0
+    '@base-ui/react': 1.9.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3

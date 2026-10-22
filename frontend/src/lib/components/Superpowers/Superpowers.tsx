@@ -44,9 +44,10 @@ const STATUS_OPTIONS: { value: FakeStatusOverride; label: string }[] = [
 
 const BILLING_ALERT_OPTIONS: { value: FakeBillingAlert; label: string }[] = [
     { value: 'none', label: 'None (use real alerts)' },
-    { value: 'info', label: 'Info' },
-    { value: 'warning', label: 'Warning' },
-    { value: 'error', label: 'Error' },
+    { value: 'usage_limit_reached', label: 'Usage limit reached' },
+    { value: 'usage_limit_approaching', label: 'Usage limit approaching' },
+    { value: 'trial', label: 'Trial ending' },
+    { value: 'suspended', label: 'Organization suspended' },
 ]
 
 function Section({
@@ -355,7 +356,7 @@ function SuperpowersContent(): JSX.Element {
                 />
                 <SettingRow
                     title="Fake billing alert"
-                    description="Simulate a billing alert banner for testing"
+                    description="Simulate a billing alert in the banner and the rail for testing"
                     control={
                         <LemonSelect
                             size="small"

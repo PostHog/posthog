@@ -165,7 +165,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_product_access_error,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
+from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
@@ -3871,11 +3871,26 @@ class DashboardsViewSet(
 
         return Response({"results": results})
 
-    @extend_schema(responses={200: WidgetCatalogResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="widget_type",
+                type=str,
+                enum=sorted(EXPECTED_WIDGET_TYPES),
+                many=True,
+                style="form",
+                explode=False,
+                required=False,
+                description="Widget types to return. Omit to return every registered widget type.",
+            ),
+        ],
+        responses={200: WidgetCatalogResponseSerializer},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
-        return Response({"results": get_widget_catalog_entries()})
+        widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
+        return Response({"results": get_widget_catalog_entries(widget_types)})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,

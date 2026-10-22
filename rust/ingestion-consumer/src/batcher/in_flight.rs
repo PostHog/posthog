@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::key_queues::KeyRun;
 use super::request::RequestClass;
@@ -68,6 +69,7 @@ pub struct InFlightRequest {
     pub worker: WorkerId,
     pub class: RequestClass,
     pub message_count: usize,
+    pub sent_at: Instant,
     runs: Vec<SentRun>,
 }
 
@@ -94,6 +96,7 @@ impl InFlightRequests {
         &mut self,
         worker: WorkerId,
         class: RequestClass,
+        sent_at: Instant,
         runs: &[KeyRun],
     ) -> RequestId {
         let id = RequestId(self.next_id);
@@ -112,6 +115,7 @@ impl InFlightRequests {
                 worker,
                 class,
                 message_count,
+                sent_at,
                 runs,
             },
         );
@@ -226,6 +230,7 @@ mod tests {
         let id = requests.register(
             WorkerId::from("w"),
             FRESH,
+            Instant::now(),
             &[run("a", &[1, 2, 3]), run("b", &[10])],
         );
         requests.take(id).expect("registered")
@@ -280,7 +285,12 @@ mod tests {
     #[test]
     fn a_partial_matches_a_message_the_request_carries_twice_by_occurrence() {
         let mut requests = InFlightRequests::new();
-        let id = requests.register(WorkerId::from("w"), FRESH, &[run("a", &[1, 2, 1])]);
+        let id = requests.register(
+            WorkerId::from("w"),
+            FRESH,
+            Instant::now(),
+            &[run("a", &[1, 2, 1])],
+        );
         let request = requests.take(id).expect("registered");
         let partial_runs = request
             .partially_accepted(2, vec![message("a", 0, 1)])

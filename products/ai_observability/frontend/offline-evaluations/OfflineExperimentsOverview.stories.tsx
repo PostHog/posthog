@@ -66,7 +66,7 @@ export const PartialHistory: Story = {
             get: {
                 '/api/projects/:team/ai_observability/offline_scorers/:id/history/': {
                     count: 200,
-                    next_cursor: 'older-results',
+                    next_cursor: null,
                     results: overviewHistory(overviewScorers[0]),
                 },
             },

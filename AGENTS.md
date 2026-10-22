@@ -321,6 +321,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
+- `/writing-clickhouse-queries` — adding or changing a ClickHouse call site (`sync_execute`, `execute_hogql_query`, a `QueryRunner`), including the `Workload` it passes
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`

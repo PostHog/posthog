@@ -1,4 +1,3 @@
-import logging
 from uuid import UUID
 
 from django.db import (
@@ -6,6 +5,8 @@ from django.db import (
     transaction as database_transaction,
 )
 from django.utils import timezone
+
+import structlog
 
 from products.wizard.backend.facade.config import WIZARD_RUN_DEADLINE
 from products.wizard.backend.facade.contracts import (
@@ -35,7 +36,7 @@ from products.wizard.backend.logic.runs.mappers import record_to_run, workspace_
 from products.wizard.backend.logic.runs.pubsub import publish_run_update
 from products.wizard.backend.models import WizardRun
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _get_run_record(team_id: int, run_id: UUID) -> WizardRun:
@@ -191,7 +192,8 @@ def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
         except ValueError:
             logger.exception(
                 "wizard_run_deserialization_failed",
-                extra={"team_id": params.team_id, "run_id": str(run.id)},
+                team_id=params.team_id,
+                run_id=str(run.id),
             )
     return WizardRunPage(results=tuple(results), count=runs.count())
 

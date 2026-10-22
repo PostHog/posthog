@@ -37,6 +37,15 @@ ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(
     labelnames=["team_id"],
 )
 
+ENDPOINT_RATE_LIMITED_TOTAL = Counter(
+    "posthog_endpoint_rate_limited_total",
+    "Endpoint run requests refused with a 429. "
+    "reason is materialized_rate or inline_rate (request-rate throttle; scope names the bucket), "
+    "concurrency (too many concurrent queries) or read_budget (hourly per-team budget of data read by API queries). "
+    "For concurrency and read_budget, scope equals reason",
+    labelnames=["scope", "reason"],
+)
+
 ENDPOINT_CACHE_RESULT_TOTAL = Counter(
     "posthog_endpoint_cache_result_total",
     "Endpoint responses by query-result cache outcome (hit or miss)",

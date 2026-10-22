@@ -27,6 +27,7 @@ from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
+    QuotaLimitingRunResult,
     QuotaResource,
     UsageCounters,
     _identify_refresh_candidates,
@@ -43,6 +44,7 @@ from ee.billing.quota_limiting import (
     update_org_billing_quotas,
     update_organization_usage_fields,
 )
+from ee.billing.quota_usage import QuotaUsageBatch
 from ee.clickhouse.materialized_columns.columns import materialize
 
 
@@ -78,6 +80,10 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
         materialize("events", "$exception_values")
+
+    def _run_quota_limiting(self) -> QuotaLimitingRunResult:
+        with self.captureOnCommitCallbacks(execute=True):
+            return update_all_orgs_billing_quotas()
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -123,7 +129,7 @@ class TestQuotaLimiting(BaseTest):
             ),
             patch("posthog.usage_counters.logger.info") as counter_log,
         ):
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
         counter_log.assert_any_call(
             "usage_counter_comparison",
             caller="quota_limiting",
@@ -192,7 +198,7 @@ class TestQuotaLimiting(BaseTest):
             dict.fromkeys(team_tokens, 1612137599),
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
-        result = update_all_orgs_billing_quotas()
+        result = self._run_quota_limiting()
         # Check out many times it was called
         assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
@@ -256,8 +262,8 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(3, 9)):
-            result = update_all_orgs_billing_quotas()
+        with self.assertNumQueries(FuzzyInt(3, 10)):
+            result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
         assert result.quota_limited_orgs["exceptions"] == {}
@@ -400,7 +406,7 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
             flush_persons_and_events()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             # Will be immediately rate limited as trust score was unset.
             org_id = str(self.organization.id)
             assert result.quota_limited_orgs["events"] == {org_id: 1612137599}
@@ -459,7 +465,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_exported": 0,
             }
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
 
             assert result.quota_limited_orgs["events"] == {org_id: 1612137599}
             assert result.quota_limiting_suspended_orgs["events"] == {}
@@ -474,7 +480,7 @@ class TestQuotaLimiting(BaseTest):
                 events={"usage": 99, "limit": 100, "todays_usage": 0},
             )
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert result.quota_limited_orgs["events"] == {}
             assert result.quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
@@ -485,7 +491,7 @@ class TestQuotaLimiting(BaseTest):
 
         # Check that limiting still suspended 23 hrs later
         with time_machine.travel("2021-01-25T23:00:00Z", tick=False):
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
 
             assert result.quota_limited_orgs["events"] == {}
             assert result.quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
@@ -506,7 +512,7 @@ class TestQuotaLimiting(BaseTest):
                 events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
             )
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert result.quota_limited_orgs["events"] == {org_id: 1612137599}
             assert result.quota_limiting_suspended_orgs["events"] == {}
             self.organization.refresh_from_db()
@@ -539,7 +545,7 @@ class TestQuotaLimiting(BaseTest):
                 events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
             )
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
             assert result.quota_limited_orgs["events"] == {}
             assert result.quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
@@ -562,7 +568,7 @@ class TestQuotaLimiting(BaseTest):
                 events={"usage": 109, "limit": 100},
             )
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
             assert result.quota_limited_orgs["events"] == {}
             assert result.quota_limiting_suspended_orgs["events"] == {org_id: 1611878400}
@@ -577,7 +583,7 @@ class TestQuotaLimiting(BaseTest):
                 events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
             )
             self.organization.save()
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
             assert result.quota_limited_orgs["events"] == {org_id: 1612137599}
             assert result.quota_limiting_suspended_orgs["events"] == {}
@@ -605,7 +611,7 @@ class TestQuotaLimiting(BaseTest):
             )
             self.organization.save()
 
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
             assert result.quota_limited_orgs["events"] == {}
             assert result.quota_limiting_suspended_orgs["events"] == {org_id: 1612137600}
@@ -1574,7 +1580,7 @@ class TestQuotaLimiting(BaseTest):
             self.redis_client.zadd(f"@posthog/quota-limits/events", {team_token: 1612137599})
 
             # Run the quota limiting check
-            result = update_all_orgs_billing_quotas()
+            result = self._run_quota_limiting()
 
             # Verify the organization is no longer quota limited
             assert "events" in result.quota_limited_orgs
@@ -2836,7 +2842,9 @@ class TestPatchTodaysUsage(BaseTest):
         # before and isn't bumped now.
         assert self.organization.updated_at == before_updated_at
 
-    def test_targeted_patch_does_not_clobber_concurrent_billing_write(self) -> None:
+    @parameterized.expand([("individual", False), ("batch", True)])
+    def test_targeted_patch_does_not_clobber_concurrent_billing_write(self, _name, batched_write) -> None:
+        batch = QuotaUsageBatch() if batched_write else None
         self.organization.usage = {
             "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
@@ -2854,7 +2862,9 @@ class TestPatchTodaysUsage(BaseTest):
 
         # The stale in-memory org still believes limit=1000; the targeted patch must
         # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), batch=batch)
+        if batch is not None:
+            batch.write()
 
         assert changed is True
         fresh = Organization.objects.get(id=self.organization.id)
@@ -2883,7 +2893,9 @@ class TestUpdateOrganizationUsageFields(BaseTest):
         self.organization.refresh_from_db()
         assert self.organization.updated_at == before_updated_at
 
-    def test_set_and_delete_keys_in_one_call(self) -> None:
+    @parameterized.expand([("individual", False), ("batch", True)])
+    def test_set_and_delete_keys_in_one_call(self, _name, batched_write) -> None:
+        batch = QuotaUsageBatch() if batched_write else None
         self.organization.usage = {
             "events": {
                 "usage": 100,
@@ -2899,7 +2911,10 @@ class TestUpdateOrganizationUsageFields(BaseTest):
             self.organization,
             QuotaResource.EVENTS,
             {"quota_limited_until": 1_800_000_000, "quota_limiting_suspended_until": None},
+            batch=batch,
         )
+        if batch is not None:
+            batch.write()
 
         # In-memory mirror.
         assert self.organization.usage["events"]["quota_limited_until"] == 1_800_000_000

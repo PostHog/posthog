@@ -48,6 +48,7 @@ import { QuillComposerSendButton } from '../../../components/quill/QuillComposer
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
+import { TaskComposerEnvironmentSelect } from './TaskComposerEnvironmentSelect'
 
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
@@ -229,10 +230,13 @@ export function TaskComposer({
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
                         {!composerOverride?.hideRepositorySelector && (
-                            <RepositorySelector
-                                value={newTaskData.repositoryConfig}
-                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                            />
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                                {skin === 'quill' && <TaskComposerEnvironmentSelect />}
+                                <RepositorySelector
+                                    value={newTaskData.repositoryConfig}
+                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                                />
+                            </div>
                         )}
                         <ComposerModeShortcut
                             onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}

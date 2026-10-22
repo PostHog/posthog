@@ -84,7 +84,7 @@ structlog.configure(
         *foreign_pre_chain,
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
-    context_class=structlog.threadlocal.wrap_dict(dict),
+    context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
     wrapper_class=structlog.stdlib.BoundLogger,
     cache_logger_on_first_use=True,

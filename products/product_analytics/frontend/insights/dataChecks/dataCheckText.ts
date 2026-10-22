@@ -75,7 +75,14 @@ function shareOf(check: InsightDataCheckApi, part: number): string | null {
 export interface FilterCheckParts {
     /** Set when the project's filter catches these events but the insight leaves the filter off. */
     caught: string | null
-    missed: { count: number; noun: string; examples: string[]; fallback: string } | null
+    missed: {
+        count: number
+        noun: string
+        examples: string[]
+        fallback: string
+        predicate: string
+        explanation: string | null
+    } | null
 }
 
 const NOTHING: FilterCheckParts = { caught: null, missed: null }
@@ -84,10 +91,19 @@ export function isFinding(check: InsightDataCheckApi): boolean {
     return check.level === 'warning' || check.level === 'problem'
 }
 
+function notCaught(count: number): string {
+    return `${count === 1 ? "isn't" : "aren't"} caught by your internal and test users filter.`
+}
+
+function missedUserCount(check: InsightDataCheckApi): number {
+    return check.distinct_emails ?? check.top_emails.length
+}
+
 function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boolean): FilterCheckParts {
     const removed = check.removed_by_filter
     const removedPercent = removed ? shareOf(check, removed) : null
     const caughtAmount = removedPercent ? `${removedPercent} of these events` : pluralize(removed ?? 0, 'event')
+    const count = missedUserCount(check)
     return {
         caught:
             removed && !filtersTestAccounts
@@ -95,10 +111,14 @@ function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boo
                 : null,
         missed: check.missed_by_filter
             ? {
-                  count: check.distinct_emails ?? check.top_emails.length,
+                  count,
                   noun: 'user',
                   examples: check.top_emails,
-                  fallback: "Your team's emails",
+                  fallback: 'Some users',
+                  predicate: `${count === 1 ? 'has an email that matches' : 'have emails that match'} your team, but none of your filter's rules remove them.`,
+                  explanation:
+                      "An email matches your team when it's on the same domain as someone in your organization, " +
+                      'or looks like a test account, such as test@ or name+qa@.',
               }
             : null,
     }
@@ -108,13 +128,16 @@ function localHostParts(check: InsightDataCheckApi): FilterCheckParts {
     if (!isFinding(check) || !check.filter_to_add) {
         return NOTHING
     }
+    const count = check.distinct_hosts ?? check.top_hosts.length
     return {
         caught: null,
         missed: {
-            count: check.distinct_hosts ?? check.top_hosts.length,
+            count,
             noun: 'host',
             examples: check.top_hosts,
             fallback: 'Localhost events',
+            predicate: notCaught(count),
+            explanation: null,
         },
     }
 }
@@ -130,13 +153,16 @@ function botTrafficParts(
     if (filterRemovesBots && !filtersTestAccounts) {
         return { caught: "Your filter catches this bot traffic, but it's off for this insight.", missed: null }
     }
+    const count = check.distinct_bots ?? check.top_bots.length
     return {
         caught: null,
         missed: {
-            count: check.distinct_bots ?? check.top_bots.length,
+            count,
             noun: 'bot',
             examples: check.top_bots,
             fallback: 'Bot events',
+            predicate: notCaught(count),
+            explanation: null,
         },
     }
 }
@@ -214,7 +240,11 @@ export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: b
     }
     if (check.level === 'passed') {
         if (check.key === 'internal_users' && filtersTestAccounts) {
-            return { name, result: 'Filtered out' }
+            if (!check.missed_by_filter) {
+                return { name, result: 'Filtered out' }
+            }
+            const missed = missedUserCount(check)
+            return { name, result: `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}` }
         }
         return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
     }

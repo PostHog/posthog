@@ -52,6 +52,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         abort_action: null,
         billable_action_types: [],
         schedules: [],
+        tags: [],
         user_access_level: 'editor',
         draft: null,
         draft_updated_at: null,

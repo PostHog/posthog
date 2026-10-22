@@ -98,10 +98,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import (
-    direct_connection_information_schema_node,
-    disable_data_quality,
-)
+from posthog.hogql.database.schema.information_schema import direct_connection_information_schema_node
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -251,7 +248,6 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_quality_enabled: bool
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
@@ -458,7 +454,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -1932,7 +1928,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=False,
             is_hogql_warehouse_access_control_enabled=False,
-            is_data_quality_enabled=False,
             is_billing_usage_records_enabled=False,
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
@@ -2033,12 +2028,8 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
             from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
 
-            data_quality_enabled = _cached_team_flag(
-                "data-quality-checks", team, lambda: is_data_quality_checks_enabled(team)
-            )
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
 
@@ -2302,7 +2293,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_quality_enabled=data_quality_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
@@ -2366,15 +2356,6 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_quality_enabled:
-                system_node = database.tables.children.get("system")
-                info_schema = (
-                    system_node.children.get("information_schema")
-                    if system_node is not None and hasattr(system_node, "children")
-                    else None
-                )
-                if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_quality(info_schema)
             if not sources.is_billing_usage_records_enabled:
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:

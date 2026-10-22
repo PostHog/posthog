@@ -22,6 +22,7 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 

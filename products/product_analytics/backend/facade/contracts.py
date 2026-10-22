@@ -54,6 +54,18 @@ class TrendsQueryRunResult:
 
 
 @dataclass(frozen=True)
+class TrendsActorsDateWindow:
+    """The time window of the events that the actors of one Trends data point have.
+
+    ``date_to`` is exclusive, unless ``date_to_inclusive`` is true.
+    """
+
+    date_from: datetime
+    date_to: datetime
+    date_to_inclusive: bool
+
+
+@dataclass(frozen=True)
 class SavedInsightDefinition:
     id: int
     short_id: str

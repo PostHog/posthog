@@ -40,11 +40,17 @@ async fn main() -> Result<()> {
         teams: config.teams().map_err(anyhow::Error::msg)?,
         mapping_lag: config.mapping_lag(),
         warmup: config.warmup(),
+        person_ignored_properties: config.person_ignored_properties(),
     };
+    let mut kinds = vec![Kind::DistinctIds, Kind::MergeEvents];
+    if config.compares_persons().map_err(anyhow::Error::msg)? {
+        kinds.push(Kind::Persons);
+    }
     info!(
         grace_seconds = config.parity_grace_seconds,
         max_entries = config.parity_max_entries,
         teams = ?join_config.teams,
+        persons = kinds.contains(&Kind::Persons),
         debug_api = config.debug_api_secret().is_some(),
         "starting personhog-parity-monitor"
     );
@@ -70,7 +76,7 @@ async fn main() -> Result<()> {
     ));
 
     for feed in config.feeds() {
-        for kind in [Kind::DistinctIds, Kind::MergeEvents] {
+        for &kind in &kinds {
             let feed_for_reader = feed.clone();
             // rdkafka's metadata fetch and assignment block the thread.
             let (reader, partitions) =

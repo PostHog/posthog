@@ -100,6 +100,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LOADED_PREFIX_PROMOTION_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.replace_rows import (
+    apply_replace_scope,
+    replace_scope_applies,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
 )
@@ -107,6 +111,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ExportSignalMessage,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import ReplaceScopeRun
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     read_parquet,
     read_parquet_first_values,
@@ -1319,7 +1324,8 @@ def _process_message_reported(
 
         if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
             rebuild = TableRebuildRun(schema.sync_type_config)
-            if any(rebuild.replaces(run_uuid) for run_uuid, _ in members):
+            replace_run = ReplaceScopeRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) or replace_run.replaces(run_uuid) for run_uuid, _ in members):
                 if constituents is not None:
                     raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
                 logger.info(
@@ -1401,6 +1407,14 @@ def _process_message_reported(
                 verify_ownership()
             append_runs.start_run(export_signal)
 
+        if replace_scope_applies(export_signal):
+            # Before the table is read, so the batch is fitted to the table that the deletes leave.
+            if verify_ownership is not None:
+                verify_ownership()
+            report_phase("replace_rows")
+            with timer.step("replace_rows"):
+                apply_replace_scope(export_signal, schema, delta_table_ref, verify_ownership)
+
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
@@ -1443,8 +1457,19 @@ def _process_message_reported(
             with timer.step("table_open"):
                 existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
-        with timer.step("partition"):
-            pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        # A run whose source read no rows sends one empty batch only to carry its replace scope.
+        is_scope_carrier = export_signal.replace_scope is not None and pa_table.num_rows == 0
+        if is_scope_carrier and existing_delta_table is None:
+            # Writing the carrier would create a table that holds only the scope column.
+            raise ValueError(
+                f"The Delta table of schema {export_signal.schema_id} is missing, so the empty batch of "
+                f"run {export_signal.run_uuid} cannot apply its replace scope"
+            )
+        skips_write = is_scope_carrier
+
+        if not skips_write:
+            with timer.step("partition"):
+                pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading. The listing is O(files in
         # table), so skip it entirely when no consumer wants it — during a long first sync the
@@ -1535,8 +1560,16 @@ def _process_message_reported(
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
                 )
+        elif skips_write and existing_delta_table is not None:
+            delta_table = existing_delta_table
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            # The scope already removed every row this run brings again, so its batches only add rows.
+            # A first sync or a reset keeps the incremental load, whose batch 0 overwrites the table.
+            write_type: Literal["incremental", "full_refresh", "append"] = (
+                "append"
+                if export_signal.replace_scope is not None and not export_signal.is_first_ever_sync
+                else _get_write_type(export_signal.sync_type)
+            )
 
             # First batch should overwrite the table, but only if not resuming
             should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume

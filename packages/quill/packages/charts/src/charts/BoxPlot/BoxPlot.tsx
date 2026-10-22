@@ -174,11 +174,13 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (Number.isFinite(datum.min)) {
-                    mins.push(datum.min)
+                const whiskerMin = datum.whiskerMin ?? datum.min
+                const whiskerMax = datum.whiskerMax ?? datum.max
+                if (Number.isFinite(whiskerMin)) {
+                    mins.push(whiskerMin)
                 }
-                if (Number.isFinite(datum.max)) {
-                    maxs.push(datum.max)
+                if (Number.isFinite(whiskerMax)) {
+                    maxs.push(whiskerMax)
                 }
             }
             if (mins.length > 0) {

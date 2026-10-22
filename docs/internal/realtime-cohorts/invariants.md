@@ -265,6 +265,7 @@ It does not rule out duplicates: a store that loses unflushed writes, or is wipe
 Reconcile repairs lost output, not lost state.
 It re-tells the rows the store holds.
 An event that Stage 1 skipped needs a later seed that covers it, and a person whose first Stage 2 row was never written needs a seed or a leaf flip that touches them.
+A person seed that changes nothing still recomposes a composed cohort with no row for the person, so a cohort added over already-seeded leaves gets its rows from its own run.
 
 The system is built on one bargain: live paths favor speed and may lose a change, and every backfill ends with a reconcile that re-tells everything the store holds.
 Anything that stops reconcile from running, or from covering a cohort, leaves downstream wrong with no signal.

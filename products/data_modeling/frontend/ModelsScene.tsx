@@ -34,8 +34,7 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, dataQualityTabEnabled, suspensionBySavedQueryId } =
-        useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId } = useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
@@ -75,17 +74,13 @@ export function ModelsScene(): JSX.Element {
             keepMounted: lineageTabVisited,
             'data-attr': 'models-tab-lineage',
         },
-        ...(dataQualityTabEnabled
-            ? [
-                  {
-                      key: 'data-quality' as const,
-                      label: 'Data quality',
-                      link: urls.models('data-quality'),
-                      content: <DataQualityOverview />,
-                      'data-attr': 'models-tab-data-quality',
-                  },
-              ]
-            : []),
+        {
+            key: 'data-quality',
+            label: 'Data quality',
+            link: urls.models('data-quality'),
+            content: <DataQualityOverview />,
+            'data-attr': 'models-tab-data-quality',
+        },
     ]
 
     return (

@@ -428,6 +428,8 @@ class TestRunChdbQuery:
         monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
         monkeypatch.setenv("AWS_REGION", "us-east-1")
         monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "false")
+        monkeypatch.setenv("HTTPS_PROXY", "http://web-1:x@egress-proxy.example:4750/")
+        monkeypatch.delenv("https_proxy", raising=False)
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
         with patch(
             "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
@@ -439,6 +441,7 @@ class TestRunChdbQuery:
         assert "MALLOC_CONF" not in child_env
         assert child_env["AWS_REGION"] == "us-east-1"
         assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+        assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
         assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
 
     @pytest.mark.parametrize(

@@ -14,8 +14,13 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
+    ExternalDataSchema,
+    SelfManagedTableRef,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -28,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _refresh_cumulative_row_count,
     merge_columns,
     register_cdc_companion_table,
+    relink_orphan_table,
     update_last_synced_at,
     validate_schema_and_update_table,
 )
@@ -44,6 +50,7 @@ from products.warehouse_sources.backend.types import (
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _TABLE_MODULE = "products.warehouse_sources.backend.models.table"
+_SELF_MANAGED_URL = "https://exports.s3.us-east-1.amazonaws.com/orders/*.csv"
 
 
 class TestResolveTableAndFolderNames:
@@ -596,6 +603,178 @@ class TestValidateSchemaAndUpdateTable:
         assert schema.table is not None
         assert schema.table.size_in_s3_mib == expected_size_mib
         assert job.storage_delta_mib == expected_delta_mib
+
+    def _self_managed_table(self, team: Team, schema: ExternalDataSchema, **fields: object) -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(access_key="AKIAEXAMPLE", access_secret="secret", team=team)
+        table = DataWarehouseTable.objects.create(
+            name="Raw_Orders",
+            format=DataWarehouseTableFormat.CSVWithNames,
+            url_pattern=_SELF_MANAGED_URL,
+            team=team,
+            credential=credential,
+            options={"csv_allow_double_quotes": False, "kept": 1},
+            columns={"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}},
+        )
+        ref = SelfManagedTableRef(table_id=str(table.id), url_pattern=table.url_pattern, format=table.format)
+        schema.sync_type_config = {"schema_metadata": {SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY: ref.to_metadata()}}
+        schema.save()
+        if fields:
+            DataWarehouseTable.raw_objects.filter(pk=table.pk).update(**fields)
+            table.refresh_from_db()
+        return table
+
+    def _publish(self, team: Team, schema: ExternalDataSchema, job: ExternalDataJob, row_count: int = 10) -> None:
+        async_to_sync(validate_schema_and_update_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            row_count=row_count,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            queryable_folder="raw_orders__query_a",
+            live_size_mib=3.0,
+        )
+
+    @pytest.mark.parametrize("row_count", [10, 0])
+    def test_the_first_publish_adopts_the_self_managed_table_the_schema_names(self, team: Team, row_count: int) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        credential_seen_by_introspection: list[object] = []
+
+        def get_columns(table_self: DataWarehouseTable, safe_expose_ch_error: bool = True) -> dict:
+            credential_seen_by_introspection.append(table_self.credential_id)
+            return {"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", get_columns),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job, row_count=row_count)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+        assert schema.table_id == table.id
+        assert (table.name, table.external_data_source_id, table.credential_id) == ("Raw_Orders", job.pipeline_id, None)
+        assert (table.format, table.queryable_folder, table.size_in_s3_mib) == (
+            DataWarehouseTableFormat.DeltaS3Wrapper,
+            "raw_orders__query_a",
+            3.0,
+        )
+        names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        assert table.url_pattern == job.url_pattern_by_schema(names.folder_name)
+        assert table.options == {"kept": 1}
+        # The customer's key can't read PostHog's bucket, so introspection must see the adopted row.
+        assert credential_seen_by_introspection == [None]
+        job.refresh_from_db()
+        assert job.storage_delta_mib == 3.0
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"url_pattern": "https://exports.s3.us-east-1.amazonaws.com/other/*.csv"},
+            {"format": DataWarehouseTableFormat.Parquet},
+            {"deleted": True},
+        ],
+    )
+    def test_a_self_managed_table_that_changed_is_not_replaced(self, team: Team, change: dict) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema, **change)
+        before = (table.url_pattern, table.format, table.credential_id, table.deleted)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert (table.url_pattern, table.format, table.credential_id, table.deleted) == before
+        assert table.external_data_source_id is None
+        assert schema.table is not None and schema.table_id != table.id
+        assert schema.table.name == build_table_name(job.pipeline, "orders")
+
+    def test_a_table_of_another_team_is_not_replaced(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        other_team = Team.objects.create(organization=team.organization, name="Other team")
+        table = self._self_managed_table(team, schema, team_id=other_team.pk)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert table.external_data_source_id is None
+        assert schema.table_id is not None and schema.table_id != table.id
+
+    def test_an_adopted_table_left_unlinked_is_linked_by_the_next_publish(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        no_files_yet = ServerException("No files in log segment", code=742)
+
+        with patch.object(DataWarehouseTable, "get_columns", side_effect=no_files_yet):
+            self._publish(team, schema, job)
+        schema.refresh_from_db()
+        table.refresh_from_db()
+        assert (schema.table_id, table.external_data_source_id) == (None, job.pipeline_id)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        schema.refresh_from_db()
+        assert schema.table_id == table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+
+    def test_an_adopted_table_left_unlinked_is_relinked_before_the_next_extraction(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        no_files_yet = ServerException("No files in log segment", code=742)
+        with patch.object(DataWarehouseTable, "get_columns", side_effect=no_files_yet):
+            self._publish(team, schema, job)
+        schema.refresh_from_db()
+        assert schema.table_id is None
+
+        relinked = relink_orphan_table(schema, job.pipeline, MagicMock())
+
+        schema.refresh_from_db()
+        assert relinked is not None and relinked.id == table.id
+        assert schema.table_id == table.id
+
+    def test_a_self_managed_table_not_adopted_yet_is_not_relinked(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        self._self_managed_table(team, schema)
+
+        assert relink_orphan_table(schema, job.pipeline, MagicMock()) is None
+
+        schema.refresh_from_db()
+        assert schema.table_id is None
+
+    def test_a_synced_table_keeps_its_options(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        DataWarehouseTable.objects.filter(id=table.id).update(options={"csv_allow_double_quotes": True})
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_b",
+            )
+
+        table.refresh_from_db()
+        assert table.options == {"csv_allow_double_quotes": True}
 
     def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
         schema, job = self._schema_and_job(team)

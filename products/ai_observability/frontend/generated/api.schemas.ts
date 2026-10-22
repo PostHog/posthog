@@ -295,6 +295,63 @@ export interface InstrumentationCheckActionApi {
 }
 
 /**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
  * * `ci` - CI
  * * `local` - Local
  * * `scheduled` - Scheduled
@@ -323,6 +380,8 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /** User who submitted the experiment, or null for service credentials. */
+    readonly created_by: UserBasicApi | null
     /** Project tag names assigned to this experiment. */
     tags: string[]
     /** Stable experiment UUID. */
@@ -1383,63 +1442,6 @@ export interface TraceNodeDetailApi {
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
-
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
 
 /**
  * JSON object with item metadata.
@@ -3755,6 +3757,8 @@ export interface ScoreDefinitionApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
+    /** User who last updated the scorer or created a version. */
+    readonly updated_by: UserBasicApi | null
     readonly team: number
 }
 
@@ -4802,6 +4806,15 @@ export type AiObservabilityOfflineExperimentsListParams = {
      */
     application_version?: string
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -5000,6 +5013,15 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      * @maxLength 255
      */
     application_version?: string
+    /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
     /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
@@ -5474,6 +5496,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      * Filter by archived state.
      */
     archived?: boolean
+    /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number
     /**
      * Filter by scorer kind.
      */

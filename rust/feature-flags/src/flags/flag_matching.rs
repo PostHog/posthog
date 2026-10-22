@@ -2103,22 +2103,19 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (value, reason, condition_index) = match evaluation {
-            Evaluation::TargetingMatch { value, rule } => (
-                Some(value),
-                FeatureFlagMatchReason::ConditionMatch,
-                Some(rule.index),
-            ),
-            Evaluation::RolloutMiss { value, rule } => (
-                value,
-                FeatureFlagMatchReason::OutOfRolloutBound,
-                Some(rule.index),
-            ),
-            Evaluation::NoRuleMatch { value } => {
-                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=3` reports the evaluator's own code.
+        let reason = match evaluation {
+            Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
+                FeatureFlagMatchReason::ConditionMatch
+            }
+            Evaluation::RolloutMiss { .. } => FeatureFlagMatchReason::OutOfRolloutBound,
+            Evaluation::Holdout { .. } => FeatureFlagMatchReason::HoldoutConditionValue,
+            Evaluation::ExperimentPaused { .. } | Evaluation::NoRuleMatch { .. } => {
+                FeatureFlagMatchReason::NoConditionMatch
             }
         };
-        let (matches, variant, payload) = match value {
+        let condition_index = evaluation.rule().map(|rule| rule.index);
+        let (matches, variant, payload) = match evaluation.value() {
             None => (false, None, None),
             Some(Value::Bool(value)) => (*value, None, None),
             Some(Value::String(value)) => (true, Some(value.clone()), None),

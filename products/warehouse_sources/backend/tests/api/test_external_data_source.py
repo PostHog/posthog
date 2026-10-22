@@ -9342,10 +9342,10 @@ class TestExternalDataSource(APIBaseTest):
     )
     def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:
         payload = {
-            "bucket": "Not A Bucket",
-            "region": "us-east-1",
+            "url_pattern": "https://files.example.com/orders/*.csv",
             "access_key_id": "AKIAEXAMPLE",
             "secret_access_key": "secret",
+            "file_format": {"selection": "infer", "csv_allow_double_quotes": "true"},
         }
         with patch(
             "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",
@@ -9357,7 +9357,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # With the flag the request reaches credential validation, which rejects the bucket name
+        # With the flag the request reaches credential validation, which rejects the URL host
         # before any network call.
         expected = "The storage settings are invalid" if flag_enabled else "isn't available to connect yet"
         assert expected in response.json()["message"]

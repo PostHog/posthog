@@ -5,6 +5,7 @@ every source, so it lives here once: run the machine per group, leave out a new 
 nothing, put firing groups first, and admit what `max_instances` has room for.
 """
 
+import re
 import json
 import math
 import hashlib
@@ -47,16 +48,9 @@ def is_hashed_grouping_key(key: str) -> bool:
     return key.startswith(_HASHED_PREFIX)
 
 
-def _storable(key: str) -> bool:
-    # A PostgreSQL text column rejects NUL, and UTF-8 cannot encode a lone surrogate. Either one
-    # aborts the transaction that records the whole batch.
-    if "\x00" in key:
-        return False
-    try:
-        key.encode()
-    except UnicodeEncodeError:
-        return False
-    return True
+# PostgreSQL text and JSONB reject NUL, and UTF-8 cannot encode a surrogate. Either one aborts the
+# transaction that records the whole batch.
+_UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
 
 
 def bounded_grouping_key(key: str) -> str:
@@ -66,7 +60,7 @@ def bounded_grouping_key(key: str) -> str:
     Every other key is hashed. A literal key in the hash namespace is hashed too, because otherwise
     it would share a row with the long key whose digest it spells.
     """
-    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and _storable(key):
+    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and not _UNSTORABLE.search(key):
         return key
     return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()}"
 
@@ -81,6 +75,8 @@ _TRUNCATED: Final = "…"
 
 
 def _bounded_label(value: str) -> str:
+    # A label is display only, so a character the database cannot store shows as a replacement.
+    value = _UNSTORABLE.sub("\ufffd", value)
     if _encoded_length(value) <= MAX_LABEL_BYTES:
         return value
     budget = MAX_LABEL_BYTES - _encoded_length(_TRUNCATED)
@@ -98,7 +94,7 @@ def _encoded_length(value: str) -> int:
 
 
 def bounded_labels(labels: dict[str, str]) -> dict[str, str]:
-    """The labels a group may carry: the first `MAX_GROUP_LABELS`, each name and value cut to size.
+    """The labels a group may carry: the first `MAX_GROUP_LABELS`, each name and value storable and cut to size.
 
     Display only. The grouping key is derived from the full values, so a cut label never merges two groups.
     """
@@ -160,9 +156,19 @@ class GroupDecision:
     evicted: frozenset[str] = frozenset()
 
     def as_outcome(
-        self, *, configuration_id: UUID, evaluation_key: str, grouping: Grouping, query_duration_ms: int | None
+        self,
+        *,
+        configuration_id: UUID,
+        evaluation_key: str,
+        grouping: Grouping,
+        query_duration_ms: int | None,
+        results_cut: bool,
     ) -> PlatformAlertOutcome:
-        """The outcome of a grouped check that ran. A query that ran reset the failure count."""
+        """The outcome of a grouped check that ran. A query that ran reset the failure count.
+
+        `results_cut` says the source dropped results before they were observed. Groups it dropped
+        may also have been turned away, so a non-zero overflow is then only a lower bound.
+        """
         return PlatformAlertOutcome(
             configuration_id=configuration_id,
             evaluation_key=evaluation_key,
@@ -171,6 +177,7 @@ class GroupDecision:
             grouping=grouping,
             query_duration_ms=query_duration_ms,
             overflowed=self.overflowed,
+            overflow_is_lower_bound=results_cut and self.overflowed > 0,
             evicted=tuple(sorted(self.evicted)),
         )
 

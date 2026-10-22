@@ -36,6 +36,8 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 from products.posthog_ai.evals.offline_config import offline_suite
 
+NO_SEND_LOGS = True
+
 
 async def eval_create_control_variant(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
@@ -56,6 +58,7 @@ async def eval_create_control_variant(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-create-control-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(

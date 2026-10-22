@@ -36,6 +36,7 @@ export const SCORE_DEFINITIONS_PER_PAGE = 30
 export interface ScoreDefinitionFilters extends ResourceTagFilters {
     page: number
     search: string
+    created_by: number | null
     kind: ScoreDefinitionKind | ''
     archived: '' | 'true' | 'false'
     order_by: string
@@ -65,6 +66,10 @@ function cleanFilters(values: ScoreDefinitionFilterInput): ScoreDefinitionFilter
         ...cleanTagFilters(values),
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
+        created_by:
+            Number.isSafeInteger(Number(values.created_by)) && Number(values.created_by) > 0
+                ? Number(values.created_by)
+                : null,
         kind:
             values.kind === 'categorical' || values.kind === 'numeric' || values.kind === 'boolean' ? values.kind : '',
         archived:
@@ -87,6 +92,7 @@ function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown>
         tag_match: filters.tag_match,
         page: filters.page === 1 ? undefined : filters.page,
         search: filters.search || undefined,
+        created_by: filters.created_by || undefined,
         kind: filters.kind || undefined,
         archived: filters.archived === 'false' ? undefined : filters.archived === '' ? 'all' : 'true',
         order_by: filters.order_by === 'name' ? undefined : filters.order_by,
@@ -262,6 +268,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
                     const teamId = String(ApiConfig.getCurrentTeamId())
                     const page = await aiObservabilityScoreDefinitionsList(teamId, {
                         search: filters.search || undefined,
+                        created_by: filters.created_by || undefined,
                         ...(filters.tags.length
                             ? { tags: JSON.stringify(filters.tags), tag_match: filters.tag_match }
                             : {}),

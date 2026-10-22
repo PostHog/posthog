@@ -182,6 +182,7 @@ mod tests {
             partitions: 8,
             epoch: 2,
             writer_group: writer_group.to_string(),
+            retire_groups: vec![],
             draining: draining
                 .iter()
                 .map(|t| Generation {

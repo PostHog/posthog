@@ -5,6 +5,7 @@ import { getCustomApiBaseUrl, isLocalApi } from '@/lib/constants'
 
 import { createApp } from './app'
 import { redisOperationsTotal } from './metrics'
+import { connectRedis } from './redis-connection'
 import { registerShutdownHandlers } from './shutdown'
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -46,7 +47,7 @@ redis.on('connect', () => {
 
 async function main(): Promise<void> {
     try {
-        await redis.connect()
+        await connectRedis(redis)
     } catch (err) {
         console.error('[MCP] Failed to connect to Redis:', err)
         process.exit(1)

@@ -15,6 +15,8 @@ from products.posthog_ai.evals.experiments.scorers import SharedMetricValidation
 from products.posthog_ai.evals.experiments.seeders import SHARED_METRIC_NAME, seed_shared_metric_purchase_count
 from products.posthog_ai.evals.offline_config import offline_suite
 
+NO_SEND_LOGS = True
+
 
 async def eval_shared_metric_validation(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
@@ -50,6 +52,7 @@ async def eval_shared_metric_validation(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-shared-metric-validation-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(

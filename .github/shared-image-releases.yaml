@@ -1,0 +1,24 @@
+version: 1
+filters:
+    dataWarehouse:
+        # posthog/hogql* covers hogql and hogql_queries, which the shell gate
+        # this replaces matched as one prefix.
+        - 'posthog/hogql*/**'
+        - 'products/warehouse_sources_queue/**'
+        - 'posthog/temporal/data_modeling/**'
+        - 'products/customer_analytics/backend/**'
+        # The extract worker imports the whole warehouse_sources backend
+        # (models, facade, scheduling, tasks) and the data_warehouse facade.
+        - 'products/warehouse_sources/backend/**'
+        - 'products/data_warehouse/backend/**'
+        - 'posthog/warehouse/**'
+        - Dockerfile
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - pyproject.toml
+        - bin/temporal-django-worker
+        - 'posthog/clickhouse/migrations/**'
+
+images:
+    posthog-cloud:
+        channels: {}

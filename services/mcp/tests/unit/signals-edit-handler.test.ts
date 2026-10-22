@@ -18,6 +18,7 @@ describe('signals-scout-edit-report handler', () => {
         const input = { run_id: 'run-1', report_id: 'report-1', append_note: 'Checked again', ...flags }
         await tool.handler(context, tool.schema.parse(input))
         expect(request.mock.calls[0]![0].body).toEqual({
+            reviewer_outcome: 'selected',
             report_id: 'report-1',
             append_note: 'Checked again',
             ...flags,

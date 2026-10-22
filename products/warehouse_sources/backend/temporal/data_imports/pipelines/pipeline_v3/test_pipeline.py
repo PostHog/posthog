@@ -35,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.p
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     SourceAbandonedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    observe_and_project_table as _real_observe_and_project_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -48,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LanedPipelineV3,
     _LaneWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     StagedSchemeWithoutResetError,
@@ -64,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
+    ReplaceScope,
     SortMode,
     SourceInputs,
     SourceResponse,
@@ -97,7 +102,7 @@ def _make_pipeline() -> PipelineV3:
     with patch.object(PipelineV3, "__init__", return_value=None):
         pipeline = PipelineV3.__new__(PipelineV3)
 
-    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None)
+    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None, replace_scope=None)
     pipeline._resource_name = "test_table"
     pipeline._job = MagicMock(team_id=1, workflow_run_id="run-abc", billable=False)
     pipeline._source = MagicMock(source_type="Postgres")
@@ -175,6 +180,7 @@ class TestAttemptScopedRunUuid:
             partition_mode=None,
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
         )
 
         with (
@@ -317,6 +323,146 @@ class TestTableRebuildAcrossAttempts:
         assert schema.sync_type_config.get("table_rebuild_run_uuid") == expected_record
 
 
+class TestReplaceScopeHandOff:
+    @pytest.mark.parametrize(
+        "table_is_new, expect_scope",
+        [
+            pytest.param(False, True, id="a_run_on_an_existing_table_hands_the_scope_on"),
+            pytest.param(True, False, id="a_first_sync_or_a_reset_has_no_rows_to_replace"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_run_that_reads_no_rows_still_reaches_the_loader_with_its_scope(
+        self, table_is_new: bool, expect_scope: bool
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._run_uuid = "run-abc-a1"
+        pipeline._is_incremental = True
+        pipeline._schema.table = None if table_is_new else MagicMock()
+        pipeline._table = pipeline._schema.table
+        pipeline._schema.sync_type_config = {}
+        pipeline._delta_table_ref = MagicMock(is_first_sync=table_is_new)
+        pipeline._resource.primary_keys = None
+        pipeline._resource.has_duplicate_primary_keys = False
+        pipeline._last_incremental_field_value = None
+        scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset({"kept.csv"}))
+        pipeline._resource.replace_scope = scope
+        s3_writer = cast(MagicMock, pipeline._s3_batch_writer)
+        s3_writer.write_replace_scope.return_value = "s3://bucket/run-abc-a1/replace_scope.parquet"
+        producer = MagicMock(sync_type="incremental", is_first_ever_sync=False, has_held_batch=False)
+        pipeline._pg_producer = producer
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+                "finalize_desc_sort_incremental_value",
+                "commit_source_cursor",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance")).return_value.run_scheduled = AsyncMock()
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            stack.enter_context(patch(f"{_TABLE_REBUILD}.update_sync_type_config_keys"))
+            stack.enter_context(patch(f"{_PIPELINE}.update_sync_type_config_keys"))
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+            await pipeline.run()
+
+        if not expect_scope:
+            s3_writer.write_replace_scope.assert_not_called()
+            s3_writer.write_batch.assert_not_called()
+            return
+        s3_writer.write_replace_scope.assert_called_once_with(scope)
+        assert producer.replace_scope == ReplaceScopeRef(
+            column="_file_name", manifest_path="s3://bucket/run-abc-a1/replace_scope.parquet"
+        )
+        [(empty_batch, batch_index), _] = s3_writer.write_batch.call_args
+        assert (empty_batch.num_rows, empty_batch.column_names, batch_index) == (0, ["_file_name"], 0)
+        producer.send_final_batch.assert_called_once()
+
+    def test_a_resumable_source_cannot_send_a_scope(self) -> None:
+        resource = MagicMock(
+            name="users",
+            primary_keys=None,
+            lanes=None,
+            cdc_write_mode=None,
+            replace_scope=ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset()),
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=False))
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=1),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer"),
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+            pytest.raises(ValueError, match="cannot send a replace scope"),
+        ):
+            PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=ExternalDataSchema(name="users", team_id=1, sync_type="incremental"),
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                ),
+            )
+
+    @pytest.mark.parametrize("has_scope", [False, True])
+    def test_a_scoped_run_never_continues_from_a_handoff_checkpoint(self, has_scope: bool) -> None:
+        pipeline = _make_pipeline()
+        pipeline._run_uuid = "run-abc-a1"
+        schema = cast(Any, pipeline._schema)
+        schema.is_incremental = True
+        schema.incremental_field = "_modified_at"
+        scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset())
+        source_response = MagicMock(
+            sort_mode="asc", lanes=None, cdc_write_mode=None, replace_scope=scope if has_scope else None
+        )
+
+        assert pipeline._tracks_handoff_checkpoint(source_response, reset_pipeline=False) is not has_scope
+
+    @pytest.mark.asyncio
+    async def test_column_selection_keeps_the_replace_scope_column(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["value"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset())
+        table = pa.table({"value": [1], "other": [2], "_file_name": ["a.csv"]})
+
+        class _Stop(Exception):
+            pass
+
+        projected: list[pa.Table] = []
+
+        async def project(*args: Any) -> pa.Table:
+            projected.append(await _real_observe_and_project_table(*args))
+            raise _Stop
+
+        with patch(f"{_PIPELINE}.observe_and_project_table", side_effect=project), pytest.raises(_Stop):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        [result] = projected
+        assert "_file_name" in result.column_names
+        assert "other" not in result.column_names
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
@@ -372,6 +518,7 @@ class TestCDCSourceWiring:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=None,
+            replace_scope=None,
         )
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -473,6 +620,7 @@ class TestResetLoadWritesTheQueuedScheme:
             partition_mode=source_mode,
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
             webhook_only=webhook_only,
         )
         manager = MagicMock(can_resume=MagicMock(return_value=True)) if can_resume else None
@@ -860,6 +1008,22 @@ class TestLaneFanOut:
         for writer in writers:
             cast(MagicMock, writer.pg_producer.hold_batch).assert_called_once()
 
+    async def test_a_column_selection_keeps_the_replace_scope_column(self) -> None:
+        writer = _lane_writer("orders")
+        pipeline = self._pipeline([writer])
+        pipeline._uses_delta_write_column_selection = True
+        cast(MagicMock, pipeline._schema).configure_mock(enabled_columns=["name"])
+        pipeline._resource.primary_keys = None
+        pipeline._resource.replace_scope = ReplaceScope(
+            column="_file_name", replaced=frozenset({"a.csv"}), retained=frozenset({"a.csv"})
+        )
+
+        await self._process(pipeline, pa.table({"id": [1], "name": ["x"], "_file_name": ["a.csv"]}))
+
+        [written] = [call.args[0] for call in cast(MagicMock, writer.s3_batch_writer.write_batch).call_args_list]
+        assert {"name", "_file_name"} <= set(written.column_names)
+        assert "id" not in written.column_names
+
     async def test_only_the_billable_lane_counts_towards_usage(self) -> None:
         # One read of a change stream is one sync however many tables it keeps.
         writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
@@ -1172,6 +1336,37 @@ class TestSingleTableRunIsUntouched:
         assert set(base) - set(laned) == set()
 
 
+class TestColumnNamesReachTheWrite:
+    @pytest.mark.parametrize(
+        "preserve, expected",
+        [
+            (False, ["order_id", "total_amount", "_ph_debug"]),
+            (True, ["Order ID", "totalAmount", "_ph_debug"]),
+        ],
+    )
+    async def test_preserving_names_skips_the_snake_case_rename(self, preserve: bool, expected: list[str]) -> None:
+        # A self-managed table moved into a source keeps the column names its queries use.
+        pipeline = _make_pipeline()
+        pipeline._resource = SourceResponse(
+            name="orders", items=lambda: [], primary_keys=None, preserve_column_names=preserve
+        )
+        cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        table = pa.table({"Order ID": pa.array([1], pa.int64()), "totalAmount": pa.array([2.5], pa.float64())})
+
+        with (
+            patch.object(PipelineV3, "_stage_batch", AsyncMock(return_value=1)),
+            patch.object(PipelineV3, "_advance_handoff_checkpoint", AsyncMock()),
+            patch(f"{_PIPELINE}.update_incremental_field_values", AsyncMock(return_value=MagicMock())),
+            patch(f"{_PIPELINE}.update_row_tracking_after_batch", AsyncMock()),
+        ):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        staged = cast(AsyncMock, pipeline._sinks.stage_chunk).call_args.args[1]
+        assert staged.column_names == expected
+
+
 class TestFinalizeStagesTheWatermarkFirst:
     @pytest.mark.asyncio
     async def test_desc_watermark_is_staged_before_the_final_batch_notification(self) -> None:
@@ -1238,6 +1433,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             partition_mode="md5",
             cdc_write_mode=None,
             lanes=None,
+            replace_scope=None,
             webhook_only=False,
             sort_mode=sort_mode,
         )
@@ -2109,6 +2305,7 @@ class TestLoadedPrefixCursor:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=lanes,
+            replace_scope=None,
             sort_mode=sort_mode,
             webhook_only=False,
             chunk_size=None,

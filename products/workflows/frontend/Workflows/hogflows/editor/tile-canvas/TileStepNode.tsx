@@ -66,7 +66,7 @@ export function TileStepNode({
             }
         >
             {interactive ? <TileStepMenu action={action}>{face}</TileStepMenu> : face}
-            <TileCaption facts={tile.facts} />
+            <TileCaption facts={tile.facts} name={tile.customName} />
         </div>
     )
 }

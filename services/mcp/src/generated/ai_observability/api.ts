@@ -108,6 +108,8 @@ export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object
         .max(aiObservabilityOfflineExperimentsListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -737,6 +739,8 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -2870,6 +2874,7 @@ export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
 
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
+    created_by: zod.number().optional().describe("Filter by the creator's user ID."),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

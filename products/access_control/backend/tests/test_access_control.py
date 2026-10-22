@@ -2687,6 +2687,7 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
         assert block["total"] == 1
+        assert block["hidden"] == 1
         assert block["has_more"] is False
 
     def test_used_in_includes_restricted_flags_for_org_admins(self):
@@ -2697,7 +2698,66 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
+        assert block["hidden"] == 0
         assert block["has_more"] is False
+
+    def _create_reference(self, resource: str, cohort: Cohort, created_by: User, archived: bool = False) -> int:
+        reference = {"type": "cohort", "key": "id", "value": cohort.id}
+        if resource == "insight":
+            return Insight.objects.create(
+                team=self.team,
+                created_by=created_by,
+                query={
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "properties": [reference]},
+                },
+            ).id
+        if resource == "cohort":
+            return Cohort.objects.create(
+                team=self.team,
+                created_by=created_by,
+                name="Outer Cohort",
+                filters={"properties": {"type": "OR", "values": [{"type": "OR", "values": [reference]}]}},
+            ).id
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=created_by,
+            key=f"flag-{uuid.uuid4().hex[:8]}",
+            active=not archived,
+            archived=archived,
+            filters=self._cohort_flag_filters(cohort.id),
+        ).id
+
+    @parameterized.expand(
+        [
+            ("insight_member", "insight", "insights", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("insight_admin", "insight", "insights", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            ("cohort_member", "cohort", "cohorts", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("cohort_admin", "cohort", "cohorts", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            # An archived flag never blocks a delete, so it is not a hidden blocker.
+            ("archived_flag_member", "feature_flag", "feature_flags", OrganizationMembership.Level.MEMBER, True, 1, 0),
+        ]
+    )
+    def test_used_in_counts_hidden_references_that_block_a_delete(
+        self,
+        _name: str,
+        resource: str,
+        block_key: str,
+        level: OrganizationMembership.Level,
+        hidden_is_archived: bool,
+        total: int,
+        hidden: int,
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        self._create_reference(resource, cohort, created_by=self.user)
+        hidden_id = self._create_reference(resource, cohort, created_by=self.other_user, archived=hidden_is_archived)
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id=str(hidden_id), access_level="none")
+        self._org_membership(level)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()[block_key]
+        assert (len(block["results"]), block["total"], block["hidden"]) == (total, total, hidden)
 
 
 class TestOrganizationMemberProjectAccess(BaseAccessControlTest):

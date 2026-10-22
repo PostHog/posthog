@@ -100,30 +100,42 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Create or refine a catalog metric
+        title: Create a catalog metric
         description: >
-            Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands
-            'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no
-            history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery /
-            an event node) that the query runner computes, OR an agent-calculated markdown definition - {"kind":
-            "MarkdownDefinition", "markdown": "<numbered steps to calculate the metric>"} - which an agent follows to
-            produce the number. Prefer an executable definition when the metric is deterministic; use a markdown
-            definition when the calculation needs judgment or multiple steps. Only propose a definition that was
-            explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off
-            queries. If you derived a number or settled a definition and no metric exists for it, end your answer by
-            offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters:
-            what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables
-            or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics.
-            Never walk through the query or calculation steps (the definition carries those); put rationale for the
-            chosen definition in 'reasoning'. Before creating a metric, inspect the complete catalog with metric-list
-            and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes
-            from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query
-            into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift
-            against it, and the metric then links back to the insight so a person can edit the query where it lives.
+            Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails
+            with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own:
+            tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to
+            overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after
+            the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an
+            approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again -
+            creating with it starts a fresh metric with no history carried over. The definition can be an executable
+            query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an
+            agent-calculated markdown definition - {"kind": "MarkdownDefinition", "markdown": "<numbered steps to
+            calculate the metric>"} - which an agent follows to produce the number. Prefer an executable definition when
+            the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple
+            steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice -
+            do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric
+            exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short
+            sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that
+            changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons
+            with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries
+            those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design
+            decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an
+            approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before
+            creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with
+            metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that
+            insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually
+            exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back
+            to the insight so a person can edit the query where it lives.
         exclude_params:
             - created_source
         inject_body:
             created_source: ai_generated
+        param_overrides:
+            overwrite:
+                description: >
+                    Set to true only after the user explicitly agreed to overwrite the live metric that already holds
+                    this name. Leave it unset on the first call.
     data-catalog-metric-delete:
         operation: data_catalog_metrics_destroy
         enabled: true
@@ -192,7 +204,9 @@ tools:
             rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs,
             later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences
             under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column
-            lists, and comparisons with other metrics; rationale for the definition belongs in 'reasoning'.
+            lists, and comparisons with other metrics. When editing 'definition', rewrite 'reasoning' to say why the new
+            definition is shaped this way, in 1-3 short sentences: the main design decisions and trade-offs. It is not a
+            changelog: leave out what changed, the use case, who asked, and run results.
         exclude_params:
             - created_source
         inject_body:

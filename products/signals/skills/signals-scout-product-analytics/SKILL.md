@@ -47,6 +47,10 @@ Do not close out because `product_analytics` is missing from `products_in_use`: 
 
 Before closing out on `top_events` thinness, rule out a capture gap: its counts are windowed (each row carries `window_days`), not lifetime, so a project whose ingestion recently went dark reads identically to one that never had a flow. If the events look thin for a team that otherwise looks active, confirm with a direct `execute-sql` over a longer window (e.g. 30d) before concluding there's no flow — a recent capture cliff is a volume problem for another surface, not an absence of behavior to score.
 
+Saved flows can exist and still have too few entrants to score.
+If every watchlist flow is deferred below the volume floor (see the volume gate below) with a `next_due` in the future, and the explore pass finds no new saved flow, close out after orientation.
+Do not run a scoring query for a deferred flow before its `next_due`.
+
 ## How a run works
 
 Cycle between these moves; skip what's not useful. Spend the bulk of a run on **exploit** (re-scoring due watchlist flows) and a smaller slice on **explore** (finding new flows), so coverage compounds across runs instead of restarting cold.
@@ -69,13 +73,39 @@ Two sources, highest-confidence first:
 
 ### Exploit — re-score the due flows
 
-For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), score the **latest complete window** against the flow's trailing baseline:
+For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), first pass the volume gate below, then score the **latest complete window** against the flow's trailing baseline:
 
 - **Funnels** — `query-funnel` over the latest complete window (e.g. last 7 complete days), then the same query over each of the prior N comparable windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
 - **Retention** — `query-retention` and compare, for each offset (day-1 / day-7 / day-N), the latest cohort whose cell at that offset is mature (see return-interval maturity below) to the prior cohorts' mature rates for the same offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
 - **Lifecycle / stickiness** — `query-lifecycle` (new / returning / resurrecting / dormant composition) and `query-stickiness`; a composition tilting toward dormant, or stickiness dropping, against the trailing baseline.
 
 **Always score only the latest _complete_ window.** The in-progress day/week is partial and will always look like a drop.
+
+**Volume gate: check entrants before you score.**
+A rate from a few people is not a stable rate, and a full baseline plus segment comparison on such a flow costs a run and can find nothing.
+Before the baseline queries, run the flow once over the latest complete window only, and read its denominator: funnel step-1 entrants, the size of the cohort you would score, or the lifecycle / stickiness active users.
+The default floor is about 100 entrants in the scored window.
+Write the floor you use into the watchlist entry, so that each later check uses the same number.
+
+- **At or above the floor** — continue to the baseline and attribution steps.
+- **Below the floor** — stop scoring this flow for this run. Do not run the baseline windows or the breakdowns.
+  Write the flow's watchlist entry with `state: below_floor`, the entrants you saw, the floor, `below_floor_checks` (the count of consecutive below-floor checks), and the cause (below).
+  Set `next_due` to 7 days later after the first below-floor check, 14 days after the second, and 28 days after each later check.
+  Until that `next_due`, reuse this state and do not query the flow again.
+- **Find the cause on the first below-floor check.** Check it again at a later volume check if the entrant count changed a lot.
+  Each cause has a different next step, so do not treat them as one case:
+  - `entrants_collapsed` — the flow was above the floor before (it has a `baseline:` entry, or its prior windows clear the floor), and its entrants fell. This is the denominator-collapse disqualifier. With `execute-sql`, compare the daily count of the first-step event over 30 days to the project's total daily events. If the step event stopped while the project's other traffic held, the cause is a capture break, a renamed event, or a removed feature. Name that in the close-out as a hand-off, and do not file it as a conversion regression.
+  - `project_quiet` — the whole project's event volume fell with the flow. The flow is not the problem. Defer it, and do not hand off a per-flow finding.
+  - `small_population` — the flow was never above the floor and its entrants are small and steady, for example a new project or a small B2B product. This is normal for that project, not a fault. Defer it.
+  - `no_entrants` — no entrants in the latest window or in the prior few windows. If the step event has had no events for 30 days, note the flow as stale in the watchlist entry. The explore pass retires flows whose insights were deleted, not flows that are only quiet.
+- **Return to normal scoring when entrants recover.**
+  At each check after `next_due`, if the latest complete window is at or above the floor, set `state: scorable`, reset `below_floor_checks` to 0, and restore the flow's normal cadence.
+  Build the baseline only from prior windows that are also at or above the floor, and do not reuse a `baseline:` band from before the gap if the flow definition changed.
+  Do not author a report until at least 3 baseline windows clear the floor. Until then, record the flow as warming up.
+  A recovery from below the floor is not a finding.
+- **Examples.**
+  - A saved funnel `Invite → accepted` had about 400 step-1 entrants a week until a month ago, and now has 0. The project's other events hold. Cause `entrants_collapsed`: the invite event stopped. Name the capture or removal question in the close-out, defer the flow 7 days, and file no conversion report.
+  - A saved weekly retention insight on a small product has cohorts of 20–30 people every week for 3 months. Cause `small_population`. Defer 7, then 14, then 28 days. Each check is one `query-retention` call that reads the newest cohort size. When cohorts reach about 100, rebuild the baseline from the cohorts that clear the floor.
 
 **Retention needs a second check: return-interval maturity.**
 A complete acquisition cohort does not make its return cells complete.
@@ -102,13 +132,13 @@ That is the same shape as a real retention cliff.
 
 ### Explore — discover new flows to watch
 
-Spend a slice of each run widening coverage: pull any newly-saved funnel/retention/lifecycle insights (by `created_at` / `last_modified_at` recency in `system.insights`) and add the strong ones; refresh the inferred flow if the activation milestones changed. Importance decays — every few days reconcile the watchlist against what's actually saved and viewed; retire flows whose insights were deleted.
+Spend a slice of each run widening coverage: pull any newly-saved funnel/retention/lifecycle insights (by `created_at` / `last_modified_at` recency in `system.insights`) and add the strong ones (a flow that already has a watchlist entry keeps its `state` and `next_due`); refresh the inferred flow if the activation milestones changed. Importance decays — every few days reconcile the watchlist against what's actually saved and viewed; retire flows whose insights were deleted.
 
 ### Save memory as you go
 
 Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search:
 
-- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, cadence, `inferred?`, and `last_scored` + `next_due`.
+- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, cadence, `inferred?`, and `last_scored` + `next_due`. For a flow below the volume floor, also `state: below_floor`, the floor, the last entrants, `below_floor_checks` and the cause (see the volume gate).
 - `baseline:product_analytics:flow:<short_id>` — the learned normal: per-step conversion % band (median + MAD), or the retention curve band per day-offset, so the next run scores cheaply instead of recomputing the full baseline.
 - `dedupe:product_analytics:flow:<short_id>:<rate>` — a regression already surfaced on this flow's specific rate (the affected step/cohort/state), with the condition that should re-escalate it (a further drop, or recovery + relapse). **One stable key per regression — never date the key.** A dated key mints a fresh row every run, so the gate never matches and the same regression files again. Keep the dates in the content instead: first seen, each later observation, and what would re-escalate. For example, key `dedupe:product_analytics:flow:aB3xY9z:step2` — _"Step-2 conversion regression on `Signup → activation` (62% → 48%, step-1 entrants steady ~5.2k/day). First seen 2026-06-09, re-confirmed 2026-06-16 at 47%. While it sits below the 60–64% baseline band, append the fresh window to the report and update this entry in place — do not author again. Re-escalate only if it drops another ~5 points, or recovers above the band and then relapses."_ Re-confirming rewrites this same row; a distinct rate on the same insight gets its own key, so separate regressions on one insight do not collide.
 - `report:product_analytics:flow:<short_id>:<rate>` — the `report_id` of a report you authored for a regression on this flow's specific rate (the affected step/cohort/state), so the next run edits _that rate's_ report (`append_evidence` with the fresh window) instead of duplicating; a distinct rate on the same insight gets its own pointer and its own report.
@@ -127,7 +157,7 @@ If `anomaly-detection` already owns a related metric move in the inbox, author o
 
 ### Close out
 
-One paragraph: which flows you scored, what you added, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due flows, all conversions within baseline" is a real outcome.
+One paragraph: which flows you scored, which you deferred below the volume floor and until when, what you added, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due flows, all conversions within baseline" is a real outcome.
 
 ## Disqualifiers (skip these)
 
@@ -137,7 +167,7 @@ One paragraph: which flows you scored, what you added, which reports you authore
 - **Seasonal swings** — weekday/weekend, business-hours rhythm, end-of-month. Real only once the move clears the seasonality-matched baseline (compare same-weekday windows).
 - **The current partial window** — never score the in-progress day/week.
 - **An immature retention cell** — never score a retention cell whose return interval has not ended at the observation cutoff, even when its acquisition cohort is complete.
-- **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal).
+- **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal). Never report on them, and defer their next check with the volume gate instead of scoring them every run.
 - **Single known internal/test cohort** — a conversion change driven only by internal distinct_ids or a `dev`/`test` environment segment.
 - **Known launches / migrations / backfills** the team already knows about — if a `noise:` / `addressed:` entry names it, skip.
 
@@ -166,7 +196,7 @@ Harness-level:
 
 ## When to stop
 
-- No flow worth watching (quick close-out) → close out empty.
+- No flow worth watching, or every flow deferred below the volume floor (quick close-out) → close out empty.
 - You've scored the due watchlist flows and added a couple of new ones → close out, even if more remain. Each run advances the watchlist.
 - A candidate matches a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report → edit-or-skip.
 

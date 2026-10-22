@@ -1844,6 +1844,11 @@
         "params": [],
         "scope": "project"
     },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
+        "params": [],
+        "scope": "project"
+    },
     "variable": {
         "template": "/data-management/variables/{id}",
         "params": ["id"],

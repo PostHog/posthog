@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
+from temporalio.converter import DataConverter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -24,6 +26,7 @@ from products.signals.backend.activity_summary import (
     tick,
 )
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     DailyUsage,
@@ -31,6 +34,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -56,7 +60,8 @@ from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
         "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
         "products": ["product_analytics"],
         "recent_shift": None,
@@ -83,6 +88,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_units": None,
             "min_update_interval_hours": 0,
             "emit_embeddings": "no",
+            "rebuild_before": "not a time",
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -94,6 +100,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_cost_usd_per_day": 1,
             "min_update_interval_hours": 12,
             "capture_events": False,
+            "rebuild_before": "2026-10-01T00:00:00",
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -101,12 +108,37 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_cost_usd_per_day=1.0,
             min_update_interval_hours=12.0,
             capture_events=False,
+            rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
         ),
+    ),
+    (
+        "limits fall back to the defaults when invalid and clamp when too large",
+        {
+            "enabled": True,
+            "limits": {
+                "task_lines": 20,
+                "activity_lines": 0,
+                "max_units_per_day": True,
+                "sections_max_chars": "9000",
+                "window_days": 10_000,
+                "max_completion_tokens": 10_000_000,
+            },
+        },
+        ActivitySummaryConfig(
+            enabled=True, limits=RenderLimits(task_lines=20, window_days=90, max_completion_tokens=16000)
+        ),
+    ),
+    ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
+    (
+        "a future rebuild_before waits",
+        {"enabled": True, "rebuild_before": "2026-10-20T00:00:00+00:00"},
+        ActivitySummaryConfig(enabled=True),
     ),
 ]
 
 
 @parameterized.expand(_CONFIG_CASES)
+@time_machine.travel(NOW, tick=False)
 def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig) -> None:
     assert parse_config(payload) == expected
 
@@ -135,7 +167,10 @@ class TestActivitySummaryQueue(BaseTest):
 
     def _summary(self, user: User, **fields: Any) -> None:
         UserActivitySummary.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=user.id, status=UserActivitySummary.Status.OK, **fields
+            team_id=self.team.id,
+            user_id=user.id,
+            status=UserActivitySummary.Status.OK,
+            **({"prompt_version": PROMPT_VERSION, "render_version": RENDER_VERSION} | fields),
         )
 
     def _select(self, config: ActivitySummaryConfig | None = None, tasks: list[UserTaskTime] | None = None):
@@ -166,6 +201,29 @@ class TestActivitySummaryQueue(BaseTest):
             (self.team.id, busy.id),
             (self.team.id, stale.id),
             (self.team.id, fresh.id),
+        ]
+
+    def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(self) -> None:
+        current, old_version, before_rebuild, busy = (
+            self._user(f"{name}@example.com") for name in ("current", "old", "rebuild", "busy")
+        )
+        summary_fields = {
+            "generated_at": NOW - datetime.timedelta(days=2),
+            "input_watermark": NOW - datetime.timedelta(days=2),
+        }
+        self._summary(current, **summary_fields)
+        self._summary(old_version, **(summary_fields | {"prompt_version": PROMPT_VERSION - 1}))
+        self._summary(before_rebuild, **(summary_fields | {"generated_at": NOW - datetime.timedelta(days=3)}))
+        self._summary(busy, **summary_fields)
+        for user in (current, old_version, before_rebuild):
+            self._changes(user, 1, days_ago=5)
+        self._changes(busy, 3)
+
+        config = self._config(rebuild_before=NOW - datetime.timedelta(days=2, hours=12))
+        assert self._select(config) == [
+            (self.team.id, before_rebuild.id),
+            (self.team.id, old_version.id),
+            (self.team.id, busy.id),
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
@@ -205,7 +263,7 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd())
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
@@ -371,6 +429,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "min_update_interval_hours": 24.0,
         "emit_embeddings": True,
         "capture_events": True,
+        "limits": DEFAULT_LIMITS,
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -441,3 +500,32 @@ async def test_a_disabled_tick_runs_no_pair() -> None:
     result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
+
+
+@parameterized.expand(
+    [
+        ("tick plan", ActivitySummaryTickPlan, lambda: _plan(1)),
+        (
+            "pair input",
+            ActivitySummaryPairInput,
+            lambda: ActivitySummaryPairInput(
+                team_id=1,
+                user_id=2,
+                min_units=3,
+                min_update_interval_hours=24.0,
+                emit_embeddings=True,
+                capture_events=True,
+            ),
+        ),
+    ]
+)
+def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limits(
+    _name: str, cls: type, build: Any
+) -> None:
+    converter = DataConverter.default.payload_converter
+    recorded = {key: value for key, value in dataclasses.asdict(build()).items() if key != "limits"}
+
+    [decoded] = converter.from_payloads(converter.to_payloads([recorded]), [cls])
+
+    assert decoded == build()
+    assert decoded.limits == DEFAULT_LIMITS

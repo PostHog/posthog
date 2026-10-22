@@ -187,6 +187,7 @@ function isRefusedProjectPath(pathname: string): boolean {
 function isFirstProjectWithoutData(user: UserType): boolean {
     const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
     return (
+        !user.is_impersonated &&
         user.organization?.teams.length === 1 &&
         !!currentTeam &&
         !currentTeam.is_demo &&

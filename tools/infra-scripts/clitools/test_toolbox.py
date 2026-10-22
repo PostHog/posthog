@@ -46,6 +46,11 @@ class TestToolbox(unittest.TestCase):
         ensure_patcher = patch.object(toolbox_script, "ensure_tailscale_connected")
         self.m_ensure_tailscale = ensure_patcher.start()
         self.addCleanup(ensure_patcher.stop)
+        # The real capture sends events to PostHog whenever an SDK is importable,
+        # and the SDK registers its own atexit hook that the cleanup tests count.
+        telemetry_patcher = patch.object(toolbox_script, "capture_invocation")
+        telemetry_patcher.start()
+        self.addCleanup(telemetry_patcher.stop)
 
     def test_kubectl_cmd_without_context(self):
         """kubectl_cmd with context=None returns the same shape as a bare kubectl call."""
@@ -1355,7 +1360,6 @@ class TestToolbox(unittest.TestCase):
     def _clean_env(self):
         os.environ.pop("KUBE_CONTEXT", None)
         os.environ.pop("KUBE_NAMESPACE", None)
-        os.environ.pop("FLOX_ENV", None)
 
     def test_main_jumphost_pool_dispatches_correct_kwargs(self):
         """--pool flags-cache-jumphost threads the jumphost app/claim labels into helpers."""
@@ -1473,7 +1477,6 @@ class TestToolbox(unittest.TestCase):
                     patch.dict(os.environ, env_override, clear=False),
                 ):
                     os.environ.pop("KUBE_CONTEXT", None)
-                    os.environ.pop("FLOX_ENV", None)
                     if env_namespace is None:
                         os.environ.pop("KUBE_NAMESPACE", None)
                     with self.assertRaises(SystemExit):
@@ -1506,7 +1509,6 @@ class TestToolbox(unittest.TestCase):
             patch.dict(os.environ, {"KUBE_CONTEXT": "posthog-dev"}, clear=False),
         ):
             os.environ.pop("KUBE_NAMESPACE", None)
-            os.environ.pop("FLOX_ENV", None)
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
@@ -1580,7 +1582,6 @@ class TestToolbox(unittest.TestCase):
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {"KUBE_CONTEXT": "bogus"}, clear=False),
         ):
-            os.environ.pop("FLOX_ENV", None)
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 

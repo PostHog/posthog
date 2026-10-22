@@ -122,6 +122,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',
@@ -830,18 +831,29 @@ export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
 }
 
-export type SignalSourceCatalogOrigin = 'catalog'
+export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
 
 /** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
-export function captureSignalSourceCatalogOpened(params: { connectedCount: number }): void {
-    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, { connected_count: params.connectedCount })
+export function captureSignalSourceCatalogOpened(params: {
+    recommendationCount: number
+    connectedCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        recommendation_count: params.recommendationCount,
+        connected_count: params.connectedCount,
+    })
 }
 
 export function captureSignalSourceCatalogSourceSelected(params: {
     source: string
     origin: SignalSourceCatalogOrigin
+    reason: string | null
 }): void {
-    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, { source: params.source, origin: params.origin })
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, {
+        source: params.source,
+        origin: params.origin,
+        recommendation_reason: params.reason,
+    })
 }
 
 /**

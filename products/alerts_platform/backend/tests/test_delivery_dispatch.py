@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -255,13 +256,28 @@ class TestDeliveryDispatch(SimpleTestCase):
 
         assert retry.sends == []
 
-    def test_a_check_that_never_fired_starts_no_conversation(self) -> None:
+    @parameterized.expand(
+        [
+            ("failed_check", AlertEventKind.ERRORED),
+            ("resolve_of_a_firing_taken_over_from_the_source", AlertEventKind.RESOLVED),
+        ]
+    )
+    def test_a_message_about_no_known_firing_joins_no_conversation_and_is_sent_once(
+        self, _name: str, kind: AlertEventKind
+    ) -> None:
         store = RecordingThreadStore()
-        transport = FakeTransport()
+        first, retry, later = FakeTransport(), FakeTransport(), FakeTransport()
 
-        self._deliver(transport, store, _announcement(AlertEventKind.ERRORED, None))
+        self._deliver(first, store, _announcement(kind, None), evaluation_key="eval-1")
+        self._deliver(retry, store, _announcement(kind, None), evaluation_key="eval-1")
+        later_transition = replace(_transition(kind, None), occurred_at=FIRST_FIRING + timedelta(minutes=5))
+        self._deliver(
+            later, store, replace(_announcement(kind, None), transitions=(later_transition,)), evaluation_key="eval-2"
+        )
 
-        assert store.threads == {}
+        assert [handle for _, handle in first.sends] == [None]
+        assert retry.sends == []
+        assert [handle for _, handle in later.sends] == [None]
 
     def test_a_provider_outage_is_counted_as_a_failed_delivery(self) -> None:
         transport = FakeTransport(error=ConnectionError("slack unreachable"))

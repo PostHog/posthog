@@ -92,7 +92,10 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import (
+    ActorsDateWindow,
+    TrendsActorsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -254,6 +257,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return query
 
+    def to_actors_date_window(
+        self, time_frame: Optional[str], series_index: int, compare_value: Optional[Compare] = None
+    ) -> ActorsDateWindow:
+        return self._get_trends_actors_query_builder(
+            time_frame=time_frame, series_index=series_index, compare_value=compare_value
+        ).actors_date_window()
+
     def _get_trends_actors_query_builder(
         self,
         time_frame: Optional[str],
@@ -358,8 +368,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     workload=self.workload,
                     ch_user=self.ch_user,
                     settings=self.hogql_settings,
+                    modifiers=self.modifiers,
                     # timings=timings,
-                    # modifiers=modifiers,
                 )
 
                 breakdown_values = [

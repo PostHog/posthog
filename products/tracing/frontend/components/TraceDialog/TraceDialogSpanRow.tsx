@@ -7,7 +7,8 @@ import { cn } from 'lib/utils/css-classes'
 import { parseTimestampUs } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import type { TraceDialogSource, TraceDialogTimeline } from './traceDialogLogic'
+import type { TraceViewTimeline } from '../TraceView/traceViewLogic'
+import type { TraceDialogSource } from './traceDialogLogic'
 import { LOG_MARK_TAG_TYPE, TraceDialogLogMark } from './TraceDialogLogMark'
 import type { TraceDialogRow } from './traceDialogRows'
 import { indentPx, MAX_VISUAL_DEPTH, TraceDialogTreeLines } from './TraceDialogTreeLines'
@@ -16,7 +17,7 @@ const ERROR_COLOR = 'var(--danger)'
 
 export interface TraceDialogSpanRowProps {
     row: Extract<TraceDialogRow, { kind: 'span' | 'chain' }>
-    timeline: TraceDialogTimeline
+    timeline: TraceViewTimeline
     serviceColorMap: Map<string, number>
     isSelected: boolean
     /** Set only on the span that emitted the record the dialog was opened from. */
@@ -41,7 +42,7 @@ function logTimingLabel(logUs: number, startUs: number, durationUs: number): str
     return `+${formatDuration((logUs - startUs) * 1_000)} into this span`
 }
 
-function percentOfTrace(us: number, timeline: TraceDialogTimeline): number {
+function percentOfTrace(us: number, timeline: TraceViewTimeline): number {
     return timeline.durationUs > 0 ? ((us - timeline.startUs) / timeline.durationUs) * 100 : 0
 }
 

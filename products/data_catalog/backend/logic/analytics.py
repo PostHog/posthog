@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 METRIC_CREATED_EVENT = "data catalog metric created"
 METRIC_UPDATED_EVENT = "data catalog metric updated"
+METRIC_NAME_CONFLICT_EVENT = "data catalog metric name conflict"
 METRIC_APPROVED_EVENT = "data catalog metric approved"
 METRIC_APPROVAL_BLOCKED_EVENT = "data catalog metric approval blocked"
 METRIC_DELETED_EVENT = "data catalog metric deleted"

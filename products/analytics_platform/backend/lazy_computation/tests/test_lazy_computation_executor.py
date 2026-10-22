@@ -3795,6 +3795,22 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
         )
         assert result.ready is False
         assert result.memory_exceeded is True
+        assert result.capacity_rejected is False
+
+    def test_surfaces_capacity_rejected_on_too_many_simultaneous_queries(self):
+        def rejected_insert(_t, _j) -> None:
+            raise ServerException(message="Too many simultaneous queries", code=202)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=rejected_insert,
+        )
+        assert result.ready is False
+        assert result.capacity_rejected is True
+        assert result.memory_exceeded is False
 
     def test_oom_is_not_retried(self):
         calls: list = []

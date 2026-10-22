@@ -1871,16 +1871,16 @@ pyarrow = [
 
 [[package]]
 name = "deltalite"
-version = "0.1.12"
+version = "0.1.14"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/21/ad/bcf1451d9513de77d187e1a6d11c9528cf539675bb421bc68061da57c112/deltalite-0.1.12.tar.gz", hash = "sha256:ac62d8186e4db265d5ffca20df66dc2fc1d624e05492148599e868499cc6a3cc", size = 300564, upload-time = "2026-10-20T13:57:57.531Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/65/c7/c445c263ceb6be3ba4e3f2c0f4e57ddae5bb78c26cd95cb8cd75e76570c1/deltalite-0.1.14.tar.gz", hash = "sha256:0910042c7a82ef03a43ebd664ac9ff8bcbee05add605e18f95bf61194482bab0", size = 316998, upload-time = "2026-10-21T14:32:33.215Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/d6/21308bf1d8c8c775373eaa94ac481df68e8a66a0985d232b522070988d0a/deltalite-0.1.12-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:9c74b350479b83239351d837023c4e81bc6b31d4e59e5da02b7d2dd7d25a5210", size = 18459027, upload-time = "2026-10-20T13:57:36.784Z" },
-    { url = "https://files.pythonhosted.org/packages/59/a9/e049492f0d63c22b0ef402a162fed670674f4d343af4f4c0992b8d036132/deltalite-0.1.12-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:27b704274b8cac4975320cabba25667e16cd562faf45d683051eafeaa16a5c52", size = 17924216, upload-time = "2026-10-20T13:57:39.66Z" },
-    { url = "https://files.pythonhosted.org/packages/79/35/6b3fc36a43d08da33a9a9f906fbbca87ef03ce3a271d3e5914746a9a1eef/deltalite-0.1.12-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:143f15bb98641b8fc174f569e9bbd929f517dc02c4b0c6f3191d30fdb7767ae8", size = 64522984, upload-time = "2026-10-20T13:57:42.734Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/7b/3209dfec1c9b7d8dc9eac26e84c4e65fa7b259c98e3b4bb12734d753dfff/deltalite-0.1.12-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:5e37ae14d860256645ef6048e4684a1baf2c8605a267414a9514efa8c1f22b9e", size = 67427768, upload-time = "2026-10-20T13:57:46.922Z" },
-    { url = "https://files.pythonhosted.org/packages/2d/80/f0e19f43ad1f0a0ac44deee50b77c6bfad7e5b9d32be485c398f5f0462e6/deltalite-0.1.12-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:d5edebf257ba63329cc19b098f9943f1c7c1b22188d5088ac020be26b255215b", size = 64668300, upload-time = "2026-10-20T13:57:50.886Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/31/afc82195f4c41e7f30218e8d591fbcdd70d95a2ab93e02c7534b88c5889b/deltalite-0.1.12-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:5e9ca5091aa30b822b06aca13e75b0c21ba495fca2060ed09337c13065c10416", size = 65700242, upload-time = "2026-10-20T13:57:54.816Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/be/446ddb7fe4a4b4df434b6b6a881b175aed38a0f77d6724dda33903851459/deltalite-0.1.14-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c00677dbffd65d329cfaa33614525f95322e341fc5e4309bdbf8e4683cb04c22", size = 18578473, upload-time = "2026-10-21T14:32:10.148Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/00/f21fcfd7a9344678aa005ea79d73a2390f92c73d0929334a849b6570849c/deltalite-0.1.14-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:b64ad3caa08eae01b0b565ffb28d0491e9135774622bd7b56681d49b71b2d4ac", size = 18010303, upload-time = "2026-10-21T14:32:13.442Z" },
+    { url = "https://files.pythonhosted.org/packages/09/17/7c70f6914aec4bdc56a5afbf7d793f3c4a6edff15607066a0e62de6d52cb/deltalite-0.1.14-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:7babd51fb980c26112809d508be6ad55a1a401969b03008d37d220f9caee41a6", size = 64852729, upload-time = "2026-10-21T14:32:17.198Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/62/b84fb7456fb4c0279527c86e0067d4464c086314a29369207d4d80b5a0c4/deltalite-0.1.14-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:f18cef257e7d3283061bf6de255a87ee39d125377a5c59149286ccc53d71664e", size = 67727166, upload-time = "2026-10-21T14:32:21.462Z" },
+    { url = "https://files.pythonhosted.org/packages/85/b9/0d15b83487aa81a68d68302bc8be8584980b015bdf8b024706c5a0c79b30/deltalite-0.1.14-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:336d62143a0e54a2cc5ca866c0eff06c9fe60f555fa5e2dd0d74345829c3f2c2", size = 65013325, upload-time = "2026-10-21T14:32:25.769Z" },
+    { url = "https://files.pythonhosted.org/packages/25/8d/81138d8aa256b1a75cbd4acff63acdbb94fb4f853d10c17a58210b35c3d3/deltalite-0.1.14-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:07daeeaf9f93a91f7f8fc2b20d2fa757fca1e332bd68c1232814e9ab53760153", size = 66017332, upload-time = "2026-10-21T14:32:30.002Z" },
 ]
 
 [[package]]
@@ -6224,7 +6224,7 @@ requires-dist = [
     { name = "databricks-sql-connector", specifier = "~=4.3.0" },
     { name = "defusedxml", specifier = "~=0.7.1" },
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.6.1" },
-    { name = "deltalite", specifier = "==0.1.12" },
+    { name = "deltalite", specifier = "==0.1.14" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.0.0" },
     { name = "django", specifier = "~=5.2.0" },
@@ -6322,7 +6322,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.73.1" },
+    { name = "posthoganalytics", specifier = "==7.75.0" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6489,7 +6489,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.73.1"
+version = "7.75.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6497,9 +6497,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/6c/77a50b6a8f179ef11c274b59e138ec9ed8b1a54ff2997cb99fc8b4aa1341/posthoganalytics-7.73.1.tar.gz", hash = "sha256:79233cec6ccb003b8b7cc28990881f9667e11f2bb24680b4ffcf5d8e9880c3e2", size = 764894, upload-time = "2026-10-20T11:54:47.713Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/12/87b1097983d67e0cfe4d6ae05c29e93e8e2a2975a8b4287f5eb34d684df1/posthoganalytics-7.75.0.tar.gz", hash = "sha256:eb1ae2f82df5062ffe1d6d3b4b6c0000484bf594c77ac950b75d77015e373208", size = 784081, upload-time = "2026-10-21T15:23:51.304Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/e1/2bcace691faaceaa6f7f059c9ead6a7018a8b7ec8ffe875ce19919da33cc/posthoganalytics-7.73.1-py3-none-any.whl", hash = "sha256:9e2cfafeb31352fe44862d9a19b7906a7e7787fac499bdb078902bb867f023f8", size = 899924, upload-time = "2026-10-20T11:54:45.948Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/8a/50d4b19b28aeb15c060a46f98e8d5db6b5f02801dfe45c46ba8f241257d0/posthoganalytics-7.75.0-py3-none-any.whl", hash = "sha256:56aea813b6c1caac6123fbd1a1f966dc8ba8d565be18c366d8b6c33e6151b8ca", size = 923964, upload-time = "2026-10-21T15:23:48.855Z" },
 ]
 
 [[package]]

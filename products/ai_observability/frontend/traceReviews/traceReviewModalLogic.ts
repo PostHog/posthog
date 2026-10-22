@@ -104,6 +104,7 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         config: score.definition_config,
         created_by: null,
         created_at: score.created_at,
+        updated_by: null,
         updated_at: score.updated_at,
         team: teamId,
     }

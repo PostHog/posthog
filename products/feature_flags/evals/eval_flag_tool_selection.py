@@ -28,6 +28,7 @@ To run:
 
 from __future__ import annotations
 
+from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import (
     EXPLAINED_KEY_REUSE_QUESTION,
     AvoidedTool,
@@ -57,6 +58,8 @@ from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
+
+NO_SEND_LOGS = True
 
 # The rename case asks for these two values, so the prompt and the scorer read the same
 # constants: a prompt that changed without the expectation would grade the old request.
@@ -140,7 +143,22 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-tool-selection-cli",
+        offline_suite=offline_suite(
+            "feature_flags/eval_flag_tool_selection::eval_flag_tool_selection",
+            metrics=[
+                "resolved_flag_by_key",
+                "called_expected_tool",
+                "avoided_tool",
+                "generic_update_omits_fields",
+                "generic_update_sets_fields",
+                "preserved_unrelated_config",
+                "updated_rollout_to",
+                "explained_key_reuse",
+            ],
+        ),
+        send_to_posthog=True,
         cases=cases,
         scorers=[
             # Every prompt names its flag by key, and the write tools take a numeric id.

@@ -1,4 +1,4 @@
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from parameterized import parameterized
 
 from posthog.errors import (
@@ -7,6 +7,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -178,6 +179,40 @@ class TestWrapClickhouseQueryError:
         assert wrapped.code_name == "bad_get"
         assert wrapped.nested is None
         assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
+
+    @parameterized.expand(
+        [
+            (
+                "aggregate_state",
+                "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
+                "This query returns a column of type `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))`, "
+                "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the "
+                "matching -Merge function, for example `argMinMerge(column)`, to get the final value.",
+            ),
+            (
+                "mixed_value_types",
+                "Variant(Int64, UInt64)",
+                "This query returns a column of type `Variant(Int64, UInt64)`, which PostHog can't send back in "
+                "results. The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` "
+                "or `ifNull()` arguments, or `if()` branches that return different types. Make them return one "
+                "type, for example with `toString()` or `toFloat()`.",
+            ),
+            (
+                "other_type",
+                "JSON",
+                "This query returns a column of type `JSON`, which PostHog can't send back in results. Convert the "
+                "column to a basic type such as a string, number, or date, or leave it out of the results.",
+            ),
+        ]
+    )
+    def test_unreadable_result_type_names_the_fix_for_its_type(
+        self, _name: str, column_type: str, expected_message: str
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(UnknownTypeError(f"Unknown type {column_type}"))
+
+        assert isinstance(wrapped, CHQueryErrorUnknownType)
+        assert wrapped.code_name == "unknown_type"
+        assert str(wrapped) == expected_message
 
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(

@@ -26,7 +26,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS node-base
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -71,7 +71,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:24.13.0-bookworm-slim AS sourcemap-upload
+FROM node:24.22.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -181,7 +181,7 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
@@ -309,6 +309,8 @@ ENV LANG=C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    # Upgrades the CA bundle that the pinned base image freezes.
+    "ca-certificates" \
     # The deploy chart's asset-upload hook runs in this image and downloads s5cmd with curl.
     "curl" \
     "git" \

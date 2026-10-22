@@ -104,8 +104,8 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             team_id=self.team.id, report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
-    def test_schedule_repair_preserves_a_concurrent_observation(self, _flag: object) -> None:
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_schedule_repair_preserves_a_concurrent_observation(self, _name: str, flag: bool) -> None:
         now = timezone.now()
         start = now - timedelta(days=1)
         self.report.status = SignalReport.Status.MONITORING
@@ -124,17 +124,22 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             error="The metric query failed.",
             explanation="The metric query failed.",
         )
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
             with transaction.atomic():
                 SignalReportCheck.objects.for_team(self.team.id).select_for_update().get(id=self.check.id)
                 future = self._start_write(executor, lambda: run_due_report_checks(now=now, limit=0))
                 self._assert_write_waits(future)
-                assert record_monitoring_observation(self.check, observation)
+                with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                    assert record_monitoring_observation(self.check, observation)
             future.result(timeout=10)
         self.check.refresh_from_db()
         assert self.check.last_run_at == now
         assert self.check.next_run_at == now + MONITORING_ERROR_RETRY_AFTER
         assert self.check.consecutive_errors == 1
+        assert self.check.expires_at == start + MAX_CHECK_HORIZON
         assert (
             SignalReportArtefact.objects.filter(
                 team_id=self.team.id, report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
