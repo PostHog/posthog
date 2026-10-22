@@ -91,6 +91,9 @@ The SQL suite uses these existing scorers:
 | `sql_result_message_alignment`       | Numeric, minimum 0 and maximum 1 |
 
 The harness loads the repo-root `.env` automatically; shell values take precedence.
+When running through `.codex/with-flox`, exported eval credentials pass through at invocation time: `ANTHROPIC_API_KEY`, `BRAINTRUST_API_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, `LLM_GATEWAY_OPENAI_API_KEY`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY`, `POSTHOG_OFFLINE_EVAL_API_KEY`, and `SANDBOX_JWT_PRIVATE_KEY`.
+`POSTHOG_OFFLINE_EVAL_HOST` and `POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG` pass through alongside the upload key, and shell values take precedence over `.env`.
+These values are excluded from the cached toolchain environment, environment preparation, and dependency installation. Codex settings do not need to change.
 For CI, store the key as the `POSTHOG_OFFLINE_EVAL_API_KEY` [organization Actions secret](https://github.com/organizations/PostHog/settings/secrets/actions), grant access to the selected repository `PostHog/posthog`, and expose it to the eval step under the same environment variable name.
 No project ID or scorer mapping environment variables are required.
 
