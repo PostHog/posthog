@@ -14,6 +14,7 @@ from .rules import Rules, Surface, SurfaceRules, TrafficRules
 
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
+SECOND_QUANTILE = 2
 
 DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
@@ -69,6 +70,8 @@ class SubjectReads:
     alone_reads: int
     alone_duration_ms_median: float
     alone_read_bytes_median: float
+    alone_duration_ms_p90: float
+    alone_read_bytes_p90: float
     last_read_at: datetime
     requests_by_surface: Mapping[Surface, int]
 
@@ -212,6 +215,8 @@ SELECT
     sumIf(read_count, read_alone),
     quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone)[{FIRST_QUANTILE}],
     quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone)[{FIRST_QUANTILE}],
+    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone)[{SECOND_QUANTILE}],
+    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone)[{SECOND_QUANTILE}],
     toTimeZone(max(max_event_time), 'UTC')
 FROM (
     SELECT *, {{human}} AS is_human
@@ -279,7 +284,9 @@ def _subject_reads(
             alone_reads=row[9],
             alone_duration_ms_median=float(row[10]),
             alone_read_bytes_median=float(row[11]),
-            last_read_at=row[12],
+            alone_duration_ms_p90=float(row[12]),
+            alone_read_bytes_p90=float(row[13]),
+            last_read_at=row[14],
             requests_by_surface=surface_counts.get(subject, {}),
         )
     return reads

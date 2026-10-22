@@ -23,7 +23,9 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     allowed_intervals,
     estimate_savings,
     interval_basis,
+    refresh_cost,
 )
+from products.warehouse_suggestions.backend.logic.reads import SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
@@ -155,17 +157,40 @@ class TestMaterializeRules(SimpleTestCase):
 
         assert intervals == expected
 
-    @parameterized.expand([("at_floor", 90, True), ("one_read_short", 89, False)])
-    def test_time_saved_floor(self, _name: str, human_reads: int, expect_clear: bool) -> None:
+    @parameterized.expand(
+        [
+            ("at_floor", 90, 10_000.0, None, True),
+            ("one_read_short", 89, 10_000.0, None, False),
+            ("slow_reads_raise_the_refresh_price", 90, 20_000.0, None, False),
+            (
+                "recorded_refreshes_set_the_price",
+                90,
+                20_000.0,
+                SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3),
+                True,
+            ),
+        ]
+    )
+    def test_time_saved_floor(
+        self,
+        _name: str,
+        human_reads: int,
+        alone_duration_ms_p90: float,
+        refreshes: SubjectRefreshes | None,
+        expect_clear: bool,
+    ) -> None:
         reads = busy_reads(
             human_reads=human_reads,
             human_duration_ms=human_reads * 10_000,
             alone_duration_ms_median=10_000.0,
+            alone_duration_ms_p90=alone_duration_ms_p90,
             human_read_bytes=human_reads,
             alone_read_bytes_median=1.0,
+            alone_read_bytes_p90=1.0,
         )
+        ctx = context(team_reads({}, refreshes={VIEW_ID: refreshes} if refreshes else None))
 
-        estimate = estimate_savings(context(team_reads({})), reads, DAY)
+        estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
 
         assert estimate.clears_a_floor is expect_clear
 
