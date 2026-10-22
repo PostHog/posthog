@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -47,6 +48,7 @@ from products.experiments.backend.temporal.models import (
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     AttemptCancellation,
+    RecalculationAttemptCancelled,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
@@ -1512,8 +1514,10 @@ class TestCalculateActivityCancellation:
         release = asyncio.Event()
         body_finished = asyncio.Event()
         cancel_query = AsyncMock()
+        body_cancellation: list[AttemptCancellation] = []
 
         async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            body_cancellation.append(cast(AttemptCancellation, args[-1]))
             started.set()
             await release.wait()
             body_finished.set()
@@ -1533,6 +1537,9 @@ class TestCalculateActivityCancellation:
                     await asyncio.wait_for(task, timeout=5)
                 assert not body_finished.is_set()
                 assert cancel_query.await_count == 1
+                # The mocked kill never reaches the cancellation, so the thread stops only on the activity's own flag.
+                with pytest.raises(RecalculationAttemptCancelled):
+                    body_cancellation[0].raise_if_cancelled()
             finally:
                 release.set()
                 await asyncio.wait_for(body_finished.wait(), timeout=5)

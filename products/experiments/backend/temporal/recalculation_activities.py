@@ -140,6 +140,8 @@ async def calculate_experiment_metric_for_recalculation(
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
+            # Set here, not only in the kill: a kill that waits for a free cancel worker can time out before it runs.
+            cancellation.cancel()
             # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
             drain = asyncio.create_task(
                 _drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt, cancellation)
