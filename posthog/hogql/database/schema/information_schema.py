@@ -2293,9 +2293,3 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
-
-
-def disable_data_quality(info_schema: TableNode) -> None:
-    info_schema.children.pop("data_quality_checks", None)
-    info_schema.children.pop("data_quality_check_runs", None)
-    info_schema.children.pop("data_quality_health", None)

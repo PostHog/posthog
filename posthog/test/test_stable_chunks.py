@@ -10,6 +10,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+import structlog
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
@@ -146,6 +147,8 @@ class TestStableChunks(SimpleTestCase):
             "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123"
         )
         request.user = AnonymousUser()
+        # The structlog context is thread-local, so an earlier test's `bind()` on this worker would leak into the event.
+        structlog.get_logger().new()
 
         with capture_logs() as logs:
             stable_chunks_choice(request, None)
