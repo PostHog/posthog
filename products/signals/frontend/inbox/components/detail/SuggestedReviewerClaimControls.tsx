@@ -19,8 +19,12 @@ export function reviewerClaimRemoveDisabledReason(
     claim: ReviewerClaim | undefined,
     displayName: string
 ): string | undefined {
-    if (!claim || !isClaimant(reviewer, claim)) {
+    if (!claim) {
         return undefined
+    }
+    if (!isClaimant(reviewer, claim)) {
+        // A pending claim makes this row the claimant row, so the remove must wait for it.
+        return claim.saving && !!reviewer.user && reviewer.user.uuid === claim.currentUserUuid ? 'Updating…' : undefined
     }
     return reviewer.user?.uuid === claim.currentUserUuid
         ? "You're working on this report. Unclaim it before you remove yourself."
