@@ -29,8 +29,8 @@ export function DevModeSetting(): JSX.Element {
                 <LemonBanner type="info" data-attr="ai-gateway-dev-mode-cli-request">
                     <div className="flex flex-col gap-2">
                         <span>
-                            <code>posthog-cli gateway token</code> is asking for a token. Approve only if you just ran
-                            that command.
+                            <code>hogli gateway:token</code> is asking for a token. Approve only if you just ran that
+                            command.
                         </span>
                         <div className="flex flex-wrap gap-2">
                             <LemonButton type="primary" size="small" onClick={authorizeCli}>
