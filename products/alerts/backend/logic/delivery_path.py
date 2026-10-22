@@ -20,7 +20,7 @@ from products.alerts.backend.facade.contracts import (
     DestinationEligibility,
     HogFunctionPathReason,
 )
-from products.alerts.backend.logic.destination_configs import WebhookDestination
+from products.alerts.backend.logic.destination_configs import PagerDutyDestination, WebhookDestination
 from products.alerts.backend.logic.destination_eligibility import (
     bucket_for,
     classify_alert_destinations,
@@ -72,6 +72,11 @@ class _TeamDestinations:
     def choice(self, destinations: Sequence[DestinationEligibility]) -> DeliveryPathChoice:
         if any(bucket_for(destination) != DestinationBucket.STOCK for destination in destinations):
             return DeliveryPathChoice(reason=HogFunctionPathReason.CUSTOMIZED)
+        # Per alert, so the team's other alerts still deliver natively.
+        if self._source == SourceKind.INSIGHT and any(
+            destination.template_id == PagerDutyDestination.template_id for destination in destinations
+        ):
+            return DeliveryPathChoice(reason=HogFunctionPathReason.PAGERDUTY_NOT_NATIVE)
         if any(destination.template_id == WebhookDestination.template_id for destination in destinations):
             if self._native_webhook_body is None:
                 return DeliveryPathChoice(reason=HogFunctionPathReason.WEBHOOK_BODY_UNKNOWN)

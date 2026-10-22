@@ -13,6 +13,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
+import { escapeHtml } from './helpers/escape-html'
 
 export type { MessageAssetRow } from '../../types'
 
@@ -48,18 +49,10 @@ const isoMicroseconds = (date: Date): string => {
     return date.toISOString().replace('T', ' ').replace('Z', '000')
 }
 
-const HTML_ESCAPE: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-}
-
 // Escape user-typed `<`/`>`/`&` so a `<pre>`-wrapped plain-text body can't break
 // surrounding markup or inject scripts.
 const wrapPlainTextAsHtml = (text: string): string => {
-    const escaped = text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
+    const escaped = escapeHtml(text)
     return `<!doctype html><meta charset="utf-8"><pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;padding:1rem">${escaped}</pre>`
 }
 
@@ -70,8 +63,6 @@ const wrapPlainTextAsHtml = (text: string): string => {
 // unrelated row in it gets swallowed too. Substitute a small placeholder body when we cross
 // the safe budget — the row still lands, the chip works, and the batch is unaffected.
 const MAX_HTML_BYTES = 4 * 1024 * 1024
-
-const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
 
 // A push has no stored body to replay the way an email does, so render the delivered content into the
 // same `html` column. That keeps one asset pipeline and one viewer for both channels: the person view
@@ -183,7 +174,10 @@ export class MessageAssetsService {
     buildRowForPush(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
-        platforms: string[]
+        platforms: string[],
+        // The person whose devices took delivery, which the step's Distinct ID input can point away
+        // from the run's own person.
+        recipient: { distinctId: string; personId: string | undefined }
     ): MessageAssetRow | null {
         if (!invocation.state.actionId) {
             return null
@@ -198,7 +192,6 @@ export class MessageAssetsService {
         if (platforms.length === 0) {
             return null
         }
-        const recipient = params.distinctId
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -207,11 +200,11 @@ export class MessageAssetsService {
             invocation_id: invocation.id,
             action_id: invocation.state.actionId ?? '',
             kind: 'push',
-            distinct_id: recipient,
-            person_id: invocation.state.globals.person?.id ?? '',
+            distinct_id: recipient.distinctId,
+            person_id: recipient.personId ?? '',
             // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
             // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
-            recipient,
+            recipient: recipient.distinctId,
             subject: payload.title,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
