@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from typing import Any, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
@@ -37,6 +37,8 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
+from products.messaging.backend.facade.categories import update_category
+from products.messaging.backend.facade.testing import create_message_category_for_test
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
@@ -8602,5 +8604,101 @@ class TestAddToStaticCohortActionValidation(APIBaseTest):
                 {"name": "Onboarding", "actions": [_TRIGGER, self._step(self.cohort.id)], "edges": []},
                 format="json",
             )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestOptOutOfMessagesActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-opt-out-of-messages"
+        template["inputs_schema"] = [
+            {"key": "category_id", "type": "string", "label": "Message category", "required": True},
+            {"key": "identifier", "type": "string", "label": "Recipient", "required": True},
+        ]
+        sync_template_to_db(template)
+
+    def _step(self, category_id: str | None) -> dict:
+        inputs: dict = {"identifier": {"value": "{person.properties.email}"}}
+        if category_id is not None:
+            inputs["category_id"] = {"value": category_id}
+        return {
+            "id": "opt_out",
+            "name": "opt_out",
+            "type": "function",
+            "config": {"template_id": "template-posthog-opt-out-of-messages", "inputs": inputs},
+        }
+
+    def _request(self, method: str, path: str, data: dict, strict: bool = True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/hog_flows{path}",
+                data,
+                format="json",
+                headers={"X-PostHog-Client": "mcp"} if strict else None,
+            )
+
+    def _category(self, category_type: str = "marketing") -> UUID:
+        category_id = create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates")
+        if category_type != "marketing":
+            update_category(self.team.id, category_id, {"category_type": category_type})
+        return category_id
+
+    @parameterized.expand(
+        [
+            ("all_marketing", "$all", status.HTTP_201_CREATED),
+            ("marketing_category", "marketing", status.HTTP_201_CREATED),
+            ("transactional_category", "transactional", status.HTTP_400_BAD_REQUEST),
+            ("unknown_category", str(uuid4()), status.HTTP_400_BAD_REQUEST),
+            ("no_category", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_saving_the_step_needs_a_marketing_category_the_project_has(
+        self, _name: str, category_id: str | None, expected: int
+    ) -> None:
+        if category_id in ("marketing", "transactional"):
+            category_id = str(self._category(category_id))
+
+        response = self._request("post", "", {"name": "Unsubscribe", "actions": [_TRIGGER, self._step(category_id)]})
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("draft_save", False), ("strict_save", True)])
+    def test_a_workflow_only_editor_cannot_change_the_opt_out_list(self, _name: str, strict: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        flow = HogFlow.objects.create(
+            team=self.team, name="Unsubscribe", trigger=_TRIGGER["config"], actions=[_TRIGGER]
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        response = self._request("patch", f"/{flow.id}", {"actions": [_TRIGGER, self._step("$all")]}, strict=strict)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "edit access to all workflows" in str(response.json()), response.json()
+
+    @parameterized.expand([("deleted", {"deleted": True}), ("made_transactional", {"category_type": "transactional"})])
+    def test_enabling_rechecks_a_category_the_draft_already_saved(self, _name: str, change: dict) -> None:
+        category_id = self._category()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Unsubscribe",
+            trigger=_TRIGGER["config"],
+            actions=[_TRIGGER, self._step(str(category_id))],
+            edges=[],
+        )
+        update_category(self.team.id, category_id, change)
+
+        response = self._request("patch", f"/{flow.id}", {"status": "active"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

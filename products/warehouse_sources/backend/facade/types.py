@@ -1476,6 +1476,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     CONECTOCRM = "ConectoCRM", "ConectoCRM"
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
     PARTICLE = "Particle", "Particle"
+    FILEUPLOAD = "FileUpload", "FileUpload"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
@@ -1610,3 +1611,11 @@ class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class UploadedFileFormat(LabeledStrEnum):
+    """How an uploaded file is read: CSV with a header row, JSON one object per line, or Parquet."""
+
+    CSV = "csv", "csv"
+    JSON = "json", "json"
+    PARQUET = "parquet", "parquet"
