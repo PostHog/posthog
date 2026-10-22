@@ -26,14 +26,6 @@ export const SEVERITY_INDICATOR: Record<TodayRailSeverity, 'default' | 'warning'
     critical: 'destructive',
 }
 
-export const SEVERITY_BADGE: Record<TodayRailSeverity, 'warning' | 'destructive' | undefined> = {
-    none: undefined,
-    ok: undefined,
-    notice: undefined,
-    warning: 'warning',
-    critical: 'destructive',
-}
-
 export function worstSeverity(...severities: TodayRailSeverity[]): TodayRailSeverity {
     return severities.reduce((worst, severity) => (RANK[severity] > RANK[worst] ? severity : worst), 'none')
 }

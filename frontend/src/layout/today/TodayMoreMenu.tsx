@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
-    Badge,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -15,9 +14,10 @@ import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
-import { SEVERITY_BADGE, SEVERITY_TEXT_CLASS } from './todayRailSeverity'
+import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
+import { TodaySeverityDot } from './TodaySeverityDot'
 
 /**
  * The rail's "More" menu. The help menu shortcut opens it too.
@@ -27,16 +27,8 @@ export function TodayMoreMenu(): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
-    const {
-        statusSeverity,
-        statusText,
-        statusBadgeText,
-        healthSeverity,
-        healthText,
-        healthBadgeText,
-        moreSeverity,
-        moreLabel,
-    } = useValues(todayRailStatusLogic)
+    const { statusSeverity, statusText, healthText, moreItemSeverity, moreSeverity, moreLabel } =
+        useValues(todayRailStatusLogic)
 
     return (
         <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -67,12 +59,8 @@ export function TodayMoreMenu(): JSX.Element {
                     data-attr="more-menu-status-button"
                 >
                     Status page
-                    {statusBadgeText && (
-                        <Badge variant={SEVERITY_BADGE[statusSeverity]} className="ms-auto">
-                            {statusBadgeText}
-                        </Badge>
-                    )}
-                    <IconExternal data-icon="inline-end" className={statusBadgeText ? undefined : 'ms-auto'} />
+                    <TodaySeverityDot severity={moreItemSeverity.status} />
+                    <IconExternal data-icon="inline-end" className="ms-auto" />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     render={todayMenuLinkItem(urls.health())}
@@ -80,11 +68,7 @@ export function TodayMoreMenu(): JSX.Element {
                     data-attr="more-menu-health-button"
                 >
                     Health
-                    {healthBadgeText && (
-                        <Badge variant={SEVERITY_BADGE[healthSeverity]} className="ms-auto">
-                            {healthBadgeText}
-                        </Badge>
-                    )}
+                    <TodaySeverityDot severity={moreItemSeverity.health} />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

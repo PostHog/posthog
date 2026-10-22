@@ -12,6 +12,7 @@ import { TodayLogo } from './TodayLogo'
 import { OrgMenuActionKey, todayOrgMenuLogic } from './todayOrgMenuLogic'
 import { SEVERITY_INDICATOR, SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
+import { TodaySeverityDot } from './TodaySeverityDot'
 import { TodaySwitcherMenu, TodaySwitcherRow } from './TodaySwitcherMenu'
 
 // Invite IDs and org IDs are both UUIDs, so the prefix keeps their row values apart in one list.
@@ -98,6 +99,7 @@ export function TodayOrgMenu(): JSX.Element {
             actions={orgMenuActions.map((key) => ({
                 value: key,
                 ...ACTION_ROWS[key],
+                trailing: key === 'billing' ? <TodaySeverityDot severity={billingSeverity} /> : undefined,
                 description:
                     key === 'billing' && billingText ? (
                         <span className={SEVERITY_TEXT_CLASS[billingSeverity]}>{billingText}</span>
