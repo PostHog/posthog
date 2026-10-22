@@ -2459,6 +2459,41 @@ describe('LogsIngestionConsumer', () => {
             ])
         })
 
+        it('emits nothing when a later internal message fails the batch', async () => {
+            const key = 'internal-logs-test-key'
+            await createConsumerWithMetricRules({
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: key,
+            })
+            const [billed, internal] = await createKafkaMessages([createLogMessage(), createLogMessage()], {
+                token: team.api_token,
+            })
+            internal.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, internal.value!)),
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const isInternal = topicMessages.messages?.some(
+                    (m: { headers?: Record<string, string> }) => m.headers?.[INTERNAL_SOURCE_HEADER]
+                )
+                if (topicMessages.topic === KAFKA_LOGS_CLICKHOUSE && isInternal) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch([billed, internal]))).rejects.toThrow(
+                    'broker down'
+                )
+                expect(mockEmitter.emit).not.toHaveBeenCalled()
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
         it('produces logs normally when the rules cache fetch throws (fail-open)', async () => {
             // Metric rules are a purely additive side feature: a Postgres blip on the
             // rules fetch must not DLQ or block the log records themselves.

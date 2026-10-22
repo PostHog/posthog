@@ -377,6 +377,8 @@ function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
     }
 }
 
+type MetricTalliesByTeam = Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
@@ -743,7 +745,7 @@ export class LogsIngestionConsumer {
         return {
             // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
             backgroundTask: (async () => {
-                await this.processAndProduceLogMessages(
+                const metricTalliesByTeam = await this.processAndProduceLogMessages(
                     rateLimiterAllowedMessages,
                     usageStats,
                     transformationBatchBudget
@@ -751,6 +753,8 @@ export class LogsIngestionConsumer {
                 // A usage map that is never emitted keeps their stats off the team's billed row.
                 // They run after the billed batches, so the per-batch concurrency limit still holds.
                 await this.processAndProduceLogMessages(internalMessages, new Map(), transformationBatchBudget)
+                // Metric rules emit deltas, so they wait until no group can fail the batch into a replay.
+                await this.emitMetricRuleTallies(metricTalliesByTeam)
                 await this.deps.teamManager.setTeamsIngestedData(
                     rateLimiterAllowedMessages.map((message) => message.teamId)
                 )
@@ -950,7 +954,7 @@ export class LogsIngestionConsumer {
      * as one OTLP payload per team after produce.
      */
     private async getMetricRuleBatchState(
-        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>,
+        byTeam: MetricTalliesByTeam,
         message: LogsIngestionMessage
     ): Promise<{ token: string; rules: CompiledMetricRule[]; tallies: BatchTallies } | null> {
         if (!this.appliesTeamLogRules(message) || !this.isMetricRulesEnabledForTeam(message.teamId)) {
@@ -985,9 +989,7 @@ export class LogsIngestionConsumer {
         return state.rules.length > 0 ? state : null
     }
 
-    private async emitMetricRuleTallies(
-        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>
-    ): Promise<void> {
+    private async emitMetricRuleTallies(byTeam: MetricTalliesByTeam): Promise<void> {
         for (const [teamId, { token, rules, tallies }] of byTeam) {
             const teamIdLabel = teamId.toString()
             if (tallies.valueSkipped > 0) {
@@ -1030,11 +1032,8 @@ export class LogsIngestionConsumer {
         messages: LogsIngestionMessage[],
         usageStats: UsageStatsByTeam,
         transformationBatchBudget?: TransformationBatchBudget
-    ): Promise<void> {
-        const metricTalliesByTeam = new Map<
-            number,
-            { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
-        >()
+    ): Promise<MetricTalliesByTeam> {
+        const metricTalliesByTeam: MetricTalliesByTeam = new Map()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         let quarantined = 0
         const results = await Promise.allSettled(
@@ -1276,7 +1275,7 @@ export class LogsIngestionConsumer {
             throw failures[0].reason
         }
 
-        await this.emitMetricRuleTallies(metricTalliesByTeam)
+        return metricTalliesByTeam
     }
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
