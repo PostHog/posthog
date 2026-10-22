@@ -366,17 +366,24 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
-def _error_clauses(criteria: ReplayCriteria, *, column: str, params: dict[str, Any]) -> tuple[str, str]:
-    error_kind_clause = error_message_clause = ""
+@frozen
+class _ErrorClauses:
+    kind: str
+    message: str
+
+    def apply(self, template: str, **values: str) -> str:
+        return template.format(error_kind_clause=self.kind, error_message_clause=self.message, **values)
+
+
+def _error_clauses(criteria: ReplayCriteria, *, column: str, params: dict[str, Any]) -> _ErrorClauses:
+    kind = message = ""
     if criteria.error_kinds:
-        error_kind_clause = f"AND {column.format('error_kind')} IN %(error_kinds)s"
+        kind = f"AND {column.format('error_kind')} IN %(error_kinds)s"
         params["error_kinds"] = list(criteria.error_kinds)
     if criteria.error_message_contains:
-        error_message_clause = (
-            f"AND positionCaseInsensitive({column.format('error_message')}, %(error_message_contains)s) > 0"
-        )
+        message = f"AND positionCaseInsensitive({column.format('error_message')}, %(error_message_contains)s) > 0"
         params["error_message_contains"] = criteria.error_message_contains
-    return error_kind_clause, error_message_clause
+    return _ErrorClauses(kind=kind, message=message)
 
 
 def _find_candidate_functions(criteria: ReplayCriteria) -> list[tuple[int, str]]:
@@ -385,25 +392,15 @@ def _find_candidate_functions(criteria: ReplayCriteria) -> list[tuple[int, str]]
     if criteria.team_ids:
         team_clause = "AND team_id IN %(team_ids)s"
         params["team_ids"] = list(criteria.team_ids)
-    error_kind_clause, error_message_clause = _error_clauses(criteria, column="{}", params=params)
-    rows = sync_execute(
-        _CANDIDATE_FUNCTIONS_QUERY.format(
-            team_clause=team_clause,
-            error_kind_clause=error_kind_clause,
-            error_message_clause=error_message_clause,
-        ),
-        params,
-    )
+    clauses = _error_clauses(criteria, column="{}", params=params)
+    rows = sync_execute(clauses.apply(_CANDIDATE_FUNCTIONS_QUERY, team_clause=team_clause), params)
     return [(int(row[0]), str(row[1])) for row in rows]
 
 
 def _failures_query(criteria: ReplayCriteria, scope: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     params = {**scope, "window_end": criteria.window_end}
-    error_kind_clause, error_message_clause = _error_clauses(criteria, column="argMax({}, version)", params=params)
-    return (
-        _FAILURES_QUERY.format(error_kind_clause=error_kind_clause, error_message_clause=error_message_clause),
-        params,
-    )
+    clauses = _error_clauses(criteria, column="argMax({}, version)", params=params)
+    return clauses.apply(_FAILURES_QUERY), params
 
 
 def _load_failures(criteria: ReplayCriteria, scope: dict[str, Any]) -> list[_Failure]:
@@ -546,11 +543,8 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
             "baseline_start": criteria.window_start - BASELINE_LOOKBACK,
             "window_start": criteria.window_start,
         }
-        error_kind_clause, error_message_clause = _error_clauses(criteria, column="{}", params=params)
-        query = _FUNCTIONS_FAILING_BEFORE_QUERY.format(
-            error_kind_clause=error_kind_clause, error_message_clause=error_message_clause
-        )
-        failing_before_window = {row[0] for row in sync_execute(query, params)}
+        clauses = _error_clauses(criteria, column="{}", params=params)
+        failing_before_window = {row[0] for row in sync_execute(clauses.apply(_FUNCTIONS_FAILING_BEFORE_QUERY), params)}
 
     failures_by_function: dict[str, list[_Failure]] = {}
     for failure in failures:
