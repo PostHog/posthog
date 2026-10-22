@@ -42,7 +42,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
@@ -564,6 +564,78 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # (event author, run told to link, thread has a run, author resolved)
+            ("placeholder_linking_run", "U00", True, True, "U_ACTOR"),
+            ("placeholder_run_not_told_to_link", "U00", False, True, "U00"),
+            ("placeholder_no_run_in_thread", "U00", True, False, "U00"),
+            ("our_bot_linking_run", "U_OUR_BOT", True, True, "U_ACTOR"),
+            ("our_bot_no_run_in_thread", "U_OUR_BOT", True, False, "U_OUR_BOT"),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_bot_reply_link_unfurls_for_the_thread_actor(
+        self,
+        _name: str,
+        author: str,
+        run_links: bool,
+        has_run: bool,
+        expected_resolved: str,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        # Slack credits a bot-posted message to our bot user or to a placeholder author, and neither
+        # resolves to a PostHog user, so without this path a chart link in the agent's answer never
+        # unfurls. The attribution stays narrow: a thread whose run was told to share links, and the
+        # actor is the one the run recorded rather than the mapping's stale column.
+        write_auth_state_ok(self.integration.id, bot_user_id="U_OUR_BOT")
+        mock_resolve.side_effect = lambda _slack, _integration, uid, *_a, **_k: (
+            MagicMock(user=self.user) if uid == "U_ACTOR" else None
+        )
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        if has_run:
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Chart the signups",
+                description="",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            run = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                state={"slack_chart_links": run_links, "slack_actor_slack_user_id": "U_ACTOR"},
+            )
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=self.integration,
+                slack_workspace_id=self.integration.integration_id,
+                channel="C1",
+                thread_ts="100.000",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U_ASKER",
+                latest_actor_slack_user_id="U_STALE",
+            )
+        url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+
+        handle_posthog_link_unfurl(
+            {
+                "channel": "C1",
+                "message_ts": "123.456",
+                "thread_ts": "100.000",
+                "user": author,
+                "links": [{"url": url}],
+            },
+            self.integration,
+        )
+
+        assert mock_resolve.call_args.args[2] == expected_resolved
+        assert mock_client.chat_unfurl.called == (expected_resolved == "U_ACTOR")
+
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -893,7 +965,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "Checkout drop",
                     "*In progress*",
                     "0 signals",
-                    "Fewer orders",
+                    "/static/icons/self-driving.png",
                 ]
         raise ValueError(kind)
 
@@ -1120,7 +1192,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             if block["type"] == "section":
                 parts.extend(field["text"] for field in [block.get("text"), *block.get("fields", [])] if field)
             elif block["type"] == "context":
-                parts.extend(element["text"] for element in block["elements"])
+                parts.extend(element.get("text") or element["image_url"] for element in block["elements"])
             elif block["type"] == "actions":
                 parts.extend(element["text"]["text"] for element in block["elements"])
         return "\n".join(parts)

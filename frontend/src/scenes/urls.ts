@@ -7,6 +7,7 @@ import {
     DataTableNode,
     VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -90,6 +91,8 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
         filters,
         metricName,
@@ -104,6 +107,8 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
@@ -155,6 +160,12 @@ export const urls = {
         const hashParams = new URLSearchParams()
         if (connectionId) {
             hashParams.set('c', connectionId)
+        }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
         }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))

@@ -1,8 +1,10 @@
+import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -60,6 +62,9 @@ export interface ResolvedState {
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
+    projectHasData?: boolean | undefined
+    /** Set on the per-call state when the no-data notice blocked or warned this call. */
+    noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -67,6 +72,14 @@ export interface ResolvedState {
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
     flagGatedTools: FlagGatedTool[]
+    /**
+     * The tools a scout run with a picked tool list holds, from token introspection.
+     * Undefined means no per-tool policy. Every other tool is hidden, and exec refuses it
+     * as `tool_not_granted`.
+     */
+    heldTools?: ReadonlySet<string> | undefined
+    /** The task a sandbox token is bound to, from token introspection. */
+    sandboxTaskId?: string | undefined
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -149,9 +162,9 @@ export class RequestStateResolver {
         this.env = env
     }
 
-    async resolve(props: RequestProperties): Promise<ResolvedState> {
+    async resolve(props: RequestProperties, lookups?: StateLookupCache): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
-        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
+        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
@@ -164,7 +177,10 @@ export class RequestStateResolver {
             this.resolveSessionContext(requestContext),
             pinned ? undefined : reqCtx.tokenCache.get('projectId'),
         ])
-        if (!pinned && !storedProjectId) {
+        const needsDefaultContext = pinned
+            ? pinned.sessionScoped && !pinned.orgId && !pinned.projectId
+            : !storedProjectId
+        if (needsDefaultContext) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
@@ -179,6 +195,7 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
+                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
             ]),
         ]
 
@@ -295,18 +312,25 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
+        // The held set is a server-derived ceiling on top of every other filter, so a tool
+        // outside it is neither listed nor offered as a gated hint the agent could chase.
+        const heldTools = _apiKey?.mcp_allowed_tools ? new Set(_apiKey.mcp_allowed_tools) : undefined
+        const isHeld = (tool: { name: string }): boolean => !heldTools || heldTools.has(tool.name)
+
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
-        )
+        const allTools = (
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            )
+        ).filter(isHeld)
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
-        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
         return {
             reqCtx,
@@ -320,6 +344,7 @@ export class RequestStateResolver {
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
+            projectHasData: flagAnalyticsContext?.projectHasData,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -328,6 +353,8 @@ export class RequestStateResolver {
             scopeGatedTools,
             flagGatedTools,
             gatewayToolFilter: { tools, features, excludeTools },
+            heldTools,
+            sandboxTaskId: _apiKey?.sandbox_task_id,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -339,30 +366,9 @@ export class RequestStateResolver {
     }
 
     /**
-     * Resolve the org and project that a request pinned via request params into
-     * the request-scoped context every tool resolves through.
-     *
-     * A pin sets the session's default active context, not a per-request hard
-     * lock: `switch-project` stays available on a project pin (the documented
-     * cross-org flow depends on it), so a switch made mid-session must survive
-     * the client resending the same static pin on every request. The effective
-     * context is the session's recorded switch (see
-     * `Context.setSessionActiveContext`) when one exists, otherwise the pin. A
-     * genuinely changed pin retargets the session and discards the recorded switch.
-     *
-     * The result never goes into the token cache. Every concurrent session on the
-     * same credential shares that cache, so a pin written there would revert a
-     * switch and leak into the other sessions.
-     *
-     * Many clients send the pin only on `initialize`. A later request in the same
-     * session that omits the pin restores the session's saved pin and switch, so
-     * it does not fall back to whatever another session left in the token cache.
-     * A session that never sent a pin stays on the token selection, even when it
-     * recorded a switch. A pin that differs in either field replaces the whole
-     * saved pin and discards the recorded switch.
-     *
-     * Without an MCP session id nothing records a switch across requests, so the
-     * pin wins on every request and the switch tools refuse to switch.
+     * Capture the session selection once per request so another connection's
+     * switches cannot redirect an in-flight call. A resent pin preserves switches;
+     * a changed pin replaces the whole selection. Clients may send pins only on initialize.
      */
     private async resolvePinnedContext(
         reqCtx: RequestContext,
@@ -377,12 +383,13 @@ export class RequestStateResolver {
         }
 
         const legacyCache = reqCtx.legacySessionScopedCache
-        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, legacyPinOrg, legacyPinProject] =
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, defaults, legacyPinOrg, legacyPinProject] =
             await Promise.all([
                 sessionCache.get('appliedPinOrgId'),
                 sessionCache.get('appliedPinProjectId'),
                 sessionCache.get('activeOrgId'),
                 sessionCache.get('activeProjectId'),
+                sessionCache.get('defaultContext'),
                 legacyCache?.get('appliedPinOrgId'),
                 legacyCache?.get('appliedPinProjectId'),
             ])
@@ -390,28 +397,39 @@ export class RequestStateResolver {
         // key included the credential. Its saved switch would be lost silently, so
         // stop before any tool runs. Legacy state without a pin marker never changed
         // the selection, so it needs no reset.
-        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject)
+        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject || defaults)
         if (!hasSessionState && (legacyPinOrg || legacyPinProject)) {
             throw new McpSessionResetRequiredError()
         }
-        if (!hasPin && !appliedPinOrg && !appliedPinProject) {
-            return undefined
-        }
-
         // These keys carry a write-based TTL, but the MCP session they belong to
         // renews its own context store on every request. Renew them too, so a
         // switch recorded early in a long-lived session does not expire before
         // the session ends and read back as a missing marker — which reads as a
         // changed pin, discards the switch, and reverts to the pin mid-session.
-        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+        await sessionCache.refreshTtl([
+            'appliedPinOrgId',
+            'appliedPinProjectId',
+            'activeOrgId',
+            'activeProjectId',
+            'defaultContext',
+            'defaultProjectId',
+        ])
 
         // An omitted pin is not a changed pin: keep the session's saved context.
         if (!hasPin) {
+            const useDefaults =
+                activeOrg === undefined && activeProject === undefined && !appliedPinOrg && !appliedPinProject
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
-                orgId: activeOrg ?? appliedPinOrg,
-                projectId: activeProject ?? appliedPinProject,
+                orgId:
+                    activeOrg !== undefined
+                        ? (activeOrg ?? undefined)
+                        : (appliedPinOrg ?? (useDefaults ? defaults?.organizationId : undefined)),
+                projectId:
+                    activeProject !== undefined
+                        ? (activeProject ?? undefined)
+                        : (appliedPinProject ?? (useDefaults ? defaults?.projectId?.toString() : undefined)),
             }
         }
 
@@ -437,8 +455,8 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
-            orgId: overrideOrg ?? organizationId,
-            projectId: overrideProject ?? projectId,
+            orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
+            projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }
     }
 
@@ -472,7 +490,15 @@ export class RequestStateResolver {
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
+            const key = JSON.stringify([
+                'featureFlags',
+                distinctId,
+                Object.entries(groups ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+                [...flagKeys].sort(),
+            ])
+            return await reqCtx.lookups.get(reqCtx.tokenCache.scope, key, () =>
+                evaluateFeatureFlags(flagKeys, distinctId, groups)
+            )
         } catch {
             return { flags: {}, payloads: {} }
         }

@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.models import Team, TeamRevenueAnalyticsConfig
@@ -209,6 +210,44 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+class EmailUtmParamsSerializer(serializers.Serializer):
+    utm_source = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, help_text="Default utm_source. Supports Liquid variables."
+    )
+    utm_medium = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, help_text="Default utm_medium. Supports Liquid variables."
+    )
+    utm_campaign = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.",
+    )
+    utm_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Default utm_content. Empty uses the email step name. Supports Liquid variables.",
+    )
+
+
+@extend_schema_field(EmailUtmParamsSerializer)
+class EmailUtmParamsField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict[str, str]:
+        # The value replaces the saved defaults, so a misspelled key would otherwise clear them silently.
+        if isinstance(data, dict) and (unknown := sorted(set(data) - set(EmailUtmParamsSerializer().fields))):
+            raise serializers.ValidationError(f"Unknown UTM parameters: {', '.join(unknown)}.")
+        serializer = EmailUtmParamsSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return {key: value for key, value in serializer.validated_data.items() if value.strip()}
+
+
+def drop_cached_workflows_config(team: Team) -> None:
+    # The config save writes every column, so a row this team instance loaded earlier would undo
+    # settings another admin changed since.
+    team.__dict__.pop(Team.workflows_config.cache_name, None)
+
+
 class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     capture_workflows_engagement_events = serializers.BooleanField(
         required=False,
@@ -304,11 +343,28 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    email_utm_tags_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether new email steps and broadcasts start with UTM tags on their links. "
+            "Each email can still change it. Existing emails keep their current values."
+        ),
+    )
+    email_utm_params = EmailUtmParamsField(
+        required=False,
+        help_text=(
+            "Default UTM values that new email steps and broadcasts copy. An empty value keeps the "
+            "built-in default for that tag."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
             "capture_workflows_engagement_events",
             "email_tracking_consent_mode",
+            "email_utm_tags_enabled",
+            "email_utm_params",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
             "replay_vision_scan_rate_limit_per_day",

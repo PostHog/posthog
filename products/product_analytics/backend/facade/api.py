@@ -143,6 +143,14 @@ def recent_viewers_by_insight(
     )
 
 
+def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], since: datetime) -> dict[int, int]:
+    """How many people looked at each of these insights since the given time, in one query.
+
+    Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
+    """
+    return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
     """Refresh an insight's stored variables against the team's latest variable definitions."""
     return logic.map_stale_to_latest(stale_variables, latest_variables)
@@ -236,7 +244,12 @@ def save_saved_insight_query(
 
 
 def get_insight_series(
-    *, team: Team, user: User, short_id: str, dashboard: InsightDashboardContext | None = None
+    *,
+    team: Team,
+    user: User,
+    short_id: str,
+    dashboard: InsightDashboardContext | None = None,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -249,5 +262,11 @@ def get_insight_series(
     )
 
     return insight_series.insight_series(
-        team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
+        team,
+        user,
+        short_id=insight.short_id,
+        name=insight.name,
+        query=insight.query or {},
+        dashboard=dashboard,
+        blocking=blocking,
     )

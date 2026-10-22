@@ -45,6 +45,8 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
+    ExperimentHealthCheckKey,
+    ExperimentHealthCheckStatus,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
@@ -242,12 +244,46 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthCheckResultSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        help_text=(
+            "Stable identifier of the check. A check can report several finding codes, so the key is not a "
+            "finding code."
+        ),
+    )
+    name = serializers.CharField(help_text="What the check looks at, for example 'Feature flag variants'.")
+    status = serializers.ChoiceField(
+        choices=ExperimentHealthCheckStatus.choices,
+        help_text=(
+            "passed: the check found no problem. finding: the check reported a finding in `findings`. "
+            "not_applicable: the check does not cover the experiment's current state, for example a check of the "
+            "changes since launch on a draft. not_checked: the check covers the experiment, but it could not read "
+            "an input or it failed, so a problem it looks for can be present without a finding."
+        ),
+    )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the check did not look, for the statuses not_applicable and not_checked, for example "
+            "'Runs after launch'. Null for passed and finding."
+        ),
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,
         help_text=(
             "Problems that the health checks found in the experiment's configuration and its feature flag. "
-            "Empty when every check passed."
+            "Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`."
+        ),
+    )
+    checks = ExperimentHealthCheckResultSerializer(
+        many=True,
+        help_text=(
+            "The result of each health check, in the order the checks run. The checks that read the exposure "
+            "counts are not here: the exposure query returns them as `health_checks`."
         ),
     )
 
@@ -3247,6 +3283,25 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
     )
 
 
+class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
+    custom_event = serializers.CharField(
+        allow_null=True,
+        help_text="The event the exposure criteria count in place of the flag calls. Null for flag calls or an action.",
+    )
+    required_flag_key = serializers.CharField(
+        allow_null=True,
+        help_text="The flag key the exposure query requires on the flag call events. Null for a custom event or an action.",
+    )
+    variant_property = serializers.CharField(help_text="The event property that holds the variant.")
+    activation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The event, or the action's name, that has to follow a user's flag call before the user counts. Null "
+            "without an activation."
+        ),
+    )
+
+
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     can_read_flag_history = serializers.BooleanField(
         help_text="Whether the reader may read the flag's history, which the flag-change checks need."
@@ -3338,6 +3393,39 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     )
     flag = ExperimentHealthInputsFlagSerializer(
         allow_null=True, help_text="The experiment's feature flag. Null when it has none."
+    )
+    flag_last_called_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "The flag's latest recorded call, which a periodic sync of the flag call events sets. Null when the "
+            "experiment has no flag, or the flag has no recorded call."
+        ),
+    )
+    flag_called = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether PostHog has recorded any call of the flag. The flag traffic check reads it on a draft. Null when "
+            "the experiment has no flag, or the organization's flag calls are stored where the checks can't read them."
+        ),
+    )
+    flag_called_during_run = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether PostHog has recorded a call of the flag between launch and the end, or until now. The zero "
+            "exposures check reads it to say whether the flag is called. Null before launch, after a latest call that "
+            "came after the end, or when the organization's flag calls can't be read."
+        ),
+    )
+    exposure_events = ExperimentHealthInputsExposureEventsSerializer(
+        allow_null=True,
+        help_text="The events the exposure criteria count. Null when the stored exposure criteria don't parse.",
+    )
+    events_received = serializers.DictField(
+        child=serializers.BooleanField(),
+        help_text=(
+            "Whether the project has received each event that the metrics and the exposure criteria name, by event "
+            "name. A name that ingestion keeps no record of is absent."
+        ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(
         allow_null=True,
