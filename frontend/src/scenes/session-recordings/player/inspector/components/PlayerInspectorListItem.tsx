@@ -234,10 +234,9 @@ function rowItemTitleContent({
             return <ItemMetricEvent item={item} />
         case 'logs':
             return <ItemLog item={item} groupCount={groupCount} />
-        default: {
-            const _exhaustive: never = item
+        default:
+            item satisfies never
             return null
-        }
     }
 }
 
@@ -306,10 +305,9 @@ function rowItemDetailContent({
         case 'inactivity':
         case 'session-change':
             return null
-        default: {
-            const _exhaustive: never = item
+        default:
+            item satisfies never
             return null
-        }
     }
 }
 
