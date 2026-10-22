@@ -430,6 +430,7 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
             ("version_outside_static", "/api/1.438.12/foo", "/api/1.438.12/foo"),
         ]
     )
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
     def test_rewrites_only_versioned_static_paths(self, _name: str, path: str, expected_path: str) -> None:
         seen_paths: list[str] = []
 
@@ -440,6 +441,26 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
         UnversionedStaticPathMiddleware(get_response)(RequestFactory().get(path))
 
         assert seen_paths == [expected_path]
+
+    @parameterized.expand(
+        [
+            ("us_cloud", "US", False),
+            ("eu_cloud", "EU", False),
+            ("cloud_dev", "DEV", False),
+            ("local_development", None, True),
+        ]
+    )
+    def test_never_rewrites_outside_hobby(self, _name: str, cloud_deployment: str | None, debug: bool) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+            UnversionedStaticPathMiddleware(get_response)(RequestFactory().get("/static/1.438.12/array.js"))
+
+        assert seen_paths == ["/static/1.438.12/array.js"]
 
     def test_runs_before_whitenoise(self) -> None:
         middleware = list(settings.MIDDLEWARE)
