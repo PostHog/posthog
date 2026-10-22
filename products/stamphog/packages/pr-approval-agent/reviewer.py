@@ -58,6 +58,9 @@ INLINE_COMMENT_CAP = 60
 DISCUSSION_HEAD_KEEP = 15
 DISCUSSION_TAIL_KEEP = 35
 AUTHOR_DISCUSSION_KEEP = 10
+# Every review gets one budget. The reviewer spends its first turn reading the diff, so a small
+# budget ends a PR of any size in ERROR instead of a verdict.
+MAX_TURNS = 20
 
 
 # _sanitize_untrusted lives in policy.py (shared with the folder-prose
@@ -429,14 +432,6 @@ _INVOCATION_LINES = {
 }
 
 
-def max_turns(gate_context: dict) -> int:
-    """The reviewer's turn budget for this PR."""
-    # A gate denial only reports the diff. A trivial PR still gets the full budget: the reviewer
-    # reads the diff in its first turn and often checks a symbol in another file, so a small cap
-    # turns an approvable PR into an error.
-    return 5 if gate_context["gate_verdict"] == "DENIED" else 20
-
-
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
@@ -507,7 +502,7 @@ class Reviewer:
             # ships in the head tree, regardless of CLI defaults.
             mcp_servers={},
             strict_mcp_config=True,
-            max_turns=max_turns(gate_context),
+            max_turns=MAX_TURNS,
             model=CLAUDE_REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=FACTS_SCHEMA,
