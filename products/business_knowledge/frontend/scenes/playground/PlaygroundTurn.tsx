@@ -1,14 +1,11 @@
 import { memo } from 'react'
 
-import { IconDocument, IconGithub, IconSearch } from '@posthog/icons'
-
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { Thread } from 'products/posthog_ai/frontend/api/primitives'
 
-import { type PlaygroundTurnApi, SandboxToolNameEnumApi } from '../../generated/api.schemas'
-import { PlaygroundCitations } from './PlaygroundCitations'
-import { citationRequest, describeSearch, summarizeSearches } from './playgroundDisplay'
+import type { PlaygroundTurnApi } from '../../generated/api.schemas'
+import { PlaygroundTrace } from './PlaygroundTrace'
 
 export interface PlaygroundTurnProps {
     id: string
@@ -30,56 +27,7 @@ export const PlaygroundTurn = memo(function PlaygroundTurn({ id, question, turn 
                 <Thread.Markdown content={question} id={`${id}-question`} />
             </Thread.Message>
             {isRunning || searches.length > 0 ? (
-                // Open while the answer runs, folded once it finishes.
-                <Thread.Activity
-                    id={`${id}-trace`}
-                    title={isRunning ? 'Looking through business knowledge' : 'Looked through business knowledge'}
-                    subtitle={summarizeSearches(searches)}
-                    status={isRunning ? 'in_progress' : 'completed'}
-                    animate={isRunning}
-                    showCompletionIcon={false}
-                    details={
-                        searches.length > 0 ? (
-                            <div className="flex min-w-0 flex-col gap-1">
-                                {searches.map((search, index) => {
-                                    const label = describeSearch(search)
-                                    const request = citationRequest(search)
-                                    return (
-                                        <Thread.Activity
-                                            key={`${search.tool}-${index}`}
-                                            id={`${id}-search-${index}`}
-                                            title={label.title}
-                                            subtitle={label.subtitle}
-                                            status="completed"
-                                            icon={
-                                                search.tool ===
-                                                SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesSearch ? (
-                                                    <IconGithub />
-                                                ) : search.tool ===
-                                                  SandboxToolNameEnumApi.BusinessKnowledgeDocumentsSearch ? (
-                                                    <IconSearch />
-                                                ) : (
-                                                    <IconDocument />
-                                                )
-                                            }
-                                            animate={false}
-                                            showCompletionIcon={false}
-                                            details={
-                                                request ? (
-                                                    <PlaygroundCitations
-                                                        citationKey={`${id}-search-${index}`}
-                                                        request={request}
-                                                        citedRefs={citedRefs}
-                                                    />
-                                                ) : undefined
-                                            }
-                                        />
-                                    )
-                                })}
-                            </div>
-                        ) : undefined
-                    }
-                />
+                <PlaygroundTrace id={id} running={isRunning} searches={searches} citedRefs={citedRefs} />
             ) : null}
             {run?.status === 'completed' && run.reply ? (
                 <Thread.Message type="ai" wrapperClassName="max-w-4/5">
