@@ -155,7 +155,9 @@ def test_bundle_relay_restores_only_after_verification(
     failed = cache_status == 1 or receive_status != 0 or restore_status != 0
     assert result.exit_code == (1 if failed else 0), result.output
     assert transferred == ([payload] if cache_status == 3 else [])
-    start.assert_called_once_with("eval1", None, eval_env.DEFAULT_TEMPLATE, eval_env.DEFAULT_PRESET, None, False, False)
+    start.assert_called_once_with(
+        "eval1", None, eval_env.DEFAULT_TEMPLATE, eval_env.DEFAULT_PRESET, None, None, False, create_without_app=True
+    )
     restore = [
         command for command in calls if command[:3] == ["-m", "products.posthog_ai.eval_harness.environment", "prepare"]
     ]

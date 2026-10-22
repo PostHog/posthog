@@ -350,7 +350,9 @@ def prepare_eval_environment(
         # The wildcard Coder SSH entry must exist before creating a billable box.
         if not coder_ssh_alias_configured("eval-setup-check"):
             raise click.ClickException("Coder SSH access is not configured. Run `hogli devbox:setup` first.")
-        workspace = start_or_create_workspace(name, disk, DEFAULT_TEMPLATE, DEFAULT_PRESET, region, False, verbose)
+        workspace = start_or_create_workspace(
+            name, disk, DEFAULT_TEMPLATE, DEFAULT_PRESET, region, None, verbose, create_without_app=True
+        )
         target = EvalEnvironmentDevbox(workspace, state_dir)
         target.require_started()
         target.wait_for_checkout()

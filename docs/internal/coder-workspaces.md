@@ -41,6 +41,8 @@ Run the normal `hogli devbox:setup` once beforehand. The devbox also needs the i
 
 Leave the devbox's Docker proxy running during setup. Its listener on port 8010 does not mean the application has started; setup checks the application processes and ports separately.
 
+For a new devbox, the preparation command defers automatic app startup until the import is ready. For an existing devbox, it preserves the workspace's startup setting.
+
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 

@@ -1426,6 +1426,8 @@ def start_or_create_workspace(
     region: str | None,
     start_app: bool | None,
     verbose: bool,
+    *,
+    create_without_app: bool = False,
 ) -> str:
     """Start or create a devbox and return its resolved name."""
     ensure_runtime_ready()
@@ -1459,7 +1461,7 @@ def start_or_create_workspace(
         region=effective_region,
         template=template,
         preset=preset,
-        start_app=start_app,
+        start_app=False if create_without_app else start_app,
         verbose=verbose,
     )
     _wait_until_ready(name)
