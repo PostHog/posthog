@@ -1084,6 +1084,43 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
 
 
+class HelpscoutConversationSignalExtra(SignalExtraBase):
+    number: str | None
+    status: str | None
+    state: str | None
+    type: str | None
+    created_at: str | None
+
+
+class HelpscoutConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.HELPSCOUT]
+    extra: HelpscoutConversationSignalExtra
+
+
+class DecagonConversationSignalExtra(SignalExtraBase):
+    csat_rating: str | None
+    tags: list
+    created_at: str | None
+
+
+class DecagonConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DECAGON]
+    extra: DecagonConversationSignalExtra
+
+
+class VitallyConversationSignalExtra(SignalExtraBase):
+    external_url: str | None
+    created_at: str | None
+
+
+class VitallyConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.VITALLY]
+    extra: VitallyConversationSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -1320,7 +1357,10 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | HelpscoutConversationSignalInput
+    | DecagonConversationSignalInput
+    | VitallyConversationSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1390,6 +1430,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    HelpscoutConversationSignalInput,
+    DecagonConversationSignalInput,
+    VitallyConversationSignalInput,
     CheckFailedSignalInput,
 )
 

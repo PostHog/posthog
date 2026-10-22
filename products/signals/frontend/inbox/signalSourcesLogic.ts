@@ -621,6 +621,7 @@ export interface signalSourcesLogicMeta {
                 | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'decagon'
                 | 'dixa'
                 | 'featurebase'
                 | 'firehydrant'
@@ -634,6 +635,7 @@ export interface signalSourcesLogicMeta {
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
@@ -661,6 +663,7 @@ export interface signalSourcesLogicMeta {
                 | 'sonarqube'
                 | 'squadcast'
                 | 'uservoice'
+                | 'vitally'
                 | 'xmatters'
                 | 'zendesk',
                 ExternalSignalSourceState
@@ -687,6 +690,7 @@ export interface signalSourcesLogicMeta {
                 | 'bigeye'
                 | 'bugsnag'
                 | 'canny'
+                | 'decagon'
                 | 'dixa'
                 | 'featurebase'
                 | 'firehydrant'
@@ -700,6 +704,7 @@ export interface signalSourcesLogicMeta {
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
@@ -727,6 +732,7 @@ export interface signalSourcesLogicMeta {
                 | 'sonarqube'
                 | 'squadcast'
                 | 'uservoice'
+                | 'vitally'
                 | 'xmatters'
                 | 'zendesk',
                 ExternalSignalSourceState
