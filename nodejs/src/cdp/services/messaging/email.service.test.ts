@@ -1608,7 +1608,11 @@ describe('EmailService', () => {
                 cc: 'jane@example.com',
                 bcc: 'audit@example.com',
                 replyTo: 'help@example.com',
-                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                headers: [
+                    { name: 'X-Entity-Ref-ID', value: 'order-123' },
+                    { name: 'key', value: 'invoice' },
+                    { name: 'value', value: '123' },
+                ],
                 tags: [{ name: 'category', value: 'invite' }],
             })
 
@@ -1634,6 +1638,8 @@ describe('EmailService', () => {
             expect(head).toMatch(/^Cc: jane@example\.com$/m)
             expect(head).toMatch(/^Reply-To: help@example\.com$/m)
             expect(head).toMatch(/^X-Entity-Ref-ID: order-123$/im)
+            expect(head).toMatch(/^Key: invoice$/m)
+            expect(head).toMatch(/^Value: 123$/m)
             expect(head).toMatch(/^X-PostHog-Tracking-Code: \S+$/im)
             expect(head).toMatch(/^Auto-Submitted: auto-generated$/m)
             expect(head).not.toMatch(/^Bcc:/im)
