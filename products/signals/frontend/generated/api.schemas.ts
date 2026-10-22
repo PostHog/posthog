@@ -3436,6 +3436,21 @@ export interface BetterstackIncidentSignalExtraApi {
     started_at: string | null
 }
 
+export interface MonteCarloAlertSignalExtraApi {
+    type: string | null
+    status: string | null
+    severity: string | null
+    priority: string | null
+    url: string | null
+    created_time: string | null
+}
+
+export interface BigeyeIssueSignalExtraApi {
+    current_status: string | null
+    priority: string | null
+    opened_time_seconds: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3502,6 +3517,8 @@ export type SignalExtraApi =
     | GrafanaIrmIncidentSignalExtraApi
     | XmattersIncidentSignalExtraApi
     | BetterstackIncidentSignalExtraApi
+    | MonteCarloAlertSignalExtraApi
+    | BigeyeIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */

@@ -17480,6 +17480,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface BigeyeIssueSignalExtra {
+      current_status: string | null;
+      priority: string | null;
+      opened_time_seconds: string | null;
+    }
+
     export interface Billing {
       /** @maxLength 100 */
       plan: string;
@@ -61796,6 +61802,74 @@ export namespace Schemas {
       client_query_id?: string;
     }
 
+    export interface InsightPlatformAlertCondition {
+      /** The bounds the insight's value is checked against, absolute or as a percentage change. */
+      threshold: InsightThreshold | null;
+      /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
+      comparison: AlertCondition;
+      /**
+         * Always null. The platform owns threshold alerts only, so no detector applies.
+         * @nullable
+         */
+      detector?: null;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type InsightPlatformAlertConfigurationEditSourceKind = typeof InsightPlatformAlertConfigurationEditSourceKind[keyof typeof InsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const InsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    export interface InsightPlatformAlertSourceConfig {
+      /** The insight the alert checks. It cannot change through this API. */
+      insight_id: number;
+      /** The bound the insight's value is checked against. */
+      condition: InsightPlatformAlertCondition;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface InsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: InsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -69121,6 +69195,15 @@ export namespace Schemas {
          * @nullable
          */
       next_measurement_at: string | null;
+    }
+
+    export interface MonteCarloAlertSignalExtra {
+      type: string | null;
+      status: string | null;
+      severity: string | null;
+      priority: string | null;
+      url: string | null;
+      created_time: string | null;
     }
 
     export interface MoveTileTile {
@@ -84138,6 +84221,55 @@ export namespace Schemas {
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditSourceKind = typeof PatchedInsightPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedInsightPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedInsightPlatformAlertConfigurationEditSourceKind = {
+      Insight: 'insight',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedInsightPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedInsightPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a insight alert. The bound the alert is evaluated against is under condition. */
+      source_config?: InsightPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
     export interface PatchedInsightVariable {
       /** UUID of the SQL variable. */
       readonly id?: string;
@@ -85244,7 +85376,7 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedLogsPlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -90274,7 +90406,7 @@ export namespace Schemas {
 
     export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
 
-    export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -98554,7 +98686,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -125552,6 +125684,10 @@ export namespace Schemas {
 
     export type DashboardsWidgetCatalogRetrieveParams = {
     format?: DashboardsWidgetCatalogRetrieveFormat;
+    /**
+     * Widget types to return. Omit to return every registered widget type.
+     */
+    widget_type?: DashboardsWidgetCatalogRetrieveWidgetTypeItem[];
     };
 
     export type DashboardsWidgetCatalogRetrieveFormat = typeof DashboardsWidgetCatalogRetrieveFormat[keyof typeof DashboardsWidgetCatalogRetrieveFormat];
@@ -125560,6 +125696,22 @@ export namespace Schemas {
     export const DashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsWidgetCatalogRetrieveWidgetTypeItem = typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem[keyof typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem];
+
+
+    export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
+      ActivityEventsList: 'activity_events_list',
+      CanvasApp: 'canvas_app',
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+      ErrorTrackingList: 'error_tracking_list',
+      ExperimentResults: 'experiment_results',
+      ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
+      SessionReplayList: 'session_replay_list',
+      SurveyResults: 'survey_results',
     } as const;
 
     export type DataCatalogCertificationsListParams = {

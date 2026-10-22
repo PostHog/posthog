@@ -410,8 +410,9 @@ pub async fn evaluate_for_request(
         evaluation::evaluate_feature_flags(ctx, request_id).await?
     };
 
-    // A response for a team whose cached payload had a flag skipped reports an error, so that
-    // an SDK merges it into its stored flags and keeps the skipped flag's last value.
+    // A response that lacks a flag Python's builder publishes reports an error, because the
+    // serving read skipped it or the PostgreSQL fallback omitted it. An SDK then merges the
+    // response into its stored flags and keeps the missing flag's last value.
     response.errors_while_computing_flags |= has_unparseable_flags;
     Ok(response)
 }
