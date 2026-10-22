@@ -8,6 +8,7 @@ import posthoganalytics
 from rest_framework import exceptions, serializers, status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.settings import api_settings
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -153,12 +154,31 @@ def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
 
 class TransactionalEmailRejected(exceptions.APIException):
     STATUS_BY_CODE = {"quota_limited": 429, "idempotency_key_in_flight": 409, "idempotency_key_reused": 422}
+    ATTR_BY_CODE = {
+        "invalid_recipient": "to",
+        "recipient_suppressed": "to",
+        "sender_not_verified": "from",
+    }
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
-    def __init__(self, code: str, detail: str) -> None:
-        self.status_code = self.STATUS_BY_CODE.get(code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=detail, code=code)
+    def __init__(self, rejected: Rejected) -> None:
+        self.rejected = rejected
+        self.status_code = self.STATUS_BY_CODE.get(rejected.code, status.HTTP_400_BAD_REQUEST)
+        super().__init__(detail=rejected.detail, code=rejected.code)
+
+    def body(self) -> dict[str, Any]:
+        rejected = self.rejected
+        body: dict[str, Any] = {
+            "type": self.default_type,
+            "code": rejected.code,
+            "detail": rejected.detail,
+            "attr": self.ATTR_BY_CODE.get(rejected.code),
+            "docs_url": f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{rejected.code}",
+        }
+        if rejected.why is not None and rejected.fix is not None:
+            body.update(why=rejected.why, fix=rejected.fix)
+        return TemplateErrorSerializer(body).data
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):
@@ -209,6 +229,12 @@ def _usage(outcome: EmailSendOutcome) -> dict[str, str]:
 
 class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
     """What every route of the transactional email API shares: the flag, workflow access and the send."""
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # The error handler renders only type, code, detail and attr. A refused send also says why and what to fix.
+        if isinstance(exc, TransactionalEmailRejected):
+            return Response(exc.body(), status=exc.status_code)
+        return super().handle_exception(exc)
 
     def _require_transactional_email_flag(self) -> None:
         if not posthoganalytics.feature_enabled(
@@ -285,8 +311,8 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         match outcome:
             case Queued():
                 return outcome
-            case Rejected(code=code, detail=detail):
-                raise TransactionalEmailRejected(code, detail)
+            case Rejected():
+                raise TransactionalEmailRejected(outcome)
             case Unavailable():
                 raise TransactionalEmailUnavailable()
 

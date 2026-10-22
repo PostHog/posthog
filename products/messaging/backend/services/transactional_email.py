@@ -26,6 +26,7 @@ from products.messaging.backend.facade.contracts import (
     Rejected,
     RenderedContent,
     RenderedEmail,
+    SenderNotAllowed,
     SenderNotVerified,
     SenderUnavailable,
     SendFrom,
@@ -322,7 +323,7 @@ def code_send_from(team_id: int, address: str | None) -> SendFrom:
         sender = code_send_sender(team_id=team_id, email=email or None, name=name or None)
     except TransactionalEmailSenderUnavailable as e:
         if address:
-            raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
+            raise SenderNotAllowed(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("The project has no verified default email sender.") from e
     return SendFrom(integration_id=sender.integration_id, email=sender.email, name=sender.name)
 
@@ -362,6 +363,8 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
         return Unavailable()
 
     if response.status_code != 202:
+        if response.status_code == 400 and (refused := _failed_send_check(response)):
+            return refused
         if response.status_code == 429:
             return Rejected(code="quota_limited", detail="The project is over its email quota.")
         if response.status_code == 409:
@@ -384,6 +387,22 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
 
     body = response.json()
     return Queued(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+
+
+# The CDP service runs these checks before it queues, and answers each with what to change.
+SEND_CHECK_CODES = frozenset(
+    {"invalid_recipient", "sender_not_verified", "sending_suspended", "template_paused", "recipient_suppressed"}
+)
+
+
+def _failed_send_check(response: Any) -> Rejected | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("code") not in SEND_CHECK_CODES:
+        return None
+    return Rejected(code=body["code"], detail=str(body["detail"]), why=str(body["why"]), fix=str(body["fix"]))
 
 
 def _sendable_workflow_id(team_id: int, source: StoredTemplate | RenderedEmail) -> UUID:

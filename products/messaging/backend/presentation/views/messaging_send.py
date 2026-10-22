@@ -25,6 +25,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailSendCommand,
     RenderedContent,
     RenderedEmail,
+    SenderNotAllowed,
     SenderNotVerified,
     code_send_from,
     rendered_content,
@@ -290,13 +291,21 @@ def id_not_found(template_id: UUID | None) -> TemplateRefusal:
     )
 
 
-def sender_not_verified(detail: str) -> TemplateRefusal:
+def unusable_sender(error: SenderNotVerified | SenderNotAllowed) -> TemplateRefusal:
+    if isinstance(error, SenderNotAllowed):
+        return TemplateRefusal(
+            code=error.code,
+            detail=str(error),
+            attr="from",
+            why="PostHog only sends from a domain the project verified, so mailbox providers trust the email.",
+            fix="Send from an address on a verified domain, or verify the domain in the email channel settings first.",
+        )
     return TemplateRefusal(
-        code="sender_not_verified",
-        detail=detail,
+        code=error.code,
+        detail=str(error),
         attr="from",
-        why="PostHog only sends from a domain the project verified, so mailbox providers trust the email.",
-        fix="Send from an address on a verified domain, or verify the domain in the email channel settings first.",
+        why="The send names no `from`, and the project has no verified default sender to send from.",
+        fix="Pass `from` with an address on a verified domain, or set a default sender in the email channel settings.",
     )
 
 
@@ -323,8 +332,8 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             202: OpenApiResponse(response=SendEmailResponseSerializer, description="Email queued"),
             400: OpenApiResponse(
                 response=TemplateErrorSerializer,
-                description="A field is invalid, the template isn't transactional or its email is paused, or the "
-                "recipient can't be used",
+                description="A field is invalid, or a send check failed: the recipient can't receive email, the "
+                "sender can't send, or sending is paused or suspended. Nothing was queued",
             ),
             404: OpenApiResponse(
                 response=TemplateErrorSerializer,
@@ -335,7 +344,11 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
                 description="PostHog holds no template with this key, or not the content the hash describes. "
                 "Nothing was sent",
             ),
-            429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
+            429: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="`throttled`: rate limited, retry later. `quota_limited`: the project is over its email "
+                "quota, and a retry sends nothing",
+            ),
             503: OpenApiResponse(description="The email pipeline did not confirm the send"),
         },
         summary="Send a transactional email",
@@ -380,8 +393,8 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
 
         try:
             send = self._accepted_send(data, content=None) if reference.key is not None else self._tracking_only(data)
-        except SenderNotVerified as e:
-            return self._refuse(sender_not_verified(str(e)), usage={**usage, "template_id": str(target.template.id)})
+        except (SenderNotVerified, SenderNotAllowed) as e:
+            return self._refuse(unusable_sender(e), usage={**usage, "template_id": str(target.template.id)})
         queued = self._send_transactional_email(request, target.template, data, usage=usage, send=send)
         warnings = [TEMPLATE_SUPERSEDED] if target.hash_state == ContentHashState.SUPERSEDED else []
         return self._queued(queued, warnings)
@@ -400,8 +413,8 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
         content = rendered_content(subject=data["subject"], html=data.get("html", ""), text=data.get("text", ""))
         try:
             send = self._accepted_send(data, content=content)
-        except SenderNotVerified as e:
-            return self._refuse(sender_not_verified(str(e)), usage=usage)
+        except (SenderNotVerified, SenderNotAllowed) as e:
+            return self._refuse(unusable_sender(e), usage=usage)
         command = EmailSendCommand(
             team_id=self.team_id,
             to=data["to"],
