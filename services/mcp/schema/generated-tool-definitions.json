@@ -8063,6 +8063,7 @@
         "summary": "Get email sending domain status",
         "title": "Get email sending domain status",
         "required_scopes": ["integration:read"],
+        "api_operations": ["GET /api/projects/{project_id}/integrations/{id}/email/status/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
