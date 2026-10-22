@@ -66,6 +66,11 @@ TIER1_SOURCES = [
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Cloud security
+    (ExternalDataSourceType.AWSSECURITYHUB, "findings", "aws_security_hub", "scanner_finding"),
+    (ExternalDataSourceType.AWSGUARDDUTY, "findings", "aws_guardduty", "scanner_finding"),
+    (ExternalDataSourceType.AWSINSPECTOR, "findings", "aws_inspector", "scanner_finding"),
+    (ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", "microsoft_defender_cloud_apps", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

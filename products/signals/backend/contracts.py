@@ -1279,6 +1279,65 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+# ── Cloud security ────────────────────────────────────────────────────────────────
+
+
+class AwsSecurityHubScannerFindingSignalExtra(SignalExtraBase):
+    severity_label: str | None
+    compliance_status: str | None
+    workflow_status: str | None
+    record_state: str | None
+    region: str | None
+    created_at: str | None
+
+
+class AwsSecurityHubScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_SECURITY_HUB]
+    extra: AwsSecurityHubScannerFindingSignalExtra
+
+
+class AwsGuarddutyScannerFindingSignalExtra(SignalExtraBase):
+    type: str | None
+    severity: str | None
+    region: str | None
+    created_at: str | None
+
+
+class AwsGuarddutyScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_GUARDDUTY]
+    extra: AwsGuarddutyScannerFindingSignalExtra
+
+
+class AwsInspectorScannerFindingSignalExtra(SignalExtraBase):
+    type: str | None
+    severity: str | None
+    status: str | None
+    fix_available: str | None
+    exploit_available: str | None
+    region: str | None
+    first_observed_at: str | None
+
+
+class AwsInspectorScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_INSPECTOR]
+    extra: AwsInspectorScannerFindingSignalExtra
+
+
+class MicrosoftDefenderCloudAppsScannerFindingSignalExtra(SignalExtraBase):
+    severity_value: str | None
+    resolution_status_value: str | None
+    timestamp: str | None
+
+
+class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS]
+    extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1353,7 +1412,11 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | AwsSecurityHubScannerFindingSignalInput
+    | AwsGuarddutyScannerFindingSignalInput
+    | AwsInspectorScannerFindingSignalInput
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1425,6 +1488,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    AwsSecurityHubScannerFindingSignalInput,
+    AwsGuarddutyScannerFindingSignalInput,
+    AwsInspectorScannerFindingSignalInput,
+    MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     CheckFailedSignalInput,
 )
 
