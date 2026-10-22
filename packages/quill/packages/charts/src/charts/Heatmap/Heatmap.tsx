@@ -209,9 +209,12 @@ function HeatmapInner({
     const colorScale = useMemo(() => resolveColorScale(grid, requestedColorScale), [grid, requestedColorScale])
 
     const cellStyle = config?.cellStyle
+    // theme.colors is not read here, but a light/dark flip changes what each `var(--…)` cell color
+    // resolves to, so the styles must resolve again just as the accent does.
     const styles = useMemo<HeatmapResolvedCellStyles>(
         () => resolveCellStyles({ cellStyle, grid, xLabels, yLabels }),
-        [cellStyle, grid, xLabels, yLabels]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [cellStyle, grid, xLabels, yLabels, theme.colors]
     )
     const highlightedColumns = config?.highlightedColumns
 

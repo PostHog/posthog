@@ -37,7 +37,7 @@ export default meta
 
 let uniqueNode = 0
 
-function renderRetentionHeatmap(insightFixture: any): JSX.Element {
+function renderRetentionHeatmap(insightFixture: any, width = 860): JSX.Element {
     const [dashboardItemId] = useState(() => `RetentionHeatmapStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -53,7 +53,7 @@ function renderRetentionHeatmap(insightFixture: any): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ width: 860 }}>
+                <div className="overflow-x-auto" style={{ width }}>
                     <RetentionHeatmap />
                 </div>
             </BindLogic>
@@ -67,4 +67,8 @@ export const Default: Story = {
 
 export const RealisticCurve: Story = {
     render: () => renderRetentionHeatmap({ ...retentionFixture, result: realisticRetentionResult }),
+}
+
+export const NarrowContainer: Story = {
+    render: () => renderRetentionHeatmap(retentionFixture, 420),
 }
