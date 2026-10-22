@@ -16,6 +16,7 @@ import {
     PostIngestionEvent,
     ProjectId,
     RawClickHouseEvent,
+    Team,
 } from '../../types'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -49,6 +50,8 @@ type PluginConfigHogFunction = {
     pluginConfigId: number | null
     hogFunction: HogFunctionType
 }
+
+type TeamWithPluginConfigs = { team: Team; pluginConfigs: PluginConfigHogFunction[] }
 
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
@@ -382,23 +385,19 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const pluginConfigsByTeamId = new Map<number, PluginConfigHogFunction[]>()
-
-        return await parseBatch(messages, {
+        return await parseBatch<TeamWithPluginConfigs>(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
                 return {
                     teamId: clickHouseEvent.team_id,
-                    toGlobals: (team) => {
+                    toGlobals: ({ team, pluginConfigs }) => {
                         const globals = convertToHogFunctionInvocationGlobals(
                             clickHouseEvent,
                             team,
                             this.config.SITE_URL
                         )
-                        // parseBatch calls toGlobals only after loadTeam returns this team, so the map holds
-                        // its configs.
-                        this.pluginConfigsByGlobals.set(globals, pluginConfigsByTeamId.get(team.id)!)
+                        this.pluginConfigsByGlobals.set(globals, pluginConfigs)
                         return globals
                     },
                 }
@@ -408,12 +407,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 if (!team) {
                     return null
                 }
-                const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
-                if (!pluginConfigHogFunctions?.length) {
-                    return null
-                }
-                pluginConfigsByTeamId.set(team.id, pluginConfigHogFunctions)
-                return team
+                const pluginConfigs = await this.pluginConfigsLoader.get(team.id.toString())
+                return pluginConfigs?.length ? { team, pluginConfigs } : null
             },
         })
     }

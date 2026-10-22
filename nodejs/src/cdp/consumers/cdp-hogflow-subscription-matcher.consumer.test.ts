@@ -1,5 +1,7 @@
 import '../../../tests/helpers/mocks/consumer.mock'
 
+import { register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
@@ -1285,6 +1287,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     describe('message and lookup failures', () => {
         const invalidTeamIdParseErrors = async (): Promise<number> =>
             (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        const invalidTeamIdSkips = async (): Promise<number> =>
+            (await register.getSingleMetric('cdp_hogflow_matcher_event_skipped')!.get()).values.find(
+                (v) => v.labels.reason === 'invalid_team_id'
+            )?.value ?? 0
 
         beforeEach(() => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
@@ -1304,12 +1310,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseKafkaBatch',
                     bad: rawEvent({ team_id: teamId }),
                     good: rawEvent({}),
+                    expectedSkips: 1,
                 },
                 {
                     name: `a person with team_id ${teamId}`,
                     parse: '_parsePersonBatch',
                     bad: rawPerson({ team_id: teamId }),
                     good: rawPerson({}),
+                    expectedSkips: 1,
                 },
             ]),
             // The schema already rejects a missing, null or string team_id.
@@ -1320,39 +1328,45 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseInternalEventsBatch',
                     bad: rawInternalEvent({ team_id: teamId }),
                     good: rawInternalEvent(),
+                    expectedSkips: 1,
                 })),
             {
                 name: 'an event that is not JSON',
                 parse: '_parseKafkaBatch',
                 bad: { value: Buffer.from('not json') },
                 good: rawEvent({}),
+                expectedSkips: 0,
             },
             {
                 name: 'an event whose properties are not JSON',
                 parse: '_parseKafkaBatch',
                 bad: rawEvent({ properties: 'not json' }),
                 good: rawEvent({}),
+                expectedSkips: 0,
             },
             {
                 name: 'a person whose properties are not JSON',
                 parse: '_parsePersonBatch',
                 bad: rawPerson({ properties: 'not json' }),
                 good: rawPerson({}),
+                expectedSkips: 0,
             },
             {
                 name: 'an internal event without its required event',
                 parse: '_parseInternalEventsBatch',
                 bad: { value: Buffer.from(JSON.stringify({ team_id: 1 })) },
                 good: rawInternalEvent(),
+                expectedSkips: 0,
             },
-        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good }) => {
+        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good, expectedSkips }) => {
             const parseErrorsBefore = await invalidTeamIdParseErrors()
+            const skipsBefore = await invalidTeamIdSkips()
 
             const result = await (matcher as any)[parse]([bad, good])
 
             expect(result).toHaveLength(1)
-            // The matcher counts an invalid team id under its own skip counter. Alerts read cdp_function_parse_error.
             expect(await invalidTeamIdParseErrors()).toBe(parseErrorsBefore)
+            expect(await invalidTeamIdSkips()).toBe(skipsBefore + expectedSkips)
         })
 
         const streams = [

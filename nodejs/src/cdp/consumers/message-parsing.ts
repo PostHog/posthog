@@ -35,17 +35,17 @@ export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (e
 
 // What a parse step reads from one message: the team to look up, and how to build the globals once
 // the team has loaded.
-type ParsedMessage = {
+type ParsedMessage<TLoaded> = {
     teamId: unknown
-    toGlobals: (team: Team) => HogFunctionInvocationGlobals
+    toGlobals: (loaded: TLoaded) => HogFunctionInvocationGlobals
 }
 
-export type ParseBatchOptions = {
+export type ParseBatchOptions<TLoaded = Team> = {
     errorLog: string
     /** Reads only the message. Returns null to skip it. */
-    parse: (message: Message) => ParsedMessage | null
-    /** Returns the team, or null to skip the message. */
-    loadTeam: (teamId: number) => Promise<Team | null>
+    parse: (message: Message) => ParsedMessage<TLoaded> | null
+    /** Returns the team, or the team with what the consumer loads alongside it. Returns null to skip the message. */
+    loadTeam: (teamId: number) => Promise<TLoaded | null>
     /** Skips a message whose team id is invalid. Without it, an invalid team id counts as a parse error. */
     onInvalidTeamId?: () => void
     /** Runs on each parse error. */
@@ -63,9 +63,9 @@ export type ParseBatchOptions = {
  * consumer does not store the batch's offsets and reads the batch again after the pod restarts.
  * Skipping the message instead would lose the event.
  */
-export async function parseBatch(
+export async function parseBatch<TLoaded = Team>(
     messages: Message[],
-    { errorLog, parse, loadTeam, onInvalidTeamId, onError }: ParseBatchOptions
+    { errorLog, parse, loadTeam, onInvalidTeamId, onError }: ParseBatchOptions<TLoaded>
 ): Promise<HogFunctionInvocationGlobals[]> {
     const results = await Promise.all(
         messages.map(async (message) => {
@@ -92,11 +92,11 @@ export async function parseBatch(
             if (!parsed) {
                 return null
             }
-            const team = await loadTeam(parsed.teamId)
-            if (!team) {
+            const loaded = await loadTeam(parsed.teamId)
+            if (!loaded) {
                 return null
             }
-            return skipIfMalformed(errorLog, () => parsed.toGlobals(team), reportError)
+            return skipIfMalformed(errorLog, () => parsed.toGlobals(loaded), reportError)
         })
     )
     return results.filter((globals): globals is HogFunctionInvocationGlobals => globals !== null)
