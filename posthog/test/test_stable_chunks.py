@@ -150,9 +150,13 @@ class TestStableChunks(SimpleTestCase):
         with capture_logs() as logs:
             stable_chunks_choice(request, None)
 
-        assert [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"] == [
-            {"event": "stable_chunks_unmapped_specifier", "specifier": "@c/Abc123", "log_level": "warning"}
-        ]
+        # structlog keeps one context dict per thread. Nothing clears it between log calls.
+        # Keys that earlier code bound on this thread appear on this event. A whole-dict comparison then depends on test order.
+        [unmapped] = [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"]
+        assert unmapped["specifier"] == "@c/Abc123"
+        assert unmapped["log_level"] == "warning"
+        assert "/reset/" not in str(unmapped)
+        assert "fake-reset-token" not in str(unmapped)
 
     def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
         request = RequestFactory().get("/")
