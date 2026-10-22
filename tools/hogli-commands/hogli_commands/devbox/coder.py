@@ -1709,6 +1709,155 @@ def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
 
 
+DIRECT_PROXY_PORT = 8411
+# Pulling the Caddy image is the slow case; a box that has it starts the proxy in seconds.
+DIRECT_PROXY_TIMEOUT = 180
+
+# Runs ON the devbox (over its ssh alias) for `devbox:direct`. Arguments: `up PORT` or `down`.
+#
+# `up` runs Caddy on the box's private address with a certificate from Caddy's own CA, so a browser that reaches
+# that address talks HTTP/2 straight to the box: Coder's port forward and app URLs carry every request through the
+# Coder deployment instead. One origin serves both Vite (its module paths, its ping, and its live-reload socket,
+# which opens on "/") and everything else, through the dev stack's proxy on 8010. The X-PostHog-Vite-Origin header
+# tells Django (posthog/utils.py, get_js_url) to load the frontend from that same origin. The CA lives in a Docker
+# volume, so its root certificate stays the same across restarts. Prints one JSON line.
+_DIRECT_PROXY_SCRIPT = r"""#!/usr/bin/env bash
+set -euo pipefail
+container=posthog-devbox-direct
+if [ "$1" = down ]; then
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    echo '{"stopped": true}'
+    exit 0
+fi
+port=$2
+ip=$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')
+if [ -z "$ip" ]; then
+    echo "The devbox has no private IPv4 address on its default route." >&2
+    exit 1
+fi
+origin="https://$ip:$port"
+dir="$HOME/.cache/hogli/devbox-direct"
+mkdir -p "$dir"
+cat >"$dir/Caddyfile.next" <<EOF
+{
+    admin off
+    skip_install_trust
+    auto_https disable_redirects
+}
+
+$origin {
+    bind $ip
+    tls internal
+
+    @vite path /@* /src/* /node_modules/* /public/surveys/*
+    @vite_socket header Sec-WebSocket-Protocol vite-hmr
+    @vite_ping header Accept text/x-vite-ping
+    handle @vite_socket {
+        reverse_proxy 127.0.0.1:8234
+    }
+    handle @vite_ping {
+        reverse_proxy 127.0.0.1:8234
+    }
+    handle @vite {
+        reverse_proxy 127.0.0.1:8234
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8010 {
+            header_up X-PostHog-Vite-Origin $origin
+        }
+    }
+}
+EOF
+running=$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || echo false)
+if [ "$running" = true ] && cmp -s "$dir/Caddyfile.next" "$dir/Caddyfile"; then
+    rm -f "$dir/Caddyfile.next"
+else
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    if [ -n "$(ss -Hltn "( sport = :$port )")" ]; then
+        echo "Port $port is in use on the devbox. Pick another one with --port." >&2
+        exit 1
+    fi
+    mv "$dir/Caddyfile.next" "$dir/Caddyfile"
+    docker run -d --name "$container" --restart unless-stopped --network host \
+        -v "$container:/data" -v "$dir/Caddyfile:/etc/caddy/Caddyfile:ro" \
+        caddy caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+fi
+root=/data/caddy/pki/authorities/local/root.crt
+for _ in $(seq 30); do
+    docker exec "$container" test -s "$root" 2>/dev/null && break
+    sleep 1
+done
+if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != true ] ||
+    ! pem=$(docker exec "$container" cat "$root" 2>/dev/null); then
+    echo "Caddy did not start on the devbox:" >&2
+    docker logs --tail 20 "$container" >&2 2>&1 || true
+    exit 1
+fi
+answers() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && echo true || echo false; }
+python3 -c 'import json, sys; print(json.dumps({"origin": sys.argv[1], "ip": sys.argv[2], "ca_pem": sys.argv[3], "app_up": sys.argv[4] == "true", "vite_up": sys.argv[5] == "true"}))' \
+    "$origin" "$ip" "$pem" "$(answers 8010)" "$(answers 8234)"
+"""
+
+
+@dataclass(frozen=True)
+class DirectProxy:
+    """The HTTPS origin `devbox:direct` serves on a devbox's private address."""
+
+    origin: str
+    ip: str
+    ca_pem: str
+    app_up: bool
+    vite_up: bool
+
+
+def _run_direct_proxy_script(name: str, args: list[str]) -> dict[str, Any]:
+    """Run :data:`_DIRECT_PROXY_SCRIPT` on the workspace and return the JSON object it prints last."""
+    encoded = base64.b64encode(_DIRECT_PROXY_SCRIPT.encode()).decode()
+    remote = f"echo {encoded} | base64 -d | bash -s -- {shlex.join(args)}"
+    try:
+        result = subprocess.run(
+            ["ssh", _ssh_host_alias(name), remote],
+            capture_output=True,
+            text=True,
+            timeout=DIRECT_PROXY_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        _fail(f"Timed out after {DIRECT_PROXY_TIMEOUT}s setting up the HTTPS proxy on '{name}'.")
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        _fail(f"Failed to set up the HTTPS proxy on '{name}'.")
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    try:
+        payload = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError:
+        payload = None
+    if not isinstance(payload, dict):
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        _fail(f"Unexpected output from the HTTPS proxy setup on '{name}'.")
+    return payload
+
+
+def start_direct_proxy(name: str, port: int) -> DirectProxy:
+    """Serve the PostHog UI over HTTPS on the workspace's private address, or keep serving it."""
+    payload = _run_direct_proxy_script(name, ["up", str(port)])
+    try:
+        return DirectProxy(
+            origin=str(payload["origin"]),
+            ip=str(payload["ip"]),
+            ca_pem=str(payload["ca_pem"]),
+            app_up=bool(payload["app_up"]),
+            vite_up=bool(payload["vite_up"]),
+        )
+    except KeyError as err:
+        _fail(f"The HTTPS proxy setup on '{name}' did not report {err}.")
+
+
+def stop_direct_proxy(name: str) -> None:
+    """Remove the HTTPS proxy from the workspace. Does nothing when it is not there."""
+    _run_direct_proxy_script(name, ["down"])
+
+
 def logs_replace(name: str, follow: bool) -> None:
     """Tail workspace logs and replace the current process."""
     args = ["coder", "logs", name]

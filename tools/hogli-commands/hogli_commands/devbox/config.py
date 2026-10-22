@@ -22,6 +22,11 @@ def get_config_path() -> Path:
     return Path.home() / ".config" / "posthog" / "hogli_devbox.json"
 
 
+def get_direct_ca_path(workspace_name: str) -> Path:
+    """Return where `devbox:direct` saves a workspace's CA certificate, next to the preferences file."""
+    return get_config_path().parent / "devbox-direct" / f"{workspace_name}.pem"
+
+
 def load_config() -> DevboxConfig:
     """Load persisted hogli devbox preferences from disk."""
     try:

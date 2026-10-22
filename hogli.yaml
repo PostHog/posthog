@@ -192,6 +192,9 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
+    devbox:direct:
+        click: hogli_commands.devbox.cli:devbox_direct
+        description: Serve PostHog UI over HTTPS on the devbox's private address
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)

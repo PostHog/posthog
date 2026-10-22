@@ -63,6 +63,17 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
+**Opening the app straight from the devbox** —
+`hogli devbox:forward` and the Coder app URLs carry every request through the Coder deployment, and the dev frontend loads thousands of Vite modules on a cold page load. When Tailscale routes your devbox's private network to your machine, `hogli devbox:direct` serves the app and Vite on one HTTPS origin on the devbox's private address, so the browser talks HTTP/2 straight to the box:
+
+```bash
+hogli devbox:direct          # prints https://<private-ip>:8411 and saves the devbox's CA certificate
+hogli devbox:direct --json   # the same, for tools: origin, address, reachability, CA certificate
+hogli devbox:direct --stop   # stop serving it
+```
+
+The devbox signs its own certificate with a CA that Caddy creates on the box, so a browser warns about it until you trust the saved CA certificate. Anyone who can reach the devbox's private address can open the URL. If your machine can't reach that address, the command says so; `devbox:forward` keeps working through Coder.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)

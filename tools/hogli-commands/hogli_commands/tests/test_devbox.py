@@ -2130,6 +2130,190 @@ class TestDevboxCommands:
         assert "hogli devbox:forward --port 8011" in result.output
 
 
+_DIRECT_PROXY = coder.DirectProxy(
+    origin="https://10.0.0.5:8411",
+    ip="10.0.0.5",
+    ca_pem="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+    app_up=True,
+    vite_up=True,
+)
+
+
+class TestDevboxDirect:
+    """Test `devbox:direct`, which serves the UI over HTTPS on the devbox's private address."""
+
+    @pytest.fixture(autouse=True)
+    def ready_workspace(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user-direct", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+
+    def test_prints_origin_and_saves_ca(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path, recorded_properties: dict[str, object]
+    ) -> None:
+        started: list[tuple[str, int]] = []
+        monkeypatch.setattr(
+            devbox_cli, "start_direct_proxy", lambda name, port: started.append((name, port)) or _DIRECT_PROXY
+        )
+        monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: (host, port) == ("10.0.0.5", 8411))
+        monkeypatch.setattr(devbox_cli.telemetry, "add_command_properties", lambda **p: recorded_properties.update(p))
+
+        result = runner.invoke(cli, ["devbox:direct", "direct"])
+
+        assert result.exit_code == 0, result.output
+        assert started == [("devbox-test-user-direct", 8411)]
+        assert "PostHog UI at https://10.0.0.5:8411" in result.output
+        ca_path = devbox_config_path.parent / "devbox-direct" / "devbox-test-user-direct.pem"
+        assert ca_path.read_text() == _DIRECT_PROXY.ca_pem
+        assert str(ca_path) in result.output
+        assert "hogli devbox:direct direct --stop" in result.output
+        assert recorded_properties == {"devbox_direct_reachable": True, "devbox_direct_app_up": True}
+
+    def test_json_reports_origin_and_ca(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", lambda name, port: _DIRECT_PROXY)
+        monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: True)
+
+        result = runner.invoke(cli, ["devbox:direct", "--json", "--port", "8411"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == {
+            "workspace": "devbox-test-user-direct",
+            "origin": "https://10.0.0.5:8411",
+            "ip": "10.0.0.5",
+            "port": 8411,
+            "reachable": True,
+            "app_up": True,
+            "vite_up": True,
+            "ca_file": str(devbox_config_path.parent / "devbox-direct" / "devbox-test-user-direct.pem"),
+            "ca_pem": _DIRECT_PROXY.ca_pem,
+        }
+
+    def test_json_exits_non_zero_when_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", lambda name, port: _DIRECT_PROXY)
+        monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: False)
+
+        result = runner.invoke(cli, ["devbox:direct", "--json"])
+
+        assert result.exit_code == 1
+        assert json.loads(result.output)["reachable"] is False
+
+    def test_fails_with_forward_hint_when_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", lambda name, port: _DIRECT_PROXY)
+        monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: False)
+
+        result = runner.invoke(cli, ["devbox:direct", "direct"])
+
+        assert result.exit_code == 1
+        assert "cannot reach 10.0.0.5:8411" in result.output
+        assert "hogli devbox:forward direct" in result.output
+
+    def test_warns_when_the_stack_is_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        down = coder.DirectProxy(**{**_DIRECT_PROXY.__dict__, "app_up": False, "vite_up": False})
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", lambda name, port: down)
+        monkeypatch.setattr(devbox_cli, "_tcp_reachable", lambda host, port: True)
+
+        result = runner.invoke(cli, ["devbox:direct"])
+
+        assert result.exit_code == 0, result.output
+        assert "does not answer on the devbox (port 8010)" in result.output
+        assert "Vite does not answer on the devbox (port 8234)" in result.output
+
+    def test_stop_removes_the_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stopped: list[str] = []
+        monkeypatch.setattr(devbox_cli, "stop_direct_proxy", stopped.append)
+        monkeypatch.setattr(devbox_cli, "start_direct_proxy", MagicMock(side_effect=AssertionError("must not start")))
+
+        result = runner.invoke(cli, ["devbox:direct", "--stop"])
+
+        assert result.exit_code == 0, result.output
+        assert stopped == ["devbox-test-user-direct"]
+
+    def test_fails_without_ssh_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: False)
+
+        result = runner.invoke(cli, ["devbox:direct"])
+
+        assert result.exit_code == 1
+        assert "hogli devbox:setup" in result.output
+
+
+class TestDirectProxyScript:
+    """Test how hogli runs the devbox:direct script on the devbox and reads its output."""
+
+    def test_start_runs_the_script_over_the_ssh_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[list[str]] = []
+        payload = {
+            "origin": "https://10.0.0.5:8411",
+            "ip": "10.0.0.5",
+            "ca_pem": "PEM",
+            "app_up": True,
+            "vite_up": False,
+        }
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout=f"pulling caddy\n{json.dumps(payload)}\n", stderr="")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        proxy = coder.start_direct_proxy("devbox-test-user-direct", 8411)
+
+        assert proxy == coder.DirectProxy(
+            origin="https://10.0.0.5:8411", ip="10.0.0.5", ca_pem="PEM", app_up=True, vite_up=False
+        )
+        [args] = calls
+        assert args[:2] == ["ssh", "coder.devbox-test-user-direct"]
+        assert args[2].endswith("| base64 -d | bash -s -- up 8411")
+
+    def test_stop_runs_the_script_with_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout='{"stopped": true}\n', stderr="")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.stop_direct_proxy("devbox-test-user-direct")
+
+        assert calls[0][2].endswith("| bash -s -- down")
+
+    @pytest.mark.parametrize(
+        "completed",
+        [
+            subprocess.CompletedProcess([], 1, stdout="", stderr="Port 8411 is in use on the devbox."),
+            subprocess.CompletedProcess([], 0, stdout="not json\n", stderr=""),
+            subprocess.CompletedProcess([], 0, stdout='{"origin": "https://10.0.0.5:8411"}\n', stderr=""),
+        ],
+        ids=["script_failed", "not_json", "missing_fields"],
+    )
+    def test_start_fails_on_bad_script_result(
+        self, monkeypatch: pytest.MonkeyPatch, completed: subprocess.CompletedProcess[str]
+    ) -> None:
+        monkeypatch.setattr(coder.subprocess, "run", lambda args, **kwargs: completed)
+
+        with pytest.raises(SystemExit):
+            coder.start_direct_proxy("devbox-test-user-direct", 8411)
+
+    def test_start_fails_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def time_out(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(args, coder.DIRECT_PROXY_TIMEOUT)
+
+        monkeypatch.setattr(coder.subprocess, "run", time_out)
+
+        with pytest.raises(SystemExit):
+            coder.start_direct_proxy("devbox-test-user-direct", 8411)
+
+    def test_script_routes_vite_and_names_the_origin_for_django(self) -> None:
+        script = coder._DIRECT_PROXY_SCRIPT
+        # Django reads this header in posthog/utils.py (VITE_SAME_ORIGIN_HEADER).
+        assert "header_up X-PostHog-Vite-Origin $origin" in script
+        assert "@vite path /@* /src/* /node_modules/* /public/surveys/*" in script
+        assert "reverse_proxy 127.0.0.1:8234" in script
+        assert "reverse_proxy 127.0.0.1:8010" in script
+
+
 @pytest.fixture
 def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""

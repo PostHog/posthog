@@ -286,6 +286,46 @@ class TestGetJsUrl(SimpleTestCase):
                 request = self.factory.get("/", HTTP_HOST=http_host)
             self.assertEqual(expected, get_js_url(request))
 
+    @parameterized.expand(
+        [
+            ("own_origin", True, "10.0.0.5:8411", "https://10.0.0.5:8411", "https://10.0.0.5:8411"),
+            ("own_origin_with_slash", True, "10.0.0.5:8411", "https://10.0.0.5:8411/", "https://10.0.0.5:8411"),
+            ("own_origin_http", True, "10.0.0.5:8411", "http://10.0.0.5:8411", "http://10.0.0.5:8411"),
+            (
+                "host_case_ignored",
+                True,
+                "devbox.example:8411",
+                "https://DEVBOX.EXAMPLE:8411",
+                "https://DEVBOX.EXAMPLE:8411",
+            ),
+            ("other_host", True, "10.0.0.5:8411", "https://evil.example:8411", "https://frontend.devbox.example"),
+            ("other_port", True, "10.0.0.5:8411", "https://10.0.0.5:9999", "https://frontend.devbox.example"),
+            ("with_path", True, "10.0.0.5:8411", "https://10.0.0.5:8411/assets", "https://frontend.devbox.example"),
+            ("with_query", True, "10.0.0.5:8411", "https://10.0.0.5:8411?x=1", "https://frontend.devbox.example"),
+            ("other_scheme", True, "10.0.0.5:8411", "javascript://10.0.0.5:8411", "https://frontend.devbox.example"),
+            ("not_a_url", True, "10.0.0.5:8411", "10.0.0.5:8411", "https://frontend.devbox.example"),
+            ("empty", True, "10.0.0.5:8411", "", "https://frontend.devbox.example"),
+            (
+                "ignored_outside_debug",
+                False,
+                "10.0.0.5:8411",
+                "https://10.0.0.5:8411",
+                "https://frontend.devbox.example",
+            ),
+        ]
+    )
+    def test_get_js_url_vite_same_origin_header(
+        self, _name: str, debug: bool, host: str, header: str, expected: str
+    ) -> None:
+        with self.settings(DEBUG=debug, JS_URL="https://frontend.devbox.example"):
+            request = self.factory.get("/", HTTP_HOST=host, HTTP_X_POSTHOG_VITE_ORIGIN=header)
+            self.assertEqual(expected, get_js_url(request))
+
+    def test_get_js_url_without_vite_same_origin_header(self) -> None:
+        with self.settings(DEBUG=True, JS_URL="https://frontend.devbox.example"):
+            request = self.factory.get("/", HTTP_HOST="10.0.0.5:8411")
+            self.assertEqual("https://frontend.devbox.example", get_js_url(request))
+
 
 class TestGeneralUtils(SimpleTestCase):
     def test_available_timezones(self):

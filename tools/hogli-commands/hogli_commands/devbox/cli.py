@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import errno
 import shlex
 import shutil
@@ -30,12 +31,14 @@ from .coder import (
     DEFAULT_PRESET,
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
+    DIRECT_PROXY_PORT,
     EXPECTED_TAILNET,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
+    _tcp_reachable,
     clone_workspace,
     coder_authenticated,
     coder_installed,
@@ -81,7 +84,9 @@ from .coder import (
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
+    start_direct_proxy,
     start_workspace,
+    stop_direct_proxy,
     stop_workspace,
     tailscale_state,
     unshare_workspace,
@@ -95,6 +100,7 @@ from .config import (
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    get_direct_ca_path,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
@@ -1931,6 +1937,90 @@ def devbox_forward(workspace: str | None, port: int) -> None:
     click.echo("Ctrl+C to stop")
     click.echo()
     port_forward_replace(name, port, 8010)
+
+
+@click.command(name="devbox:direct", help="Serve PostHog UI over HTTPS on the devbox's private address")
+@workspace_argument
+@click.option("--port", default=DIRECT_PROXY_PORT, type=int, help="Port on the devbox")
+@click.option("--json", "as_json", is_flag=True, help="Print the origin, address and CA certificate as JSON")
+@click.option("--stop", is_flag=True, help="Stop serving and remove the proxy from the devbox")
+def devbox_direct(workspace: str | None, port: int, as_json: bool, stop: bool) -> None:
+    """Serve the PostHog UI and Vite on one HTTPS origin on the devbox's private address.
+
+    `devbox:forward` and the devbox's Coder app URLs carry every request through
+    the Coder deployment. A dev page loads thousands of Vite modules, so that
+    trip decides how fast it opens. When this machine can reach the devbox's
+    private network over Tailscale, this command lets the browser talk HTTP/2
+    straight to the devbox instead. The devbox signs its own certificate; the
+    command saves its CA certificate locally so a browser or tool can trust it.
+
+    It runs until `--stop`, also across devbox restarts.
+    """
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+        )
+
+    if stop:
+        stop_direct_proxy(name)
+        click.echo(f"Stopped serving '{name}' over HTTPS.")
+        return
+
+    proxy = start_direct_proxy(name, port)
+    ca_path = get_direct_ca_path(name)
+    ca_path.parent.mkdir(parents=True, exist_ok=True)
+    ca_path.write_text(proxy.ca_pem)
+    reachable = _tcp_reachable(proxy.ip, port)
+    telemetry.add_command_properties(devbox_direct_reachable=reachable, devbox_direct_app_up=proxy.app_up)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "workspace": name,
+                    "origin": proxy.origin,
+                    "ip": proxy.ip,
+                    "port": port,
+                    "reachable": reachable,
+                    "app_up": proxy.app_up,
+                    "vite_up": proxy.vite_up,
+                    "ca_file": str(ca_path),
+                    "ca_pem": proxy.ca_pem,
+                }
+            )
+        )
+        if not reachable:
+            sys.exit(1)
+        return
+
+    suffix = _workspace_arg_suffix(name)
+    if not reachable:
+        _fail(
+            f"This machine cannot reach {proxy.ip}:{port}, the devbox's private address. Tailscale must route the "
+            f"devbox's network to it: check `hogli devbox:doctor`. Meanwhile `hogli devbox:forward{suffix}` works "
+            "through Coder."
+        )
+
+    click.echo(f"PostHog UI at {proxy.origin} (HTTPS straight to the devbox)")
+    if not proxy.app_up:
+        click.echo(
+            click.style(
+                "The PostHog app does not answer on the devbox (port 8010). Start it with `hogli up -d`.", fg="yellow"
+            )
+        )
+    if not proxy.vite_up:
+        click.echo(
+            click.style(
+                "Vite does not answer on the devbox (port 8234), so the page cannot load its frontend.", fg="yellow"
+            )
+        )
+    click.echo()
+    click.echo("The devbox signs its own certificate. A browser warns about it until it trusts this CA certificate:")
+    click.echo(f"  {ca_path}")
+    click.echo("Anyone who can reach the devbox's private address can open this URL.")
+    click.echo(f"Stop serving it with `hogli devbox:direct{suffix} --stop`.")
 
 
 def _gib(nbytes: int) -> str:

@@ -408,6 +408,27 @@ def human_list(items: Sequence[str]) -> str:
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
+# Set by the HTTPS proxy that `hogli devbox:direct` runs on a devbox. That proxy serves the app and Vite on one
+# origin and names it here, so the page loads its modules from where it came from.
+VITE_SAME_ORIGIN_HEADER = "X-PostHog-Vite-Origin"
+
+
+def _vite_same_origin(request: HttpRequest) -> str | None:
+    """The origin in VITE_SAME_ORIGIN_HEADER, if it names the request's own host. Any other value is ignored, so a
+    client that sets the header can only make its own page load modules from the host it already talks to."""
+    from urllib.parse import urlsplit
+
+    value = request.headers.get(VITE_SAME_ORIGIN_HEADER)
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("http", "https") or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        return None
+    if not parsed.netloc or parsed.netloc.lower() != request.get_host().lower():
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
@@ -416,6 +437,11 @@ def get_js_url(request: HttpRequest) -> str:
     from urllib.parse import urlparse
 
     from django.http.request import split_domain_port
+
+    if settings.DEBUG:
+        same_origin = _vite_same_origin(request)
+        if same_origin:
+            return same_origin
 
     parsed = urlparse(settings.JS_URL)
     if settings.DEBUG and parsed.hostname == "localhost" and not request.is_secure():
