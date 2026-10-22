@@ -6050,14 +6050,14 @@ Note: Fetched the OpenAPI spec at https://api.hoorayhr.io/swagger.json (linked f
 
 ## Housecall Pro — gaps
 
-Today (6): `customers`, `employees`, `estimates`, `invoices`, `jobs`, `leads`
+Today (10): `customers`, `employees`, `estimates`, `invoices`, `job_appointments`, `job_line_items`, `job_types`, `jobs`, `leads`, `pipeline_statuses`
 
 Diffed against: <https://stoplight.io/api/v1/projects/housecallpro/housecall-public-api/nodes/reference/housecall.v1.yaml?fromExportButton=true&snapshotType=http_service>
 
-- [ ] `Job Types (GET /job_fields/job_types)` — resolve job_type_uuid on leads and group service demand by job type (high)
-- [ ] `Job Appointments (GET /jobs/{job_id}/appointments)` — analyze appointment schedules, assigned technicians, and repeat visits for each job (high)
-- [ ] `Job line items (GET /jobs/{job_id}/line_items)` — break job revenue into services, materials, quantities, and unit prices (high)
-- [ ] `Pipeline Statuses (GET /pipeline/statuses)` — map lead pipeline statuses to names and status types for funnel analysis (medium)
+- [x] `Job Types (GET /job_fields/job_types)` — resolve job_type_uuid on leads and group service demand by job type (high)
+- [x] `Job Appointments (GET /jobs/{job_id}/appointments)` — analyze appointment schedules, assigned technicians, and repeat visits for each job (high)
+- [x] `Job line items (GET /jobs/{job_id}/line_items)` — break job revenue into services, materials, quantities, and unit prices (high)
+- [x] `Pipeline Statuses (GET /pipeline/statuses)` — map lead pipeline statuses to names and status types for funnel analysis (medium)
 - [ ] `Lead Sources (GET /lead_sources)` — compare the available acquisition sources with source names on customers, leads, jobs, and estimates (medium)
 - [ ] `Estimate option line items (GET /estimates/{estimate_id}/options/{option_id}/line_items)` — compare quoted services and prices across estimate options and completed jobs (medium)
 - [ ] `Job input materials (GET /jobs/{job_id}/job_input_materials)` — measure materials consumed on jobs and compare usage with billed items (medium)
