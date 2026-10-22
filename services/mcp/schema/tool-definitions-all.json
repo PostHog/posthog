@@ -16967,6 +16967,20 @@
             "readOnlyHint": false
         }
     },
+    "workflows-disable": {
+        "description": "Disable a live workflow and stop it from processing events. Content edits made through MCP while it is disabled stay staged; use workflows-publish to apply them before or after re-enabling. Use when the user asks to stop a workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Disable workflow",
+        "title": "Disable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-discard-draft": {
         "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",
         "category": "Workflows",
@@ -16975,20 +16989,6 @@
         "title": "Discard workflow draft",
         "required_scopes": ["hog_flow:write"],
         "api_operations": ["POST /api/projects/{project_id}/hog_flows/{id}/discard_draft/"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "workflows-disable": {
-        "description": "Disable a live workflow and stop it from processing events. Content edits made through MCP while it is disabled stay staged; use workflows-publish to apply them before or after re-enabling. Use when the user asks to stop a workflow.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Disable workflow",
-        "title": "Disable workflow",
-        "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
