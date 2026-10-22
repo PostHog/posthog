@@ -7,6 +7,7 @@ import dns.exception
 from dns.rdtypes.ANY.NS import NS
 
 from posthog.dataclasses import frozen
+from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ def lookup_dns_host(root_domain: str) -> DnsHost | None:
     if cached is not None:
         return cached or None
 
+    if (oob_domain := matched_oob_domain(root_domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=dns_hosts", oob_domain)
     nameservers = _nameservers(root_domain)
     if nameservers is None:
         return None

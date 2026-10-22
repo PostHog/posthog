@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from django.core.cache import cache
@@ -6,6 +7,10 @@ import dns.resolver
 import dns.exception
 from dns.rdtypes.ANY.CNAME import CNAME
 from dns.rdtypes.ANY.TXT import TXT
+
+from posthog.security.oob_domains import matched_oob_domain
+
+logger = logging.getLogger(__name__)
 
 LOOKUP_TIMEOUT_SECONDS = 3
 CACHE_SECONDS = 60 * 60
@@ -42,6 +47,8 @@ def lookup_existing_email_tools(root_domain: str) -> list[str]:
     if cached is not None:
         return cached
 
+    if (oob_domain := matched_oob_domain(root_domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=existing_email_tools", oob_domain)
     resolver = dns.resolver.Resolver()
     resolver.lifetime = LOOKUP_TIMEOUT_SECONDS
     lookups = {
