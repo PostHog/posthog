@@ -7,16 +7,20 @@ import functools
 import contextlib
 import dataclasses
 import collections.abc
+from urllib.parse import urlsplit
 
 import pyarrow as pa
 import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
 from aiobotocore.credentials import AioRefreshableCredentials
+from aiobotocore.httpsession import AIOHTTPSession
 from aiobotocore.session import get_session
 from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
+    from aiobotocore.awsrequest import AioAWSResponse
+    from botocore.awsrequest import AWSPreparedRequest
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import CompletedPartTypeDef, UploadPartOutputTypeDef
 
@@ -37,6 +41,16 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
 )
 from posthog.models.team import Team
+from posthog.security.pinned_aiohttp import PinnedTCPConnector
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import (
+    UNRESOLVED_HOST_REASON,
+    ResolvedIPs,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    canonicalize_host,
+    validate_url_and_pin_ips,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -579,10 +593,69 @@ def get_refreshable_session(credentials: AWSCredentials, refresh_using: RefreshC
     return aioboto3.Session(botocore_session=botocore_session)
 
 
+class PinnedS3HTTPSession(AIOHTTPSession):
+    def __init__(
+        self,
+        *,
+        bypass_validation: bool = False,
+        **kwargs: typing.Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._bypass_validation = bypass_validation
+        self._host_to_resolved_ips: dict[str, ResolvedIPs] = {}
+        self._pin_lock = asyncio.Lock()
+
+    def _create_connector(self, proxy_url: str | None) -> PinnedTCPConnector:
+        """Replace aioboto3's connector with our own."""
+        connector = super()._create_connector(proxy_url)
+        self._exit_stack.push_async_callback(connector.close)
+
+        return PinnedTCPConnector(
+            self._host_to_resolved_ips,
+            limit=connector.limit,
+            ssl=connector._ssl,
+            **self._connector_args,
+        )
+
+    async def send(self, request: "AWSPreparedRequest") -> "AioAWSResponse":
+        """Validate IPs before sending the request."""
+        if self._bypass_validation:
+            return typing.cast("AioAWSResponse", await super().send(request))
+
+        url = urlsplit(request.url)
+        host = url.hostname
+
+        if host is None:
+            raise InvalidS3EndpointError()
+
+        host = canonicalize_host(host)
+        if host in self._host_to_resolved_ips:
+            # Host already resolved, we can fire the request
+            return typing.cast("AioAWSResponse", await super().send(request))
+
+        async with self._pin_lock:
+            if host not in self._host_to_resolved_ips:
+                # We could have been waiting with another request, which ran first
+                # so we check again if we even have to do anything.
+                origin = url._replace(path="", query="", fragment="").geturl()
+                verdict = await asyncio.to_thread(validate_url_and_pin_ips, origin)
+
+                if verdict.reason == UNRESOLVED_HOST_REASON:
+                    # Raise this to allow the SDK to retry.
+                    raise botocore.exceptions.EndpointConnectionError(endpoint_url=origin)
+
+                if not verdict.allowed or not verdict.pinned_ips:
+                    raise InvalidS3EndpointError()
+
+                self._host_to_resolved_ips[host] = verdict.pinned_ips
+
+        return typing.cast("AioAWSResponse", await super().send(request))
+
+
 @contextlib.asynccontextmanager
 async def s3_client(
     aws_credentials: AWSCredentials,
-    region: str,
+    region: str | None,
     use_virtual_style_addressing: bool = False,
     endpoint_url: str | None = None,
     refresh_using: RefreshCoroutine | None = None,
@@ -607,12 +680,23 @@ async def s3_client(
     if use_virtual_style_addressing:
         config["s3"] = {"addressing_style": "virtual"}
 
+    if endpoint_url is not None:
+        config["http_session_cls"] = functools.partial(
+            PinnedS3HTTPSession, bypass_validation=_dev_bypass_enabled() or _test_bypass_enabled()
+        )
+
     try:
         async with session.client(
             "s3", config=AioConfig(**config), region_name=region, endpoint_url=endpoint_url
         ) as s3_client:
             yield s3_client
 
+    except SSRFBlockedError as err:
+        raise InvalidS3EndpointError(str(err)) from err
+    except botocore.exceptions.HTTPClientError as err:
+        if isinstance(err.kwargs.get("error"), SSRFBlockedError):
+            raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
+        raise
     except ValueError as err:
         if "Invalid endpoint" in str(err):
             raise InvalidS3EndpointError(str(err)) from err
