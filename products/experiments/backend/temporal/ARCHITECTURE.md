@@ -168,16 +168,16 @@ A window-reusing run keeps the current values on screen and shows a loading tag 
 The frontend reads `GET /metrics_recalculation/latest` on page load and starts at most one run from it.
 It never heals a pending or in-progress run; it polls that run instead.
 
-| State of `latest`                                                     | Trigger                                        | Window   |
-| --------------------------------------------------------------------- | ---------------------------------------------- | -------- |
-| 404: no run and no timeseries point                                   | `cold_run`                                     | advances |
-| Timeseries fallback with a gap (`result_source: timeseries_fallback`) | `cold_run`                                     | advances |
-| Terminal run with a result row missing, and no error for that metric  | `heal_latest_run`                              | reuses   |
-| Terminal run with a failed metric whose error is retriable            | `heal_latest_run`                              | reuses   |
-| Terminal run with a failed metric whose error is not retriable        | nothing; the retry button sends `manual_retry` | reuses   |
-| Refresh button                                                        | `manual`                                       | advances |
-| Metric added or changed                                               | `metric_config_change`                         | reuses   |
-| Experiment config changed                                             | `experiment_config_change`                     | advances |
+| State of `latest`                                                     | Trigger                                            | Window   |
+| --------------------------------------------------------------------- | -------------------------------------------------- | -------- |
+| 404: no run and no timeseries point                                   | `cold_run`                                         | advances |
+| Timeseries fallback with a gap (`result_source: timeseries_fallback`) | `cold_run`                                         | advances |
+| Terminal run with a result row missing, and no error for that metric  | `heal_latest_run`                                  | reuses   |
+| Terminal run with a failed metric whose error is retriable            | nothing; the Try again button sends `manual_retry` | reuses   |
+| Terminal run with a failed metric whose error is not retriable        | nothing                                            | none     |
+| Refresh button                                                        | `manual`                                           | advances |
+| Metric added or changed                                               | `metric_config_change`                             | reuses   |
+| Experiment config changed                                             | `experiment_config_change`                         | advances |
 
 A run that failed before discovery has no metrics and no anchored window.
 The frontend treats it as a gap and sends `heal_latest_run`; `_resolve_query_to` skips a run without `query_to`, so it reuses the newest earlier window, or advances when there is none, as a `cold_run` would.
@@ -190,10 +190,10 @@ flowchart TD
     status -->|pending or in_progress| poll[poll the active run]
     status -->|terminal| source{result_source}
     source -->|timeseries_fallback with a gap| cold
-    source -->|recalculation| gap{missing row or retriable failure?}
+    source -->|recalculation| gap{missing row?}
     gap -->|yes| heal[heal_latest_run]
-    gap -->|no, non-retriable failure| retry[retry button sends manual_retry]
-    gap -->|no| done[show results]
+    gap -->|no, retriable failure| retry[Try again button sends manual_retry]
+    gap -->|no| done[show results and errors]
     classDef advance fill:#f54e00,stroke:#f54e00,color:#fff;
     classDef reuse fill:#1d4aff,stroke:#1d4aff,color:#fff;
     class cold advance;
@@ -204,11 +204,28 @@ Red nodes advance the window; blue nodes reuse it.
 
 #### Retriable failures
 
-A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, calculation_key, timestamp}`. `calculation_key` is null when the failure happened before the metric's calculation config existed.
 `error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
 `retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure) or the request was rejected (`recalculation_window_too_long`).
-A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.
-An entry without the flag predates it and counts as non-retriable, so an old run never heals in a loop.
+A failure never reads as a gap, so the page load never heals it.
+A retriable failure shows the Try again button, which sends `manual_retry`. A non-retriable one shows no button, because a new run with the same inputs fails the same way.
+An entry without the flag predates it and counts as non-retriable.
+
+#### Skipped metrics
+
+Discovery can skip a metric that is certain to fail again.
+It reads the latest two terminal runs of the experiment in one query and builds a `MetricHistory` for each metric: the current calculation key and the metric's outcome in each run.
+`skip_recalculation.find_metric_skips` runs the checks in `skip_recalculation_checks` in order, and the first skip wins.
+Both modules are pure, so the loader in discovery is the only database read.
+A check that raises returns no skip, and an error anywhere in skip planning skips nothing, so the metric runs.
+The only check skips a metric whose latest failure is a `validation_error` with the same calculation key as now.
+Every trigger skips, `manual_retry` included, so only a new calculation key ends a skip.
+
+With the `experiments-recalculations-skip-failing-metrics` organization flag on, discovery writes a `metric_errors` entry with `step: "skipped"`, `error_type: "metric_skipped"`, `skipped_error_type`, `skip_reason`, `failed_recalculation_id` and `failed_at`.
+The entry keeps the frontend from reading the metric as a gap and healing it in a loop.
+The calc activity finds the entry, sends `experiment metric error` with `error_type: "metric_skipped"`, and fails the metric before any query, so the run ends failed.
+A later run reads the skip entry as the failure it skipped, so the skip holds until the metric changes.
+With the flag off, discovery sends `experiment metric would skip` instead and the metric runs as usual.
 
 #### The cold-start payload
 

@@ -56,8 +56,17 @@ RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
 # SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
 # The window type comes from request_recalculation, not from a query: the experiment start date sets it.
 RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
+# Discovery writes this type when a skip check stops a metric from running. The entry keeps the original
+# error type in `skipped_error_type`.
+METRIC_SKIPPED_ERROR_TYPE = "metric_skipped"
 NON_RETRYABLE_ERROR_TYPES = frozenset(
-    {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
+    {
+        "out_of_memory",
+        "byte_limit",
+        "validation_error",
+        RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE,
+        METRIC_SKIPPED_ERROR_TYPE,
+    }
 )
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the

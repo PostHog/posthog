@@ -870,6 +870,101 @@ class TestCalculateActivity(BaseTest):
         assert entry["retriable"] is expected_retriable
         assert entry["calculation_key"] == _calculation_key(exp, "m1")
 
+    @parameterized.expand(
+        [
+            ("skipped", True, "heal_latest_run", True, False, False, True),
+            # The skip holds across runs, and the entry keeps pointing at the run that really failed.
+            ("skipped_again", True, "heal_latest_run", True, True, False, True),
+            ("shadow_mode", False, "heal_latest_run", True, False, False, False),
+            # Only a new calculation key ends a skip, so a manual retry of another metric keeps it.
+            ("manual_retry", True, "manual_retry", True, False, False, True),
+            ("metric_changed", True, "heal_latest_run", False, False, False, False),
+            ("metric_edited_after_discovery", True, "heal_latest_run", True, False, True, False),
+        ]
+    )
+    def test_unchanged_validation_error_skips_the_metric(
+        self,
+        name: str,
+        flag_enabled: bool,
+        trigger: str,
+        same_key: bool,
+        previous_skipped: bool,
+        edit_after_discovery: bool,
+        expect_skip: bool,
+    ):
+        exp = self._experiment(flag_key=f"calc-skip-{name}", metrics=[_mean_metric("m1")])
+        stored_key = _calculation_key(exp, "m1") if same_key else "key-before-edit"
+        failed_at = "2026-01-01T00:00:00+00:00"
+        failure = {"step": "calculation", "error_type": "validation_error", "calculation_key": stored_key}
+        if previous_skipped:
+            failure = {
+                "step": "skipped",
+                "error_type": "metric_skipped",
+                "skipped_error_type": "validation_error",
+                "calculation_key": stored_key,
+                "failed_recalculation_id": "run-that-failed",
+                "failed_at": failed_at,
+            }
+        previous = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            metric_uuids=["m1"],
+            metric_errors={"m1": {**failure, "timestamp": failed_at}},
+            completed_at=datetime.fromisoformat(failed_at),
+        )
+        failed_recalculation_id = "run-that-failed" if previous_skipped else str(previous.id)
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, trigger=trigger, query_to=datetime.fromisoformat(_QUERY_TO)
+        )
+
+        with (
+            _record_captures() as captured,
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.feature_enabled_or_false",
+                return_value=flag_enabled,
+            ),
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _discover(str(recalc.id))
+            discovery_events = list(captured)
+            if edit_after_discovery:
+                exp.metrics = [{**_mean_metric("m1"), "source": {"kind": "EventsNode", "event": "checkout"}}]
+                exp.save()
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        recalc.refresh_from_db()
+        would_skip = [c for c in discovery_events if c["event"] == "experiment metric would skip"]
+        if expect_skip:
+            assert result.success is False
+            assert result.error_step == "skipped"
+            mock_runner.assert_not_called()
+            entry = recalc.metric_errors["m1"]
+            assert {k: v for k, v in entry.items() if k not in ("message", "timestamp")} == {
+                "step": "skipped",
+                "error_type": "metric_skipped",
+                "skipped_error_type": "validation_error",
+                "skip_reason": "unchanged_validation_error",
+                "retriable": False,
+                "calculation_key": _calculation_key(exp, "m1"),
+                "failed_recalculation_id": failed_recalculation_id,
+                "failed_at": failed_at,
+            }
+            assert would_skip == []
+            assert [c["event"] for c in captured] == ["experiment metric error"]
+            assert captured[0]["properties"]["error_type"] == "metric_skipped"
+            assert captured[0]["properties"]["skipped_error_type"] == "validation_error"
+            assert captured[0]["properties"]["skip_reason"] == "unchanged_validation_error"
+        else:
+            assert result.success is True
+            mock_runner.assert_called_once()
+            assert recalc.metric_errors == {}
+            shadowed = not flag_enabled
+            assert [c["properties"]["failed_recalculation_id"] for c in would_skip] == (
+                [failed_recalculation_id] if shadowed else []
+            )
+
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
         # its terminal error.

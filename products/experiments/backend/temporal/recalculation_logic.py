@@ -7,6 +7,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 import time
 import random
 import dataclasses
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
@@ -25,11 +26,13 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
@@ -40,8 +43,20 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    build_calculation_configs,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.skip_recalculation import (
+    MetricHistory,
+    MetricKey,
+    MetricRunOutcome,
+    MetricSkip,
+    find_metric_skips,
+)
+from products.experiments.backend.metric_calculation.skip_recalculation_checks import RECALCULATION_SKIP_CHECKS
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import (
@@ -50,6 +65,7 @@ from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    METRIC_SKIPPED_ERROR_TYPE,
     NON_RETRYABLE_ERROR_TYPES,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
@@ -68,6 +84,17 @@ logger = structlog.get_logger(__name__)
 _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
+
+SKIP_FAILING_METRICS_FEATURE_FLAG = "experiments-recalculations-skip-failing-metrics"
+# Sent instead of a skip when the flag is off, so the skip rate is measurable before any metric stops running.
+METRIC_WOULD_SKIP_EVENT = "experiment metric would skip"
+# The checks read only the latest outcome of a metric. The second run covers a latest run without the metric.
+_SKIP_HISTORY_RUNS = 2
+_SKIPPED_STEP = "skipped"
+_METRIC_SKIPPED_MESSAGE = (
+    "This metric failed with the same configuration in the last run, so it was not calculated again. "
+    "Change the metric or the experiment to calculate it."
+)
 
 # Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
 _CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
@@ -91,6 +118,7 @@ class _RecalcState:
     metric_uuids: list[str]
     query_to: datetime | None
     trigger: str | None
+    metric_errors: dict[str, Any]
 
 
 def _get_recalc_state(recalculation_id: str) -> _RecalcState:
@@ -98,7 +126,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     row = (
         ExperimentMetricsRecalculation.objects.unscoped()
         .filter(id=recalculation_id)
-        .values("team_id", "experiment_id", "metric_uuids", "query_to", "trigger")
+        .values("team_id", "experiment_id", "metric_uuids", "query_to", "trigger", "metric_errors")
         .first()
     )
     if row is None:
@@ -115,6 +143,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         metric_uuids=row["metric_uuids"] or [],
         query_to=row["query_to"],
         trigger=row["trigger"],
+        metric_errors=row["metric_errors"] or {},
     )
 
 
@@ -135,7 +164,27 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         ]
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
-        recalculation.save(update_fields=["metric_uuids"])
+        update_fields = ["metric_uuids"]
+        planned_skips = _plan_metric_skips(recalculation)
+        if planned_skips and _skip_failing_metrics_enabled(experiment):
+            # The calc activity reads these entries and fails the metrics before any query runs.
+            recalculation.metric_errors = {
+                **(recalculation.metric_errors or {}),
+                **{planned.calculation_config.metric_id: _metric_skip_entry(planned) for planned in planned_skips},
+            }
+            update_fields.append("metric_errors")
+        else:
+            for planned in planned_skips:
+                _capture_experiment_metric_event(
+                    experiment,
+                    planned.calculation_config.metric_id,
+                    planned.calculation_config.role,
+                    planned.calculation_config.definition,
+                    METRIC_WOULD_SKIP_EVENT,
+                    {"recalculation_id": recalculation_id, **_metric_skip_properties(planned.skip)},
+                    trigger=state.trigger,
+                )
+        recalculation.save(update_fields=update_fields)
 
     logger.info(
         "Discovered experiment metrics for recalculation",
@@ -143,6 +192,125 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         count=len(metrics_to_recalculate),
     )
     return metrics_to_recalculate
+
+
+@frozen
+class _PlannedSkip:
+    calculation_config: MetricCalculationConfig
+    calculation_key: str
+    skip: MetricSkip
+
+
+def _plan_metric_skips(recalculation: ExperimentMetricsRecalculation) -> list[_PlannedSkip]:
+    """The metrics that the skip checks stop in this run. Any error returns no skips, so every metric runs."""
+    try:
+        experiment = recalculation.experiment
+        calculation_configs = {config.metric_id: config for config in build_calculation_configs(experiment)}
+        calculation_keys = {metric_id: config.calculation_key() for metric_id, config in calculation_configs.items()}
+        histories = _load_metric_histories(recalculation, calculation_keys)
+        skips = find_metric_skips(histories, RECALCULATION_SKIP_CHECKS)
+        return [
+            _PlannedSkip(
+                calculation_config=calculation_configs[key.metric_uuid],
+                calculation_key=calculation_keys[key.metric_uuid],
+                skip=skip,
+            )
+            for key, skip in skips.items()
+        ]
+    except Exception:
+        logger.exception("experiment_recalculation_skip_planning_failed", recalculation_id=str(recalculation.id))
+        return []
+
+
+def _load_metric_histories(
+    recalculation: ExperimentMetricsRecalculation, calculation_keys: dict[str, str]
+) -> list[MetricHistory]:
+    """One query reads the latest terminal runs of the experiment, which hold the outcomes of all its metrics."""
+    runs = list(
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment_id=recalculation.experiment_id,
+            status__in=[ExperimentMetricsRecalculation.Status.COMPLETED, ExperimentMetricsRecalculation.Status.FAILED],
+            completed_at__isnull=False,
+        )
+        .exclude(id=recalculation.id)
+        .order_by("-created_at")
+        .values("id", "metric_uuids", "metric_errors")[:_SKIP_HISTORY_RUNS]
+    )
+    histories = []
+    for metric_uuid, calculation_key in calculation_keys.items():
+        outcomes = (_run_outcome(run, metric_uuid) for run in runs)
+        histories.append(
+            MetricHistory(
+                key=MetricKey(experiment_id=recalculation.experiment_id, metric_uuid=metric_uuid),
+                calculation_key=calculation_key,
+                outcomes=tuple(outcome for outcome in outcomes if outcome is not None),
+            )
+        )
+    return histories
+
+
+def _run_outcome(run: Mapping[str, Any], metric_uuid: str) -> MetricRunOutcome | None:
+    """The metric's outcome in one run, or None when the run did not include the metric.
+
+    A skip entry reports the failure it skipped, so the next run keeps the skip while the metric is unchanged.
+    """
+    run_id = str(run["id"])
+    entry = (run["metric_errors"] or {}).get(metric_uuid)
+    if not isinstance(entry, dict):
+        if metric_uuid in (run["metric_uuids"] or []):
+            return MetricRunOutcome(recalculation_id=run_id, error_type=None, calculation_key=None, failed_at=None)
+        return None
+    if entry.get("step") == _SKIPPED_STEP:
+        return MetricRunOutcome(
+            recalculation_id=entry.get("failed_recalculation_id") or run_id,
+            error_type=entry.get("skipped_error_type"),
+            calculation_key=entry.get("calculation_key"),
+            failed_at=_parse_timestamp(entry.get("failed_at")),
+        )
+    return MetricRunOutcome(
+        recalculation_id=run_id,
+        error_type=entry.get("error_type"),
+        calculation_key=entry.get("calculation_key"),
+        failed_at=_parse_timestamp(entry.get("timestamp")),
+    )
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    return datetime.fromisoformat(value) if isinstance(value, str) else None
+
+
+def _skip_failing_metrics_enabled(experiment: Experiment) -> bool:
+    team_id = str(experiment.team_id)
+    organization_id = str(experiment.team.organization_id)
+    return feature_enabled_or_false(
+        SKIP_FAILING_METRICS_FEATURE_FLAG,
+        team_id,
+        groups={"organization": organization_id, "project": team_id},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": team_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def _metric_skip_properties(skip: MetricSkip) -> dict[str, Any]:
+    return {
+        "skipped_error_type": skip.skipped_error_type,
+        "skip_reason": skip.reason,
+        "failed_recalculation_id": skip.failed_recalculation_id,
+    }
+
+
+def _metric_skip_entry(planned: _PlannedSkip) -> dict[str, Any]:
+    return {
+        "step": _SKIPPED_STEP,
+        "message": _METRIC_SKIPPED_MESSAGE,
+        "error_type": METRIC_SKIPPED_ERROR_TYPE,
+        "retriable": False,
+        "calculation_key": planned.calculation_key,
+        "failed_at": planned.skip.failed_at.isoformat() if planned.skip.failed_at is not None else None,
+        "timestamp": timezone.now().isoformat(),
+        **_metric_skip_properties(planned.skip),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +754,36 @@ def _capture_experiment_metric_event(
 # ---------------------------------------------------------------------------
 
 
+def _skip_metric(
+    experiment: Experiment,
+    metric_uuid: str,
+    role: str,
+    metric_dict: dict[str, Any],
+    skip_entry: dict[str, Any],
+    *,
+    trigger: str | None,
+) -> MetricRecalculationResult:
+    """Fail a metric that discovery skipped. The entry is already in metric_errors, and no query runs."""
+    message = str(skip_entry.get("message") or "")[:_MAX_ERROR_MESSAGE_LENGTH]
+    _capture_experiment_metric_event(
+        experiment,
+        metric_uuid,
+        role,
+        metric_dict,
+        "experiment metric error",
+        {
+            "error_type": METRIC_SKIPPED_ERROR_TYPE,
+            "error_message": message,
+            "skipped_error_type": skip_entry.get("skipped_error_type"),
+            "skip_reason": skip_entry.get("skip_reason"),
+        },
+        trigger=trigger,
+    )
+    return MetricRecalculationResult(
+        metric_uuid=metric_uuid, success=False, error_step=_SKIPPED_STEP, error_message=message
+    )
+
+
 def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> str:
     """The ClickHouse client_query_id this metric's recalc query runs under.
 
@@ -705,6 +903,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         # Computed before any failure path, so an error here can't mask the error that the failure path records.
         calculation_key = calculation_config.calculation_key()
+
+        skip_entry = state.metric_errors.get(metric_uuid)
+        if isinstance(skip_entry, dict) and skip_entry.get("step") == _SKIPPED_STEP:
+            if skip_entry.get("calculation_key") == calculation_key:
+                return _skip_metric(experiment, metric_uuid, role, metric_dict, skip_entry, trigger=state.trigger)
+            # The metric changed after discovery skipped it, so the skip no longer applies.
+            _clear_error(recalculation_id, metric_uuid)
+
         results = MetricResultStore(experiment_id=experiment_id)
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
