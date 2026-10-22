@@ -56,6 +56,10 @@ class TestPatternFingerprint(TestCase):
             ("placeholder_widening_preserved_literals", "job <*> done in <num>ms", "job <hex> done in <*>ms", True),
             ("different_literals", "User <*> not found", "User <*> deleted", False),
             ("literal_split_changes_content", "User <*> not found", "User <*> not <*>", False),
+            ("stored_token_vs_grouped_wildcard", "job <ID> done in <N> ms", "job <*> done in <N> ms", True),
+            ("stored_klog_header_vs_grouped_wildcard", "x I<KLOGTIME> started <N>", "x <*> started <N>", True),
+            ("upper_case_log_text_stays_literal", "render <HTML> page", "render <BODY> page", False),
+            ("json_key_sets_keep_nested_tokens", "<JSON:<ID>,status>", "<JSON:<HOST>,status>", False),
         ]
     )
     def test_fingerprint_matches_across_template_wobble(self, _name, a, b, expected_equal) -> None:
@@ -248,6 +252,64 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
         assert results["baseline"]["date_from"].startswith("2026-06-20T12:00:00")
         assert results["baseline"]["total_count"] == 2
+
+    @parameterized.expand(
+        [
+            ("same_version_compares_stored", 5, 5, "stored_patterns", 5, (None, None)),
+            ("version_mismatch_mines_both", 6, 5, "body_mining", None, ("comparison", "comparison")),
+            (
+                "stored_vs_unstamped_mines_both",
+                5,
+                0,
+                "body_mining",
+                None,
+                ("comparison", "insufficient_version_coverage"),
+            ),
+        ]
+    )
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_both_windows_use_one_template_source(
+        self,
+        _name: str,
+        current_version: int,
+        baseline_version: int,
+        expected_source: str,
+        expected_version: int | None,
+        expected_reasons: tuple[str | None, str | None],
+    ) -> None:
+        def stamped(day: int, version: int) -> list[dict]:
+            return [
+                {
+                    **self._log(f"Archive job run_{i} queued", day=day),
+                    "pattern": "Archive job <ID> queued" if version else "",
+                    "pattern_version": version,
+                }
+                for i in range(20)
+            ]
+
+        self._insert(stamped(23, current_version) + stamped(16, baseline_version))
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z"),
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+            searchTerm=None,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            results = run_patterns_diff(self.team, query, None, user=self.user)
+
+        assert {
+            call.args[1] for call in feature_enabled.call_args_list if call.args[0] == "logs_patterns_query_v2"
+        } == {str(self.user.distinct_id)}
+
+        assert (results["current"]["source"], results["baseline"]["source"]) == (expected_source, expected_source)
+        assert (results["current"]["fallback_reason"], results["baseline"]["fallback_reason"]) == expected_reasons
+        assert (results["current"]["pattern_version"], results["baseline"]["pattern_version"]) == (
+            expected_version,
+            expected_version,
+        )
+        assert [e["classification"] for e in results["entries"]] == ["unchanged"]
 
 
 class TestStoredPatternKeys(TestCase):

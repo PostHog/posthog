@@ -193,7 +193,7 @@ def run_patterns_diff(
     user: "User | None" = None,
     limit: int | None = None,
 ) -> dict:
-    """Mine the query's window and a baseline window, and return classified diff entries.
+    """Get patterns for the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
     daily/weekly cycles, so last week's identical window is a fairer expectation than the
@@ -214,14 +214,16 @@ def run_patterns_diff(
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
-    versions = {runner.stored_version() for runner in (current_runner, baseline_runner)}
-    version = versions.pop() if len(versions) == 1 else None
+    runners = (current_runner, baseline_runner)
+    versions = [runner.stored_version() for runner in runners]
+    version = versions[0] if versions[0] == versions[1] else None
     if version is None:
-        current_runner.use_stored_patterns = baseline_runner.use_stored_patterns = False
-    results = [
-        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results for runner in (current_runner, baseline_runner)
-    ]
-    current_results, baseline_results = results
+        for runner, window_version in zip(runners, versions):
+            if window_version is not None:
+                runner.use_stored_patterns = False
+    current_results, baseline_results = (
+        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results for runner in runners
+    )
 
     entries = diff_patterns(
         current_results["patterns"],
