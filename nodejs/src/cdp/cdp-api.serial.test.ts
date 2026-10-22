@@ -37,6 +37,7 @@ import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import { transactionalEmailRequestsTotal } from './services/hogflows/transactional-email'
+import { emailRecipientHash } from './services/messaging/email-recipient-hash'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2107,6 +2108,7 @@ describe('CDP API', () => {
 
     describe('transactional email', () => {
         let mockQueueInvocations: jest.Mock
+        let recordStatus: jest.SpyInstance
         let hogFlow: HogFlow
         const body = {
             to: 'user@example.com',
@@ -2179,6 +2181,7 @@ describe('CDP API', () => {
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            recordStatus = jest.spyOn(api['emailStatus'], 'recordInBackground').mockImplementation(() => {})
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             await insertSender(SENDER_ID)
         })
@@ -2213,6 +2216,12 @@ describe('CDP API', () => {
                 expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
                 'hog_flow'
             )
+            // The worker, the SES webhook and the janitor write later statuses with the hash on the run.
+            const recipientHash = emailRecipientHash('user@example.com', hub.ENCRYPTION_SALT_KEYS)
+            expect(invocation.state.emailRecipientHash).toEqual(recipientHash)
+            expect(recordStatus.mock.calls).toEqual([
+                [{ teamId: team.id, messageId: invocation.id, status: 'queued', at: expect.any(Date), recipientHash }],
+            ])
         })
 
         describe('with an idempotency key', () => {
@@ -2238,6 +2247,7 @@ describe('CDP API', () => {
                     replayed: true,
                 })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(recordStatus).toHaveBeenCalledTimes(1)
             })
 
             it.each([
@@ -2346,6 +2356,7 @@ describe('CDP API', () => {
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toMatchObject({ replayed: false })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
+                expect(recordStatus).toHaveBeenCalledTimes(1)
             })
 
             it('refuses a keyed send when no idempotency store is configured', async () => {
@@ -2541,6 +2552,7 @@ describe('CDP API', () => {
                 })
                 expect(await outcomeCount(code)).toEqual(rejectedBefore + 1)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(recordStatus).not.toHaveBeenCalled()
             })
 
             it('sends a keyed send that was refused once the refusal is fixed', async () => {

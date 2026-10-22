@@ -565,6 +565,7 @@ describe('Hogflow Executor', () => {
 
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 customerTaskIdempotencyVersion: 1,
+                emailRecipientHash: 'a1b2',
                 event: {
                     ...createHogExecutionGlobals().event,
                     properties: {
@@ -581,7 +582,11 @@ describe('Hogflow Executor', () => {
                 customerTaskIdempotencyVersion: 1,
                 actionStepCount: 0,
                 currentAction: {
-                    hogFunctionState: { customerTaskIdempotencyVersion: 1, actionStepCount: 0 },
+                    hogFunctionState: {
+                        customerTaskIdempotencyVersion: 1,
+                        actionStepCount: 0,
+                        emailRecipientHash: 'a1b2',
+                    },
                 },
             })
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
