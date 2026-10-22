@@ -475,11 +475,9 @@ def process_query_task(
     Once complete save results to redis
     """
     from posthog.clickhouse.client import execute_process_query
+    from posthog.clickhouse.client.execute_async import unpack_runner_state
 
-    queued_query = query_tags.get("query")
-    runner_state = queued_query.get("_async_query_runner") if isinstance(queued_query, dict) else None
-    if runner_state is not None:
-        query_tags = {**query_tags, "query": query_json}
+    query_tags, runner_state = unpack_runner_state(query_tags, query_json)
     existing_query_tags = get_query_tags()
     all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
     tag_queries(**all_query_tags)

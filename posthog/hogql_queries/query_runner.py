@@ -392,6 +392,19 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
+NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+    {
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    }
+)
+
+
+def native_route_can_run(execution_mode: ExecutionMode) -> bool:
+    return execution_mode in NEVER_ENQUEUED_EXECUTION_MODES or native_events_async_enabled()
+
+
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -2151,6 +2164,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    def _async_runner_state(self) -> dict[str, Any] | None:
+        if not self._modifiers_override_provided:
+            return None
+        return {"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
+
     def enqueue_async_calculation(
         self,
         *,
@@ -2159,7 +2177,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        if self.modifiers.useNewEventsCluster and not native_events_async_enabled():
+        if self.modifiers.useNewEventsCluster and not native_route_can_run(ExecutionMode.CALCULATE_ASYNC_ALWAYS):
             raise ExposedHogQLError(
                 "Native events cluster queries require synchronous execution until async support is enabled. "
                 "Use refresh=force_blocking."
@@ -2204,9 +2222,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=query_json,
-            runner_state={"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
-            if self._modifiers_override_provided
-            else None,
+            runner_state=self._async_runner_state(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
