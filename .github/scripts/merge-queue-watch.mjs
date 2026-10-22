@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 
 const TRUNK_API = 'https://api.trunk.io/v1'
 const REPO = { host: 'github.com', owner: 'PostHog', name: 'posthog' }
@@ -20,6 +21,8 @@ const FAILED_RUNS_PER_30M_THRESHOLD = 10
 const COOLDOWN_MINUTES = 120
 const ALERT_EVENT_TYPE = 'merge_queue_loop_alert'
 const PAGE_SIZE = 100 // Trunk rejects take > 100
+// Slack rejects a section longer than 3000 characters, so the metrics line stays well under that.
+const MAX_METRIC_SERIES = 6
 const ALERT_OPENED_EVENT = 'merge_queue_loop_opened'
 const WEBHOOK_ATTEMPTS = 3
 const WEBHOOK_RETRY_DELAY_MS = 2000
@@ -107,6 +110,14 @@ function parseMetrics(text) {
     }
 }
 
+function restartSummary(series) {
+    if (series.length === 0) {
+        return 'unavailable or none'
+    }
+    const shown = series.slice(0, MAX_METRIC_SERIES).join(' ')
+    return series.length > MAX_METRIC_SERIES ? `${shown} (+${series.length - MAX_METRIC_SERIES} more)` : shown
+}
+
 function slackMessage(verdict, metrics, investigation) {
     const owner = process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
     const prs = verdict.top
@@ -124,7 +135,7 @@ function slackMessage(verdict, metrics, investigation) {
                         verdict.reasons.map((r) => `• ${r}`).join('\n') +
                         `\nMost repeated PRs: ${prs}\n` +
                         `Failed ${verdict.failedRuns} of ${verdict.totalRuns} runs in the last ${WINDOW_MINUTES} minutes. ` +
-                        `Restarts (1h): ${metrics.restarts.join(' ') || 'unavailable or none'}`,
+                        `Restarts (1h): ${restartSummary(metrics.restarts)}`,
                 },
             },
         ],
@@ -285,7 +296,7 @@ async function main() {
     }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     main().catch((e) => {
         console.error(e)
         process.exit(1)
