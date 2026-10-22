@@ -12,7 +12,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
 
-import { integrationsCreate } from 'products/integrations/frontend/generated/api'
+import {
+    integrationsCreate,
+    integrationsDomainConnectCheckRetrieve,
+} from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { DomainProblem, asSubdomainLabel, domainProblemOf, nameFromDomain, normalizeDomainInput } from './domainInput'
@@ -354,9 +357,10 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
             }
             actions.loadIntegrations()
             props.onCreated(createdSender)
-            const domain = values.sendingDomain ?? ''
-            // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsDomainConnectCheckRetrieve has no domain query parameter
-            const detection = await api.integrations.domainConnectCheck(domain).catch(() => null)
+            const detection = await integrationsDomainConnectCheckRetrieve(String(values.currentTeamId), {
+                domain: values.sendingDomain ?? '',
+                include_email_setup: true,
+            }).catch(() => null)
             // pinned: analytics event name
             posthog.capture('email domain submitted', {
                 detected_provider: detection?.dns_host?.name ?? detection?.provider_name ?? null,
