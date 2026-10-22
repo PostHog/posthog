@@ -112,6 +112,7 @@ describe('focused Inbox setup', () => {
                         {
                             id: 1,
                             kind: 'github',
+                            github_readiness: 'ready',
                             config: {},
                             display_name: 'example',
                             created_at: '2026-10-14',
