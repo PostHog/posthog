@@ -190,7 +190,7 @@ type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 // What a stream parser reads from one message: the team to look up, and how to build the globals
 // once the team has loaded.
 type ParsedMessage = {
-    teamId: number
+    teamId: unknown
     toGlobals: (team: Team) => HogFunctionInvocationGlobals
 }
 

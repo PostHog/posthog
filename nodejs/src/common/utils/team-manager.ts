@@ -10,8 +10,9 @@ type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
-// Postgres stores team ids in int4 columns. A query that compares one of those columns to any other
-// value fails.
+// Postgres stores team ids in int4 columns. A query that compares one of those columns to a
+// non-integer, or to a number above 2_147_483_647, fails. Team ids start at 1. The check therefore
+// also rejects 0 and negative numbers.
 export function isValidTeamId(value: unknown): value is number {
     return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
 }

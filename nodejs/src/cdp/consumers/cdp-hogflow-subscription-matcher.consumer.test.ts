@@ -1309,12 +1309,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             ]),
             // The schema already rejects a missing, null or string team_id.
-            ...[1.5, 3_000_000_000].map((teamId) => ({
-                name: `an internal event with team_id ${teamId}`,
-                parse: '_parseInternalEventsBatch',
-                bad: rawInternalEvent({ team_id: teamId }),
-                good: rawInternalEvent(),
-            })),
+            ...invalidTeamIds
+                .filter((teamId) => typeof teamId === 'number')
+                .map((teamId) => ({
+                    name: `an internal event with team_id ${teamId}`,
+                    parse: '_parseInternalEventsBatch',
+                    bad: rawInternalEvent({ team_id: teamId }),
+                    good: rawInternalEvent(),
+                })),
             {
                 name: 'an event that is not JSON',
                 parse: '_parseKafkaBatch',
@@ -1376,7 +1378,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         ]
 
         it.each(streams.flatMap((s) => lookupFailures.map((f) => ({ ...s, ...f }))))(
-            'fails the $stream batch when $lookup, and matches the event when the batch is read again',
+            'fails the $stream batch when $lookup, and processes the event when the batch is read again',
             async ({ consumer, message, fail }) => {
                 const connect = jest.fn().mockResolvedValue(undefined)
                 ;(matcher as any)[consumer] = { connect }
