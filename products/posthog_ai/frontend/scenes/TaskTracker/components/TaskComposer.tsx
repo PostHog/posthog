@@ -267,10 +267,11 @@ export function TaskComposer({
                                                     autoOpen={repositoryRequested}
                                                     onChange={(config) => {
                                                         if (
-                                                            !config.repository &&
-                                                            config.integrationId ===
-                                                                newTaskData.repositoryConfig.integrationId
+                                                            config.integrationId !==
+                                                            newTaskData.repositoryConfig.integrationId
                                                         ) {
+                                                            setRepositoryRequested(true)
+                                                        } else if (!config.repository) {
                                                             setRepositoryRequested(false)
                                                         }
                                                         setNewTaskData({ repositoryConfig: config })
