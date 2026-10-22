@@ -20,8 +20,10 @@
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. A group-aggregated set with no source
  * looks the key up in every stored set instead when the stored sets all aggregate the same way, or
- * when the set states or implies its own group type. It types every other untyped property as
- * `group` against the set's own group type index.
+ * when the set states or implies its own group type. A group-aggregated set types a property as
+ * `group` against its own group type index when the stored filters it reads hold the key as a group
+ * property or hold no person-aggregated type for it. Otherwise the person-aggregated filters decide
+ * the type.
  *
  * A person-aggregated set can filter on a group property. The flag evaluator reads each property
  * by its own type and group_type_index (see mixed_targeting_flag in
@@ -38,6 +40,12 @@
  * check_property_types_match_aggregation in products/feature_flags/backend/filters_validation.py
  * reports a group property in a person set and a person-aggregated property in a group set. The
  * evaluator supports both shapes. The merge keeps them where the stored flag already has them.
+ *
+ * In either kind of set, the stored filters that decide a type narrow to the ones that match the
+ * incoming operator and value, then to the ones with its operator. When the rest hold more than one
+ * typing, the property stays untyped. The API then rejects the write. A person-aggregated set with a
+ * source reads other stored sets only when the source holds no filter on the key whose type it can
+ * restore.
  *
  * An incoming person-aggregated set can keep the filters of other person-aggregated sets with the
  * same keys. The merge checks the incoming set's types against those sets only when the incoming set
@@ -201,19 +209,24 @@ function hasSameKeySet(incoming: ReadonlyMap<string, unknown>, existing: Readonl
 /** The flag evaluator ignores the value of an existence filter. */
 const EXISTENCE_OPERATORS = new Set(['is_set', 'is_not_set'])
 
+/** The flag evaluator reads a missing operator as `exact`. */
+function evaluatedOperator(prop: FlagProperty): string {
+    return prop.operator ?? 'exact'
+}
+
 /**
- * The flag evaluator reads a missing operator as `exact`. matchesFilter applies the same rule
- * without building the pair. A filter that matches another therefore always shares its signature.
+ * matchesFilter compares the same operator and value without building the pair. A filter that
+ * matches another therefore always shares its signature.
  */
 function evaluatedFilter(prop: FlagProperty): [operator: string, value: unknown] {
-    const operator = prop.operator ?? 'exact'
+    const operator = evaluatedOperator(prop)
     return [operator, EXISTENCE_OPERATORS.has(operator) ? null : prop.value]
 }
 
 function matchesFilter(stored: FlagProperty, incoming: FlagProperty): boolean {
-    const operator = stored.operator ?? 'exact'
+    const operator = evaluatedOperator(stored)
     return (
-        operator === (incoming.operator ?? 'exact') &&
+        operator === evaluatedOperator(incoming) &&
         (EXISTENCE_OPERATORS.has(operator) || isDeepStrictEqual(stored.value, incoming.value))
     )
 }
@@ -353,18 +366,31 @@ function resolveGroupIndex(
     return isPresentGroupIndex(explicitIndex) ? explicitIndex : fallbackIndex
 }
 
-function pickCandidate(
+function usableCandidates(
     candidates: FlagProperty[] | undefined,
-    incoming: FlagProperty,
     usableType: (type: unknown) => boolean
-): FlagProperty | undefined {
-    const usable = (candidates ?? []).filter((candidate) => usableType(candidate.type))
-    // Two group filters on one key can share an operator and differ only in group type and value.
-    return (
-        usable.find((candidate) => matchesFilter(candidate, incoming)) ??
-        (incoming.operator ? usable.find((candidate) => candidate.operator === incoming.operator) : undefined) ??
-        usable[0]
-    )
+): FlagProperty[] {
+    return (candidates ?? []).filter((candidate) => usableType(candidate.type))
+}
+
+function hasSameTypeAndGroupIndex(a: FlagProperty, b: FlagProperty): boolean {
+    return a.type === b.type && (a.group_type_index ?? null) === (b.group_type_index ?? null)
+}
+
+function restoredTyping(stored: FlagProperty, incoming: FlagProperty): FlagProperty {
+    return stored.type === 'group' && !isPresentGroupIndex(incoming.group_type_index)
+        ? { type: stored.type, group_type_index: stored.group_type_index }
+        : { type: stored.type }
+}
+
+/** Returning undefined when the typings disagree keeps the result independent of the order of the stored filters. */
+function pickTyping(usable: FlagProperty[], incoming: FlagProperty): FlagProperty | undefined {
+    const operator = evaluatedOperator(incoming)
+    const matching = usable.filter((candidate) => matchesFilter(candidate, incoming))
+    const sameOperator = usable.filter((candidate) => evaluatedOperator(candidate) === operator)
+    const remaining = [matching, sameOperator, usable].find((tier) => tier.length > 0) ?? []
+    const [first, ...rest] = remaining.map((candidate) => restoredTyping(candidate, incoming))
+    return first && rest.every((typing) => hasSameTypeAndGroupIndex(typing, first)) ? first : undefined
 }
 
 function unambiguousPersonCandidates(
@@ -391,24 +417,28 @@ function mergeProperty(
 
     if (!isPresentType(out.type)) {
         if (isPresentGroupIndex(setGroupTypeIndex)) {
+            const personTyped = usableCandidates(candidates, isPersonAggregatedType)
             // Candidates that also hold the key as a group property leave the type ambiguous.
-            out.type = candidates?.some((candidate) => candidate.type === 'group')
-                ? 'group'
-                : (pickCandidate(candidates, out, isPersonAggregatedType)?.type ?? 'group')
+            const restoredType =
+                candidates?.some((candidate) => candidate.type === 'group') || personTyped.length === 0
+                    ? 'group'
+                    : pickTyping(personTyped, out)?.type
+            if (restoredType) {
+                out.type = restoredType
+            }
         } else {
             // A person-aggregated source restores the group property it filters on, index
             // included. Any other candidate restores only a person-aggregated type, because
             // restoring `group` from it would name fields the agent never sent. Leaving the type
             // unset then makes the API report the property the agent actually sent.
-            const restored = source
-                ? (pickCandidate(candidates, out, source === 'person' ? isPresentType : isPersonAggregatedType) ??
-                  pickCandidate(otherCandidates, out, isPersonAggregatedType))
-                : pickCandidate(unambiguousPersonCandidates(otherCandidates, out), out, isPersonAggregatedType)
-            if (restored) {
-                out.type = restored.type
-                if (restored.type === 'group' && !isPresentGroupIndex(out.group_type_index)) {
-                    out.group_type_index = restored.group_type_index
-                }
+            const fromSource = source
+                ? usableCandidates(candidates, source === 'person' ? isPresentType : isPersonAggregatedType)
+                : []
+            const others = source ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
+            const usable = fromSource.length > 0 ? fromSource : usableCandidates(others, isPersonAggregatedType)
+            const typing = pickTyping(usable, out)
+            if (typing) {
+                Object.assign(out, typing)
             }
         }
     }
@@ -524,9 +554,7 @@ function typeSetProperties(
                     setGroupTypeIndex,
                     'person'
                 )
-                return (
-                    fromMatched.type === fromSource.type && fromMatched.group_type_index === fromSource.group_type_index
-                )
+                return hasSameTypeAndGroupIndex(fromMatched, fromSource)
             })
             return allAgree ? fromSource : prop
         })
