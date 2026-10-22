@@ -1,5 +1,8 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { makeSpan } from '../../__mocks__/span'
@@ -41,6 +44,8 @@ describe('traceViewLogic', () => {
     // A stale key dims the next trace's tree. Another inspector tab, or the missing-parent notice that
     // replaces the inspector, would leave dimmed rows with nothing on screen to explain them. A switch to
     // the Operations tab itself must keep the pick, or a caller that selects the tab after a highlight drops it.
+    // The Operations tab stays on screen in the call tree, which opens on the same operation, so a switch of
+    // view must keep the pick too.
     // The tab event must count only the person's own switches: a trace that opens on a tab, or a click on the
     // tab already shown, would inflate it.
     it.each([
@@ -69,6 +74,15 @@ describe('traceViewLogic', () => {
             keeps: true,
             tabEvent: null,
         },
+        {
+            action: 'switching to the call tree',
+            act: () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: true })
+                logic.actions.setTraceViewMode('calltree', 'drawer')
+            },
+            keeps: true,
+            tabEvent: null,
+        },
     ])(
         'after $action, keeps the highlighted operation: $keeps, and sends a tab event only for a tab change',
         ({ act, keeps, tabEvent }) => {
@@ -83,6 +97,46 @@ describe('traceViewLogic', () => {
             )
         }
     )
+
+    // The call tree hides the span tree, so J there would move a selection that nobody can see. Back in the span
+    // tree the keys must work again, and with the flag off a stored call tree must not turn them off. In every
+    // view the key must stop at the view, or the page under it acts on the key too.
+    it.each([
+        { view: 'calltree' as const, flagOn: true, selected: 'a' },
+        { view: 'waterfall' as const, flagOn: true, selected: 'b' },
+        { view: 'calltree' as const, flagOn: false, selected: 'b' },
+    ])(
+        'in the $view view with the flag on: $flagOn, J leaves the selection on $selected',
+        ({ view, flagOn, selected }) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: flagOn })
+            logic.actions.setSpans([root, child('a', 'root', 'SELECT orders', 1), child('b', 'root', 'cache GET', 2)])
+            logic.actions.selectSpan('a')
+            logic.actions.enableSpanKeys('[data-attr="trace-view-test"]')
+            logic.actions.setTraceViewMode('calltree', 'drawer')
+            logic.actions.setTraceViewMode(view, 'drawer')
+            const pageKeyDown = jest.fn()
+            document.body.addEventListener('keydown', pageKeyDown)
+
+            const event = new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true })
+            document.body.dispatchEvent(event)
+            document.body.removeEventListener('keydown', pageKeyDown)
+
+            expect(logic.values.selectedSpanId).toBe(selected)
+            expect([event.defaultPrevented, pageKeyDown.mock.calls.length]).toEqual([true, 0])
+        }
+    )
+
+    // AI events load after the spans. A call tree rebuilt for them resets the drill-down in the flame.
+    it('keeps the call tree when only AI event rows arrive', () => {
+        const spans = [root, child('cache', 'root', 'cache GET', 1)]
+        logic.actions.setSpans(spans)
+        const callTree = logic.values.callTree
+
+        logic.actions.setSpans([...spans, child('ai:event-1', 'root', 'llm call', 2)])
+
+        expect(logic.values.callTree).toBe(callTree)
+    })
 
     // Fails when the highlight stops opening the child list that hides the operation's first span, which
     // leaves the tree nothing to scroll to, or when it moves the selection off the span the person inspects.

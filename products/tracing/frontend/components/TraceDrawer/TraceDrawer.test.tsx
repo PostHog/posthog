@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
@@ -12,8 +12,10 @@ import { initKeaTests } from '~/test/init'
 import { tracingSpansTraceAiEventsRetrieve } from 'products/tracing/frontend/generated/api'
 
 import { makeSpan } from '../../__mocks__/span'
+import { compareRowKey } from '../../compareUtils'
 import { EMPTY_TRACE_IDENTITY } from '../../traceIdentity'
-import type { SpanInspectorTab } from '../../types'
+import { tracingConfigLogic } from '../../tracingConfigLogic'
+import type { Span, SpanInspectorTab } from '../../types'
 import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TraceDrawer, type TraceDrawerProps } from './TraceDrawer'
 
@@ -29,6 +31,8 @@ describe('TraceDrawer', () => {
     let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
+        // The view mode persists, so a mode that one test leaves would carry over into the next.
+        localStorage.clear()
         initKeaTests()
         mockAiEventsRetrieve.mockReset()
         mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false, limit: 500 })
@@ -199,6 +203,117 @@ describe('TraceDrawer', () => {
 
         tabBar.getByText('Raw').click()
         expect(tabEvents()).toEqual([['tracing trace inspector tab changed', { tab: 'raw', surface: 'drawer' }]])
+    })
+
+    describe('call tree', () => {
+        const traceSpan = (span_id: string, parent_span_id: string, service_name: string, name: string): Span =>
+            makeSpan({
+                trace_id: 'abc123',
+                uuid: span_id,
+                span_id,
+                parent_span_id,
+                service_name,
+                name,
+                is_root_span: parent_span_id === '',
+            })
+        const setCallTreeFlag = (on: boolean): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: on })
+        }
+
+        beforeEach(() => {
+            // jsdom lays nothing out, so the virtualized span tree needs a size to render rows into.
+            jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1000)
+            setCallTreeFlag(true)
+        })
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The toggle swaps one view for the other, so a regression that renders both, or neither, fails here. The
+        // call tree draws the two cache GET spans under POST /orders as one bar with its count. The third runs under
+        // SELECT orders, so it gets a bar of its own: a tree that merges an operation across its callers labels both
+        // bars cache GET ×3. A click on the selected option also calls onChange, and must not count as a change.
+        it('switches the left pane to the call tree, and captures the change once', () => {
+            renderDrawer({
+                spans: [
+                    traceSpan('span-1', '', 'checkout-api', 'POST /orders'),
+                    traceSpan('span-2', 'span-1', 'postgres', 'SELECT orders'),
+                    traceSpan('span-3', 'span-1', 'checkout-api', 'cache GET'),
+                    traceSpan('span-4', 'span-1', 'checkout-api', 'cache GET'),
+                    traceSpan('span-5', 'span-2', 'checkout-api', 'cache GET'),
+                ],
+            })
+            const spanRow = (): Element | null => document.querySelector('[data-attr="trace-dialog-span-row"]')
+            const callTreeOption = (): HTMLElement =>
+                document.querySelector<HTMLElement>('[data-attr="tracing-trace-view-calltree"]')!
+            expect(spanRow()).not.toBeNull()
+            expect(screen.queryByText('cache GET ×2')).toBeNull()
+
+            fireEvent.click(callTreeOption())
+            fireEvent.click(callTreeOption())
+
+            expect(spanRow()).toBeNull()
+            expect(screen.getByText('cache GET ×2')).toBeInTheDocument()
+            expect(screen.getByText('cache GET')).toBeInTheDocument()
+            expect(screen.queryByText('cache GET ×3')).toBeNull()
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([
+                ['tracing trace view changed', { view: 'calltree', surface: 'drawer' }],
+            ])
+        })
+
+        // With the flag off nothing may offer the call tree, and a call tree that the person picked while the flag was
+        // on must not hide the span tree with no toggle to get it back.
+        it('with the flag off, shows no toggle and keeps the span tree for a stored call tree', () => {
+            setCallTreeFlag(false)
+            tracingConfigLogic.mount()
+            tracingConfigLogic.actions.setTraceViewMode('calltree', 'drawer')
+            renderDrawer({ spans: [traceSpan('span-1', '', 'checkout-api', 'POST /orders')] })
+
+            expect(document.querySelector('[data-attr="tracing-trace-view-calltree"]')).toBeNull()
+            expect(document.querySelector('[data-attr="trace-dialog-span-row"]')).not.toBeNull()
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([])
+        })
+
+        // Two services each run GET /x. A focus that matches on the name alone opens the first one, under which only
+        // web-only runs. A switch to another inspector tab clears the highlight, and must not undo the person's drill
+        // back to the root, where web-only shows again. The focus event counts only the person's own drill, so the
+        // highlight's focus and its clearing send nothing.
+        it('focuses the highlighted operation of its own service, keeps a drill when the highlight clears, and captures only clicked focus changes', () => {
+            tracingConfigLogic.mount()
+            tracingConfigLogic.actions.setTraceViewMode('calltree', 'drawer')
+            renderDrawer({
+                spans: [
+                    traceSpan('span-1', '', 'checkout-api', 'POST /orders'),
+                    traceSpan('span-2', 'span-1', 'web', 'GET /x'),
+                    traceSpan('span-3', 'span-2', 'web', 'web-only'),
+                    traceSpan('span-4', 'span-1', 'api', 'GET /x'),
+                    traceSpan('span-5', 'span-4', 'api', 'api-only'),
+                ],
+            })
+
+            act(() => {
+                traceViewLogic({ id: 'trace-drawer-test' }).actions.highlightOperation(
+                    compareRowKey({ service_name: 'api', name: 'GET /x' })
+                )
+            })
+
+            expect(screen.getByText('api-only')).toBeInTheDocument()
+            expect(screen.queryByText('web-only')).toBeNull()
+
+            fireEvent.click(screen.getByText('api-only'))
+            act(() => {
+                traceViewLogic({ id: 'trace-drawer-test' }).actions.setInspectorTab('logs')
+            })
+            expect(screen.queryByText('web-only')).toBeNull()
+            fireEvent.click(screen.getByText('Root'))
+
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace call tree focused')).toEqual([
+                ['tracing trace call tree focused', { direction: 'in', depth: 3, surface: 'drawer' }],
+                ['tracing trace call tree focused', { direction: 'out', depth: 0, surface: 'drawer' }],
+            ])
+        })
     })
 
     it('shows a retryable error when the AI events fetch fails and there are no spans', async () => {
