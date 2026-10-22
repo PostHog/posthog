@@ -79,7 +79,7 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Point markers configuration. Omit for no dots. */
+    /** Point markers configuration. Omit to dot only the points with no line through them. A radius of 0 hides every dot. */
     points?: {
         /** Radius in CSS pixels. */
         radius: number
@@ -250,11 +250,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean

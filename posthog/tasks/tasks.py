@@ -1359,11 +1359,21 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         "Seconds between checkpoint timestamp and current time",
         registry=self.metrics_registry,
     )
+    checkpoint_timestamp_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_timestamp_seconds",
+        "Unix time of the checkpoint the sync wrote to Redis",
+        registry=self.metrics_registry,
+    )
 
     run_failed = False
 
     try:
         redis_client = get_client()
+
+        def save_checkpoint(checkpoint: datetime) -> None:
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint.isoformat())
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint).total_seconds())
+            checkpoint_timestamp_gauge.set(checkpoint.timestamp())
 
         # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
         # that Celery retries the run. The lookback fallback would rescan up to
@@ -1487,7 +1497,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         "current_sync_timestamp": chunk_end_ts,
                         "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
                     },
-                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                    settings={
+                        "max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS,
+                        # When every replica of a shard lags past max_replica_delay_for_distributed_queries,
+                        # the default fallback reads a stale replica and returns a result with rows missing.
+                        # The checkpoint would then move past those rows. With the fallback off, ClickHouse
+                        # fails the chunk, so the checkpoint stops before it.
+                        "fallback_to_stale_replicas_for_distributed_queries": 0,
+                    },
                 )
             except Exception as e:
                 # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
@@ -1562,13 +1579,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not merged_results:
             # Advance the checkpoint even when no results, so the next run starts from the
             # end of the window that was read instead of rescanning it
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1586,7 +1602,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
             logger.info(
                 "Feature flag sync: no valid timestamps to update",
                 chunks_processed=len(chunks),
@@ -1594,7 +1610,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
@@ -1637,17 +1652,15 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 raise
 
         # Set final checkpoint to the end of the last window that was read successfully
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+        save_checkpoint(checkpoint_timestamp)
 
         duration = (timezone.now() - start_time).total_seconds()
         processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
         clickhouse_results_gauge.set(total_clickhouse_results)
-        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         logger.info(
             "Feature flag sync completed",

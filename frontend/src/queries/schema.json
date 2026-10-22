@@ -2226,7 +2226,14 @@
             "additionalProperties": {},
             "properties": {
                 "kind": {
-                    "$ref": "#/definitions/InsightNodeKind"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightNodeKind"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantMetricsNodeKind"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
@@ -4090,6 +4097,10 @@
                 "ai/planning",
                 "ai/task_execution"
             ],
+            "type": "string"
+        },
+        "AssistantMetricsNodeKind": {
+            "enum": ["MetricsQuery", "MetricsHistogramQuery"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -9298,6 +9309,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_checks": {
+                    "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                    },
+                    "type": "array"
                 },
                 "health_findings": {
                     "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
@@ -17676,6 +17694,14 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "cohort_deleted": {
+                    "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                    "type": "boolean"
+                },
+                "cohort_missing": {
+                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                    "type": "boolean"
+                },
                 "cohort_name": {
                     "type": "string"
                 },
@@ -25531,6 +25557,38 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthCheck": {
+            "additionalProperties": false,
+            "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
+                    "description": "Stable identifier of the check."
+                },
+                "name": {
+                    "description": "What the check looks at, as the health panel lists it.",
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.",
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "$ref": "#/definitions/ExperimentExposureHealthCheckStatus",
+                    "description": "passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed."
+                }
+            },
+            "required": ["key", "name", "status", "reason"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthCheckKey": {
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthCheckStatus": {
+            "enum": ["passed", "finding", "not_applicable", "not_checked"],
+            "type": "string"
+        },
         "ExperimentExposureHealthFinding": {
             "additionalProperties": false,
             "description": "A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`.",
@@ -25662,6 +25720,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_checks": {
+                    "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                    },
+                    "type": "array"
                 },
                 "health_findings": {
                     "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
@@ -25922,54 +25987,6 @@
                     "type": "string"
                 }
             ]
-        },
-        "ExperimentMaxBayesianContext": {
-            "additionalProperties": false,
-            "properties": {
-                "chance_to_win": {
-                    "type": "number"
-                },
-                "credible_interval": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "maxItems": 2,
-                    "minItems": 2,
-                    "type": "array"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "significant": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["key", "chance_to_win", "credible_interval", "significant"],
-            "type": "object"
-        },
-        "ExperimentMaxFrequentistContext": {
-            "additionalProperties": false,
-            "properties": {
-                "confidence_interval": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "maxItems": 2,
-                    "minItems": 2,
-                    "type": "array"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "significant": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["key", "p_value", "confidence_interval", "significant"],
-            "type": "object"
         },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
@@ -27283,6 +27300,7 @@
                 "logs",
                 "tracing",
                 "metrics",
+                "uptime_monitoring",
                 "workflows",
                 "broadcasts",
                 "notebook",
@@ -41217,6 +41235,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "uptime_monitoring",
                 "metrics",
                 "visual_review",
                 "web_analytics",
@@ -43084,6 +43103,13 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "health_checks": {
+                            "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                            },
+                            "type": "array"
                         },
                         "health_findings": {
                             "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
@@ -50333,7 +50359,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

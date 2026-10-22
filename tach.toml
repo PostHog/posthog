@@ -1020,6 +1020,7 @@ depends_on = [
     "products.data_warehouse",
     "products.data_modeling",
     "products.warehouse_sources",
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1030,6 +1031,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.event_definitions",
     "products.analytics_platform", "products.warehouse_sources",
     "products.feature_flags",
 ]
@@ -1807,4 +1809,18 @@ expose = [
 ]
 from = [
     "products.account_audits",
+]
+
+[[modules]]
+path = "products.uptime_monitoring"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.uptime_monitoring",
 ]

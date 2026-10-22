@@ -3,6 +3,8 @@ from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
 from posthog.models.scoping import team_scope
@@ -12,6 +14,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_alert_backfill import (
     backfill_platform_insight_alert_configurations,
     disable_platform_insight_alert_configurations,
+    follow_insight_alert,
 )
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
@@ -69,7 +72,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
             real_time.id: (2, None, None),
             quarter_hourly.id: (15, None, None),
-            hourly.id: (60, None, None),
+            hourly.id: (60, None, "09:30"),
             daily.id: (60 * 24, "day", "09:30"),
             detector.id: (60 * 24, "day", None),
             ai_detector.id: (60 * 24, "day", None),
@@ -109,3 +112,14 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
         backfill_platform_insight_alert_configurations(team_id=self.team.id)
         assert {view.enabled for view in self._copies().values()} == {True}
+
+    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
+    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(self, _name: str, running: bool) -> None:
+        if running:
+            self._alert()
+            backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        created = self._alert()
+
+        follow_insight_alert(created)
+
+        assert (created.id in self._copies()) is running

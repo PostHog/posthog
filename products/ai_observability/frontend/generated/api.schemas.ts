@@ -295,6 +295,63 @@ export interface InstrumentationCheckActionApi {
 }
 
 /**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
  * * `ci` - CI
  * * `local` - Local
  * * `scheduled` - Scheduled
@@ -323,6 +380,8 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /** User who submitted the experiment, or null for service credentials. */
+    readonly created_by: UserBasicApi | null
     /** Project tag names assigned to this experiment. */
     tags: string[]
     /** Stable experiment UUID. */
@@ -1283,6 +1342,8 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
 export interface TracePersonApi {
     distinctId: string
     label: string
@@ -1339,66 +1400,48 @@ export interface TraceApi {
     timeline: TraceTimelineRowApi[]
     totalMs: number
     threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+}
+
+export interface TraceNodeMetadataApi {
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+export interface TraceNodeIOKeysApi {
+    input: string | null
+    output: string | null
+    tools: string | null
+}
+
+/**
+ * The event's properties as ingested, including its input and output values.
+ */
+export type TraceNodeEventApiProperties = { [key: string]: unknown }
+
+export interface TraceNodeEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+    /** The event's properties as ingested, including its input and output values. */
+    properties: TraceNodeEventApiProperties
+    /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
+    ioKeys: TraceNodeIOKeysApi
+}
+
+export interface TraceNodeDetailApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    error: string | null
+    metadata: TraceNodeMetadataApi
+    event: TraceNodeEventApi | null
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
-
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
 
 /**
  * JSON object with item metadata.
@@ -3714,6 +3757,8 @@ export interface ScoreDefinitionApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
+    /** User who last updated the scorer or created a version. */
+    readonly updated_by: UserBasicApi | null
     readonly team: number
 }
 
@@ -4761,6 +4806,15 @@ export type AiObservabilityOfflineExperimentsListParams = {
      */
     application_version?: string
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -4960,6 +5014,15 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      */
     application_version?: string
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -5062,6 +5125,13 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
 } as const
 
 export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesNodesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -5426,6 +5496,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      * Filter by archived state.
      */
     archived?: boolean
+    /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number
     /**
      * Filter by scorer kind.
      */

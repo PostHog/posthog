@@ -3364,6 +3364,9 @@ _WRITE_SCOPES_HELP = (
     "omitted. Empty means the scout reads the project and writes only its findings and its own "
     "memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "`ticket:write` lets the scout update tickets, manage saved views, and add private notes. "
+    "Scouts cannot send public replies, compose emails, change existing notes, or change customer "
+    "identity fields. Ticket changes can start workflows that message customers. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project "
@@ -4661,6 +4664,9 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
         help_text=("Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out."),
     )
     tool_presets = ScoutToolPresetSerializer(many=True, help_text="Tool selections expanded and validated on save.")
+    run_context_tools = serializers.SerializerMethodField(
+        help_text="Tools every scout run holds. Show these as always available, excluding them from saved selections."
+    )
     presets = ScoutScopePresetSerializer(
         many=True,
         help_text="The scope presets a scout run can be dispatched with, and the scopes each one resolves to.",
@@ -4672,6 +4678,10 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
             "can never be added to a scout's token."
         ),
     )
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_run_context_tools(self, _obj: object) -> list[str]:
+        return sorted(SCOUT_RUN_CONTEXT_TOOLS)
 
 
 # --- Members (reviewer routing) --------------------------------------------

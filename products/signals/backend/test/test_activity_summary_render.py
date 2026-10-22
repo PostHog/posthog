@@ -22,15 +22,20 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_HEADER,
     ACTIVITY_LINE_CHARS,
     ACTIVITY_LINES,
+    DEFAULT_LIMITS,
+    MAX_ACTIVITY_LINES_PER_DAY,
+    MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
-    SECTIONS_MAX_CHARS,
-    TASK_LINE_CHARS,
     TASK_LINES,
     TASKS_HEADER,
+    VIEWS_HEADER,
     ActivityItem,
     Drop,
+    Parent,
+    RenderLimits,
     TaskItem,
     Unit,
+    ViewItem,
     activity_units,
     build_input,
     burst_cap,
@@ -38,14 +43,9 @@ from products.signals.backend.activity_summary.render import (
     sample_units,
     sampling_seed,
     task_units,
+    view_units,
 )
-from products.signals.backend.activity_summary.summaries import (
-    MAX_COMPLETION_TOKENS,
-    PIPELINE_DISTINCT_ID,
-    SummaryPrices,
-    cost_usd,
-    summarize,
-)
+from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue?sig=abc"
@@ -66,8 +66,22 @@ def _change(
     client: str | None = None,
     days_ago: float = 1,
     intent: str | None = None,
+    item_id: str | None = None,
 ) -> ActivityItem:
-    return ActivityItem(at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent)
+    return ActivityItem(
+        at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent, item_id=item_id
+    )
+
+
+QUALITY = Parent(scope="Dashboard", item_id="10", name="Quality review")
+GROWTH = Parent(scope="Dashboard", item_id="11", name="Growth overview")
+
+
+def _view(
+    view_type: str, ref: str, name: str | None = None, days: int = 1, days_ago: float = 1, not_theirs: bool = False
+) -> ViewItem:
+    opened = tuple(sorted(_at(days_ago + n).date() for n in range(days)))
+    return ViewItem(at=_at(days_ago), type=view_type, ref=ref, name=name, days=opened, not_theirs=not_theirs)
 
 
 @parameterized.expand(
@@ -166,6 +180,111 @@ def test_activity_units_render_the_agent_intent(_name: str, intents: list[str | 
     assert [unit.text for unit in activity_units(items, Counter())] == [expected]
 
 
+@parameterized.expand(
+    [
+        (
+            "insights on one dashboard merge with the dashboard's created row",
+            [
+                _change("Dashboard", "created", "Quality review", days_ago=3, item_id="10"),
+                _change("Insight", "created", "Records judged per day", days_ago=2.9, item_id="1"),
+                _change("Insight", "created", "Suggestion defect rates", days_ago=2.8, item_id="2"),
+                _change("Insight", "updated", "Suggestion defect rates", days_ago=2.7, item_id="2"),
+                _change("Insight", "created", "Unplaced funnel", days_ago=1, item_id="3"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-16 created Dashboard "Quality review" with 2 Insights: '
+                '"Suggestion defect rates", "Records judged per day"',
+                '- 2026-10-18 created Insight "Unplaced funnel"',
+            ],
+            {Drop.GROUPED_INTO_PARENT: 3},
+        ),
+        (
+            "insights on a dashboard the person did not create group under it",
+            [
+                _change("Insight", "created", "Records judged per day", item_id="1"),
+                _change("Insight", "updated", "Suggestion defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-18 created and updated 2 Insights on Dashboard "Quality review": '
+                '"Records judged per day", "Suggestion defect rates"'
+            ],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "a lone insight names its dashboard and how many more it sits on",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (GROWTH, QUALITY)},
+            ['- 2026-10-18 created Insight "Signup funnel" on Dashboard "Growth overview" (+1 more)'],
+            {},
+        ),
+        (
+            "an insight joins the dashboard that holds the other changed insights",
+            [
+                _change("Insight", "created", "Signup funnel", item_id="1"),
+                _change("Insight", "created", "Defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (GROWTH, QUALITY), ("Insight", "2"): (QUALITY,)},
+            ['- 2026-10-18 created 2 Insights on Dashboard "Quality review": "Defect rates", "Signup funnel"'],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "an auto-named dashboard gives no context",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (Parent(scope="Dashboard", item_id="12", name="Daily report 2026-10-18"),)},
+            ['- 2026-10-18 created Insight "Signup funnel"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_group_children_under_their_parent(
+    _name: str,
+    items: list[ActivityItem],
+    parents: dict[tuple[str, str], tuple[Parent, ...]],
+    expected: list[str],
+    expected_drops: dict[str, int],
+) -> None:
+    drops: Counter[str] = Counter()
+    assert [unit.text for unit in activity_units(items, drops, parents)] == expected
+    assert dict(drops) == expected_drops
+
+
+def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
+    items = [
+        _change(
+            "Insight", "created", f"Insight number {n} with a fairly long name", days_ago=1 + n / 100, item_id=str(n)
+        )
+        for n in range(12)
+    ]
+    parents = {("Insight", str(n)): (QUALITY,) for n in range(12)}
+
+    [unit] = activity_units(items, Counter(), parents)
+
+    assert unit.text.startswith('- 2026-10-18 created 12 Insights on Dashboard "Quality review": "Insight number 0')
+    assert unit.text.endswith('", …')
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+
+
+@parameterized.expand(
+    [
+        ("other days take the slots a burst would fill", 12, MAX_ACTIVITY_LINES_PER_DAY),
+        ("a burst fills the slots no other day takes", 3, ACTIVITY_LINES - 3),
+        ("a lone busy day still fills the section", 0, ACTIVITY_LINES),
+    ]
+)
+def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, expected_burst_lines: int) -> None:
+    drops: Counter[str] = Counter()
+    burst = [_change("Insight", "created", f"Burst {n}", days_ago=1 - n / 1000) for n in range(ACTIVITY_LINES + 5)]
+    older = [_change("Notebook", "updated", f"Older {day}", days_ago=day) for day in range(2, 2 + older_days)]
+
+    units = activity_units(burst + older, drops)
+
+    assert len(units) == ACTIVITY_LINES
+    assert sum(1 for unit in units if "Burst" in unit.text) == expected_burst_lines
+    assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
+
+
 def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
     drops: Counter[str] = Counter()
     units = [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)]
@@ -225,12 +344,16 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
 
 
-def test_build_input_renders_the_two_sections_in_order() -> None:
+def test_build_input_renders_the_three_sections_in_order() -> None:
     rendered = build_input(
         [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
         [_change("Dashboard", "created", "Growth overview", days_ago=1)],
         as_of=AS_OF,
         seed=1,
+        views=[
+            _view("insight", "abc", "Weekly signups", days_ago=1),
+            _view("dashboard", "9", "Growth overview", days=3, days_ago=2),
+        ],
     )
 
     assert rendered is not None
@@ -241,14 +364,63 @@ def test_build_input_renders_the_two_sections_in_order() -> None:
             "",
             ACTIVITY_HEADER,
             '- 2026-10-18 created Dashboard "Growth overview"',
+            "",
+            VIEWS_HEADER,
+            '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
+            '- Insight "Weekly signups": opened 1 day, last 2026-10-18',
         ]
     )
-    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.units) == (1, 1, 2)
+    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_view_lines, rendered.units) == (1, 1, 2, 4)
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
+    assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
 
 
-def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
+def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> None:
+    drops: Counter[str] = Counter()
+    views = [
+        _view("scene", "ErrorTrackingIssue", days=2),
+        _view("scene", "ErrorTracking", days=3, days_ago=2),
+        _view("scene", "Settings"),
+        _view("scene", "ProjectHomepage"),
+        _view("insight", "abc", "Weekly signups", days=5, not_theirs=True),
+        _view("feature_flag", "7", "new-checkout", days=2),
+        _view("notebook", "n1", "Daily report 2026-10-18"),
+        _view("dashboard", "9", None),
+    ]
+    activity = [
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1.5),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=3, client="scout:feature-flags"),
+    ]
+
+    units = view_units(views, activity, drops)
+
+    assert sorted(unit.text for unit in units) == [
+        "- Error tracking pages: opened 4 days, last 2026-10-18",
+        '- Feature flag "new-checkout": opened 2 days, last 2026-10-18, edited 2 days',
+        '- Insight "Weekly signups": opened 5 days, last 2026-10-18, not theirs',
+    ]
+    assert dict(drops) == {Drop.GENERIC_SCENE: 2, Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS),
+        (
+            "limits from the flag",
+            RenderLimits(
+                task_lines=5,
+                activity_lines=30,
+                max_units_per_day=1,
+                sections_max_chars=20000,
+                task_line_chars=240,
+                activity_line_chars=400,
+            ),
+        ),
+    ]
+)
+def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str, limits: RenderLimits) -> None:
     runaway = "word " * 2000
     tasks = [
         _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
@@ -257,15 +429,28 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
     ]
     activity = [_change("Insight", "created", f"{runaway} {n}", days_ago=n % 28, intent=runaway) for n in range(500)]
 
-    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1)
+    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1, limits=limits)
 
     assert rendered is not None
-    assert (rendered.n_tasks, rendered.n_activity_lines) == (TASK_LINES, ACTIVITY_LINES)
+    assert (rendered.n_tasks, rendered.n_activity_lines) == (limits.task_lines, limits.activity_lines)
     tasks_text, activity_text = rendered.text.split("\n\n")
-    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= TASK_LINE_CHARS
-    assert max(len(line) for line in activity_text.split("\n")[1:]) <= ACTIVITY_LINE_CHARS
-    assert rendered.input_chars <= SECTIONS_MAX_CHARS
+    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= limits.task_line_chars
+    assert max(len(line) for line in activity_text.split("\n")[1:]) <= limits.activity_line_chars
+    assert rendered.input_chars <= limits.sections_max_chars
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
+
+
+def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:
+    rendered = build_input(
+        [_task("why", summary="Asked: why did signups drop?", days_ago=3)],
+        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(sections_max_chars=1),
+    )
+
+    assert rendered is not None
+    assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
 
 
 PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
@@ -326,18 +511,30 @@ def _answer(**overrides: Any) -> str:
             {"focus_areas": []},
         ),
         (
-            "topic, product and recent_shift are cut to their caps",
+            "topic, product and recent_shift are cut at a word boundary inside their caps",
             _answer(
-                focus_areas=[{"topic": "t" * 500, "strength": "high", "last_seen": "2026-10-17"}],
-                products=["p" * 500],
-                recent_shift="s" * 2000,
+                focus_areas=[{"topic": "adoption " * 50, "strength": "high", "last_seen": "2026-10-17"}],
+                products=["analytics " * 50],
+                recent_shift="shift " * 400,
             ),
             True,
             {
-                "focus_areas": [{"topic": "t" * MAX_TOPIC_CHARS, "strength": "high", "last_seen": "2026-10-17"}],
-                "products": ["p" * MAX_PRODUCT_CHARS],
-                "recent_shift": "s" * MAX_RECENT_SHIFT_CHARS,
+                "focus_areas": [
+                    {
+                        "topic": " ".join(["adoption"] * ((MAX_TOPIC_CHARS - 1) // 9)) + "…",
+                        "strength": "high",
+                        "last_seen": "2026-10-17",
+                    }
+                ],
+                "products": [" ".join(["analytics"] * ((MAX_PRODUCT_CHARS - 1) // 10)) + "…"],
+                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
             },
+        ),
+        (
+            "one long word is cut and marked",
+            _answer(products=["p" * 500]),
+            False,
+            {"products": ["p" * (MAX_PRODUCT_CHARS - 1) + "…"]},
         ),
     ]
 )

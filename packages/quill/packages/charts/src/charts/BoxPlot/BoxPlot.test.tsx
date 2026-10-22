@@ -62,6 +62,24 @@ describe('BoxPlot', () => {
         expect(maxTick).toBeGreaterThanOrEqual(200)
     })
 
+    it('ends the y-axis at the whisker, not at a clipped outlier max', () => {
+        const series: BoxPlotSeries[] = [
+            {
+                key: 'a',
+                label: 'A',
+                data: [
+                    datum({ min: 0, max: 1_000_000, whiskerMax: 120 }),
+                    datum({ min: 10, max: 900_000, whiskerMax: 130 }),
+                ],
+            },
+        ]
+        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
+        const nums = chart.yTicks().map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
+        const maxTick = Math.max(...nums.filter((n) => Number.isFinite(n)))
+        expect(maxTick).toBeGreaterThanOrEqual(130)
+        expect(maxTick).toBeLessThan(1000)
+    })
+
     it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
         // Regression: clipping of the y-tick column. `useChartMargins` reads
         // `seriesValueRange(adaptedSeries)` to size the left margin, so the adapted series'
@@ -88,12 +106,7 @@ describe('BoxPlot', () => {
 
     it('lists the labels down the y-axis and the values along x when horizontal', () => {
         const { chart } = renderHogChart(
-            <BoxPlot
-                series={TWO_SERIES}
-                labels={LABELS}
-                theme={THEME}
-                config={{ axisOrientation: 'horizontal' }}
-            />
+            <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ axisOrientation: 'horizontal' }} />
         )
         expect(chart.yTicks()).toEqual(LABELS)
         const values = chart.xTicks().map((tick) => parseFloat(tick.replace(/[^\d.-]/g, '')))
@@ -180,6 +193,60 @@ describe('BoxPlot', () => {
                 (tr.firstElementChild as HTMLElement).textContent!.trim()
             )
             expect(rowLabels).toEqual(['Max', '75th percentile', 'Median', 'Mean', '25th percentile', 'Min'])
+        })
+
+        it.each([
+            {
+                name: 'lists the clipped whiskers between the true extremes and the box',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 900, whiskerMin: 10, whiskerMax: 80 },
+                rows: [
+                    ['Max', '900'],
+                    ['Upper whisker', '80'],
+                    ['75th percentile', '50'],
+                    ['Median', '30'],
+                    ['Mean', '40'],
+                    ['25th percentile', '20'],
+                    ['Lower whisker', '10'],
+                    ['Min', '1'],
+                ],
+            },
+            {
+                name: 'lists only the whisker that is clipped',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 900, whiskerMin: 1, whiskerMax: 80 },
+                rows: [
+                    ['Max', '900'],
+                    ['Upper whisker', '80'],
+                    ['75th percentile', '50'],
+                    ['Median', '30'],
+                    ['Mean', '40'],
+                    ['25th percentile', '20'],
+                    ['Min', '1'],
+                ],
+            },
+            {
+                name: 'omits whisker rows that equal the true extremes',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 90, whiskerMin: 1, whiskerMax: 90 },
+                rows: [
+                    ['Max', '90'],
+                    ['75th percentile', '50'],
+                    ['Median', '30'],
+                    ['Mean', '40'],
+                    ['25th percentile', '20'],
+                    ['Min', '1'],
+                ],
+            },
+        ])('$name', async ({ override, rows }) => {
+            const series: BoxPlotSeries[] = [{ key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] }]
+            const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
+                (tr.firstElementChild as HTMLElement).textContent!.trim(),
+                (tr.lastElementChild as HTMLElement).textContent!.trim(),
+            ])
+            expect(rendered).toEqual(rows)
         })
 
         it('renders the values in the canonical row order', async () => {

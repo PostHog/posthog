@@ -114,6 +114,7 @@ class SignalSourceConfig(UUIDModel):
         CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
         SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
+        INCIDENT = "incident", "Incident"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
@@ -185,6 +186,34 @@ class AutonomyPriority(models.TextChoices):
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+
+class SignalFirstReportNotification(UUIDModel):
+    # Activation and report visibility belong to the environment, so the recipient must not be canonicalized to its parent.
+    objects = EnvironmentScopedManager()
+
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    activated_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, related_name="+", db_constraint=False
+    )
+    activated_at = models.DateTimeField(auto_now_add=True)
+    report = models.ForeignKey("signals.SignalReport", on_delete=models.SET_NULL, null=True, blank=True)
+    message_data = models.JSONField(default=dict, db_default={})
+    send_started_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    message_id = models.CharField(max_length=200, null=True, blank=True)
+    last_error = models.CharField(max_length=50, default="", db_default="", blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=models.Q(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True),
+                name="signals_first_report_pending",
+            )
+        ]
 
 
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
@@ -2453,6 +2482,7 @@ class SignalReportCheck(UUIDModel):
     run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
     runs_remaining = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField()
+    monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
@@ -3747,6 +3777,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         OK = "ok"
         FAILED = "failed"
+        # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
+        SKIPPED = "skipped"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

@@ -1402,6 +1402,10 @@ export interface PersonPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -4681,6 +4685,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**
@@ -5976,6 +5982,7 @@ export const ShortcutPositionEnumApi = {
  * * `later` - Skipped for later
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
+ * * `connector` - Signed up through an OAuth connector
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -5985,6 +5992,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Later: 'later',
     Other: 'other',
     Provisioned: 'provisioned',
+    Connector: 'connector',
 } as const
 
 /**
@@ -7111,6 +7119,7 @@ export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof t
 export const UploadedMediaListPurpose = {
     Canvas: 'canvas',
     Email: 'email',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -7122,6 +7131,7 @@ export type UploadedMediaCreateBodyPurpose =
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
+    Experiment: 'experiment',
 } as const
 
 export type UploadedMediaCreateBody = {

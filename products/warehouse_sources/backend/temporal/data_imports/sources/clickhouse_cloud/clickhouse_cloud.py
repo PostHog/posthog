@@ -6,14 +6,17 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.settings import (
     CLICKHOUSE_CLOUD_ENDPOINTS,
     USAGE_COST_MAX_WINDOW_DAYS,
     ClickhouseCloudEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -78,7 +81,7 @@ def _build_url(path: str, params: dict[str, Any] | None = None) -> str:
     return f"{url}?{urlencode({k: str(v) for k, v in params.items() if v is not None})}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             ClickhouseCloudRetryableError,
