@@ -7,11 +7,17 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { DataWarehouseSavedQuery } from '~/types'
 
-import { NodeDetailDiscardChangesButton } from './NodeDetailDiscardChangesButton'
-import { NodeDetailUpdateViewButton } from './NodeDetailUpdateViewButton'
+import { NodeDetailQueryEditorSync } from './NodeDetailQueryEditorSync'
+import { nodeDetailQueryEditorTabId } from './nodeDetailSceneLogic'
 
-export function NodeDetailQueryEditor({ savedQuery }: { savedQuery: DataWarehouseSavedQuery }): JSX.Element {
-    const tabId = `node-detail-query-${savedQuery.id}`
+export function NodeDetailQueryEditor({
+    id,
+    savedQuery,
+}: {
+    id: string
+    savedQuery: DataWarehouseSavedQuery
+}): JSX.Element {
+    const tabId = nodeDetailQueryEditorTabId(savedQuery.id)
     const editorLogic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(editorLogic)
     const { editView } = useActions(editorLogic)
@@ -36,13 +42,9 @@ export function NodeDetailQueryEditor({ savedQuery }: { savedQuery: DataWarehous
                 hideFilters
                 hideAgentHints
                 hideAiTools
+                showOpenInSqlEditor
                 autoFocusQueryPane={false}
-                toolbarActions={
-                    <>
-                        <NodeDetailDiscardChangesButton />
-                        <NodeDetailUpdateViewButton />
-                    </>
-                }
+                hostSync={<NodeDetailQueryEditorSync id={id} />}
             />
         </div>
     )

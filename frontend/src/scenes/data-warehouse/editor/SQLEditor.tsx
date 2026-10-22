@@ -106,8 +106,10 @@ interface SQLEditorProps {
     hideFilters?: boolean
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
-    /** Extra controls at the right end of the query toolbar. Rendered inside the editor's logic bindings. */
-    toolbarActions?: ReactNode
+    /** Adds an "Open in SQL editor" button to the query toolbar. */
+    showOpenInSqlEditor?: boolean
+    /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
+    hostSync?: ReactNode
 }
 
 export function SQLEditor({
@@ -136,7 +138,8 @@ export function SQLEditor({
     hideVariables,
     hideFilters,
     hideAiTools,
-    toolbarActions,
+    showOpenInSqlEditor,
+    hostSync,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -313,6 +316,7 @@ export function SQLEditor({
                                     props={{ tabId, mode, monaco, editor, singleStatement, hideAgentHints }}
                                 >
                                     {showQueryPanel ? <VariablesQuerySync /> : null}
+                                    {hostSync}
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                             <OutputPane
@@ -364,7 +368,7 @@ export function SQLEditor({
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
-                                                                toolbarActions={toolbarActions}
+                                                                showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />
                                                         )}

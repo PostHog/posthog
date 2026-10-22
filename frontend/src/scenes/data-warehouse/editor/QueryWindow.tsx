@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { ReactNode, memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
@@ -66,7 +67,7 @@ interface QueryWindowProps {
     hideVariables?: boolean
     hideFilters?: boolean
     hideAiTools?: boolean
-    toolbarActions?: ReactNode
+    showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
     canExpandDatabaseTree?: boolean
 }
@@ -92,7 +93,7 @@ export function QueryWindow({
     hideVariables,
     hideFilters,
     hideAiTools,
-    toolbarActions,
+    showOpenInSqlEditor,
     canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
@@ -333,6 +334,7 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
+                        {showOpenInSqlEditor ? <OpenInSqlEditorButton /> : null}
                         {hideAiTools ? null : <FixErrorButton type="secondary" size="small" source="action-bar" />}
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu
@@ -358,7 +360,6 @@ export function QueryWindow({
                                 maxToolProps={executeSqlMaxToolProps}
                             />
                         )}
-                        {toolbarActions}
                     </div>
                 </div>
             ) : null}
@@ -495,6 +496,23 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
 
     return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
 })
+
+function OpenInSqlEditorButton(): JSX.Element {
+    const { editingView, queryInput, hasEditorChanges } = useValues(sqlEditorLogic)
+
+    // A view opens by id, which leaves out unsaved text, so unsaved edits block the link rather than get lost.
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            to={editingView ? urls.sqlEditor({ view_id: editingView.id }) : urls.sqlEditor({ query: queryInput ?? '' })}
+            disabledReason={editingView && hasEditorChanges ? 'Update or discard your changes first' : undefined}
+            data-attr="sql-editor-open-in-sql-editor"
+        >
+            Open in SQL editor
+        </LemonButton>
+    )
+}
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)

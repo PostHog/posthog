@@ -15,16 +15,8 @@ interface UpdateEditingView {
 
 /** Update state for the view open in the editor. Call it below the SQLEditor bindings. */
 export function useUpdateEditingView(): UpdateEditingView {
-    const {
-        queryInput,
-        editingView,
-        sourceQuery,
-        changesToSave,
-        inProgressViewEdits,
-        isSourceQueryLastRun,
-        isMultiQuery,
-    } = useValues(sqlEditorLogic)
-    const { reviewViewUpdate } = useActions(sqlEditorLogic)
+    const { editingView, changesToSave, isSourceQueryLastRun, isMultiQuery } = useValues(sqlEditorLogic)
+    const { reviewEditingViewUpdate } = useActions(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
@@ -71,21 +63,5 @@ export function useUpdateEditingView(): UpdateEditingView {
         isMultiQuery,
     ])
 
-    const update = (): void => {
-        if (!editingView) {
-            return
-        }
-        reviewViewUpdate({
-            id: editingView.id,
-            query: {
-                ...sourceQuery.source,
-                query: queryInput ?? '',
-            },
-            types: response && 'types' in response ? (response?.types ?? []) : [],
-            shouldRematerialize: isMaterializedView,
-            edited_history_id: inProgressViewEdits[editingView.id],
-        })
-    }
-
-    return { disabledReason, loading, isMaterializedView, update }
+    return { disabledReason, loading, isMaterializedView, update: reviewEditingViewUpdate }
 }

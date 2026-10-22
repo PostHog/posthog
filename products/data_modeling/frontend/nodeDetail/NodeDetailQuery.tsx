@@ -32,7 +32,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
                 {queryString && savedQuery && canEditQuery ? (
-                    <NodeDetailQueryEditor key={savedQuery.id} savedQuery={savedQuery} />
+                    <NodeDetailQueryEditor key={savedQuery.id} id={id} savedQuery={savedQuery} />
                 ) : queryString ? (
                     <CodeSnippet
                         language={Language.SQL}

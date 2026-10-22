@@ -5,6 +5,8 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,6 +38,16 @@ export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
 export interface NodeDetailSceneLogicProps {
     id: string
 }
+
+/** What the embedded query editor reports for the Update view and Discard changes buttons above it. */
+export interface NodeDetailQueryEditorState {
+    updateDisabledReason: string | undefined
+    updateLoading: boolean
+    discardDisabledReason: string | undefined
+    isMaterializedView: boolean
+}
+
+export const nodeDetailQueryEditorTabId = (savedQueryId: string): string => `node-detail-query-${savedQueryId}`
 
 function isNodeLookup(value: unknown): value is DataModelingNodesRetrieveLookup {
     return (
@@ -95,6 +107,7 @@ export interface nodeDetailSceneLogicValues {
     postHogSubjectAccessDenied: boolean
     postHogSubjectError: boolean
     postHogSubjectLoading: boolean
+    queryEditorState: NodeDetailQueryEditorState | null
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryDeleted: boolean
     savedQueryError: boolean
@@ -242,6 +255,15 @@ export interface nodeDetailSceneLogicActions {
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
+    setQueryEditorState: (state: NodeDetailQueryEditorState | null) => {
+        state: NodeDetailQueryEditorState | null
+    }
+    discardQueryEditorChanges: () => {
+        value: true
+    }
+    updateViewFromQueryEditor: () => {
+        value: true
+    }
     updateNodeDescription: (description: string) => {
         description: string
     }
@@ -315,6 +337,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         updateNodeDescription: (description: string) => ({ description }),
         setCurrentTab: (tab: NodeDetailSceneTab | null) => ({ tab }),
         canonicalizeTab: true,
+        setQueryEditorState: (state: NodeDetailQueryEditorState | null) => ({ state }),
+        updateViewFromQueryEditor: true,
+        discardQueryEditorChanges: true,
         openLineageModal: true,
         closeLineageModal: true,
         lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
@@ -322,6 +347,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         markSavedQueryDeleted: true,
     }),
     reducers({
+        // Reported by the embedded query editor while it is mounted, and null otherwise.
+        queryEditorState: [
+            null as NodeDetailQueryEditorState | null,
+            {
+                setQueryEditorState: (_, { state }) => state,
+            },
+        ],
         // What the address bar asks for. Tab links navigate, so nothing else may write this.
         currentTab: [
             null as NodeDetailSceneTab | null,
@@ -657,50 +689,61 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 ),
         ],
     }),
-    listeners(({ actions, props, values }) => ({
-        loadNodeSuccess: () => {
-            const node = values.node
-            if (node && node.id !== props.id) {
-                router.actions.replace(urls.nodeDetail(node.id, values.currentTab ?? 'lineage'))
-                return
-            }
-            if (node?.saved_query_id) {
-                actions.loadSavedQuery()
-            }
-            if (node?.type === 'table' && node.warehouse_table_id) {
-                actions.loadTableDetails()
-            }
-            if (node?.type === 'table' && node.origin === 'posthog') {
-                actions.loadPostHogSubject()
-            }
-            actions.loadLineageGraph()
-            actions.canonicalizeTab()
-        },
-        loadSavedQuerySuccess: () => actions.canonicalizeTab(),
-        loadSavedQueryFailure: () => actions.canonicalizeTab(),
-        // The address bar decides which tab shows, so once the data says which tabs exist, a URL
-        // asking for one this model has no page for is corrected in place. Replace, not push: a
-        // redirect the user did not ask for is not a history step.
-        canonicalizeTab: () => {
-            const tab = values.effectiveTab
-            if (tab && tab !== values.currentTab) {
-                router.actions.replace(urls.nodeDetail(props.id, tab))
-            }
-        },
-        updateDataWarehouseSavedQuerySuccess: () => {
-            if (values.node?.saved_query_id) {
-                actions.loadSavedQuery()
-            }
-        },
-        // This page is about the deleted view, so it has nowhere left to stand. The same delete runs
-        // from the SQL editor, which keeps its own tab, so the navigation belongs here and not in the
-        // shared materialization logic.
-        deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
-            if (payload && payload === values.node?.saved_query_id) {
-                router.actions.push(urls.models())
-            }
-        },
-    })),
+    listeners(({ actions, props, values }) => {
+        const embeddedQueryEditor = (): ReturnType<typeof sqlEditorLogic.findMounted> =>
+            values.node?.saved_query_id
+                ? sqlEditorLogic.findMounted({
+                      tabId: nodeDetailQueryEditorTabId(values.node.saved_query_id),
+                      mode: SQLEditorMode.Embedded,
+                  })
+                : null
+        return {
+            loadNodeSuccess: () => {
+                const node = values.node
+                if (node && node.id !== props.id) {
+                    router.actions.replace(urls.nodeDetail(node.id, values.currentTab ?? 'lineage'))
+                    return
+                }
+                if (node?.saved_query_id) {
+                    actions.loadSavedQuery()
+                }
+                if (node?.type === 'table' && node.warehouse_table_id) {
+                    actions.loadTableDetails()
+                }
+                if (node?.type === 'table' && node.origin === 'posthog') {
+                    actions.loadPostHogSubject()
+                }
+                actions.loadLineageGraph()
+                actions.canonicalizeTab()
+            },
+            loadSavedQuerySuccess: () => actions.canonicalizeTab(),
+            loadSavedQueryFailure: () => actions.canonicalizeTab(),
+            // The address bar decides which tab shows, so once the data says which tabs exist, a URL
+            // asking for one this model has no page for is corrected in place. Replace, not push: a
+            // redirect the user did not ask for is not a history step.
+            canonicalizeTab: () => {
+                const tab = values.effectiveTab
+                if (tab && tab !== values.currentTab) {
+                    router.actions.replace(urls.nodeDetail(props.id, tab))
+                }
+            },
+            updateViewFromQueryEditor: () => embeddedQueryEditor()?.actions.reviewEditingViewUpdate(),
+            discardQueryEditorChanges: () => embeddedQueryEditor()?.actions.discardChanges(),
+            updateDataWarehouseSavedQuerySuccess: () => {
+                if (values.node?.saved_query_id) {
+                    actions.loadSavedQuery()
+                }
+            },
+            // This page is about the deleted view, so it has nowhere left to stand. The same delete runs
+            // from the SQL editor, which keeps its own tab, so the navigation belongs here and not in the
+            // shared materialization logic.
+            deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
+                if (payload && payload === values.node?.saved_query_id) {
+                    router.actions.push(urls.models())
+                }
+            },
+        }
+    }),
     urlToAction(({ actions, props }) => {
         // Clicking a node in the lineage graph navigates model to model. The outgoing model's logic
         // is still mounted while the new URL lands, so it must ignore routes for another id.
