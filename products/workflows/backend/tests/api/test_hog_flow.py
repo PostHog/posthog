@@ -7006,6 +7006,35 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
+    def test_reenable_disabled_flow_does_not_publish_staged_secret(self):
+        flow_id = self._create(api_key="LIVE-SECRET")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        for target_status in ("active", "draft"):
+            response = self.client.patch(url, {"status": target_status}, HTTP_X_POSTHOG_CLIENT="mcp")
+            assert response.status_code == 200, response.json()
+
+        stage = self.client.patch(
+            f"{url}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "DRAFT-SECRET"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        enable = self.client.patch(url, {"status": "active"}, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert enable.status_code == 200, enable.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LIVE-SECRET"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
+
     def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()
         assert (

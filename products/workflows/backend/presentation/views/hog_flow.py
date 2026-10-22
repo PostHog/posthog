@@ -543,13 +543,21 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+def existing_secret_map(
+    instance: WorkflowEditState,
+    template_cache: Optional[TemplateCache] = None,
+    *,
+    include_draft: bool = True,
+) -> dict[str, dict]:
     # Every stored secret a masked re-save may need to recover, later sources winning: legacy
     # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
     result = plaintext_secret_map(instance.actions, template_cache)
-    result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
+    if include_draft:
+        result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
-    return merge_secret_maps(result, instance.draft_encrypted_inputs)
+    if include_draft:
+        result = merge_secret_maps(result, instance.draft_encrypted_inputs)
+    return result
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -3442,9 +3450,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
         # (rows written before encryption shipped) as the base, then the encrypted live and draft
         # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Status-only activation revalidates live actions and must exclude draft values.
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
+            status_only_activation = (
+                status == HogFlowState.ACTIVE and instance.status != HogFlowState.ACTIVE and "actions" not in data
+            )
+            self.context["existing_encrypted_inputs"] = existing_secret_map(
+                instance, template_cache={}, include_draft=not status_only_activation
+            )
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
