@@ -514,6 +514,16 @@ describe('LogsIngestionConsumer', () => {
             })
         })
 
+        it('marks a team that receives its first logs as having ingested data', async () => {
+            const newTeamId = await createTeam(hub.postgres, team.organization_id, undefined, { ingested_event: false })
+            const newTeam = await getTeam(hub.postgres, newTeamId)
+            const messages = await createKafkaMessages([createLogMessage()], { token: newTeam!.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect((await getTeam(hub.postgres, newTeamId))?.ingested_event).toBe(true)
+        })
+
         it('should produce messages with correct headers', async () => {
             const logData = createLogMessage({ level: 'error', message: 'Critical error' })
             const messages = await createKafkaMessages([logData], {
@@ -2512,8 +2522,12 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.app_source).toBe('traces')
         })
 
-        it('quota-limits against traces_mb_ingested, not logs_mb_ingested', async () => {
-            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+        it('drops traces when the shared logs and traces bucket is limited', async () => {
+            // One product, one free tier, one price: a team over the shared limit on logs volume
+            // alone has to stop ingesting traces too.
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((_token, resource) =>
+                Promise.resolve(resource === 'logs_mb_ingested')
+            )
             const tracesConsumer = createTracesIngestionConsumer()
 
             const messages = await createKafkaMessages([createLogMessage()], {
@@ -2522,9 +2536,11 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '5',
             })
             const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
-            await tracesConsumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } =
+                await tracesConsumer['filterQuotaLimitedMessages'](parsed)
 
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
+            expect(quotaAllowedMessages).toHaveLength(0)
+            expect(quotaDroppedMessages).toHaveLength(1)
         })
 
         it('rate-limits against its own Redis key namespace, not the logs one', () => {

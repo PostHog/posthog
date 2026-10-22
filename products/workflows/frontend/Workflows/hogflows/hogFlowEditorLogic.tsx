@@ -246,6 +246,7 @@ export type OutputMappingSuggestion = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
+    on_error?: HogFlowAction['on_error']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
     getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
@@ -284,7 +285,6 @@ export interface hogFlowEditorLogicValues {
     selectedNodeCanBeCopiedOrMoved: boolean
     selectedNodeCanBeDeleted: boolean
     selectedNodeId: string | null
-    showsHeaderInWorkflowBar: boolean
     treePathsCollapsedByDefault: boolean
 }
 
@@ -2246,7 +2246,6 @@ export interface hogFlowEditorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isTileCanvas: (featureFlags: FeatureFlagsSet) => boolean
         isTreeView: (featureFlags: FeatureFlagsSet, editorLayout: HogFlowEditorLayout, isTileCanvas: boolean) => boolean
-        showsHeaderInWorkflowBar: (isTileCanvas: boolean) => boolean
         nodesById: (nodes: HogFlowActionNode[]) => Record<string, HogFlowActionNode>
         selectedNode: (
             nodes: HogFlowActionNode[],
@@ -2483,8 +2482,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             (featureFlags: FeatureFlagsSet, editorLayout: HogFlowEditorLayout, isTileCanvas: boolean): boolean =>
                 !isTileCanvas && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW] && editorLayout === 'simple',
         ],
-        /** The tile canvas carries the workflow header in its own bar, saved or not. */
-        showsHeaderInWorkflowBar: [(s) => [s.isTileCanvas], (isTileCanvas: boolean): boolean => isTileCanvas],
         nodesById: [
             (s) => [s.nodes],
             (nodes: HogFlowActionNode[]): Record<string, HogFlowActionNode> => {
@@ -2858,6 +2855,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     let config = partialNewAction.config
                     if (!isHogFlowActionNode) {
+                        // pinned: analytics event name
+                        posthog.capture('workflow step added', {
+                            step_type: partialNewAction.type,
+                            template_id: 'template_id' in config ? config.template_id : undefined,
+                        })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
                             config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
@@ -2916,6 +2918,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         updated_at: Date.now(),
                         ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
                             ? { output_variable: (partialNewAction as CreateActionType).output_variable }
+                            : {}),
+                        ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).on_error
+                            ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
 

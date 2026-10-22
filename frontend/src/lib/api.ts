@@ -2447,8 +2447,17 @@ const api = {
             }
             return await request.get({ signal })
         },
-        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemShortcut().create({ data })
+        async create(data: {
+            path: string
+            href?: string
+            ref?: string
+            type?: string
+        }): Promise<{ shortcut: FileSystemEntry; created: boolean }> {
+            const url = new ApiRequest().fileSystemShortcut().assembleFullUrl()
+            const response = await api.createResponse(url, data)
+            const shortcut: FileSystemEntry = await getJSONFromSuccessResponse(response, 'POST', url)
+            // The API answers 200 instead of 201 when the user already has this shortcut.
+            return { shortcut, created: response.status === 201 }
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
@@ -6279,6 +6288,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

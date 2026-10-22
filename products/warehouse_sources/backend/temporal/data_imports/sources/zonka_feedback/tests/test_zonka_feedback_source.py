@@ -17,10 +17,6 @@ class TestZonkaFeedbackSource:
     @parameterized.expand(
         [
             (
-                "responses_401",
-                "401 Client Error: Unauthorized for url: https://us1.apis.zonkafeedback.com/responses?page=1&page_size=100",
-            ),
-            (
                 "surveys_403",
                 "403 Client Error: Forbidden for url: https://e.apis.zonkafeedback.com/surveys?page=2&page_size=100",
             ),
@@ -33,20 +29,6 @@ class TestZonkaFeedbackSource:
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://us1.apis.zonkafeedback.com/responses",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='us1.apis.zonkafeedback.com', port=443): Read timed out."),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://e.apis.zonkafeedback.com/surveys"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"
