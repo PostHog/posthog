@@ -69,7 +69,9 @@ pub struct Config {
     pub groups_kafka_consumer_group: String,
 
     // A deployment that reads a second events topic sets this, so that it does
-    // not run the groups and merger workers a second time. The main deployment's
+    // not run the groups and merger workers a second time. That deployment needs
+    // its own KAFKA_CONSUMER_GROUP. In a shared group, each restart of either
+    // deployment rebalances the events workers of both. The main deployment's
     // merger reads what this deployment's events worker produces to the
     // intermediate topic.
     #[envconfig(default = "false")]
