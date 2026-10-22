@@ -122,7 +122,7 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         for distinct_id in ("moved", "lost", "x1", "unseen-1", "stray-1"):
             assert distinct_id not in out.getvalue()
 
-        with pytest.raises(CommandError, match="pass resume"):
+        with pytest.raises(CommandError, match="pass --resume"):
             call_command("person_consistency", "scan", "--dir", str(scan_dir), stdout=StringIO())
 
     def test_a_deleted_team_reports_its_clickhouse_leftovers_without_repairs(self):

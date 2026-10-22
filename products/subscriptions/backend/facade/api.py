@@ -53,9 +53,11 @@ __all__ = [
     "TEAMS_WEBHOOK_URL_MASKED_ERROR",
     "ai_query_plan_status",
     "blocked_access_for_subscription",
+    "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
     "delete_insight_subscriptions",
     "failed_delivery_counts",
+    "insight_has_active_subscription",
     "insight_ids_with_subscriptions",
     "render_shared_insight_image",
     "sanitize_prompt",
@@ -135,6 +137,16 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
             "dashboard_id", flat=True
         )
     )
+
+
+def insight_has_active_subscription(insight_id: int) -> bool:
+    """Whether an enabled subscription delivers this insight, directly or as a dashboard tile."""
+    return queries.insight_has_active_subscription(insight_id)
+
+
+def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
+    """Whether an enabled subscription delivers every insight on this dashboard."""
+    return queries.dashboard_has_active_full_subscription(dashboard_id)
 
 
 def should_check_table_access(*, team_id: int, subscription_id: int | None, attrs: dict[str, Any]) -> bool:
