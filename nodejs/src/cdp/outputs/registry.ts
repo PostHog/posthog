@@ -1,5 +1,6 @@
 import {
     APP_METRICS_OUTPUT,
+    EMAIL_STATUS_OUTPUT,
     HOG_INVOCATION_RESULTS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     MESSAGE_ASSETS_OUTPUT,
@@ -36,6 +37,10 @@ export function createCdpOutputsRegistry() {
         .register(MESSAGE_ASSETS_OUTPUT, {
             topicKey: 'MESSAGE_ASSETS_TOPIC',
             producerKey: 'MESSAGE_ASSETS_PRODUCER',
+        })
+        .register(EMAIL_STATUS_OUTPUT, {
+            topicKey: 'EMAIL_STATUS_TOPIC',
+            producerKey: 'EMAIL_STATUS_PRODUCER',
         })
         .register(WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, {
             topicKey: 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC',

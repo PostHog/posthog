@@ -43,3 +43,6 @@ export type HogInvocationResultsOutput = typeof HOG_INVOCATION_RESULTS_OUTPUT
 
 export const MESSAGE_ASSETS_OUTPUT = 'message_assets' as const
 export type MessageAssetsOutput = typeof MESSAGE_ASSETS_OUTPUT
+
+export const EMAIL_STATUS_OUTPUT = 'email_status' as const
+export type EmailStatusOutput = typeof EMAIL_STATUS_OUTPUT
