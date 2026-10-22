@@ -87,6 +87,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Breezometer": "no-request",
     "CiscoDuo": "no-request",
     "ClickHouse": "schemas",
+    "CloudflareD1": "schemas",
     "CloudflareR2": "schemas",
     "Convex": "schemas",
     "CosmosDB": "schemas",

@@ -26,6 +26,7 @@ CircleCI fail:safe-point
 CircleciInsights fail:safe-point
 CiscoDuo not-checkable:no-request
 ClickHouse not-checkable:schemas
+CloudflareD1 not-checkable:schemas
 CloudflareR2 not-checkable:schemas
 Coda fail:safe-point
 Codecov fail:safe-point
