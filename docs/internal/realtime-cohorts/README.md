@@ -148,7 +148,8 @@ Each page states the setup its example needs, and the details differ where a pag
 | Stage 2              | Recomposing a cohort from its leaves when one of them flips                                                       |
 | Person record        | One row per person holding which person conditions match, plus fingerprints that skip unchanged work              |
 | Replay marks         | Per row, the highest offset applied from each source partition. Used to skip redelivered events                   |
-| Firehose             | The ingestion topic `clickhouse_events_json`, which the shuffler reads                                            |
+| Firehose             | The ingestion topic `clickhouse_events_json`, which the shuffler reads by default                                 |
+| Source partition     | One partition of one topic a shuffler reads, named by `source_topic_id` and `source_partition`                    |
 | Eviction deadline    | The earliest time a leaf's answer can change without a new event                                                  |
 | Sweep                | The periodic pass that applies eviction deadlines                                                                 |
 | Tombstone            | A forwarding address from a merged-away person to the survivor                                                    |

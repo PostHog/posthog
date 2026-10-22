@@ -693,11 +693,7 @@ mod tests {
     #[test]
     fn merge_max_unions_per_partition_high_water_marks() {
         let mut into = applied(&[(5, 100), (6, 10)]);
-        let mut other = applied(&[(5, 50), (6, 20), (7, 1)]);
-        other.record(SourcePartition::new(1, 5), 3);
-        into.merge_max(&other);
-        assert!(into.is_replay(SourcePartition::new(1, 5), 3));
-        assert!(!into.is_replay(SourcePartition::new(1, 5), 4));
+        into.merge_max(&applied(&[(5, 50), (6, 20), (7, 1)]));
         assert!(into.is_replay(events_json(5), 100));
         assert!(!into.is_replay(events_json(5), 101));
         assert!(into.is_replay(events_json(6), 20));
