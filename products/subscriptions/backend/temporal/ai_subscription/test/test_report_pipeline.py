@@ -519,6 +519,11 @@ _UNKNOWN_PLACEHOLDER_FIX = (
             "`{{yesterday_start}}`",
             id="double_brace_outside_quotes",
         ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= parseDateTimeBestEffort('{D-1}', 'UTC')",
+            "`{D-1}`",
+            id="parse_date_time_call",
+        ),
     ],
 )
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -567,6 +572,10 @@ async def test_run_steps_sends_an_invented_placeholder_to_the_fixer_without_runn
         pytest.param(
             "SELECT count() FROM events WHERE properties.template = 'Hi {{first_name}}, it''s {{day}}' AND {{date_range}}",
             id="double_brace_in_string_value",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE {{date_range}} /* {{unused}} */ -- AND timestamp >= toDateTime('{D-1}')",
+            id="tokens_in_comments",
         ),
     ],
 )
