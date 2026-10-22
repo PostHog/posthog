@@ -2711,7 +2711,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert "a subscription delivers this dashboard" in str(response.json())
+            assert "delivered by a subscription" in str(response.json())
         assert DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists() == (
             expected_status == status.HTTP_200_OK
         )

@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -22,7 +22,6 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
 )
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -379,11 +378,7 @@ class UpsertDashboardTool(MaxTool):
                 if created:
                     created_insights.append((artifact, insight))
 
-            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
-            if error := blocked_access_for_subscribed_dashboard_tile(
-                self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
-            ):
-                raise ValidationError(error)
+            check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
@@ -455,13 +450,7 @@ class UpsertDashboardTool(MaxTool):
             existing_tile = short_id_to_tile.get(insight_id)
             becomes_live = existing_tile is None or existing_tile.deleted
             if becomes_live:
-                check_can_add_insight_to_shared_dashboard(
-                    self._user, dashboard, insight.query, self.user_access_control
-                )
-                if error := blocked_access_for_subscribed_dashboard_tile(
-                    self._user, dashboard.team, dashboard.id, insight.query, self.user_access_control
-                ):
-                    raise ValidationError(error)
+                check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 
             if existing_tile:
                 # Restore if soft deleted

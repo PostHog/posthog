@@ -58,8 +58,9 @@ from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
-    check_can_add_insight_to_shared_dashboard,
+    check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
+    delivered_dashboard_exposure,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
@@ -197,11 +198,7 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
 )
-from products.subscriptions.backend.facade.api import (
-    blocked_access_for_subscribed_dashboard_tile,
-    dashboard_has_active_full_subscription,
-    dashboard_ids_with_subscriptions,
-)
+from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -2485,9 +2482,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
-            if error := blocked_access_for_subscribed_dashboard_tile(user, instance.team, instance.id, insight.query):
-                raise serializers.ValidationError(error)
+            check_can_add_insight_to_dashboard(user, instance, insight.query)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -2724,11 +2719,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return
         if user_access_control.is_organization_admin:
             return
-        if is_publicly_shared(instance):
-            exposure = "publicly shared"
-        elif dashboard_has_active_full_subscription(instance.id):
-            exposure = "delivered by a subscription"
-        else:
+        exposure = delivered_dashboard_exposure(instance)
+        if exposure is None:
             return
         queries = [
             query
@@ -3380,17 +3372,9 @@ class DashboardsViewSet(
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
-            if error := blocked_access_for_subscribed_dashboard_tile(
-                cast(User, request.user),
-                to_dashboard_obj.team,
-                to_dashboard_obj.id,
-                tile.insight.query,
-                self.user_access_control,
-            ):
-                raise serializers.ValidationError(error)
         try:
             with transaction.atomic():
                 tile.prepare_move_to_dashboard(to_dashboard)
@@ -3468,13 +3452,9 @@ class DashboardsViewSet(
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")
 
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
-            if error := blocked_access_for_subscribed_dashboard_tile(
-                cast(User, request.user), destination.team, destination.id, tile.insight.query, user_access_control
-            ):
-                raise serializers.ValidationError(error)
         elif tile.text is not None:
             if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
                 raise exceptions.ValidationError("This text card is already on the destination dashboard.")

@@ -15,7 +15,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.subscriptions.backend.logic.queries import dashboard_has_active_full_subscription
 from products.subscriptions.backend.models.subscription import Subscription
 
 _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
@@ -110,34 +109,3 @@ def blocked_access_for_subscription(
     if user_access_control.is_organization_admin:
         return []
     return blocked_access_for_user(user, team, delivered_queries(_subscription(team.id, subscription_id), attrs))
-
-
-def blocked_access_for_subscribed_dashboard_tile(
-    user: User,
-    team: Team,
-    dashboard_id: int,
-    query: Any,
-    user_access_control: UserAccessControl | None = None,
-) -> str | None:
-    """The validation message that stops binding an insight with this query to the dashboard,
-    when a subscription delivers the whole dashboard and the editor cannot run the query. None
-    when the tile may be added: no such subscription, the org lacks the access control
-    entitlement, the editor is an org admin, or the editor can run the query. The public link
-    counterpart is check_can_add_insight_to_shared_dashboard in posthog.api.sharing_publish_gate.
-    """
-    if not isinstance(query, dict):
-        return None
-    if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return None
-    uac = user_access_control or UserAccessControl(user=user, team=team)
-    if uac.is_organization_admin:
-        return None
-    if not dashboard_has_active_full_subscription(dashboard_id):
-        return None
-    blocked = blocked_access_for_user(user, team, [query])
-    if not blocked:
-        return None
-    blocked_list = ", ".join(f"`{name}`" for name in blocked)
-    return (
-        f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
-    )

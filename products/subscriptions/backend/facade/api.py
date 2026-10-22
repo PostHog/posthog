@@ -52,7 +52,6 @@ __all__ = [
     "TEAMS_WEBHOOK_URL_ERROR",
     "TEAMS_WEBHOOK_URL_MASKED_ERROR",
     "ai_query_plan_status",
-    "blocked_access_for_subscribed_dashboard_tile",
     "blocked_access_for_subscription",
     "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
@@ -148,20 +147,6 @@ def insight_has_active_subscription(insight_id: int) -> bool:
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
     """Whether an enabled subscription delivers every insight on this dashboard."""
     return queries.dashboard_has_active_full_subscription(dashboard_id)
-
-
-def blocked_access_for_subscribed_dashboard_tile(
-    user: User,
-    team: Team,
-    dashboard_id: int,
-    query: Any,
-    user_access_control: UserAccessControl | None = None,
-) -> str | None:
-    """The validation message that stops adding an insight with this query to a dashboard that a
-    subscription delivers in full, when the editor cannot run the query. None when the tile may be added."""
-    return subscription_query_access.blocked_access_for_subscribed_dashboard_tile(
-        user, team, dashboard_id, query, user_access_control
-    )
 
 
 def should_check_table_access(*, team_id: int, subscription_id: int | None, attrs: dict[str, Any]) -> bool:

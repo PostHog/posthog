@@ -347,7 +347,7 @@ class TestUpsertDashboardTool(BaseTest):
 
     @parameterized.expand([("new_tile",), ("restored_tile",)])
     @patch(
-        "products.subscriptions.backend.logic.subscription_query_access.blocked_access_for_user",
+        "posthog.api.sharing_publish_gate.blocked_access_for_user",
         return_value=["restricted_table"],
     )
     async def test_update_dashboard_enforces_subscribed_dashboard_access(
@@ -375,7 +375,7 @@ class TestUpsertDashboardTool(BaseTest):
             await DashboardTile.objects.acreate(dashboard=dashboard, insight=restricted, deleted=True)
         tool = self._create_tool()
 
-        with self.assertRaisesRegex(MaxToolRetryableError, "a subscription delivers this dashboard"):
+        with self.assertRaisesRegex(MaxToolRetryableError, "delivered by a subscription"):
             await tool._arun_impl(
                 UpdateDashboardToolArgs(dashboard_id=str(dashboard.id), insight_ids=[restricted.short_id])
             )

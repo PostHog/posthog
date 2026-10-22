@@ -21,7 +21,7 @@ from django.utils.timezone import now
 from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
@@ -30,7 +30,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.subscriptions.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -406,12 +405,8 @@ def plan_insight_tile_placement(
             dashboard, "editor"
         ):
             raise CannotAddToDashboard(dashboard.id)
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
-        if error := blocked_access_for_subscribed_dashboard_tile(
-            user, dashboard.team, dashboard.id, query, user_access_control
-        ):
-            raise serializers.ValidationError(error)
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -461,12 +456,8 @@ def update_insight_dashboard_membership(
         ):
             raise CannotAddToDashboard(dashboard.id)
 
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
-        if error := blocked_access_for_subscribed_dashboard_tile(
-            user, dashboard.team, dashboard.id, query, user_access_control
-        ):
-            raise serializers.ValidationError(error)
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:
