@@ -31,6 +31,8 @@ class TestNormalizeBlockedHosts(SimpleTestCase):
             ("accepts_ip_literal_host", ["203.0.113.7"], ["203.0.113.7"]),
             ("accepts_localhost", ["http://localhost:3000"], ["localhost"]),
             ("encodes_idn_as_punycode", ["Bücher.example"], ["xn--bcher-kva.example"]),
+            ("strips_ideographic_trailing_dot", ["example.com\u3002", "ü.com\u3002"], ["example.com", "xn--tda.com"]),
+            ("backslash_in_url_reads_as_slash", ["https://example.com\\@evil.com"], ["example.com"]),
             (
                 "accepts_max_after_dedupe",
                 [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS)] + ["HOST0.example.com"],
@@ -50,6 +52,8 @@ class TestNormalizeBlockedHosts(SimpleTestCase):
             ("embedded_newline", ["example\n.com"], "is not a valid domain"),
             ("malformed_url", ["https://[example.com"], "is not a valid domain"),
             ("longer_than_253_chars", [".".join(["a" * 63] * 4)], "is not a valid domain"),
+            ("invalid_idn_joiner", ["a\u200db.example"], "is not a valid domain"),
+            ("invalid_punycode", ["xn--zz.com"], "is not a valid domain"),
             ("single_label", ["com"], "would block every domain that ends in .com"),
             ("too_many", [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS + 1)], "up to 100 domains"),
         ]
@@ -132,12 +136,13 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
 
     def test_admin_sets_request_blocklist_normalized_and_logged(self) -> None:
         self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}}, format="json")
+        other_hosts = [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS - 1)]
 
         response = self.client.patch(
             self.url,
             {
                 "feature_flag_policy_config": {
-                    "blocked_hosts": ["https://Example.com/page", ""],
+                    "blocked_hosts": ["https://Example.com/page", "", *other_hosts, "EXAMPLE.com"],
                     "blocked_ips": ["198.51.100.42/24", "2001:db8::1"],
                 }
             },
@@ -146,14 +151,14 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         config = TeamFeatureFlagPolicyConfig.objects.get(team=self.team)
-        assert config.blocked_hosts == ["example.com"]
+        assert config.blocked_hosts == ["example.com", *other_hosts]
         assert config.blocked_ips == ["198.51.100.0/24", "2001:db8::1"]
         assert config.require_tags is True
         log = ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").latest("created_at")
         assert log.detail is not None
         change = log.detail["changes"][0]
         assert change["field"] == "feature_flag_policy_config"
-        assert change["after"]["blocked_hosts"] == ["example.com"]
+        assert change["after"]["blocked_hosts"] == ["example.com", *other_hosts]
         assert change["after"]["blocked_ips"] == ["198.51.100.0/24", "2001:db8::1"]
 
         response = self.client.patch(self.url, {"feature_flag_policy_config": {"blocked_hosts": []}}, format="json")
@@ -168,6 +173,11 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         [
             ("ip_too_broad", {"blocked_ips": ["0.0.0.0/0"]}, "/8 or narrower"),
             ("host_malformed_url", {"blocked_hosts": ["https://[example.com"]}, "is not a valid domain"),
+            (
+                "hosts_over_unique_cap",
+                {"blocked_hosts": [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS + 1)]},
+                "up to 100 domains",
+            ),
         ]
     )
     def test_invalid_blocklist_entry_is_rejected(self, _name: str, policy: dict, message: str) -> None:

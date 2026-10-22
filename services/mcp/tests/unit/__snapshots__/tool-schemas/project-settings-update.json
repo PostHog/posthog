@@ -424,7 +424,7 @@
                         "maxLength": 2000,
                         "type": "string"
                     },
-                    "maxItems": 100,
+                    "maxItems": 1000,
                     "type": "array"
                 },
                 "blocked_ips": {
@@ -433,7 +433,7 @@
                         "maxLength": 2000,
                         "type": "string"
                     },
-                    "maxItems": 100,
+                    "maxItems": 1000,
                     "type": "array"
                 },
                 "require_tags": {

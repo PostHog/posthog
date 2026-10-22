@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task
@@ -139,10 +141,30 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
 
         self.assertIn(team_id, cleared_team_ids)
 
-    def test_flag_policy_save_refreshes_team_metadata_cache(self) -> None:
+    @parameterized.expand(
+        [
+            ("create_with_entries", None, {"blocked_hosts": ["example.com"]}),
+            ("set_on_existing_row", {}, {"blocked_hosts": ["example.com"], "blocked_ips": ["203.0.113.7"]}),
+            (
+                "clear_on_existing_row",
+                {"blocked_hosts": ["example.com"], "blocked_ips": ["203.0.113.7"]},
+                {"blocked_hosts": [], "blocked_ips": []},
+            ),
+        ]
+    )
+    def test_flag_policy_blocklist_save_refreshes_team_metadata_cache(
+        self, _name: str, existing: dict[str, list[str]] | None, saved: dict[str, list[str]]
+    ) -> None:
+        config = None if existing is None else TeamFeatureFlagPolicyConfig.objects.create(team=self.team, **existing)
+
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
-                TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=["example.com"])
+                if config is None:
+                    TeamFeatureFlagPolicyConfig.objects.create(team=self.team, **saved)
+                else:
+                    for field, value in saved.items():
+                        setattr(config, field, value)
+                    config.save()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
