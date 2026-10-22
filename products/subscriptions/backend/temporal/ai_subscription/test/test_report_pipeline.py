@@ -87,12 +87,12 @@ _OK_RUN = PlanExecution(
 )
 _NO_ROWS_STEP = f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._"
 _FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
-_ALL_EMPTY_RUN = PlanExecution(
+_NO_ROWS_RUN = PlanExecution(
     rendered=[_NO_ROWS_STEP],
     failed_count=0,
     diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
     charts=[],
-    empty_count=1,
+    no_rows_count=1,
 )
 
 
@@ -420,7 +420,7 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
     )
     assert execution.failed_count == 1
-    assert execution.empty_count == 0
+    assert execution.no_rows_count == 0
     assert "Query failed to run" in execution.rendered[0]
     assert execution.diagnostics[0].ok is False
     assert execution.diagnostics[0].error_type == "RuntimeError"
@@ -513,7 +513,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
 
 
 @pytest.mark.parametrize(
-    "response,expected_rendered,expected_empty",
+    "response,expected_rendered,expected_no_rows",
     [
         pytest.param(_RESPONSE, "### s0\n\nformatted table", 0, id="rows"),
         pytest.param(_EMPTY_RESPONSE, f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._", 1, id="no_rows"),
@@ -521,7 +521,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
 )
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_marks_a_step_that_returned_no_rows(
-    mock_executor_cls: MagicMock, response: dict, expected_rendered: str, expected_empty: int
+    mock_executor_cls: MagicMock, response: dict, expected_rendered: str, expected_no_rows: int
 ) -> None:
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=response)
@@ -530,7 +530,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
     )
     assert execution.rendered == [expected_rendered]
-    assert execution.empty_count == expected_empty
+    assert execution.no_rows_count == expected_no_rows
     assert execution.failed_count == 0
 
 
@@ -538,7 +538,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
     "run_result,include_manage_link,expected_report,synthesizes",
     [
         pytest.param(
-            _ALL_EMPTY_RUN,
+            _NO_ROWS_RUN,
             True,
             "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
             "summarize. Use the Manage subscription link to review the generated queries.\n\n" + _NO_ROWS_STEP,
@@ -554,7 +554,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
                     QueryStepDiagnostic("s1", "SELECT bad", False, "ExposedHogQLError"),
                 ],
                 charts=[],
-                empty_count=1,
+                no_rows_count=1,
             ),
             False,
             "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
@@ -571,7 +571,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
                     QueryStepDiagnostic("s1", "SELECT 2", True, None),
                 ],
                 charts=[],
-                empty_count=1,
+                no_rows_count=1,
             ),
             True,
             "# Report",
@@ -612,7 +612,7 @@ async def test_synthesis_runs_only_when_a_step_returned_rows(
 
     assert result.markdown == expected_report
     assert mock_chat.return_value.with_structured_output.return_value.invoke.called is synthesizes
-    assert _slo_completed(mock_capture)["empty_steps"] == run_result.empty_count
+    assert _slo_completed(mock_capture)["no_rows_steps"] == run_result.no_rows_count
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -975,7 +975,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
         pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
         pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
-        pytest.param(_spec_with_window_placeholder(), _ALL_EMPTY_RUN, id="no_step_found_data"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
     ],
 )
 @patch(_SLO_CAPTURE)

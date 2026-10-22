@@ -195,7 +195,7 @@ class QueryStepDiagnostic:
 class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
-    returned_rows: bool
+    has_rows: bool
     chart: Optional[ValidatedChart] = None
     source_urls: tuple[str, ...] = ()
 
@@ -207,7 +207,7 @@ class PlanExecution:
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
     source_urls: tuple[str, ...] = ()
-    empty_count: int = 0
+    no_rows_count: int = 0
 
 
 @frozen
@@ -291,12 +291,12 @@ async def generate_ai_report(
                     requested=len(charts),
                     selected=len(selected),
                 )
-            no_step_returned_rows = execution.empty_count > 0 and (
-                execution.empty_count + failed_count == len(spec.plan.steps)
+            no_step_has_rows = execution.no_rows_count > 0 and (
+                execution.no_rows_count + failed_count == len(spec.plan.steps)
             )
             synthesis_task = asyncio.ensure_future(
                 _no_rows_report(execution.rendered, include_manage_link=include_manage_link)
-                if no_step_returned_rows
+                if no_step_has_rows
                 else _synthesize(spec, execution.rendered, team, user, trace_correlation_id, execution.source_urls)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
@@ -327,7 +327,7 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
             degraded=bool(failed_count),
-            empty_steps=execution.empty_count,
+            no_rows_steps=execution.no_rows_count,
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
@@ -356,7 +356,7 @@ async def generate_ai_report(
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
-            empty_count=execution.empty_count,
+            no_rows_count=execution.no_rows_count,
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -399,7 +399,7 @@ def _plan_to_freeze(
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
-    empty_count: int = 0,
+    no_rows_count: int = 0,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -421,7 +421,7 @@ def _plan_to_freeze(
         return None
     # When no step finds data, the plan can filter on an event or value the project never sends. A frozen
     # copy would then send the no-data notice on every delivery until the prompt changes.
-    if total_steps and empty_count == total_steps:
+    if total_steps and no_rows_count == total_steps:
         logger.warning(
             "ai_report.plan_found_no_data_not_frozen",
             trace_correlation_id=trace_correlation_id,
@@ -620,8 +620,6 @@ async def _run_steps(
                     executor.arun_format_and_capture(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
-                # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
                 # Write the succeeding query (post any fix-LLM rewrite, still window-agnostic) back onto
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
@@ -637,13 +635,15 @@ async def _run_steps(
                 except Exception:
                     logger.warning("ai_report.chart_validation_error", step_index=step_index, exc_info=True)
                     chart, chart_dropped_reason = None, ChartFailureReason.VALIDATION_ERROR
-                returned_rows = bool(query_result.response.get("results"))
+                has_rows = bool(query_result.response.get("results"))
+                if has_rows:
+                    # result values are attacker-influenceable (public project tokens) — strip framing markers
+                    safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
+                    rendered = f"### {safe_description}\n\n{safe_formatted}"
+                else:
+                    rendered = f"### {safe_description}\n\n_{QUERY_RETURNED_NO_ROWS}._"
                 return StepOutcome(
-                    rendered=(
-                        f"### {safe_description}\n\n{safe_formatted}"
-                        if returned_rows
-                        else f"### {safe_description}\n\n_{QUERY_RETURNED_NO_ROWS}._"
-                    ),
+                    rendered=rendered,
                     diagnostic=QueryStepDiagnostic(
                         description=safe_description,
                         hogql=executable_hogql,
@@ -652,7 +652,7 @@ async def _run_steps(
                         chart_dropped_reason=chart_dropped_reason,
                     ),
                     chart=chart,
-                    returned_rows=returned_rows,
+                    has_rows=has_rows,
                     source_urls=tuple(
                         dict.fromkeys(
                             value
@@ -716,7 +716,7 @@ async def _run_steps(
                 error_code=error_details["code"] if error_details else None,
                 human_readable_error=error_details["message"] if error_details else None,
             ),
-            returned_rows=False,
+            has_rows=False,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
@@ -732,7 +732,7 @@ async def _run_steps(
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
         source_urls=tuple(dict.fromkeys(url for outcome in step_results for url in outcome.source_urls))[:100],
-        empty_count=sum(1 for outcome in step_results if outcome.diagnostic.ok and not outcome.returned_rows),
+        no_rows_count=sum(1 for outcome in step_results if outcome.diagnostic.ok and not outcome.has_rows),
     )
 
 
