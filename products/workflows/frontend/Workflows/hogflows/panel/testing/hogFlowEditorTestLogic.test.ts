@@ -1,9 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FLAG_CALLS_NOT_LOADABLE } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
@@ -529,6 +532,42 @@ describe('hogFlowEditorTestLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadSampleGlobals', 'setSampleGlobalsError'])
             expect(logic.values.sampleGlobalsError).toEqual('Failed to load matching events. Please try again.')
+        })
+    })
+
+    describe('a trigger on feature flag calls', () => {
+        const FLAG_CALLED_FILTERS = { events: [{ id: '$feature_flag_called', type: 'events', properties: [] }] }
+        const FLAG_CALLED_WORKFLOW = {
+            ...WORKFLOW_FIXTURE,
+            actions: WORKFLOW_FIXTURE.actions.map((action) =>
+                action.id === 'trigger_node'
+                    ? { ...action, config: { type: 'event', filters: FLAG_CALLED_FILTERS } }
+                    : action
+            ),
+            trigger: { type: 'event', filters: FLAG_CALLED_FILTERS },
+        }
+
+        it.each([
+            [
+                'events',
+                FlagEvaluationsModeEnumApi.Number0,
+                'No events match these filters in the last 7 days. Using an example $pageview event instead.',
+                true,
+            ],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                `${FLAG_CALLS_NOT_LOADABLE} Using an example $pageview event instead.`,
+                false,
+            ],
+        ])('explains a missing test event on the %s mode', async (_name, mode, message, canTryExtendedSearch) => {
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': FLAG_CALLED_WORKFLOW } })
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            await expectLogic(logic).toMatchValues({ sampleGlobalsError: message, canTryExtendedSearch })
         })
     })
 

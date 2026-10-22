@@ -1,13 +1,21 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
+import { performQuery } from '~/queries/query'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
+import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
@@ -18,6 +26,16 @@ jest.mock('lib/api', () => ({
         update: jest.fn(),
         create: jest.fn(),
     },
+}))
+
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn(),
+}))
+
+jest.mock('../sampleEventsQuery', () => ({
+    ...jest.requireActual('../sampleEventsQuery'),
+    performWideEventsQueryInTwoPhases: jest.fn(),
 }))
 
 // the mock api object
@@ -347,6 +365,83 @@ describe('hogFunctionConfigurationLogic', () => {
 
             expect(logic.values.configurationErrors.filters).toBe('You must choose a filter')
             expect(mockApi.update).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('a destination on feature flag calls', () => {
+        const FLAG_CALLED_TEMPLATE: HogFunctionTemplateType = {
+            ...HOG_TEMPLATE,
+            filters: {
+                events: [{ id: '$feature_flag_called', name: '$feature_flag_called', type: 'events', order: 0 }],
+            },
+        }
+
+        function mountOnMode(mode: FlagEvaluationsModeEnumApi): void {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(Promise.resolve(FLAG_CALLED_TEMPLATE))
+            ;(performQuery as jest.Mock).mockReset()
+            ;(performQuery as jest.Mock).mockImplementation(async (query) =>
+                query.kind === NodeKind.EventsQuery
+                    ? {
+                          results: [
+                              ['2026-10-16', 700],
+                              ['2026-10-17', 3],
+                          ],
+                      }
+                    : {
+                          results: [
+                              {
+                                  data: [0, 500, 0],
+                                  count: 500,
+                                  labels: ['15-Oct-2026', '16-Oct-2026', '17-Oct-2026'],
+                                  days: ['2026-10-15', '2026-10-16', '2026-10-17'],
+                              },
+                          ],
+                      }
+            )
+            ;(performWideEventsQueryInTwoPhases as jest.Mock).mockReset()
+            ;(performWideEventsQueryInTwoPhases as jest.Mock).mockResolvedValue({ results: [] })
+        })
+
+        // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
+        it.each([
+            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0]],
+            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0]],
+            ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, [0, 200, 0]],
+        ])('estimates the calls it would receive on the %s mode', async (_name, mode, count, highVolume) => {
+            mountOnMode(mode)
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
+
+            expect(logic.values.sparkline?.count).toEqual(count)
+            expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(highVolume)
+        })
+
+        it.each([
+            [
+                'events',
+                FlagEvaluationsModeEnumApi.Number0,
+                'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+            ],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`,
+            ],
+        ])('explains a missing test event on the %s mode', async (_name, mode, message) => {
+            mountOnMode(mode)
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSampleGlobals()
+            }).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(logic.values.sampleGlobalsError).toEqual(message)
         })
     })
 })

@@ -80,13 +80,21 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     IntegrationType,
+    TrendResult,
 } from '~/types'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
-import { matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
+import {
+    FLAG_CALLS_NOT_LOADABLE,
+    flagCallsDailyCountQuery,
+    flagCallsMatchingFilters,
+    storesFlagCallsOutsideEvents,
+    withFlagCallCounts,
+} from '../filters/flagCallsMatching'
+import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -99,6 +107,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
+const SPARKLINE_DAYS = 7
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
 
@@ -369,6 +378,8 @@ export interface hogFunctionConfigurationLogicValues {
     eventsDataTableNode: DataTableNode | null
     exampleInvocationGlobals: CyclotronJobInvocationGlobals
     filtersContainPersonProperties: boolean
+    flagCallsOutsideEvents: PropertyGroupFilter | null
+    flagCallsSparklineQuery: EventsQuery | null
     hasGroupsAddon: boolean
     hasHadSubmissionErrors: boolean
     hogFunction: HogFunctionType | null
@@ -390,6 +401,7 @@ export interface hogFunctionConfigurationLogicValues {
     logicProps: HogFunctionConfigurationLogicProps
     mappingTemplates: HogFunctionMappingTemplateType[]
     matchingFilters: PropertyGroupFilter
+    matchingFiltersInput: MatchingFiltersInput | null
     mightDropEvents: boolean
     newFilters: CyclotronJobFiltersType | null
     newHogCode: string | null
@@ -622,7 +634,7 @@ export interface hogFunctionConfigurationLogicActions {
     sparklineQueryChangedSuccess: (
         sparkline:
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
@@ -632,7 +644,7 @@ export interface hogFunctionConfigurationLogicActions {
                   warning: string | undefined
               }
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
@@ -648,7 +660,7 @@ export interface hogFunctionConfigurationLogicActions {
     ) => {
         sparkline:
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
@@ -658,7 +670,7 @@ export interface hogFunctionConfigurationLogicActions {
                   warning: string | undefined
               }
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
@@ -766,10 +778,20 @@ export interface hogFunctionConfigurationLogicMeta {
             exampleInvocationGlobals: CyclotronJobInvocationGlobals,
             configuration: HogFunctionConfigurationType
         ) => CyclotronJobInvocationGlobalsWithInputs
-        matchingFilters: (
+        matchingFiltersInput: (
             configuration: HogFunctionConfigurationType,
             useMapping: number | true | undefined
-        ) => PropertyGroupFilter
+        ) => MatchingFiltersInput | null
+        matchingFilters: (matchingFiltersInput: any) => PropertyGroupFilter
+        flagCallsOutsideEvents: (
+            matchingFiltersInput: any,
+            sourceUsesEvents: boolean,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => PropertyGroupFilter | null
+        flagCallsSparklineQuery: (
+            configuration: HogFunctionConfigurationType,
+            flagCallsOutsideEvents: any
+        ) => EventsQuery | null
         filtersContainPersonProperties: (configuration: HogFunctionConfigurationType) => boolean
         sourceUsesEvents: (configuration: HogFunctionConfigurationType, type: HogFunctionTypeType) => boolean
         sparklineQuery: (
@@ -1096,10 +1118,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     } else {
                         await breakpoint(1000)
                     }
-                    const result = await performQuery(sparklineQuery)
+                    const [result, flagCallsResult] = await Promise.all([
+                        performQuery(sparklineQuery),
+                        values.flagCallsSparklineQuery ? performQuery(values.flagCallsSparklineQuery) : null,
+                    ])
                     breakpoint()
 
-                    const dataValues: number[] = result?.results?.[0]?.data ?? []
+                    const series = result?.results?.[0]
+                    const { data: dataValues, count } =
+                        series && flagCallsResult
+                            ? withFlagCallCounts(series as TrendResult, flagCallsResult.results as [string, number][])
+                            : { data: (series?.data ?? []) as number[], count: series?.count as number }
                     const showVolumeWarning = TYPES_WITH_VOLUME_WARNING.includes(values.type)
 
                     if (showVolumeWarning) {
@@ -1123,7 +1152,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 color: 'warning',
                             },
                         ]
-                        return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                        return { data, count, labels: series?.labels }
                     }
                     // For transformations, just show the raw values without warning thresholds
                     const data = [
@@ -1135,8 +1164,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     ]
                     return {
                         data,
-                        count: result?.results?.[0]?.count,
-                        labels: result?.results?.[0]?.labels,
+                        count,
+                        labels: series?.labels,
                         warning:
                             values.type === 'transformation'
                                 ? 'Historical volume may not reflect future volume after transformation is applied.'
@@ -1171,8 +1200,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
-                    const errorMessage =
-                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
+                    const errorMessage = values.flagCallsOutsideEvents
+                        ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`
+                        : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
                         let response = await performWideEventsQueryInTwoPhases({
@@ -1608,28 +1638,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
         ],
-        matchingFilters: [
+        // Null when the function uses mappings and has none, because it then matches no event.
+        matchingFiltersInput: [
             (s) => [s.configuration, s.useMapping],
             (
                 configuration: HogFunctionConfigurationType,
                 useMapping: number | true | undefined
-            ): PropertyGroupFilter => {
-                // We're using mappings, but none are provided, so match zero events.
+            ): MatchingFiltersInput | null => {
                 if (useMapping && !configuration.mappings?.length) {
-                    return {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        type: PropertyFilterType.HogQL,
-                                        key: 'false',
-                                    },
-                                ],
-                            },
-                        ],
-                    }
+                    return null
                 }
 
                 // Copied before the mappings are merged in: these arrays are the form's own state.
@@ -1647,12 +1664,65 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                return matchingFiltersToPropertyGroup({
+                return {
                     events: allPossibleEventFilters,
                     actions: allPossibleActionFilters,
                     properties: configuration.filters?.properties,
-                })
+                }
             },
+            { resultEqualityCheck: equal },
+        ],
+        matchingFilters: [
+            (s) => [s.matchingFiltersInput],
+            (matchingFiltersInput: MatchingFiltersInput | null): PropertyGroupFilter => {
+                // We're using mappings, but none are provided, so match zero events.
+                if (!matchingFiltersInput) {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.HogQL,
+                                        key: 'false',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+
+                return matchingFiltersToPropertyGroup(matchingFiltersInput)
+            },
+            { resultEqualityCheck: equal },
+        ],
+        // Filters for the matched flag calls that `events` does not hold, or null when there are none.
+        flagCallsOutsideEvents: [
+            (s) => [s.matchingFiltersInput, s.sourceUsesEvents, s.currentTeam],
+            (
+                matchingFiltersInput: MatchingFiltersInput | null,
+                sourceUsesEvents: boolean,
+                currentTeam: TeamPublicType | TeamType | null
+            ): PropertyGroupFilter | null =>
+                matchingFiltersInput && sourceUsesEvents && storesFlagCallsOutsideEvents(currentTeam)
+                    ? flagCallsMatchingFilters(matchingFiltersInput)
+                    : null,
+            { resultEqualityCheck: equal },
+        ],
+        flagCallsSparklineQuery: [
+            (s) => [s.configuration, s.flagCallsOutsideEvents],
+            (
+                configuration: HogFunctionConfigurationType,
+                flagCallsOutsideEvents: PropertyGroupFilter | null
+            ): EventsQuery | null =>
+                flagCallsOutsideEvents
+                    ? flagCallsDailyCountQuery(
+                          flagCallsOutsideEvents,
+                          configuration.filters?.filter_test_accounts,
+                          SPARKLINE_DAYS
+                      )
+                    : null,
             { resultEqualityCheck: equal },
         ],
 
@@ -1709,7 +1779,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     properties: matchingFilters,
                     interval: 'day',
                     dateRange: {
-                        date_from: '-7d',
+                        date_from: `-${SPARKLINE_DAYS}d`,
                     },
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
