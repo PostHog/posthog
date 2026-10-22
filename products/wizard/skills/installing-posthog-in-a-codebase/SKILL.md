@@ -5,14 +5,14 @@ description: >-
   the framework. Use when a user working in their codebase asks to add, install, or set up PostHog, product
   analytics, session replay, or a PostHog SDK. Covers finding the right docs page, installing the latest
   package, getting the project token and ingestion host from project-get, keeping them in the env file,
-  server-side setup, identifying users, and verifying the change. If you can't access the user's code, use
-  installing-posthog-from-chat instead.
+  server-side setup, identifying users, and verifying the change. If you can't access the user's code, as is
+  common in ChatGPT on the web or Claude on the web, use installing-posthog-from-chat instead.
 ---
 
 # Installing PostHog in a codebase
 
 Use this skill when you can read and edit the user's code.
-If you can't access their code, use `installing-posthog-from-chat`.
+If you can't access their code, as is common in ChatGPT on the web or Claude on the web, use `installing-posthog-from-chat`.
 
 PostHog's docs are the source of truth for each SDK's setup.
 Init options, file locations and recommended settings change between SDK releases, so read the docs page for the framework before you write code, and follow it rather than what you remember.
