@@ -483,29 +483,44 @@ describe("TaskCreationSaga", () => {
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
   });
 
-  it("fails a new local Pi task without starting Pi when no run is created", async () => {
-    const onTaskReady = vi.fn();
-    const saga = makeSaga(
-      {
-        createTask: vi
-          .fn()
-          .mockResolvedValue(createTask({ repository: undefined })),
-        createTaskRun: vi.fn().mockResolvedValue(undefined),
-      },
-      { onTaskReady },
-    );
+  it.each([
+    ["the run call fails", vi.fn().mockRejectedValue(new Error("503"))],
+    ["the run has no id", vi.fn().mockResolvedValue(createRun({ id: "" }))],
+  ])(
+    "starts a new local Pi task untagged when %s",
+    async (_label, createTaskRun) => {
+      const createdTask = createTask({ repository: undefined });
+      const deleteTask = vi.fn();
+      const onTaskReady = vi.fn();
+      const saga = makeSaga(
+        {
+          createTask: vi.fn().mockResolvedValue(createdTask),
+          createTaskRun,
+          deleteTask,
+        },
+        { onTaskReady },
+      );
 
-    const result = await saga.run({
-      content: "Draft a launch email",
-      workspaceMode: "local",
-      runtime: "pi",
-      allowNoRepo: true,
-    });
+      const result = await saga.run({
+        content: "Draft a launch email",
+        workspaceMode: "local",
+        runtime: "pi",
+        allowNoRepo: true,
+      });
 
-    expect(result.success).toBe(false);
-    expect(piRunner.create).not.toHaveBeenCalled();
-    expect(onTaskReady).not.toHaveBeenCalled();
-  });
+      expect(result.success).toBe(true);
+      expect(deleteTask).not.toHaveBeenCalled();
+      expect(piRunner.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskContext: expect.objectContaining({ taskRunId: undefined }),
+        }),
+      );
+      expect(onTaskReady).toHaveBeenCalledWith({
+        task: createdTask,
+        workspace: null,
+      });
+    },
+  );
 
   it("starts a Pi session before surfacing a new worktree task", async () => {
     let resolvePiSession: () => void = () => {};

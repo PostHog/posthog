@@ -585,19 +585,26 @@ export class TaskCreationSaga extends Saga<
               .filter((part): part is string => !!part)
               .join("\n\n");
 
-            const taskRun = await this.deps.posthogClient.createTaskRun(
-              task.id,
-            );
-            if (!taskRun?.id) {
-              throw new Error("Failed to create task run");
+            // The run only attributes spend, so a failure starts Pi untagged rather than rolling back the task.
+            const taskRun = await this.deps.posthogClient
+              .createTaskRun(task.id)
+              .catch((error: unknown) => {
+                this.log.warn("Pi task run creation failed", {
+                  taskId: task.id,
+                  error,
+                });
+                return undefined;
+              });
+            const taskRunId = taskRun?.id || undefined;
+            if (taskRun && taskRunId) {
+              // The Pi view keys its session on `latest_run`; a run that appears only after a refetch resets the live session.
+              task = { ...task, latest_run: taskRun };
             }
-            // The Pi view keys its session on `latest_run`; a run that appears only after a refetch resets the live session.
-            task = { ...task, latest_run: taskRun };
 
             await this.deps.piRunner.create({
               taskContext: {
                 taskId: task.id,
-                taskRunId: taskRun.id,
+                taskRunId,
                 cwd: agentCwd ?? "",
                 customInstructions: input.customInstructions,
                 additionalDirectories: input.additionalDirectories,

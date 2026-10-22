@@ -1849,7 +1849,14 @@ export class PiSessionController {
     }
     const task = await this.taskService
       .getTask(taskId, taskRunId)
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        this.log.warn("Pi restart could not load the run; retrying locally", {
+          taskId,
+          taskRunId,
+          error,
+        });
+        return undefined;
+      });
     return task?.latest_run?.environment === "cloud";
   }
 

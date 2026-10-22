@@ -1072,26 +1072,37 @@ describe("PiSessionController", () => {
   );
 
   it.each([
-    ["a loaded local session", true, "local", false],
-    ["a failed load of a local run", false, "local", false],
-    ["a failed load of a cloud run", false, "cloud", true],
-  ])(
+    ["a loaded local session", "local", "cloud", false],
+    ["a loaded cloud session", "cloud", "local", true],
+    ["a failed load of a local run", "fails", "local", false],
+    ["a failed load of a cloud run", "fails", "cloud", true],
+    ["a failed load whose run cannot be fetched", "fails", "rejects", false],
+  ] as const)(
     "restart with %s resumes in the cloud only for a cloud run",
-    async (_label, sessionLoads, environment, resumesInCloud) => {
-      const session = createSession();
+    async (_label, loadedSession, fetchedRun, resumesInCloud) => {
+      const session =
+        loadedSession === "cloud"
+          ? { ...createSession(), taskRunId: "run-1" }
+          : createSession();
       const provider: PiSessionProvider = {
-        get: sessionLoads
-          ? vi.fn(async () => session)
-          : vi.fn(async () => {
-              throw new Error("Pi failed to start");
-            }),
+        get:
+          loadedSession === "fails"
+            ? vi.fn(async () => {
+                throw new Error("Pi failed to start");
+              })
+            : vi.fn(async () => session),
       };
       const taskService = {
         openTask: vi.fn(async () => ({ success: true })),
-        getTask: vi.fn(async () => ({
-          id: "task-1",
-          latest_run: { id: "run-1", environment },
-        })),
+        getTask: vi.fn(async () => {
+          if (fetchedRun === "rejects") {
+            throw new Error("Not authenticated");
+          }
+          return {
+            id: "task-1",
+            latest_run: { id: "run-1", environment: fetchedRun },
+          };
+        }),
         resumeCloudPiRun: vi.fn(async () => ({ id: "run-1" })),
       } as unknown as TaskService;
       const controller = new PiSessionController(
