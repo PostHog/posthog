@@ -1050,13 +1050,16 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
-        pa_table = normalize_table_column_names(pa_table)
+        if not self._resource.preserve_column_names:
+            pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
+            # The loader deletes rows by the replace scope's column, so a column selection must keep it.
+            replace_scope = self._resource.replace_scope
             pa_table = await observe_and_project_table(
                 pa_table,
                 self._schema.enabled_columns,
-                self._resource.primary_keys,
+                [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
                 self._schema.incremental_field,
                 [
                     *(self._schema.partitioning_keys_override or []),

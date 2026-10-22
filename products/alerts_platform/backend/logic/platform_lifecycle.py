@@ -295,6 +295,8 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+        recurrence_unit=c.recurrence_unit,
+        anchor_time=c.anchor_time,
     )
 
 
@@ -847,12 +849,22 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     """Writes a source's current settings onto its copy, so history and messages state what a check
     evaluated.
 
-    Settings only. The schedule, `enabled` and the alert rows stay as they are, so an evaluation can
-    call this before it decides and a retried attempt still finds the same checks due.
+    Settings only. The due time, `enabled` and the alert rows stay as they are, so an evaluation can
+    call this before it decides and a retried attempt still finds the same checks due. A changed
+    cadence takes effect from the next due time the check advances to.
+
+    Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
+    cannot advance fails every outcome of the batch it is recorded in.
     """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
         name=upsert.name,
         source_config=upsert.source_config,
+        check_interval_minutes=upsert.check_interval_minutes,
+        recurrence_unit=upsert.recurrence_unit,
+        anchor_time=anchor_time,
         evaluation_periods=upsert.evaluation_periods,
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
@@ -960,9 +972,12 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
 ) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it.
+
+    A source that runs calendar schedules itself takes back an alert on one. Any other source gets
+    only interval cadences back.
 
     The caller holds the source's row lock and writes the source's owner and state in the same
     transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
@@ -974,9 +989,10 @@ def give_back_ownership(
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
         alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        calendar = configuration.recurrence_unit is not None and not source_runs_calendar_schedules
         # A grouped copy with no group open yet still splits its results, which its source cannot do.
         if (
-            configuration.recurrence_unit is not None
+            calendar
             or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
             or any(alert.grouping_key for alert in alerts)
         ):
@@ -995,6 +1011,7 @@ def give_back_ownership(
             last_notified_at=alert.last_notified_at if alert is not None else None,
             consecutive_failures=configuration.consecutive_failures,
             next_check_at=configuration.next_check_at,
+            enabled=configuration.enabled,
         )
         configuration.owner = PlatformAlertOwner.SOURCE
         configuration.owner_changed_at = at

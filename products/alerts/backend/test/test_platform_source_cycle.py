@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
@@ -44,7 +45,7 @@ from products.alerts.backend.temporal.platform_evaluate import (
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import list_configurations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertEventKind,
@@ -67,6 +68,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         super().setUp()
         get_client().delete(INFLIGHT_KEY)
         self.addCleanup(get_client().delete, INFLIGHT_KEY)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
         return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
@@ -166,6 +172,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
+
+    @parameterized.expand(
+        [
+            ("renamed", {"name": "Signups dropped"}, ("Signups dropped", 60 * 24, "day", None)),
+            # A skipped check advances by the copy's schedule, so it must refresh the copy first.
+            (
+                "renamed_while_off",
+                {"name": "Signups dropped", "enabled": False},
+                ("Signups dropped", 60 * 24, "day", None),
+            ),
+            (
+                "weekly",
+                {"calculation_interval": AlertCalculationInterval.WEEKLY.value},
+                ("alert", 60 * 24 * 7, "week", None),
+            ),
+            ("started_later", {"schedule_start_time": "09:30"}, ("alert", 60 * 24, "day", "09:30")),
+            # A stored anchor that cannot advance would fail every outcome recorded beside it.
+            ("unreadable_start_time", {"schedule_start_time": "25:99"}, ("alert", 60 * 24, "day", None)),
+        ]
+    )
+    def test_a_check_brings_its_copy_up_to_date_with_the_alert(
+        self, _name: str, edits: dict[str, Any], expected: tuple[str, int, str, str | None]
+    ) -> None:
+        alert = self._alert(**edits)
+        configuration = self._copy(alert)
+
+        self._evaluate(configuration, result=AlertEvaluationResult(value=50.0, breaches=[]))
+
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
+            ).configurations
+        assert (copy.name, copy.check_interval_minutes, copy.recurrence_unit, copy.anchor_time) == expected
 
     @parameterized.expand([("threshold", {}), ("detector", {"detector_config": {"type": "zscore"}})])
     def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(
@@ -336,6 +375,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             CAPACITY_REJECTED,
             False,
         )
+
+    def test_a_cadence_the_plan_no_longer_includes_errors_and_is_disabled(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        outcome, query = self._evaluate(
+            self._copy(self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)),
+            result=AlertEvaluationResult(value=1.0, breaches=[]),
+        )
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.disable, query.called) == (AlertEventKind.ERRORED, True, False)
 
     @parameterized.expand(
         [
