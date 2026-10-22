@@ -672,6 +672,15 @@ export interface biEditorLogicActions {
     setLocalFieldDraft: (field: BIField | null) => {
         field: BIField | null
     }
+    setMeasureExpression: (
+        index: number,
+        expression: string,
+        aggregation: BIAggregation
+    ) => {
+        aggregation: BIAggregation
+        expression: string
+        index: number
+    }
     setMeasureShelf: (
         index: number,
         shelf: 'columns' | 'rows'
@@ -707,15 +716,6 @@ export interface biEditorLogicActions {
     ) => {
         aggregation: BIAggregation
         index: number
-    }
-    setMeasureExpression: (
-        index: number,
-        expression: string,
-        aggregation: BIAggregation
-    ) => {
-        index: number
-        expression: string
-        aggregation: BIAggregation
     }
     setValueCustomExpression: (
         index: number,
