@@ -4,7 +4,10 @@ on:
     pull_request:
         paths:
             - '.github/actions/paths-filter/**'
+            - '.github/actions/shared-image-releases/**'
             - '.github/workflows/ci-paths-filter.yml'
+            - '.github/shared-image-releases.yaml'
+            - '.github/workflows/container-images-cd.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -15,12 +18,15 @@ permissions:
 
 jobs:
     verify:
-        name: Test and verify committed bundle
+        name: Test and verify committed bundle (${{ matrix.action }})
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
+        strategy:
+            matrix:
+                action: [paths-filter, shared-image-releases]
         defaults:
             run:
-                working-directory: .github/actions/paths-filter
+                working-directory: .github/actions/${{ matrix.action }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -28,14 +34,22 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
             - run: npm ci --no-audit --no-fund
+            - if: matrix.action == 'shared-image-releases'
+              run: npm --prefix ../paths-filter ci --no-audit --no-fund
             - run: npx tsc --noEmit
             - run: npx jest
             # The action runs the committed dist/index.js. Rebuild from src and fail if it
             # drifted — a stale bundle would silently run old matching logic in CI.
             - name: Verify dist/index.js matches src
               run: |
-                  npx ncc build src/main.ts -o dist_check
+                  ncc_flags=()
+                  build_command="npx ncc build src/main.ts -o dist"
+                  if [ "${{ matrix.action }}" = "shared-image-releases" ]; then
+                      ncc_flags+=(--minify)
+                      build_command="$build_command ${ncc_flags[*]}"
+                  fi
+                  npx ncc build src/main.ts -o dist_check "${ncc_flags[@]}"
                   if ! diff -q dist_check/index.js dist/index.js; then
-                      echo "::error::dist/index.js is out of date. Run 'npx ncc build src/main.ts -o dist' in .github/actions/paths-filter and commit the result."
+                      echo "::error::dist/index.js is out of date. Run '$build_command' in .github/actions/${{ matrix.action }} and commit the result."
                       exit 1
                   fi

@@ -144,6 +144,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
+    SandboxCustomImageListQuerySerializer,
     SandboxCustomImageSerializer,
     SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
@@ -484,12 +485,12 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
 class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
-    rate = "10/hour"
+    rate = "20/hour"
 
 
 class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
-    rate = "30/day"
+    rate = "50/day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
@@ -5271,8 +5272,18 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if not tasks_facade.sandbox_custom_images_enabled(self.team_id, request.user.id):
             raise PermissionDenied("Custom sandbox images require the Modal VM runtime, which is not enabled")
 
-    @extend_schema(responses={200: SandboxCustomImageSerializer(many=True)})
+    @extend_schema(
+        parameters=[SandboxCustomImageListQuerySerializer],
+        responses={200: SandboxCustomImageSerializer(many=True)},
+    )
     def list(self, request, **kwargs):
+        query = SandboxCustomImageListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        origin_product = query.validated_data.get("origin_product")
+        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+            self.team_id, request.user.id, origin_product=origin_product
+        ):
+            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
         images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
         page = self.paginate_queryset(images)
         if page is not None:
