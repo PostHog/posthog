@@ -76,7 +76,8 @@ Use `api_token` as the project token and `api_host` as the SDK's host option.
 
 - Initialize the SDK once, in the place the docs page names. Don't add a second initialization elsewhere.
 - For `posthog-js`, set `defaults` to the date the docs page shows. It selects the newest set of recommended settings, so don't take a date from memory.
-- For a backend SDK, create one client for the process and flush or shut it down when the process exits, as the docs describe. Don't create a client per request.
+- For a backend SDK in a long-running server, create one client for the process, reuse it, and shut it down when the process exits. Don't create a client per request.
+- In serverless or edge handlers (for example Next.js route handlers on Vercel, or AWS Lambda), the runtime can freeze as soon as the response is sent, so queued events are lost. Flush before the handler returns: await `flush()` on a reused client, or use the platform's `waitUntil`, as the docs page describes.
 - For a server-rendered app (Django, Rails, Laravel and similar), add the server SDK as well as the browser snippet.
 
 ## 5. Identify users
