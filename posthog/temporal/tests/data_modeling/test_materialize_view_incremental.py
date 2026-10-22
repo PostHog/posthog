@@ -169,26 +169,32 @@ def _windowed_source(
     windows: list[Any],
     integer_keys: bool = False,
     fail: WindowFailure | None = None,
+    partial_on_failure: bool = False,
 ):
     key_type = pa.int64() if integer_keys else pa.timestamp("us", tz="UTC")
     types = INTEGER_TYPES if integer_keys else TIMESTAMP_TYPES
+
+    def to_batch(selected: list[tuple[Any, int]]) -> pa.RecordBatch:
+        arrays = cast(
+            Collection[pa.Array],
+            [
+                pa.array([key for key, _ in selected], type=key_type),
+                pa.array([value for _, value in selected], type=pa.int64()),
+            ],
+        )
+        return pa.RecordBatch.from_arrays(arrays, names=["day", "c"])
 
     def factory(*args, window: IncrementalWindow | None = None, **kwargs):
         windows.append(window)
 
         async def generator():
+            selected = [row for row in rows if _in_window(row[0], window)]
             error = fail(window) if fail is not None and window is not None else None
             if error is not None:
+                if partial_on_failure and selected:
+                    yield to_batch([max(selected, key=lambda row: row[0])]), types
                 raise error
-            selected = [row for row in rows if _in_window(row[0], window)]
-            arrays = cast(
-                Collection[pa.Array],
-                [
-                    pa.array([key for key, _ in selected], type=key_type),
-                    pa.array([value for _, value in selected], type=pa.int64()),
-                ],
-            )
-            yield pa.RecordBatch.from_arrays(arrays, names=["day", "c"]), types
+            yield to_batch(selected), types
 
         return generator()
 
@@ -911,15 +917,53 @@ class TestWindowedMaterialization:
         windows: list[Any] = []
         rows = [(RECENT_0, 10), (RECENT_1, 20), (RECENT_2, 30)]
         source = _windowed_source(
-            rows, windows=windows, fail=_fails_when_window_holds(RECENT_1, error, wider_than=timedelta(days=1))
+            rows,
+            windows=windows,
+            fail=_fails_when_window_holds(RECENT_1, error, wider_than=timedelta(days=1)),
+            partial_on_failure=True,
         )
 
         with _settings(bucket_name):
             result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_2))
 
         assert _rows(result.table_uri) == rows
+        assert result.row_count == len(rows)
         holding = [window for window in windows if window.until is not None and _in_window(RECENT_1, window)]
         assert holding[-1].until - holding[-1].since <= timedelta(days=1)
+
+    async def test_a_crash_after_a_halved_window_resumes_without_skipping_rows(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        unwritten = RECENT_0 + timedelta(days=2, hours=5)
+        streamed_before_timeout = RECENT_0 + timedelta(days=2, hours=12)
+        rows = [(RECENT_0, 10), (unwritten, 20), (streamed_before_timeout, 30), (RECENT_2, 40)]
+        failures: list[IncrementalWindow] = []
+
+        def fail(window: IncrementalWindow) -> BaseException | None:
+            if not _in_window(unwritten, window) or window.until is None:
+                return None
+            failures.append(window)
+            if len(failures) == 1:
+                return ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded")
+            return RuntimeError("worker restarted")
+
+        with _settings(bucket_name):
+            with pytest.raises(RuntimeError, match="worker restarted"):
+                await _run_windowed(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _windowed_source(rows, windows=[], fail=fail, partial_on_failure=True),
+                    (RECENT_0, RECENT_2),
+                )
+            result = await _run_windowed(
+                activity_environment, ateam, anode, ajob, adag, _windowed_source(rows, windows=[]), (RECENT_0, RECENT_2)
+            )
+
+        assert _rows(result.table_uri) == rows
 
     async def test_a_window_at_the_minimum_span_fails_without_losing_progress(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

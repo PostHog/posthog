@@ -1430,6 +1430,7 @@ async def _materialize_in_windows(
             )
             await logger.ainfo(f"Materializing window from {start} to {until if until is not None else 'now'}")
             started_at = time.monotonic()
+            rows_before_window, watermark_before_window = progress.row_count, progress.watermark
             batches = hogql_table(hogql_query, objects.team, logger, window=window)
             try:
                 if target_schema is None:
@@ -1465,6 +1466,7 @@ async def _materialize_in_windows(
                     ) from error
                 await logger.awarning(f"Retrying the window from {start} with a span of {smaller.size}: {error}")
                 span = smaller
+                progress.row_count, progress.watermark = rows_before_window, watermark_before_window
                 if not checkpoints:
                     await cdp_sink.restart()
                     start, first = windows.start, windows.first_build
