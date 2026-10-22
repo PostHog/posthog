@@ -20,6 +20,7 @@ from posthog.api.mixins import validated_request
 from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import IPThrottle
 
 from ..facade import api
@@ -62,7 +63,8 @@ def _refusal(refused: DevTokenRefused) -> Response:
 
 class DevGatewayTokenViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
+    time_sensitive_exclude_actions = ["revoke", "usage"]
     scope_object = "INTERNAL"
 
     def get_throttles(self) -> list[BaseThrottle]:

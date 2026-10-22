@@ -48,6 +48,7 @@ export interface devModeLogicValues {
     mintedLoading: boolean
     refusal: string | null
     remainingUsd: number | null
+    revoking: { id: string | null } | null
     usage: DevTokenUsageApi | null
     usageLoading: boolean
 }
@@ -108,6 +109,9 @@ export interface devModeLogicActions {
     revokeToken: (id: string | null) => {
         id: string | null
     }
+    revokeTokenFinished: () => {
+        value: true
+    }
     setCliRequest: (cliRequest: CliRequest | null) => {
         cliRequest: CliRequest | null
     }
@@ -136,11 +140,16 @@ export const devModeLogic = kea<devModeLogicType>([
         authorizeCli: true,
         dismissCliRequest: true,
         revokeToken: (id: string | null) => ({ id }),
+        revokeTokenFinished: true,
     }),
     reducers({
         cliRequest: [
             null as CliRequest | null,
             { setCliRequest: (_, { cliRequest }) => cliRequest, dismissCliRequest: () => null },
+        ],
+        revoking: [
+            null as { id: string | null } | null,
+            { revokeToken: (_, { id }) => ({ id }), revokeTokenFinished: () => null },
         ],
         refusal: [
             null as string | null,
@@ -207,6 +216,7 @@ export const devModeLogic = kea<devModeLogicType>([
             } catch (error: any) {
                 lemonToast.error(errorDetail(error))
             }
+            actions.revokeTokenFinished()
             actions.loadUsage()
         },
         authorizeCli: async () => {
