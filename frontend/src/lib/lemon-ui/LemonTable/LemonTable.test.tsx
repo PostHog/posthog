@@ -84,6 +84,53 @@ describe('LemonTable', () => {
         }
     })
 
+    it('updates the visible row range when the header height changes', () => {
+        let headerHeight = 36
+        const headerCallbacks: (() => void)[] = []
+        const OriginalResizeObserver = globalThis.ResizeObserver
+        globalThis.ResizeObserver = class {
+            constructor(private callback: ResizeObserverCallback) {}
+            observe(element: Element): void {
+                if (element.tagName === 'THEAD') {
+                    headerCallbacks.push(() => this.callback([], this))
+                }
+            }
+            unobserve(): void {}
+            disconnect(): void {}
+        }
+        const height = jest
+            .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+            .mockImplementation(function (this: HTMLElement): number {
+                if (this.tagName === 'THEAD') {
+                    return headerHeight
+                }
+                return this.tagName === 'TR' ? 36 : 180
+            })
+        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        try {
+            const { container } = render(
+                <LemonTable
+                    rowKey="id"
+                    dataSource={Array.from({ length: 100 }, (_, id) => ({ id, name: `Row ${id}` }))}
+                    columns={[{ title: 'Name', dataIndex: 'name' }]}
+                    allowContentScroll
+                    virtualized
+                />
+            )
+            fireEvent.scroll(container.querySelector('.ScrollableShadows__inner')!, { target: { scrollTop: 720 } })
+            expect(screen.queryByText('Row 10')).not.toBeInTheDocument()
+
+            headerHeight = 180
+            act(() => headerCallbacks.forEach((callback) => callback()))
+            expect(screen.getByText('Row 10')).toBeVisible()
+        } finally {
+            cleanup()
+            globalThis.ResizeObserver = OriginalResizeObserver
+            height.mockRestore()
+            width.mockRestore()
+        }
+    })
+
     it('does not rerender retained virtualized cells when scrolling', () => {
         const height = jest
             .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')

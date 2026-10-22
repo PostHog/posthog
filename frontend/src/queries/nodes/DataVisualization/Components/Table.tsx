@@ -390,6 +390,7 @@ export const Table = (props: TableProps): JSX.Element => {
             )}
             <LemonTable
                 className="DataVisualizationTable"
+                rowKey="rowIndex"
                 dataSource={tableRows}
                 columns={tableColumns}
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
