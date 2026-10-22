@@ -245,9 +245,6 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         with (
             unittest.mock.patch(
-                "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
-            ),
-            unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
             ),
             unittest.mock.patch(
@@ -341,6 +338,8 @@ class TestFailMaterializationActivity:
     ):
         if node_deleted:
             await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
+        ajob.run_mode = DataModelingJob.RunMode.INCREMENTAL
+        await database_sync_to_async(ajob.save)(update_fields=["run_mode"])
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -349,7 +348,8 @@ class TestFailMaterializationActivity:
             error="Test error message",
             cancelled=cancelled,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        run_mode = await activity_environment.run(fail_materialization_activity, inputs)
+        assert run_mode == "incremental"
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == expected_status
         assert ajob.rows_materialized == 0

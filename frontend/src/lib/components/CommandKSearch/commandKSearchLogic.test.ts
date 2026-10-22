@@ -25,4 +25,17 @@ describe('commandKSearchLogic', () => {
 
         expect(logic.values.highlightedKey).toBeNull()
     })
+
+    it('a See all row narrows the search to its type and keeps the words', () => {
+        logic.actions.inputChanged('revenue', 7, false)
+
+        logic.actions.activateRow(
+            { kind: 'scope', key: 'group-insight/see-all', type: 'insight', label: 'See all insights' },
+            false,
+            'click'
+        )
+
+        expect(logic.values.chips).toEqual([expect.objectContaining({ key: 'is', value: 'insight', negated: false })])
+        expect(logic.values.text).toEqual('revenue')
+    })
 })
