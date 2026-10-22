@@ -72,13 +72,11 @@ export class EventFilterManager {
     }
 
     private async fetchDropAllEventsTeams(): Promise<Set<number>> {
-        // Overrides are stored under the parent team of an environment.
         const { rows } = await this.postgres.query<{ team_id: number }>(
             PostgresUse.COMMON_READ,
-            `SELECT t.id AS team_id
-             FROM posthog_eventfilterpipelineoverride o
-             JOIN posthog_team t ON COALESCE(t.parent_team_id, t.id) = o.team_id
-             WHERE o.pipeline = $1 AND o.drop_all_events`,
+            `SELECT team_id
+             FROM posthog_eventfilterpipelineoverride
+             WHERE pipeline = $1 AND drop_all_events`,
             [this.options.pipeline],
             'fetchEventFilterDropAllEventsTeams'
         )
