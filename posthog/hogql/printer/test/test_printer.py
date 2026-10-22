@@ -3289,6 +3289,7 @@ class TestPrinter(BaseTest):
             ("toDateTime('<prior_day_start>', 'UTC')", "toDateTime", "<prior_day_start>"),
             ("toDate('{D-1}')", "toDate", "{D-1}"),
             ("toDateTimeUS('{D}')", "toDateTimeUS", "{D}"),
+            ("parseDateTimeBestEffort('{D-1}', 'UTC')", "parseDateTimeBestEffort", "{D-1}"),
         ]
     )
     def test_date_conversion_rejects_an_unfilled_template_literal(
