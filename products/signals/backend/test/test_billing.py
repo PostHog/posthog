@@ -585,6 +585,8 @@ class TestSpendBasedBilling(BaseTest):
             assert self.team.api_token in list_limited_team_attributes(
                 QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
+        with self.assertRaises(BillingExemptionError):
+            mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
         with time_machine.travel(_at(11), tick=False):
             assert dict(get_teams_with_signals_credits_used_in_period(_at(10, 0), _at(11, 0))) == {self.team.id: 20}
 
