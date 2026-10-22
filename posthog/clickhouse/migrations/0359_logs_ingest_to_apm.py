@@ -16,13 +16,17 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # join the group and take partitions before the ingestion-events consumers leave, and the topic always
 # has a consumer. The ingestion-events Kafka table drops before its MV so that its consumers leave the
 # group at once. With the MV dropped first, they would keep their partitions and consume nothing.
+# The apm creates require hosts, so that a topology with no apm hosts fails the migration before the
+# drops instead of leaving no consumer.
 #
 # The multinode stack keeps the ingest on its ingestion-events node, so this migration is cloud-only.
 operations = (
     [
-        run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.APM]),
-        run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.APM]),
-        run_sql_with_exceptions(KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[NodeRole.APM]),
+        run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
+        run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
+        run_sql_with_exceptions(
+            KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[NodeRole.APM], require_hosts=True
+        ),
         run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_logs_avro", node_roles=[NodeRole.INGESTION_EVENTS]),
         run_sql_with_exceptions(
             f"DROP TABLE IF EXISTS {DB}.kafka_logs34_avro_mv", node_roles=[NodeRole.INGESTION_EVENTS]
