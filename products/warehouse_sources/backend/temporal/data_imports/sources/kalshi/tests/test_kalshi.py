@@ -6,7 +6,7 @@ import pytest
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from parameterized import parameterized
 
@@ -268,9 +268,15 @@ class TestKalshiPortfolio:
         assert isinstance(result.raised, KalshiCredentialsError)
         assert result.requests == []
 
-    def test_rejects_a_private_key_that_is_not_pem(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_pem", "not a key"),
+            ("unsupported_type", _pem(ec.generate_private_key(ec.SECP256R1()))),
+        ]
+    )
+    def test_rejects_an_invalid_private_key(self, _name: str, private_key: str) -> None:
         with pytest.raises(KalshiCredentialsError):
-            KalshiSignedAuth("key-id", "not a key")
+            KalshiSignedAuth("key-id", private_key)
 
     @parameterized.expand(
         [
