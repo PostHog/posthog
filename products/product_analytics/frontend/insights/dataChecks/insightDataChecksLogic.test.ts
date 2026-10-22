@@ -248,11 +248,13 @@ describe('insightDataChecksLogic', () => {
     })
 
     it.each([
-        ['a check stopped at a limit', 'read_limit', true],
-        ['the only skipped check could not run for another reason', 'hidden_property', false],
-    ])('offers a full check of a partly checked chart when %s', async (_name, skipReason, offered) => {
+        ['a check stopped at a limit', 'partial', 'read_limit', true],
+        ['every check stopped at a limit', 'inconclusive', 'time_limit', true],
+        ['another check found a problem', 'problem', 'memory_limit', true],
+        ['the only skipped check could not run for another reason', 'partial', 'hidden_property', false],
+    ])('offers a full check of a partly checked chart when %s', async (_name, status, skipReason, offered) => {
         const skipped = { key: 'internal_users', level: 'skipped', skip_reason: skipReason }
-        dataChecks.mockImplementation(answer([200, { ...checksOf('partial'), checks: [skipped] }]))
+        dataChecks.mockImplementation(answer([200, { ...checksOf(status), checks: [skipped] }]))
 
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 

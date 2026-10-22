@@ -564,8 +564,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             ): boolean =>
                 checkedQuery !== null &&
                 checkedQuery !== fullCheckQuery &&
-                (status === 'on_request' ||
-                    (status === 'partial' && checks.some((check) => stoppedAtALimit(check.skip_reason)))),
+                (status === 'on_request' || checks.some((check) => stoppedAtALimit(check.skip_reason))),
         ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
