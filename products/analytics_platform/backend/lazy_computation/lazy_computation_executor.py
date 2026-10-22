@@ -595,6 +595,14 @@ class LazyComputationTable(StrEnum):
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
 
 
+_LEGACY_EVENTS_PRECOMPUTE_TABLES = frozenset(
+    {
+        LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+        LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+    }
+)
+
+
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
 # so an expires_at just after midnight would round down to a time *before* the PG
 # job expires. We add an extra day of buffer for these tables.
@@ -1651,37 +1659,33 @@ class LazyComputationExecutor:
         return pubsub.get_message(timeout=timeout)
 
 
-class _ConstantFinder(TraversingVisitor):
-    def __init__(self, value: str) -> None:
+class _FlagCalledFinder(TraversingVisitor):
+    def __init__(self) -> None:
         super().__init__()
-        self.value = value
         self.found = False
 
     def visit_constant(self, node: ast.Constant) -> None:
         values = node.value if isinstance(node.value, list | tuple) else [node.value]
-        if self.value in values:
+        if FLAG_CALLED_EVENT in values:
             self.found = True
 
 
-def _with_precompute_events_table(
-    team: Team,
-    query: ast.SelectQuery,
-    modifiers: HogQLQueryModifiers | None,
-    cache_key_context: dict[str, str] | None,
-) -> tuple[HogQLQueryModifiers | None, dict[str, str] | None]:
-    if "events" not in get_table_names(query):
-        return modifiers, cache_key_context
-    flag_called = _ConstantFinder(FLAG_CALLED_EVENT)
-    flag_called.visit(query)
-    reads_events_json = (not flag_called.found and native_events_precompute_enabled(team.pk)) or use_new_events_schema(
-        team.pk, create_default_modifiers_for_team(team, modifiers)
-    )
-    modifiers = (modifiers or create_default_modifiers_for_team(team)).model_copy(
-        update={"useNewEventsSchema": reads_events_json}
-    )
-    if not reads_events_json:
-        return modifiers, cache_key_context
-    return modifiers, {**(cache_key_context or {}), "events_table": "events_json"}
+def _reads_flag_called(query: ast.SelectQuery) -> bool:
+    finder = _FlagCalledFinder()
+    finder.visit(query)
+    return finder.found
+
+
+def _precompute_reads_events_json(
+    team: Team, query: ast.SelectQuery, table: LazyComputationTable, effective_modifiers: HogQLQueryModifiers
+) -> bool:
+    if (
+        native_events_precompute_enabled(team.pk)
+        and table not in _LEGACY_EVENTS_PRECOMPUTE_TABLES
+        and not _reads_flag_called(query)
+    ):
+        return True
+    return use_new_events_schema(team.pk, effective_modifiers)
 
 
 def ensure_precomputed(
@@ -1771,6 +1775,8 @@ def ensure_precomputed(
                       hash covers the substituted AST and cache_key_context. Callers
                       must include result-changing modifier semantics in cache_key_context.
                       Execution-only modifiers such as sessionIdPushdown need no context.
+                      For a query that reads `events`, this function picks the events table
+                      (useNewEventsSchema) and adds that choice to the job identity itself.
         cache_key_context: Versioned result semantics not represented in the substituted AST.
                            Use the same effective modifiers for this context and SQL generation.
         end_is_data_horizon: Set True when the insert query bakes `time_range_end`
@@ -1846,7 +1852,12 @@ def ensure_precomputed(
         **caller_sentinels,
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
-    modifiers, cache_key_context = _with_precompute_events_table(team, parsed_for_hash, modifiers, cache_key_context)
+    if "events" in get_table_names(parsed_for_hash):
+        effective_modifiers = create_default_modifiers_for_team(team, modifiers)
+        reads_events_json = _precompute_reads_events_json(team, parsed_for_hash, table, effective_modifiers)
+        modifiers = (modifiers or effective_modifiers).model_copy(update={"useNewEventsSchema": reads_events_json})
+        if reads_events_json:
+            cache_key_context = {**(cache_key_context or {}), "events_table": "events_json"}
 
     query_info = LazyComputationQuery(
         query=parsed_for_hash,

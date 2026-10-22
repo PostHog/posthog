@@ -1294,39 +1294,68 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("unlisted", False, ["$pageview"], False),
-            ("listed", True, ["$pageview"], True),
-            ("listed_flag_called", True, ["$feature_flag_called", "$experiment_exposure"], False),
+            ("unlisted", False, ["$pageview"], {}, LazyComputationTable.PREAGGREGATION_RESULTS, False),
+            ("listed", True, ["$pageview"], {}, LazyComputationTable.PREAGGREGATION_RESULTS, True),
+            (
+                "listed_flag_called",
+                True,
+                ["$feature_flag_called", "$experiment_exposure"],
+                {},
+                LazyComputationTable.PREAGGREGATION_RESULTS,
+                False,
+            ),
+            (
+                "listed_experiment_table",
+                True,
+                ["$pageview"],
+                {},
+                LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+                False,
+            ),
+            (
+                "project_schema_choice",
+                False,
+                ["$pageview"],
+                {"useNewEventsSchema": True},
+                LazyComputationTable.PREAGGREGATION_RESULTS,
+                True,
+            ),
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_native_events_precompute_teams_build_from_events_json_in_own_jobs(
-        self, _name: str, listed: bool, events: list[str], native: bool
+        self,
+        _name: str,
+        listed: bool,
+        events: list[str],
+        team_modifiers: dict[str, bool],
+        table: LazyComputationTable,
+        native: bool,
     ) -> None:
         query = self.MANUAL_INSERT_QUERY.replace("event = '$pageview'", "event IN {events}")
         build = partial(
             ensure_precomputed,
             team=self.team,
             insert_query=query,
+            table=table,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             placeholders={"events": ast.Constant(value=events)},
         )
-        legacy = build()
-
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if listed else []),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ) as insert,
-        ):
-            result = build()
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=0,
+        ) as insert:
+            legacy = build()
+            self.team.modifiers = team_modifiers
+            with override_instance_config(
+                "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if listed else []
+            ):
+                result = build()
 
         assert (result.job_ids != legacy.job_ids) is native
-        assert insert.called is native
-        if native:
-            assert "events_json" in insert.call_args.args[0]
+        assert insert.call_count == (2 if native else 1)
+        assert ("events_json" in insert.call_args.args[0]) is native
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only
