@@ -46,6 +46,11 @@ class TestStoredGroups(SimpleTestCase):
                 },
                 {"kept": {"collapsed": True}},
             ),
+            (
+                "settings_equal_to_defaults_are_dropped",
+                {"groups": {"plans": {"title": "Plans", "collapsed": False, "tint": True, "rail": None}}},
+                {"plans": {"title": "Plans"}},
+            ),
         ]
     )
     def test_reads_stored_groups(self, _name: str, customization: Any, expected: dict) -> None:

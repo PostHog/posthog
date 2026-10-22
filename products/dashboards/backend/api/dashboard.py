@@ -41,10 +41,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.utils import html
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
@@ -229,7 +231,11 @@ def _sparse_group(group_settings: Any) -> dict[str, Any] | None:
     group = DashboardTileGroupSerializer(data=group_settings)
     if not group.is_valid():
         return None
-    return {key: value for key, value in group.validated_data.items() if key != "title" or value}
+    return {
+        key: value
+        for key, value in group.validated_data.items()
+        if (value if key == "title" else value != DASHBOARD_TILE_GROUP_DEFAULTS[key])
+    }
 
 
 def _stored_groups(customization: Any) -> dict[str, dict[str, Any]]:
@@ -286,6 +292,13 @@ def _validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
             raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
         normalized[group_key] = item
     return normalized
+
+
+class _GroupDictField(serializers.DictField):
+    # DRF reads a dict field that form data omits as an empty dict, and an empty dict clears the stored groups.
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        return empty if html.is_html_input(dictionary) and not value else value
 
 
 def _effective_layout_compaction(customization: Any) -> str:
@@ -1463,14 +1476,14 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
-    groups = serializers.DictField(
+    groups = _GroupDictField(
         child=DashboardTileGroupSerializer(),
         required=False,
         allow_null=True,
         write_only=True,
         help_text=GROUPS_HELP_TEXT,
     )
-    group_titles = serializers.DictField(
+    group_titles = _GroupDictField(
         child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
         required=False,
         allow_null=True,

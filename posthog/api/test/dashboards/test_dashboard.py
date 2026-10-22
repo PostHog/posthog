@@ -2987,7 +2987,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.get_dashboard(dashboard.pk, team_id=team2.pk, expected_status=status.HTTP_403_FORBIDDEN)
 
     def test_patch_api_as_form_data(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+        customization = {"groups": {"plans": {"title": "Plans"}}}
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="dashboard", created_by=self.user, customization=customization
+        )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/",
             data="name=replaced",
@@ -2995,6 +2998,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
+        self.assertEqual(Dashboard.objects.get(id=dashboard.pk).customization, customization)
 
     def test_dashboard_does_not_load_insight_that_was_deleted(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
