@@ -1487,15 +1487,26 @@ def update_all_orgs_billing_quotas(
             for org_id, fresh in fresh_orgs.items()
             if (fresh.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
         ]
-        signals_recounts = retry_quota_database_operation(
-            partial(get_self_driving_credits_used_in_period_for_orgs, signals_recount_ids, period.start, period.end)
-        )
+        try:
+            signals_recounts = retry_quota_database_operation(
+                partial(get_self_driving_credits_used_in_period_for_orgs, signals_recount_ids, period.start, period.end)
+            )
+        except Exception as error:
+            if isinstance(error, (DatabaseError, InterfaceError)) and not settings.TEST:
+                close_old_connections()
+            capture_exception(error, {"organization_ids": signals_recount_ids})
+            # These organizations keep their existing limits. The loop still decides the rest of the chunk.
+            for org_id in signals_recount_ids:
+                discard_decision(org_id, teams_by_org.get(org_id, []))
+            signals_recounts = {}
         refresh_count += len(fresh_orgs)
         refresh_total_seconds += time() - refresh_start
         usage_batch = QuotaUsageBatch()
         for org_id, todays_report in reports.usage.items():
             org = orgs_by_id[org_id]
             try:
+                if org_id in failed_org_ids:
+                    continue
                 if org.usage and org.usage.get("period"):
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)

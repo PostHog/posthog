@@ -3242,10 +3242,13 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
+    @parameterized.expand([("recount_succeeds", False), ("recount_fails", True)])
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(self, _feature_enabled, _capture) -> None:
+    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(
+        self, _name, recount_fails, _feature_enabled, _capture
+    ) -> None:
         # The cron snapshots fleet usage before its org loop, so a push-refresh that fires while
         # the loop runs (a PR landing) writes a fresher, higher todays_usage than the snapshot.
         # Writing the snapshot back would unpause the over-limit org until the next tick; the
@@ -3266,6 +3269,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             patch(
                 "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_orgs",
                 return_value={str(self.organization.id): 1500},
+                side_effect=DatabaseError("Signals usage unavailable") if recount_fails else None,
             ) as live_mock,
         ):
             update_all_orgs_billing_quotas()
