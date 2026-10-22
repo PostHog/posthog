@@ -18,10 +18,13 @@ describe('InternalLogsVerifier', () => {
             keys: `${OTHER_KEY},${KEY}`,
             signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD),
         },
-    ])('$name', ({ signature, keys = KEY }) => {
-        expect(new InternalLogsVerifier(keys, String(TEAM_ID)).internalSource(signature, TEAM_ID, PAYLOAD)).toEqual(
-            SOURCE
-        )
+        {
+            name: 'accepts a batch on a wildcard allowlist',
+            teams: '*',
+            signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD),
+        },
+    ])('$name', ({ signature, keys = KEY, teams = String(TEAM_ID) }) => {
+        expect(new InternalLogsVerifier(keys, teams).internalSource(signature, TEAM_ID, PAYLOAD)).toEqual(SOURCE)
     })
 
     it.each([
@@ -42,7 +45,6 @@ describe('InternalLogsVerifier', () => {
             teams: String(OTHER_TEAM_ID),
             signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD),
         },
-        { name: 'a wildcard allowlist', teams: '*', signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
         { name: 'no configured key', keys: '', signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
         { name: 'an empty payload', payload: null, signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
     ])(

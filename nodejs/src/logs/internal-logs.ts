@@ -63,7 +63,7 @@ export class InternalLogsVerifier {
 
     constructor(commaSeparatedKeys: string, enabledTeams: string) {
         this.keys = parseKeys(commaSeparatedKeys)
-        this.isTeamAllowed = buildIntegerMatcher(enabledTeams, false)
+        this.isTeamAllowed = buildIntegerMatcher(enabledTeams, true)
     }
 
     internalSource(signature: string | undefined, teamId: number, payload: Buffer | null): string | undefined {

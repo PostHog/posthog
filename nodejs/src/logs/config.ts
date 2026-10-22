@@ -67,7 +67,7 @@ export type LogsIngestionConsumerConfig = {
     LOGS_BACKFILL_ENABLED_TEAMS: string
     /** When `true`, retention rules are never evaluated (rows keep the team default via the batch header). */
     LOGS_RETENTION_KILLSWITCH: boolean
-    // No `*` form, because this list bounds what a leaked signing key can mark internal.
+    /** Comma-separated team IDs, or `*` for all teams. A `posthog-internal` batch from any other team is billed as normal. */
     LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: string
     LOGS_INTERNAL_INGESTION_SIGNING_KEYS: string
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
