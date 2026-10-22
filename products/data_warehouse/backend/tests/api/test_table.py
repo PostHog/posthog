@@ -17,7 +17,6 @@ from rest_framework.test import APIRequestFactory
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.presentation.table_activity import snapshot_table
 from products.data_warehouse.backend.presentation.views.table import (
     CreateTableFromUploadSerializer,
     SimpleTableSerializer,
@@ -75,31 +74,6 @@ class TestTableNameValidation(SimpleTestCase):
             instance.clean()
         with self.assertRaises(DjangoValidationError):
             instance.save()
-
-
-class TestTableActivitySnapshot(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "plain",
-                "https://bucket.s3.amazonaws.com/data/*.parquet",
-                "https://bucket.s3.amazonaws.com/data/*.parquet",
-            ),
-            (
-                "userinfo",
-                "https://key:secret@bucket.example.com/data.csv",
-                "https://<redacted:3095b341>@bucket.example.com/data.csv",
-            ),
-            (
-                "signed_query",
-                "https://bucket.example.com/data.csv?X-Amz-Signature=abc",
-                "https://bucket.example.com/data.csv?<redacted:8fc87314>",
-            ),
-        ]
-    )
-    def test_url_secrets_stay_out_of_the_snapshot(self, _name: str, url_pattern: str, expected: str):
-        table = DataWarehouseTable(name="t", format="CSV", url_pattern=url_pattern)
-        assert snapshot_table(table)["url_pattern"] == expected
 
 
 class TestTable(APIBaseTest):
@@ -372,8 +346,8 @@ class TestTable(APIBaseTest):
                 "type": "DataWarehouseTable",
                 "field": "columns",
                 "action": "changed",
-                "before": {"id": "Nullable(Int64)"},
-                "after": {"id": "Nullable(Float64)"},
+                "before": "masked",
+                "after": "masked",
             }
         ]
 

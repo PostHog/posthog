@@ -120,9 +120,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
             "resource_id": str(self.team.id),
             "access_level": "member",
             "role_id": None,
-            "role_name": None,
             "organization_member_id": str(self.organization_membership.id),
-            "member_email": self.user.email,
         }
 
     def test_project_change_if_in_access_control(self):

@@ -274,8 +274,8 @@ class TestViewLinkQuery(APIBaseTest):
                 "type": "DataWarehouseJoin",
                 "field": "joining_table_name",
                 "action": "changed",
-                "before": "old_name",
-                "after": "new_name",
+                "before": "masked",
+                "after": "masked",
             }
         ]
 

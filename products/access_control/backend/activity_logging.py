@@ -26,9 +26,7 @@ class AccessControlContext(ActivityContextBase):
     resource_id: str | None
     access_level: str
     role_id: str | None
-    role_name: str | None
     organization_member_id: str | None
-    member_email: str | None
 
 
 @mutable_receiver(model_activity_signal, sender=AccessControl)
@@ -53,9 +51,6 @@ def handle_access_control_change(
     else:
         changes = changes_between("AccessControl", previous=before_update, current=after_update)
 
-    role = rule.role if rule.role_id else None
-    member = rule.organization_member if rule.organization_member_id else None
-
     log_activity(
         organization_id=rule.team.organization_id,
         team_id=rule.team_id,
@@ -71,10 +66,9 @@ def handle_access_control_change(
                 resource=rule.resource,
                 resource_id=rule.resource_id,
                 access_level=rule.access_level,
-                role_id=str(role.id) if role else None,
-                role_name=role.name if role else None,
-                organization_member_id=str(member.id) if member else None,
-                member_email=member.user.email if member else None,
+                # Ids only: any activity-log reader sees this row, so it carries no names or emails.
+                role_id=str(rule.role_id) if rule.role_id else None,
+                organization_member_id=str(rule.organization_member_id) if rule.organization_member_id else None,
             ),
         ),
     )
