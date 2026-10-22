@@ -11,6 +11,9 @@ from products.uptime_monitoring.backend.presentation.serializers import (
 class TestUptimeMonitorInputValidation(SimpleTestCase):
     @parameterized.expand(
         [
+            ("name_too_long", {"name": "x" * 256}, "name"),
+            ("null_name", {"name": None}, "name"),
+            ("null_interval", {"interval_seconds": None}, "interval_seconds"),
             ("non_http_scheme", {"url": "ftp://example.com"}, "url"),
             ("not_a_url", {"url": "example"}, "url"),
             ("interval_below_minimum", {"interval_seconds": 30}, "interval_seconds"),

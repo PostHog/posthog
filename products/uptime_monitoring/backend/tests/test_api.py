@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +15,7 @@ class TestUptimeMonitorAPI(APIBaseTest):
         base = f"/api/projects/{self.team.id}/uptime_monitors/"
         return f"{base}{monitor_id}/" if monitor_id else base
 
-    def test_create_update_list_delete(self, _flag) -> None:
+    def test_create_update_list_delete(self, _flag: MagicMock) -> None:
         created = self.client.post(self._url(), {"name": "Site", "url": "https://example.com"}, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         monitor_id = created.json()["id"]
@@ -33,12 +33,12 @@ class TestUptimeMonitorAPI(APIBaseTest):
         assert self.client.delete(self._url(monitor_id)).status_code == status.HTTP_204_NO_CONTENT
         assert not UptimeMonitor.objects.for_team(self.team.id).exists()
 
-    def test_invalid_body_is_rejected(self, _flag) -> None:
+    def test_invalid_body_is_rejected(self, _flag: MagicMock) -> None:
         response = self.client.post(self._url(), {"name": "Site", "url": "not a url"}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("get",), ("patch",), ("delete",)])
-    def test_another_teams_monitor_is_not_found(self, _flag, method: str) -> None:
+    def test_another_teams_monitor_is_not_found(self, _flag: MagicMock, method: str) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
         other = UptimeMonitor.objects.for_team(other_team.id).create(
             team=other_team, name="Other", url="https://example.org"
@@ -48,6 +48,6 @@ class TestUptimeMonitorAPI(APIBaseTest):
         other.refresh_from_db()
         assert other.name == "Other"
 
-    def test_flag_off_hides_the_api(self, flag) -> None:
+    def test_flag_off_hides_the_api(self, flag: MagicMock) -> None:
         flag.return_value = False
         assert self.client.get(self._url()).status_code == status.HTTP_404_NOT_FOUND

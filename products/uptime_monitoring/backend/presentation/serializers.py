@@ -22,26 +22,35 @@ _FIELD_HELP = {
     "enabled": "Whether checks run for this monitor.",
 }
 
+
+def _validate_whole_minutes(value: int) -> None:
+    # Schedulers that drive monitors count in minutes, so a value between minutes cannot be honored.
+    if value % 60:
+        raise serializers.ValidationError("Must be a whole number of minutes.")
+
+
+# Update inputs use None for "keep the stored value", so an explicit null is rejected rather than ignored.
 _INPUT_KWARGS = {
-    **{field: {"help_text": help_text} for field, help_text in _FIELD_HELP.items() if field != "url"},
+    **{
+        field: {"help_text": help_text, "allow_null": False}
+        for field, help_text in _FIELD_HELP.items()
+        if field != "url"
+    },
+    "name": {"help_text": _FIELD_HELP["name"], "allow_null": False, "max_length": 255},
     "interval_seconds": {
         "help_text": _FIELD_HELP["interval_seconds"],
         "min_value": MIN_INTERVAL_SECONDS,
         "max_value": MAX_INTERVAL_SECONDS,
+        "validators": [_validate_whole_minutes],
+        "allow_null": False,
     },
     "timeout_seconds": {
         "help_text": _FIELD_HELP["timeout_seconds"],
         "min_value": MIN_TIMEOUT_SECONDS,
         "max_value": MAX_TIMEOUT_SECONDS,
+        "allow_null": False,
     },
 }
-
-
-def _validate_whole_minutes(value: int | None) -> int | None:
-    # Schedulers that drive monitors count in minutes, so a value between minutes cannot be honored.
-    if value is not None and value % 60:
-        raise serializers.ValidationError("Must be a whole number of minutes.")
-    return value
 
 
 def _url_field(required: bool) -> serializers.CharField:
@@ -68,10 +77,6 @@ class UptimeMonitorSerializer(DataclassSerializer):
 class CreateUptimeMonitorInputSerializer(DataclassSerializer):
     url = _url_field(required=True)
 
-    def validate_interval_seconds(self, value: int) -> int:
-        _validate_whole_minutes(value)
-        return value
-
     class Meta:
         dataclass = CreateUptimeMonitorInput
         extra_kwargs = _INPUT_KWARGS
@@ -79,9 +84,6 @@ class CreateUptimeMonitorInputSerializer(DataclassSerializer):
 
 class UpdateUptimeMonitorInputSerializer(DataclassSerializer):
     url = _url_field(required=False)
-
-    def validate_interval_seconds(self, value: int | None) -> int | None:
-        return _validate_whole_minutes(value)
 
     class Meta:
         dataclass = UpdateUptimeMonitorInput

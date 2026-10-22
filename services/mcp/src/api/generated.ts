@@ -26808,7 +26808,10 @@ export namespace Schemas {
          * @maxLength 2048
          */
       url: string;
-      /** Display name for the monitor. */
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
       name: string;
       /** HTTP method used for each check.
        *
@@ -89659,33 +89662,28 @@ export namespace Schemas {
       url?: string;
       /**
          * Display name for the monitor.
-         * @nullable
+         * @maxLength 255
          */
-      name?: string | null;
+      name?: string;
       /** HTTP method used for each check.
        *
        * * `GET` - GET
        * * `HEAD` - HEAD */
-      method?: UptimeMonitorMethodEnum | null;
+      method?: UptimeMonitorMethodEnum;
       /**
          * Seconds between checks, a whole number of minutes from 60 to 86400.
          * @minimum 60
          * @maximum 86400
-         * @nullable
          */
-      interval_seconds?: number | null;
+      interval_seconds?: number;
       /**
          * Seconds to wait for a response before the check fails, from 1 to 30.
          * @minimum 1
          * @maximum 30
-         * @nullable
          */
-      timeout_seconds?: number | null;
-      /**
-         * Whether checks run for this monitor.
-         * @nullable
-         */
-      enabled?: boolean | null;
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
     }
 
     /**

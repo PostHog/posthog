@@ -14,6 +14,8 @@ import * as zod from 'zod'
  */
 export const uptimeMonitorsCreateBodyUrlMax = 2048
 
+export const uptimeMonitorsCreateBodyNameMax = 255
+
 export const uptimeMonitorsCreateBodyIntervalSecondsMin = 60
 export const uptimeMonitorsCreateBodyIntervalSecondsMax = 86400
 
@@ -21,7 +23,7 @@ export const uptimeMonitorsCreateBodyTimeoutSecondsMax = 30
 
 export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
     url: zod.url().max(uptimeMonitorsCreateBodyUrlMax).describe('The http or https URL to check.'),
-    name: zod.string().describe('Display name for the monitor.'),
+    name: zod.string().max(uptimeMonitorsCreateBodyNameMax).describe('Display name for the monitor.'),
     method: zod
         .enum(['GET', 'HEAD'])
         .describe('\* `GET` - GET\n\* `HEAD` - HEAD')
@@ -47,6 +49,8 @@ export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const uptimeMonitorsPartialUpdateBodyUrlMax = 2048
 
+export const uptimeMonitorsPartialUpdateBodyNameMax = 255
+
 export const uptimeMonitorsPartialUpdateBodyIntervalSecondsMin = 60
 export const uptimeMonitorsPartialUpdateBodyIntervalSecondsMax = 86400
 
@@ -54,22 +58,23 @@ export const uptimeMonitorsPartialUpdateBodyTimeoutSecondsMax = 30
 
 export const UptimeMonitorsPartialUpdateBody = /* @__PURE__ */ zod.object({
     url: zod.url().max(uptimeMonitorsPartialUpdateBodyUrlMax).optional().describe('The http or https URL to check.'),
-    name: zod.string().nullish().describe('Display name for the monitor.'),
+    name: zod.string().max(uptimeMonitorsPartialUpdateBodyNameMax).optional().describe('Display name for the monitor.'),
     method: zod
-        .union([zod.enum(['GET', 'HEAD']).describe('\* `GET` - GET\n\* `HEAD` - HEAD'), zod.null()])
+        .enum(['GET', 'HEAD'])
+        .describe('\* `GET` - GET\n\* `HEAD` - HEAD')
         .optional()
         .describe('HTTP method used for each check.\n\n\* `GET` - GET\n\* `HEAD` - HEAD'),
     interval_seconds: zod
         .number()
         .min(uptimeMonitorsPartialUpdateBodyIntervalSecondsMin)
         .max(uptimeMonitorsPartialUpdateBodyIntervalSecondsMax)
-        .nullish()
+        .optional()
         .describe('Seconds between checks, a whole number of minutes from 60 to 86400.'),
     timeout_seconds: zod
         .number()
         .min(1)
         .max(uptimeMonitorsPartialUpdateBodyTimeoutSecondsMax)
-        .nullish()
+        .optional()
         .describe('Seconds to wait for a response before the check fails, from 1 to 30.'),
-    enabled: zod.boolean().nullish().describe('Whether checks run for this monitor.'),
+    enabled: zod.boolean().optional().describe('Whether checks run for this monitor.'),
 })
