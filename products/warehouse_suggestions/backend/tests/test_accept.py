@@ -36,7 +36,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
-from products.warehouse_suggestions.backend.logic.candidates.dematerialize import query_fingerprint
+from products.warehouse_suggestions.backend.logic.candidates.dematerialize import definition_fingerprint
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -53,6 +53,7 @@ DAILY_COUNT_COLUMNS = {
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
 ORDERS_SQL = "SELECT timestamp, event FROM events"
+UPSTREAM_SQL = "SELECT * FROM postgres_orders"
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 MATERIALIZE_PAYLOAD = MaterializePayload(
     subject_name="orders",
@@ -70,21 +71,22 @@ INCREMENTAL_DAY_PAYLOAD = replace(
     incremental_key="day",
     unique_key=("day",),
 )
+DEMATERIALIZE_PAYLOAD = DematerializePayload(
+    subject_name="orders",
+    refresh_seconds_per_month=3600,
+    refresh_bytes_per_month=10**9,
+    live_seconds_per_month=20,
+    live_bytes_per_month=10**6,
+    read_seconds=5,
+    query_fingerprint=definition_fingerprint([ORDERS_SQL]),
+)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
     WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
-    WarehouseSuggestionKind.DEMATERIALIZE: DematerializePayload(
-        subject_name="orders",
-        refresh_seconds_per_month=3600,
-        refresh_bytes_per_month=10**9,
-        live_seconds_per_month=20,
-        live_bytes_per_month=10**6,
-        read_seconds=5,
-        query_fingerprint=query_fingerprint(ORDERS_SQL),
-    ),
+    WarehouseSuggestionKind.DEMATERIALIZE: DEMATERIALIZE_PAYLOAD,
 }
 
 
@@ -128,21 +130,20 @@ def switch_to_incremental(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=STORED_DAY_KEY)
 
 
-def make_an_upstream_view_read_a_direct_source(view: DataWarehouseSavedQuery) -> None:
+def add_an_upstream_view_over_postgres(view: DataWarehouseSavedQuery) -> list[str]:
     node = Node.objects.get(saved_query=view)
     source = ExternalDataSource.objects.create(
         team=view.team,
-        source_id="direct-postgres",
-        connection_id="direct-postgres",
+        source_id="postgres",
+        connection_id="postgres",
         status="Completed",
         source_type=ExternalDataSourceType.POSTGRES,
-        access_method=ExternalDataSource.AccessMethod.DIRECT,
     )
-    direct_table = DataWarehouseTable.objects.create(
+    postgres_table = DataWarehouseTable.objects.create(
         team=view.team, name="postgres_orders", format="Parquet", external_data_source=source
     )
     upstream_view = DataWarehouseSavedQuery.objects.create(
-        team=view.team, name="orders_source", query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders"}
+        team=view.team, name="orders_source", query={"kind": "HogQLQuery", "query": UPSTREAM_SQL}
     )
     upstream_node = Node.objects.create(
         team=view.team, dag=node.dag, name="orders_source", saved_query=upstream_view, type=NodeType.VIEW
@@ -152,10 +153,23 @@ def make_an_upstream_view_read_a_direct_source(view: DataWarehouseSavedQuery) ->
         dag=node.dag,
         name="postgres_orders",
         type=NodeType.TABLE,
-        properties={"warehouse_table_id": str(direct_table.id)},
+        properties={"warehouse_table_id": str(postgres_table.id)},
     )
     Edge.objects.create(team=view.team, dag=node.dag, source=table_node, target=upstream_node)
     Edge.objects.create(team=view.team, dag=node.dag, source=upstream_node, target=node)
+    return [ORDERS_SQL, UPSTREAM_SQL]
+
+
+def make_the_postgres_source_direct(view: DataWarehouseSavedQuery) -> None:
+    ExternalDataSource.objects.filter(team=view.team, source_id="postgres").update(
+        access_method=ExternalDataSource.AccessMethod.DIRECT
+    )
+
+
+def change_the_upstream_query(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(team=view.team, name="orders_source").update(
+        query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders WHERE 1 = 1"}
+    )
 
 
 def change_query(view: DataWarehouseSavedQuery) -> None:
@@ -370,22 +384,39 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stops_refreshes", None, status.HTTP_200_OK),
-            ("a_view_was_built_on_it_since", add_dependent_view, status.HTTP_409_CONFLICT),
-            ("it_refreshes_incrementally_since", switch_to_incremental, status.HTTP_409_CONFLICT),
-            ("its_query_changed_since", change_query, status.HTTP_409_CONFLICT),
+            ("stops_refreshes", None, None, status.HTTP_200_OK),
+            ("stops_refreshes_with_an_upstream_view", add_an_upstream_view_over_postgres, None, status.HTTP_200_OK),
+            ("a_view_was_built_on_it_since", None, add_dependent_view, status.HTTP_409_CONFLICT),
+            ("it_refreshes_incrementally_since", None, switch_to_incremental, status.HTTP_409_CONFLICT),
+            ("its_query_changed_since", None, change_query, status.HTTP_409_CONFLICT),
+            (
+                "an_upstream_query_changed_since",
+                add_an_upstream_view_over_postgres,
+                change_the_upstream_query,
+                status.HTTP_409_CONFLICT,
+            ),
             (
                 "an_upstream_view_reads_a_direct_source_since",
-                make_an_upstream_view_read_a_direct_source,
+                add_an_upstream_view_over_postgres,
+                make_the_postgres_source_direct,
                 status.HTTP_409_CONFLICT,
             ),
         ]
     )
     def test_accepting_a_dematerialize_suggestion_turns_the_view_back_into_a_plain_view(
-        self, _name: str, change_since: Callable[[DataWarehouseSavedQuery], None] | None, expected_status: int
+        self,
+        _name: str,
+        build_before: Callable[[DataWarehouseSavedQuery], list[str]] | None,
+        change_since: Callable[[DataWarehouseSavedQuery], None] | None,
+        expected_status: int,
     ) -> None:
         table = materialize_in_place(self.view)
-        suggestion = self._suggest(WarehouseSuggestionKind.DEMATERIALIZE)
+        queries = build_before(self.view) if build_before is not None else [ORDERS_SQL]
+        payload = replace(DEMATERIALIZE_PAYLOAD, query_fingerprint=definition_fingerprint(queries))
+        draft = make_draft(fingerprint="dematerialize:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.DEMATERIALIZE, payload=payload)
+        )
         if change_since is not None:
             change_since(self.view)
 

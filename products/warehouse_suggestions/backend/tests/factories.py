@@ -11,6 +11,7 @@ from products.warehouse_suggestions.backend.logic.candidates.base import Candida
 from products.warehouse_suggestions.backend.logic.inventory import TeamInventory
 from products.warehouse_suggestions.backend.logic.reads import (
     ReadWindow,
+    RefreshRun,
     Subject,
     SubjectReads,
     SubjectRefreshes,
@@ -71,6 +72,7 @@ def team_reads(
     days_with_data: int = 30,
     recent_days_with_data: int = 7,
     refreshes: Mapping[UUID, SubjectRefreshes] | None = None,
+    refresh_runs: Mapping[UUID, tuple[RefreshRun, ...]] | None = None,
     readers: int = 10,
 ) -> TeamReads:
     return TeamReads(
@@ -82,6 +84,7 @@ def team_reads(
         view_reads=1000,
         subjects=subjects,
         refreshes=refreshes or {},
+        refresh_runs=refresh_runs or {},
     )
 
 

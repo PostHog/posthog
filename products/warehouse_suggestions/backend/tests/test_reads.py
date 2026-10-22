@@ -71,6 +71,7 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
 
     def test_counts_reads_people_days_costs_and_refreshes_inside_the_window(self) -> None:
         view = uuid4()
+        unread_view = uuid4()
         seed_reads(
             self.team.pk + 1, [RollupRead(subject_id=uuid4(), day=TODAY - timedelta(days=3), request_id="other")]
         )
@@ -111,6 +112,14 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                     for statement in range(9)
                 ),
                 RollupRead(
+                    subject_id=unread_view,
+                    day=YESTERDAY,
+                    request_id="unread-refresh",
+                    read_kind=ReadKind.REFRESH,
+                    workflow_id="unread-run",
+                    duration_ms=500,
+                ),
+                RollupRead(
                     subject_id=uuid4(),
                     day=YESTERDAY,
                     request_id="table",
@@ -130,7 +139,8 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert view_reads.background_reads == 1
         refreshes = reads.refreshes[view]
         assert (refreshes.runs, refreshes.duration_ms) == (2, 4090)
-        assert 2500 < refreshes.p90_duration_ms <= 3090
+        assert {run.workflow_id: run.duration_ms for run in reads.refresh_runs[view]} == {"run-1": 1000, "run-2": 3090}
+        assert unread_view in reads.refreshes and unread_view not in reads.refresh_runs
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
         assert 100 <= view_reads.alone_duration_ms_median < view_reads.alone_duration_ms_p90 <= 300
         assert view_reads.last_read_at == datetime.combine(YESTERDAY, time(hour=12), tzinfo=UTC)

@@ -15,7 +15,6 @@ from .rules import Rules, Surface, SurfaceRules, TrafficRules
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
-REFRESH_TIME_QUANTILE = 0.9
 
 DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
@@ -87,7 +86,13 @@ class SubjectRefreshes:
     runs: int
     duration_ms: int
     read_bytes: int
-    p90_duration_ms: float
+
+
+@frozen
+class RefreshRun:
+    workflow_id: str
+    duration_ms: int
+    read_bytes: int
 
 
 @frozen
@@ -100,6 +105,7 @@ class TeamReads:
     view_reads: int
     subjects: Mapping[Subject, SubjectReads]
     refreshes: Mapping[UUID, SubjectRefreshes]
+    refresh_runs: Mapping[UUID, tuple[RefreshRun, ...]]
 
     def reads_of(self, subject: Subject) -> SubjectReads | None:
         return self.subjects.get(subject)
@@ -148,6 +154,7 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
         view_reads=view_reads,
         subjects=_subject_reads(SUBJECTS_SQL.format(human=human_sql), params, team_id, surface_counts),
         refreshes=_refreshes(params, team_id),
+        refresh_runs=_refresh_runs(params, team_id),
     )
 
 
@@ -241,20 +248,26 @@ GROUP BY subject_kind, subject_id, surface
 """
 
 REFRESHES_SQL = f"""
-SELECT
-    subject_id,
-    count(),
-    sum(run_duration_ms),
-    sum(run_read_bytes),
-    quantile({REFRESH_TIME_QUANTILE})(run_duration_ms)
-FROM (
-    SELECT subject_id, workflow_id, sum(duration_ms_sum) AS run_duration_ms, sum(read_bytes_sum) AS run_read_bytes
-    FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
-    WHERE {WINDOW_FILTER}
-        AND read_kind = %(refresh)s
-    GROUP BY subject_id, workflow_id
-)
+SELECT subject_id, uniq(workflow_id), sum(duration_ms_sum), sum(read_bytes_sum)
+FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+WHERE {WINDOW_FILTER}
+    AND read_kind = %(refresh)s
 GROUP BY subject_id
+"""
+
+REFRESH_RUNS_SQL = f"""
+SELECT subject_id, workflow_id, sum(duration_ms_sum), sum(read_bytes_sum)
+FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+WHERE {WINDOW_FILTER}
+    AND read_kind = %(refresh)s
+    AND subject_id IN (
+        SELECT subject_id
+        FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+        WHERE {WINDOW_FILTER}
+            AND read_kind = %(read)s
+            AND subject_kind = %(saved_query)s
+    )
+GROUP BY subject_id, workflow_id
 """
 
 
@@ -308,10 +321,17 @@ def _subject_reads(
 
 def _refreshes(params: Mapping[str, Any], team_id: int) -> dict[UUID, SubjectRefreshes]:
     refreshes: dict[UUID, SubjectRefreshes] = {}
-    for subject_id, runs, duration_ms, read_bytes, p90_duration_ms in _execute(REFRESHES_SQL, params, team_id):
+    for subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params, team_id):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
-            refreshes[subject.id] = SubjectRefreshes(
-                runs=runs, duration_ms=duration_ms, read_bytes=read_bytes, p90_duration_ms=float(p90_duration_ms)
-            )
+            refreshes[subject.id] = SubjectRefreshes(runs=runs, duration_ms=duration_ms, read_bytes=read_bytes)
     return refreshes
+
+
+def _refresh_runs(params: Mapping[str, Any], team_id: int) -> dict[UUID, tuple[RefreshRun, ...]]:
+    runs: defaultdict[UUID, list[RefreshRun]] = defaultdict(list)
+    for subject_id, workflow_id, duration_ms, read_bytes in _execute(REFRESH_RUNS_SQL, params, team_id):
+        subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
+        if subject is not None:
+            runs[subject.id].append(RefreshRun(workflow_id=workflow_id, duration_ms=duration_ms, read_bytes=read_bytes))
+    return {subject_id: tuple(subject_runs) for subject_id, subject_runs in runs.items()}

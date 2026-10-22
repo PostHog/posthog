@@ -1,17 +1,26 @@
+import json
+import math
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from statistics import mean
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.api import dependent_saved_query_ids
+from products.data_modeling.backend.facade.api import (
+    completed_full_refresh_workflow_ids,
+    dependent_saved_query_ids,
+    last_query_change_at,
+    saved_query_definitions,
+    upstream_saved_query_ids,
+)
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_sources.backend.facade.api import saved_queries_feeding_consumers
 
 from ...facade.contracts import DematerializePayload
 from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
-from ..reads import Subject, SubjectReads, SubjectRefreshes
+from ..reads import RefreshRun, Subject, SubjectReads
 from .base import (
     DEPENDENTS_REJECTION,
     DIRECT_SOURCE_REJECTION,
@@ -25,6 +34,13 @@ from .base import (
 
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
 CALLS_MODELS_REJECTION = "calls a model per row, which would run on every read"
+READ_TIME_QUANTILE = 0.9
+
+
+@frozen
+class EffectiveDefinition:
+    fingerprint: str
+    changed_at: datetime | None
 
 
 @frozen
@@ -92,17 +108,21 @@ class DematerializeCandidate(Candidate):
         self, context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads
     ) -> _Proposal | str:
         rules = context.rules.dematerialize
-        refreshes = context.reads.refreshes.get(saved_query.id)
-        runs = refreshes.runs if refreshes else 0
-        if refreshes is None or runs < rules.min_runs:
-            return f"refreshed {runs} times, needs {rules.min_runs} to know its cost"
         if saved_query.refreshes_incrementally:
             return INCREMENTAL_REJECTION
         if saved_query.calls_models:
             return CALLS_MODELS_REJECTION
         if context.accepted_recently(WarehouseSuggestionKind.MATERIALIZE, saved_query.id):
             return f"was materialized on a suggestion in the last {context.rules.lifecycle.flip_cooldown_days} days"
-        payload = _payload(context, saved_query, reads, refreshes)
+        definition = effective_definition(context.team_id, saved_query)
+        runs = context.reads.refresh_runs.get(saved_query.id, ())
+        current_runs = _current_definition_runs(context, saved_query.id, definition, runs)
+        if len(current_runs) < rules.min_runs:
+            return (
+                f"has {len(current_runs)} completed full refreshes of its current query, "
+                f"needs {rules.min_runs} to know its cost"
+            )
+        payload = _payload(context, saved_query, reads, runs, current_runs, definition)
         seconds_saved = payload.refresh_seconds_per_month - payload.live_seconds_per_month
         bytes_saved = payload.refresh_bytes_per_month - payload.live_bytes_per_month
         clears_time = (
@@ -150,26 +170,56 @@ def _graph_rejection(
     return None
 
 
-def _payload(
-    context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads, refreshes: SubjectRefreshes
-) -> DematerializePayload:
-    scale = context.month_scale
-    reads_per_month = (reads.human_reads + reads.background_reads) * scale
-    seconds_per_run = refreshes.duration_ms / MILLISECONDS_PER_SECOND / refreshes.runs
-    bytes_per_run = refreshes.read_bytes / refreshes.runs
-    return DematerializePayload(
-        subject_name=saved_query.name,
-        refresh_seconds_per_month=refreshes.duration_ms / MILLISECONDS_PER_SECOND * scale,
-        refresh_bytes_per_month=refreshes.read_bytes * scale,
-        live_seconds_per_month=reads_per_month * seconds_per_run,
-        live_bytes_per_month=reads_per_month * bytes_per_run,
-        read_seconds=refreshes.p90_duration_ms / MILLISECONDS_PER_SECOND,
-        query_fingerprint=query_fingerprint(saved_query.hogql),
+def effective_definition(team_id: int, saved_query: SavedQueryDefinition) -> EffectiveDefinition:
+    upstream_ids = upstream_saved_query_ids(team_id, saved_query.id)
+    upstream_queries = [upstream.hogql for upstream in saved_query_definitions(team_id, ids=upstream_ids)]
+    return EffectiveDefinition(
+        fingerprint=definition_fingerprint([saved_query.hogql, *upstream_queries]),
+        changed_at=last_query_change_at(team_id, {saved_query.id, *upstream_ids}),
     )
 
 
-def query_fingerprint(hogql: str) -> str:
-    return hashlib.sha256(hogql.encode()).hexdigest()
+def definition_fingerprint(queries: Sequence[str]) -> str:
+    return hashlib.sha256(json.dumps(list(queries)).encode()).hexdigest()
+
+
+def _current_definition_runs(
+    context: CandidateContext, saved_query_id: UUID, definition: EffectiveDefinition, runs: Sequence[RefreshRun]
+) -> list[RefreshRun]:
+    since = context.reads.window.starts_at
+    if definition.changed_at is not None:
+        since = max(since, definition.changed_at)
+    workflow_ids = completed_full_refresh_workflow_ids(context.team_id, saved_query_id, since=since)
+    return [run for run in runs if run.workflow_id in workflow_ids]
+
+
+def _payload(
+    context: CandidateContext,
+    saved_query: SavedQueryDefinition,
+    reads: SubjectReads,
+    runs: Sequence[RefreshRun],
+    current_runs: Sequence[RefreshRun],
+    definition: EffectiveDefinition,
+) -> DematerializePayload:
+    scale = context.month_scale
+    reads_per_month = (reads.human_reads + reads.background_reads) * scale
+    runs_per_month = len(runs) * scale
+    seconds_per_run = mean(run.duration_ms for run in current_runs) / MILLISECONDS_PER_SECOND
+    bytes_per_run = mean(run.read_bytes for run in current_runs)
+    return DematerializePayload(
+        subject_name=saved_query.name,
+        refresh_seconds_per_month=runs_per_month * seconds_per_run,
+        refresh_bytes_per_month=runs_per_month * bytes_per_run,
+        live_seconds_per_month=reads_per_month * seconds_per_run,
+        live_bytes_per_month=reads_per_month * bytes_per_run,
+        read_seconds=_read_time_quantile_ms(current_runs) / MILLISECONDS_PER_SECOND,
+        query_fingerprint=definition.fingerprint,
+    )
+
+
+def _read_time_quantile_ms(runs: Sequence[RefreshRun]) -> int:
+    durations = sorted(run.duration_ms for run in runs)
+    return durations[math.ceil(READ_TIME_QUANTILE * len(durations)) - 1]
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

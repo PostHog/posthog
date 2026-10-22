@@ -62,7 +62,7 @@ from ..facade.enums import (
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
 from .candidates.base import reads_direct_source
-from .candidates.dematerialize import query_fingerprint
+from .candidates.dematerialize import effective_definition
 from .payloads import payload_from_json
 from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
 
@@ -196,7 +196,10 @@ NOW_REFRESHES_INCREMENTALLY = (
     "This view now refreshes incrementally, so the suggestion's cost estimate no longer applies."
 )
 NOW_CALLS_MODELS = "This view now calls a model per row, which would run on every read."
-QUERY_CHANGED = "This view's query changed after the suggestion was made, so its read time estimate no longer applies."
+QUERY_CHANGED = (
+    "This view's query, or the query of a view it reads from, changed after the suggestion was made, "
+    "so its read time estimate no longer applies."
+)
 
 
 class DematerializeAcceptor(Acceptor):
@@ -206,8 +209,9 @@ class DematerializeAcceptor(Acceptor):
         definition = _definition(suggestion)
         if definition is None:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
-        if not isinstance(payload, DematerializePayload) or payload.query_fingerprint != query_fingerprint(
-            definition.hogql
+        if (
+            not isinstance(payload, DematerializePayload)
+            or payload.query_fingerprint != effective_definition(suggestion.team_id, definition).fingerprint
         ):
             raise SuggestionOutdatedError(QUERY_CHANGED)
         blocker = _dematerialize_blocker(suggestion.team_id, definition)

@@ -10,8 +10,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DematerializePayload,
@@ -29,10 +31,7 @@ from products.warehouse_suggestions.backend.logic.candidates.base import (
     CandidateContext,
 )
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
-from products.warehouse_suggestions.backend.logic.candidates.dematerialize import (
-    DematerializeCandidate,
-    query_fingerprint,
-)
+from products.warehouse_suggestions.backend.logic.candidates.dematerialize import DematerializeCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
     MaterializeCandidate,
@@ -41,11 +40,12 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     interval_basis,
     refresh_cost,
 )
-from products.warehouse_suggestions.backend.logic.reads import SubjectRefreshes
+from products.warehouse_suggestions.backend.logic.reads import RefreshRun, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
     context,
+    days_ago,
     table_subject,
     team_reads,
     view,
@@ -352,18 +352,17 @@ class TestDeprecateBackgroundReads(BaseTest):
 
 HOURLY_RUNS = 720
 FIVE_SECONDS_MS = 5_000
+TWENTY_SECONDS_MS = 20_000
 RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
 DEMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.dematerialize"
 
 
-def hourly_refreshes(**overrides: Any) -> SubjectRefreshes:
-    refreshes = SubjectRefreshes(
-        runs=HOURLY_RUNS,
-        duration_ms=HOURLY_RUNS * FIVE_SECONDS_MS,
-        read_bytes=HOURLY_RUNS * 10**6,
-        p90_duration_ms=float(FIVE_SECONDS_MS),
+def hourly_runs(
+    count: int = HOURLY_RUNS, *, duration_ms: int = FIVE_SECONDS_MS, prefix: str = "run"
+) -> tuple[RefreshRun, ...]:
+    return tuple(
+        RefreshRun(workflow_id=f"{prefix}-{index}", duration_ms=duration_ms, read_bytes=10**6) for index in range(count)
     )
-    return replace(refreshes, **overrides)
 
 
 def dematerialize_context(
@@ -371,14 +370,14 @@ def dematerialize_context(
     *,
     view_overrides: dict | None = None,
     read_overrides: dict | None = None,
-    refreshes: SubjectRefreshes | None = None,
+    runs: tuple[RefreshRun, ...] | None = None,
     recent_accepts: dict | None = None,
 ) -> CandidateContext:
     subject = view_subject(VIEW_ID)
     return context(
         team_reads(
             {subject: busy_reads(**{**RARE_READS, **(read_overrides or {})})},
-            refreshes={VIEW_ID: refreshes or hourly_refreshes()},
+            refresh_runs={VIEW_ID: hourly_runs() if runs is None else runs},
         ),
         views=[view(VIEW_ID, materializes=True, **(view_overrides or {}))],
         team_id=team_id,
@@ -387,23 +386,68 @@ def dematerialize_context(
 
 
 class TestDematerializeCandidate(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            id=VIEW_ID, team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+
+    def _record_jobs(self, runs: tuple[RefreshRun, ...], **job_fields: Any) -> None:
+        DataModelingJob.objects.bulk_create(
+            DataModelingJob(
+                team=self.team,
+                saved_query=self.saved_query,
+                workflow_id=run.workflow_id,
+                status=job_fields.get("status", DataModelingJob.Status.COMPLETED),
+                run_mode=job_fields.get("run_mode", DataModelingJob.RunMode.FULL_REFRESH),
+                engine=job_fields.get("engine", DataModelingJob.Engine.CLICKHOUSE),
+            )
+            for run in runs
+        )
+        if "created_at" in job_fields:
+            DataModelingJob.objects.filter(workflow_id__in=[run.workflow_id for run in runs]).update(
+                created_at=job_fields["created_at"]
+            )
+
+    def _log_query_change(self, at: Any) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.pk,
+                user=self.user,
+                was_impersonated=False,
+                item_id=VIEW_ID,
+                scope="DataWarehouseSavedQuery",
+                activity="updated",
+                detail=Detail(
+                    name="orders",
+                    changes=[
+                        Change(type="DataWarehouseSavedQuery", action="changed", field="query", before="a", after="b")
+                    ],
+                ),
+            )
+        ActivityLog.objects.filter(item_id=str(VIEW_ID)).update(created_at=at)
+
     def test_proposes_a_rarely_read_view_with_refresh_cost_against_live_cost(self) -> None:
+        self._record_jobs(hourly_runs())
+
         result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
 
         [draft] = result.drafts
-        assert draft.payload == DematerializePayload(
+        assert isinstance(draft.payload, DematerializePayload)
+        assert replace(draft.payload, query_fingerprint="") == DematerializePayload(
             subject_name="orders",
             refresh_seconds_per_month=3600.0,
             refresh_bytes_per_month=720.0 * 10**6,
             live_seconds_per_month=20.0,
             live_bytes_per_month=4.0 * 10**6,
             read_seconds=5.0,
-            query_fingerprint=query_fingerprint("SELECT timestamp, event FROM events"),
+            query_fingerprint="",
         )
 
     @parameterized.expand(
         [
-            ("few_runs", {}, {}, hourly_refreshes(runs=2, duration_ms=10_000), None, "refreshed 2 times"),
+            ("few_runs", {}, {}, hourly_runs(2), None, "has 2 completed full refreshes"),
             ("incremental", {"refreshes_incrementally": True}, {}, None, None, "refreshes incrementally"),
             ("calls_a_model", {"calls_models": True}, {}, None, None, "calls a model per row"),
             (
@@ -416,7 +460,14 @@ class TestDematerializeCandidate(BaseTest):
             ),
             ("read_too_often", {}, {"human_reads": 600}, None, None, "would not save enough"),
             ("background_reads_count", {}, {"background_reads": 600}, None, None, "would not save enough"),
-            ("slow_tail", {}, {}, hourly_refreshes(p90_duration_ms=20_000.0), None, "a read could take 20 seconds"),
+            (
+                "slow_tail",
+                {},
+                {},
+                hourly_runs(duration_ms=TWENTY_SECONDS_MS),
+                None,
+                "a read could take 20 seconds",
+            ),
         ]
     )
     def test_rejects_a_view_that_would_cost_more_or_read_slowly_when_computed_on_read(
@@ -424,15 +475,16 @@ class TestDematerializeCandidate(BaseTest):
         _name: str,
         view_overrides: dict,
         read_overrides: dict,
-        refreshes: SubjectRefreshes | None,
+        runs: tuple[RefreshRun, ...] | None,
         recent_accepts: dict | None,
         expected_reason: str,
     ) -> None:
+        self._record_jobs(runs or hourly_runs())
         candidate_context = dematerialize_context(
             self.team.pk,
             view_overrides=view_overrides,
             read_overrides=read_overrides,
-            refreshes=refreshes,
+            runs=runs,
             recent_accepts=recent_accepts,
         )
 
@@ -440,6 +492,31 @@ class TestDematerializeCandidate(BaseTest):
 
         [rejection] = result.rejections
         assert (result.drafts, expected_reason in rejection.reason) == ((), True), rejection.reason
+
+    @parameterized.expand(
+        [
+            ("failed", {"status": DataModelingJob.Status.FAILED}, False),
+            ("incremental", {"run_mode": DataModelingJob.RunMode.INCREMENTAL}, False),
+            ("another_engine", {"engine": DataModelingJob.Engine.LEGACY_DUCKGRES}, False),
+            ("before_the_query_changed", {"created_at": days_ago(10)}, True),
+        ]
+    )
+    def test_prices_only_completed_full_refreshes_of_the_current_query(
+        self, _name: str, fast_job_fields: dict, query_changed: bool
+    ) -> None:
+        slow = hourly_runs(10, duration_ms=TWENTY_SECONDS_MS, prefix="slow")
+        fast = hourly_runs(HOURLY_RUNS - 10, prefix="fast")
+        self._record_jobs(slow)
+        self._record_jobs(fast, **fast_job_fields)
+        if query_changed:
+            self._log_query_change(days_ago(5))
+
+        result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk, runs=slow + fast))
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            ["a read could take 20 seconds, over 10"],
+        )
 
     @parameterized.expand(
         [
@@ -453,6 +530,7 @@ class TestDematerializeCandidate(BaseTest):
         ]
     )
     def test_rejects_a_view_others_rely_on(self, _name: str, lookup: str, found: object, expected_reason: str) -> None:
+        self._record_jobs(hourly_runs())
         with patch(f"{DEMATERIALIZE_MODULE}.{lookup}", return_value=found):
             result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
 
@@ -460,7 +538,7 @@ class TestDematerializeCandidate(BaseTest):
 
     def test_leaves_an_unread_view_to_deprecate(self) -> None:
         candidate_context = context(
-            team_reads({}, refreshes={VIEW_ID: hourly_refreshes()}),
+            team_reads({}, refresh_runs={VIEW_ID: hourly_runs()}),
             views=[view(VIEW_ID, materializes=True)],
             team_id=self.team.pk,
         )
