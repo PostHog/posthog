@@ -1,6 +1,7 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
+from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import field
 from datetime import timedelta
@@ -16,7 +17,13 @@ from temporalio import common
 
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import ActivityLog, Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityLog,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
@@ -235,9 +242,22 @@ QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
 # Below the replica's cap of 2,500 distinct IDs per person, so a person that returns this many may have more.
 TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT = 100
 
-# A retried or redelivered deletion task finishes within an hour, so an older "deleted" entry is an earlier
-# deletion of a revived person, and this deletion gets its own entry.
+# How far back to look for an entry of the same deletion; a retried or redelivered task finishes well within it.
+# An entry from before deletions recorded their version matches on this window alone.
 DELETION_LOG_DEDUPE_WINDOW = timedelta(hours=24)
+
+
+@frozen(slots=False)  # The activity log encoder writes a context out through __dict__.
+class PersonDeletionActivityContext(ActivityContextBase):
+    # The version of the Postgres tombstone. A retry reports the same version, and a later deletion of the revived
+    # person a higher one, so the version tells a retried deletion from a new one.
+    person_version: int
+
+
+@frozen
+class _DeletedPerson:
+    person: Person
+    tombstone_version: int
 
 
 def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
@@ -526,18 +546,10 @@ def _tombstone_and_delete_persons(
 
     if organization_id is not None and deleted:
         try:
-            # Person reads are eventually consistent, so a retry can resolve and delete a person
-            # that an earlier attempt already removed. Skip persons that already have a recent deleted
-            # entry so the audit trail does not record the same deletion twice.
-            already_logged = set(
-                ActivityLog.objects.filter(
-                    team_id=team_id,
-                    scope="Person",
-                    activity="deleted",
-                    item_id__in=[str(person.pk) for person in deleted],
-                    created_at__gte=timezone.now() - DELETION_LOG_DEDUPE_WINDOW,
-                ).values_list("item_id", flat=True)
-            )
+            # Person reads are eventually consistent, so a retry can resolve and delete a person that an earlier
+            # attempt already removed. Skip a person whose recent entry records this tombstone version, so the
+            # audit trail does not record the same deletion twice, but still log a revived person's new deletion.
+            logged = _logged_deletion_versions(team_id, [d.person.pk for d in deleted])
             bulk_log_activity(
                 [
                     LogActivityEntry(
@@ -545,13 +557,16 @@ def _tombstone_and_delete_persons(
                         team_id=team_id,
                         user=actor,
                         was_impersonated=was_impersonated,
-                        item_id=person.pk,
+                        item_id=d.person.pk,
                         scope="Person",
                         activity="deleted",
-                        detail=Detail(name=str(person.uuid)),
+                        detail=Detail(
+                            name=str(d.person.uuid),
+                            context=PersonDeletionActivityContext(person_version=d.tombstone_version),
+                        ),
                     )
-                    for person in deleted
-                    if str(person.pk) not in already_logged
+                    for d in deleted
+                    if not _deletion_already_logged(logged.get(str(d.person.pk), set()), d.tombstone_version)
                 ]
             )
         except Exception as exc:
@@ -560,24 +575,44 @@ def _tombstone_and_delete_persons(
                 step=PersonDeletionStep.LOG_ACTIVITY,
                 team_id=team_id,
                 exc=exc,
-                person_uuids=[person.uuid for person in deleted],
+                person_uuids=[d.person.uuid for d in deleted],
             )
 
     return PersonProfileDeletionResult(deleted_count=len(deleted), failures=failures)
+
+
+def _logged_deletion_versions(team_id: int, person_ids: builtins.list[int]) -> dict[str, set[int | None]]:
+    """The tombstone versions of each person's recent "deleted" entries, None for an entry that records none."""
+    versions: defaultdict[str, set[int | None]] = defaultdict(set)
+    for item_id, detail in ActivityLog.objects.filter(
+        team_id=team_id,
+        scope="Person",
+        activity="deleted",
+        item_id__in=[str(person_id) for person_id in person_ids],
+        created_at__gte=timezone.now() - DELETION_LOG_DEDUPE_WINDOW,
+    ).values_list("item_id", "detail"):
+        context = (detail or {}).get("context") or {}
+        version = context.get("person_version")
+        versions[str(item_id)].add(version if isinstance(version, int) else None)
+    return versions
+
+
+def _deletion_already_logged(logged_versions: set[int | None], tombstone_version: int) -> bool:
+    return tombstone_version in logged_versions or None in logged_versions
 
 
 def _tombstone_persons_at_exact_versions(
     team_id: int,
     persons: builtins.list[Person],
     failures: builtins.list[PersonDeletionFailure],
-) -> builtins.list[Person]:
+) -> builtins.list[_DeletedPerson]:
     """Tombstone Postgres first, then publish ClickHouse tombstones at the versions it wrote.
 
     Postgres goes first because only the replica knows the versions. A person whose Postgres
     tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
     fails; that failure gets its own step and the weekly deletion sweep republishes it.
     """
-    deleted: builtins.list[Person] = []
+    deleted: builtins.list[_DeletedPerson] = []
     person_by_uuid = {person.uuid: person for person in persons}
     publication = PersonTombstonePublication(team_id=team_id)
 
@@ -592,7 +627,10 @@ def _tombstone_persons_at_exact_versions(
             for tombstone in tombstones
             if tombstone.uuid in person_by_uuid
         ]
-        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in to_publish)
+        deleted.extend(
+            _DeletedPerson(person=person_by_uuid[tombstone.uuid], tombstone_version=tombstone.version)
+            for tombstone, _ in to_publish
+        )
         publication.publish(to_publish)
 
     publication.await_and_ack()
