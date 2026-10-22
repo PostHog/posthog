@@ -10,13 +10,15 @@ source configures on the shared platform, rather than one product's own table.
 
 from typing import Any
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.alerts_platform.backend.facade.contracts import Grouping
+from products.alerts_platform.backend.facade.contracts import DestinationType, Grouping
 from products.alerts_platform.backend.facade.enums import (
     DeliveryPath,
     PlatformAlertCheckStatus,
@@ -93,6 +95,11 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     check_status = models.CharField(
         max_length=16, choices=CheckStatus.choices, default=CheckStatus.OK.value, db_default="ok"
     )
+    # New groups the last check that ran turned away at `max_instances`. A failed or skipped check
+    # leaves both as they were, because it measured no groups.
+    overflowed_groups = models.PositiveIntegerField(default=0, db_default=0)
+    # The source cut its results before admission saw them all, so more groups may have been turned away.
+    overflow_is_lower_bound = models.BooleanField(default=False, db_default=False)
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
@@ -108,6 +115,11 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+    # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
+    # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
+    destinations_owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
 
     activity_logging_on_delete = True
 
@@ -170,6 +182,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # The last check that returned this group. Reaping reads it to free the slot of a group that
     # stopped appearing. Null for a row no check has recorded since the column existed.
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    # The result labels whose values make `grouping_key`. Kept because a hashed key cannot be decoded
+    # back into them.
+    labels = models.JSONField(default=dict, db_default={})
 
     class Meta:
         db_table = "alerts_platformalert"
@@ -257,3 +272,32 @@ class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
                 name="platform_alert_delivery_path_one_per_episode",
             )
         ]
+
+
+class AlertDestination(TeamScopedRootMixin, UUIDModel):
+    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+
+    One row is one destination a person sees on the alert's page. It sends through the platform's
+    transport for its type.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="destinations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    # Encrypted as one document so its value types survive a read. A webhook URL or a routing key is a credential.
+    config = EncryptedJSONStringField(default=dict)
+    # The transitions it sends about, as `AlertEventKind` values.
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    disabled_reason = models.TextField(null=True, blank=True)
+
+    # The HogFunctions this replaced, so an id issued before the move still finds the destination.
+    legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdestination"

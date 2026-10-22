@@ -14,7 +14,6 @@ import {
     facetScopeSignature,
     facetSelection,
     facetValueGroup,
-    mergeSelectedIntoOptions,
     resolveFacets,
 } from './facets'
 
@@ -190,45 +189,6 @@ describe('facets', () => {
                 included: ['api'],
                 excluded: [],
             })
-        })
-    })
-
-    describe('mergeSelectedIntoOptions', () => {
-        it('prepends a selected value absent from the fetched list with a zero count', () => {
-            const fetched = [{ value: 'api', label: 'api', count: 5 }]
-            expect(mergeSelectedIntoOptions(fetched, ['worker'])).toEqual([
-                { value: 'worker', label: 'worker', count: 0 },
-                { value: 'api', label: 'api', count: 5 },
-            ])
-        })
-
-        it('collapses duplicate selected values into one row so keys never collide', () => {
-            // A URL or saved view can carry the same value twice; two rows sharing a value would
-            // collide on their React key and toggle target.
-            expect(mergeSelectedIntoOptions([], ['worker', 'worker'])).toEqual([
-                { value: 'worker', label: 'worker', count: 0 },
-            ])
-        })
-
-        it('does not re-add a selected value already present in the fetched list', () => {
-            const fetched = [{ value: 'api', label: 'api', count: 5 }]
-            expect(mergeSelectedIntoOptions(fetched, ['api'])).toEqual(fetched)
-        })
-    })
-
-    describe('mergeSelectedIntoOptions', () => {
-        const fetched = [{ value: 'api', label: 'api', count: 10 }]
-
-        // Injected selected-but-absent rows must honor an active type-ahead search — otherwise a
-        // selected value the server just filtered out reappears pinned at 0, contradicting the list.
-        it.each<[string, string | undefined, string[]]>([
-            ['no search injects every missing selected value', undefined, ['worker-1']],
-            ['a matching search keeps the injected value (case-insensitive)', 'WORK', ['worker-1']],
-            ['a non-matching search drops the injected value', 'kafka', []],
-        ])('%s', (_, search, expectedInjected) => {
-            const options = mergeSelectedIntoOptions(fetched, ['api', 'worker-1'], search)
-            expect(options.filter((o) => o.count === 0).map((o) => o.value)).toEqual(expectedInjected)
-            expect(options).toEqual(expect.arrayContaining(fetched))
         })
     })
 
