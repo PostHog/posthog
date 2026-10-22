@@ -74,6 +74,8 @@ class AlertMessage:
     image: MessageImage | None = None
     slack_elements: tuple[dict[str, Any], ...] = ()
     incident_action: IncidentAction | None = None
+    # The incident key the source's own stack opened incidents under, for a firing the platform took over.
+    source_incident_key: str | None = None
 
     @property
     def title(self) -> str:
@@ -157,6 +159,7 @@ def build_message(
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
     overflowed: int = 0,
+    source_incident_key: str | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -205,4 +208,5 @@ def build_message(
         image=resolve_image(announcement.source, team_id=team_id, transition=transition),
         slack_elements=description.slack_elements,
         incident_action=incident_action,
+        source_incident_key=source_incident_key,
     )
