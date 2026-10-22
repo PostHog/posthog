@@ -147,7 +147,7 @@ Each page states the setup its example needs, and the details differ where a pag
 | Stage 1              | Folding an event into per-person leaf state and detecting flips                                                   |
 | Stage 2              | Recomposing a cohort from its leaves when one of them flips                                                       |
 | Person record        | One row per person holding which person conditions match, plus fingerprints that skip unchanged work              |
-| Replay marks         | Per row, the highest firehose offset applied from each firehose partition. Used to skip redelivered events        |
+| Replay marks         | Per row, the highest offset applied from each source partition. Used to skip redelivered events                   |
 | Firehose             | The ingestion topic `clickhouse_events_json`, which the shuffler reads                                            |
 | Eviction deadline    | The earliest time a leaf's answer can change without a new event                                                  |
 | Sweep                | The periodic pass that applies eviction deadlines                                                                 |

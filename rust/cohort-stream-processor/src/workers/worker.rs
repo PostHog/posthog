@@ -1094,7 +1094,7 @@ mod tombstone_redirect_tests {
         CaptureTransferSink, ReconcileMarker,
     };
     use crate::stage1::person_record::PersonRecord;
-    use crate::stage1::state::AppliedOffsets;
+    use crate::stage1::state::{AppliedOffsets, SourcePartition};
     use crate::stage2::state::Stage2State;
     use crate::store::{
         CohortStore, OffloadConfig, OffloadMode, PersonRecordKey, PersonRecords, Stage2Key,
@@ -1169,7 +1169,7 @@ mod tombstone_redirect_tests {
     fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
         let mut applied = AppliedOffsets::default();
         for &(partition, offset) in entries {
-            applied.record(partition, offset);
+            applied.record(SourcePartition::clickhouse_events_json(partition), offset);
         }
         applied
     }
@@ -1192,6 +1192,7 @@ mod tombstone_redirect_tests {
             elements_chain: None,
             source_offset,
             source_partition,
+            source_topic_id: 0,
             redirected_from: None,
             redirect_hops: 0,
         }
@@ -1693,11 +1694,16 @@ mod tombstone_redirect_tests {
             "the email leaf entered the record's matched set",
         );
         assert!(
-            after.redirect_dedup[&p_old].is_replay(5, 101),
+            after.redirect_dedup[&p_old].is_replay(SourcePartition::clickhouse_events_json(5), 101),
             "the fold advanced redirect_dedup[origin]",
         );
         assert!(
-            after.applied_offsets.is_replay(5, 50) && !after.applied_offsets.is_replay(5, 51),
+            after
+                .applied_offsets
+                .is_replay(SourcePartition::clickhouse_events_json(5), 50)
+                && !after
+                    .applied_offsets
+                    .is_replay(SourcePartition::clickhouse_events_json(5), 51),
             "the main map is untouched by a redirected straggler",
         );
 
@@ -1920,7 +1926,10 @@ mod tombstone_redirect_tests {
         write_tombstone(&store, source_partition, p_old, p_new);
         let handle = test_handle(&store);
 
-        let straggler = person_event(p_old, "u@p.com", 5, 9);
+        let straggler = CohortStreamEvent {
+            source_topic_id: 1,
+            ..person_event(p_old, "u@p.com", 5, 9)
+        };
         let mut effects = handle_event(
             source_partition,
             &handle,
@@ -1958,11 +1967,13 @@ mod tombstone_redirect_tests {
             "the email leaf entered P_new's record",
         );
         assert!(
-            folded.redirect_dedup[&p_old].is_replay(5, 9),
+            folded.redirect_dedup[&p_old].is_replay(SourcePartition::new(1, 5), 9),
             "the fold recorded the original source coords under redirect_dedup[origin]",
         );
         assert!(
-            !folded.applied_offsets.is_replay(5, 9),
+            !folded
+                .applied_offsets
+                .is_replay(SourcePartition::new(1, 5), 9),
             "the main map stays untouched by a redirected straggler",
         );
 
@@ -2009,7 +2020,7 @@ mod tombstone_redirect_tests {
         let folded = read_person_record(&store, partition_id, p_new)
             .expect("the degraded fold writes P_new's record in the local slice");
         assert!(
-            folded.redirect_dedup[&p_old].is_replay(5, 9),
+            folded.redirect_dedup[&p_old].is_replay(SourcePartition::clickhouse_events_json(5), 9),
             "the inline degrade still dedups by the chain origin",
         );
         assert!(

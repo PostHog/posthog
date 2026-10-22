@@ -42,7 +42,8 @@ use crate::stage1::person_record::{
 use crate::stage1::pick_state::EvictionWindow;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{
-    dedup_is_replay, dedup_record, AppliedOffsets, Stage1State, StateVariant, StatefulRecord,
+    dedup_is_replay, dedup_record, AppliedOffsets, SourcePartition, Stage1State, StateVariant,
+    StatefulRecord,
 };
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
@@ -674,7 +675,11 @@ fn fold_person(
     let prior = PriorRecord::decode(record_bytes.as_deref());
     let baseline = PersonRecord::absent();
     let event_stamp = Stamp::new(event_ms, event.source_offset);
-    let dedup = DedupCoords::new(origin.copied(), event.source_partition, event.source_offset);
+    let dedup = DedupCoords::new(
+        origin.copied(),
+        SourcePartition::from(event),
+        event.source_offset,
+    );
 
     // Absent/corrupt priors fold from an absent baseline; a present prior folds from itself.
     let from = match &prior {
@@ -964,11 +969,12 @@ fn mutate_behavioral(
         }
     }
 
+    let source = SourcePartition::from(event);
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralSingle.as_str())
@@ -979,7 +985,7 @@ fn mutate_behavioral(
         &mut applied,
         &mut redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     );
 
@@ -1065,11 +1071,12 @@ fn mutate_behavioral_daily(
             },
         };
 
+    let source = SourcePartition::from(event);
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
@@ -1080,7 +1087,7 @@ fn mutate_behavioral_daily(
         &mut applied,
         &mut redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     );
 
@@ -1196,11 +1203,12 @@ fn mutate_behavioral_compressed(
             },
         };
 
+    let source = SourcePartition::from(event);
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
@@ -1211,7 +1219,7 @@ fn mutate_behavioral_compressed(
         &mut applied,
         &mut redirect_dedup,
         origin,
-        event.source_partition,
+        source,
         event.source_offset,
     );
 

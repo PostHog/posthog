@@ -22,7 +22,7 @@ A column family is a separate keyspace inside the database, with its own setting
 
 | Column family             | One row per                          | Holds                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the firehose offsets already applied                                                                                                                                                                                         |
+| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the source offsets already applied                                                                                                                                                                                           |
 | `cf_person_records`       | person                               | The person record: matched person conditions, fingerprints, stamp, replay marks                                                                                                                                                                                                              |
 | `cf_stage2`               | cohort and person                    | The membership bit the processor registered for the pair. On the live, sweep, merge, cascade and reconcile paths it is the recomputed truth. On the seed path it is what downstream was last told. Also reconcile dirty markers, and an inventory of membership rows received through merges |
 | `cf_merge_drains_applied` | merge message                        | Marker: this merge was drained                                                                                                                                                                                                                                                               |
@@ -106,6 +106,11 @@ Opening a store whose stamp is missing or different fails, unless `COHORT_WIPE_O
 A store with an unknown column family fails to open even with that flag.
 There are no in-place migrations.
 An incompatible key or value change bumps the version, and the store is rebuilt from nothing, which means re-running backfills.
+Replay marks from a topic other than `clickhouse_events_json` share this version.
+A row whose marks all come from `clickhouse_events_json` has the same bytes that a binary without topic ids writes.
+A row or merge transfer that holds another topic's mark uses a form that such a binary cannot decode, so it reads that row as corrupt.
+A rollback to a binary without topic ids is therefore safe only before a shuffler on another topic has run, or after a store wipe.
+Stopping that shuffler does not remove the marks it left.
 
 ## Restarting
 

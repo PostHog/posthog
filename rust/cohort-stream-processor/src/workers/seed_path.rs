@@ -834,7 +834,7 @@ mod tests {
         CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, ChangeOrigin,
         CohortMembershipChange, MembershipSink, MembershipStatus,
     };
-    use crate::stage1::state::AppliedOffsets;
+    use crate::stage1::state::{AppliedOffsets, SourcePartition};
     use crate::stage2::state::Stage2State;
     use crate::store::{
         CohortStore, OffloadConfig, OffloadMode, SliceCoverage, Stage2Key, StoreConfig,
@@ -1227,11 +1227,11 @@ mod tests {
         // The tile never touches `applied_offsets`/`redirect_dedup`.
         let meta = daily_meta(7, PredicateOp::Gte(1));
         let mut applied = AppliedOffsets::default();
-        applied.record(17, 42);
-        applied.record(3, 9);
+        applied.record(SourcePartition::clickhouse_events_json(17), 42);
+        applied.record(SourcePartition::clickhouse_events_json(3), 9);
         let mut redirect: BTreeMap<Uuid, AppliedOffsets> = BTreeMap::new();
         let mut ancestor = AppliedOffsets::default();
-        ancestor.record(5, 100);
+        ancestor.record(SourcePartition::clickhouse_events_json(5), 100);
         redirect.insert(Uuid::from_u128(1), ancestor);
         let prev = StatefulRecord {
             state: Stage1State::BehavioralDailyBuckets {
@@ -1571,6 +1571,7 @@ mod tests {
             elements_chain: None,
             source_offset,
             source_partition: 0,
+            source_topic_id: 0,
             redirected_from: None,
             redirect_hops: 0,
         }

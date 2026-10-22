@@ -2,12 +2,14 @@
 
 use std::time::Duration;
 
+use anyhow::Context;
 use common_database::PoolConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
 
 use crate::consumer::ShufflerSettings;
+use crate::event::source_topic_id;
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -119,12 +121,21 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    pub fn shuffler_settings(&self) -> ShufflerSettings {
-        ShufflerSettings {
+    /// Refuses an input topic without a `source_topic_id`. Under another topic's id, the processor
+    /// would drop most of its events as replays.
+    pub fn shuffler_settings(&self) -> anyhow::Result<ShufflerSettings> {
+        let source_topic_id = source_topic_id(&self.input_topic).with_context(|| {
+            format!(
+                "INPUT_TOPIC {:?} has no source_topic_id in the shuffler's topic table",
+                self.input_topic
+            )
+        })?;
+        Ok(ShufflerSettings {
+            source_topic_id,
             max_inflight_forwards: self.max_inflight_forwards,
             commit_interval: Duration::from_millis(self.commit_interval_ms),
             queue_full_backoff: Duration::from_millis(self.queue_full_backoff_ms),
-        }
+        })
     }
 
     pub fn team_index_refresh_interval(&self) -> Duration {
@@ -260,6 +271,26 @@ mod tests {
         let consumer = config.build_consumer_config();
         assert!(!consumer.kafka_consumer_auto_commit);
         assert_eq!(consumer.kafka_consumer_topic, "clickhouse_events_json");
+    }
+
+    #[test]
+    fn shuffler_settings_stamp_the_input_topic_id_and_refuse_an_unknown_topic() {
+        let mut config = test_config();
+        for (topic, expected) in [
+            ("clickhouse_events_json", Some(0)),
+            ("realtime_only_events_json", Some(1)),
+            ("clickhouse_events_json_v2", None),
+        ] {
+            config.input_topic = topic.to_string();
+            assert_eq!(
+                config
+                    .shuffler_settings()
+                    .ok()
+                    .map(|settings| settings.source_topic_id),
+                expected,
+                "{topic}"
+            );
+        }
     }
 
     #[test]

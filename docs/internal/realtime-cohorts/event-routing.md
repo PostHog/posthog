@@ -68,7 +68,8 @@ Each forwarded event becomes a slim JSON record on `cohort_stream_events`.
   "person_properties": "{\"email\":\"a@example.com\"}",
   "elements_chain": null,
   "source_partition": 3,
-  "source_offset": 9870001
+  "source_offset": 9870001,
+  "source_topic_id": 0
 }
 ```
 
@@ -78,8 +79,13 @@ Each forwarded event becomes a slim JSON record on `cohort_stream_events`.
   A change made any other way, such as an API edit or a person merge, is seen on the person's next event.
 - Events ingested **without person processing** still carry a real `person_id` when the distinct id has a person, but their `person_properties` is an empty object.
   The envelope does not say which kind of event it is, so the processor evaluates those events as a person with no properties.
-- `source_partition` and `source_offset` are the event's coordinates in the firehose.
+- `source_topic_id`, `source_partition` and `source_offset` are the event's coordinates in the topic the shuffler read.
   The processor uses them to recognize an event it already applied.
+- `source_topic_id` comes from a fixed table in the shuffler: `clickhouse_events_json` is 0 and `realtime_only_events_json` is 1.
+  The shuffler refuses to start on an input topic that is not in the table, because under another topic's id the processor would drop that topic's events as replays.
+  A message without `source_topic_id` came from `clickhouse_events_json`.
+- A shuffler on any topic other than `clickhouse_events_json` starts only after every processor pod runs a build that reads `source_topic_id`.
+  An older processor ignores the field, files the events under `clickhouse_events_json`, and drops most of them as replays.
 - Events that the processor re-keys after a person merge also carry `redirected_from` and `redirect_hops`.
   The shuffler never sets them.
 
@@ -205,8 +211,8 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
   Only teams in both are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
   Merges also need the team in Node's merge allowlist, and backfills need it in the seeder's copy.
-- The processor recognizes applied events with a high-water mark per firehose partition, not a set of offsets.
-  The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same firehose partition is skipped as if it were a replay.
+- The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
+  The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.
   The processor's live watermark, which paces backfill, is built from these timestamps.
   [Seed apply and reconcile](seed-apply-and-reconcile.md) explains why that matters.

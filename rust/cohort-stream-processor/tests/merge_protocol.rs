@@ -24,7 +24,7 @@ use cohort_stream_processor::merge::transfer::{
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
 use cohort_stream_processor::stage1::person_record::{MatchedSet, PersonRecord};
-use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
+use cohort_stream_processor::stage1::{SourcePartition, Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig,
@@ -154,6 +154,7 @@ fn pageview_event(person: Uuid, source_partition: i32, source_offset: i64) -> Co
         elements_chain: None,
         source_offset,
         source_partition,
+        source_topic_id: 0,
         redirected_from: None,
         redirect_hops: 0,
     }
@@ -2408,7 +2409,7 @@ fn record_only_person_transfers_its_dedup_and_a_straggler_dedups_against_the_anc
         record_at(&store, p_old_part, p_old)
             .unwrap()
             .applied_offsets
-            .is_replay(5, 40),
+            .is_replay(SourcePartition::clickhouse_events_json(5), 40),
         "P_old's record recorded its source offset",
     );
     // P_new already exists as a member so it can absorb the ancestor.
@@ -2460,11 +2461,14 @@ fn record_only_person_transfers_its_dedup_and_a_straggler_dedups_against_the_anc
     );
     let p_new_record = record_at(&store, p_new_part, p_new).unwrap();
     assert!(
-        p_new_record.redirect_dedup[&p_old].is_replay(5, 40),
+        p_new_record.redirect_dedup[&p_old]
+            .is_replay(SourcePartition::clickhouse_events_json(5), 40),
         "P_new absorbed P_old's offsets under redirect_dedup[P_old]",
     );
     assert!(
-        !p_new_record.applied_offsets.is_replay(5, 40),
+        !p_new_record
+            .applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(5), 40),
         "the ancestor's offsets never fold into P_new's main map",
     );
 

@@ -18,7 +18,9 @@ use cohort_stream_processor::stage1::person_record::{
     CatalogFingerprint, PersonRecord, PropsFingerprint,
 };
 use cohort_stream_processor::stage1::time::clickhouse_timestamp_to_millis;
-use cohort_stream_processor::stage1::{AppliedOffsets, LeafTransition, TransitionKind};
+use cohort_stream_processor::stage1::{
+    AppliedOffsets, LeafTransition, SourcePartition, TransitionKind,
+};
 use cohort_stream_processor::store::{CohortStore, PersonRecordKey, PersonRecords, StoreConfig};
 use cohort_stream_processor::workers::{process_event, EventOutcome};
 use serde_json::{json, Value};
@@ -75,6 +77,7 @@ fn event(person: Uuid, props: &str, offset: i64, ts: &str) -> CohortStreamEvent 
         elements_chain: None,
         source_offset: offset,
         source_partition: 0,
+        source_topic_id: 0,
         redirected_from: None,
         redirect_hops: 0,
     }
@@ -97,7 +100,7 @@ fn person(n: u128) -> Uuid {
 fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
     let mut a = AppliedOffsets::default();
     for &(partition, offset) in entries {
-        a.record(partition, offset);
+        a.record(SourcePartition::clickhouse_events_json(partition), offset);
     }
     a
 }
@@ -215,7 +218,8 @@ fn row4b_first_eval_enters_true_conditions_and_writes_the_record() {
     let r = record(&store, alice).unwrap();
     assert!(r.matched.contains(&EMAIL_HASH) && r.matched.contains(&PLAN_HASH));
     assert!(
-        r.applied_offsets.is_replay(0, 0),
+        r.applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(0), 0),
         "the event offset advanced dedup"
     );
 }
@@ -276,7 +280,12 @@ fn row4a_fingerprint_match_skips_eval_but_advances_the_stamp() {
         after.stamp > stamp_before,
         "SkipEval adopts the fresh stamp"
     );
-    assert!(after.applied_offsets.is_replay(0, 1), "and advances dedup");
+    assert!(
+        after
+            .applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(0), 1),
+        "and advances dedup"
+    );
     assert!(after.matched.contains(&EMAIL_HASH) && after.matched.contains(&PLAN_HASH));
 }
 
@@ -334,7 +343,9 @@ fn row3_argmax_stale_event_advances_dedup_and_last_seen_but_not_membership() {
         "membership unchanged by a stale event"
     );
     assert!(
-        after.applied_offsets.is_replay(9, 5),
+        after
+            .applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(9), 5),
         "the stale event still recorded its offset (row 2 precedes row 3)",
     );
     assert_eq!(
@@ -386,7 +397,9 @@ fn a_stale_event_with_malformed_person_properties_still_advances_the_record() {
         "a fingerprint from an unparseable payload would let a later copy of it reach SkipEval",
     );
     assert!(
-        after.applied_offsets.is_replay(9, 5),
+        after
+            .applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(9), 5),
         "the stale event still recorded its offset",
     );
 }
@@ -671,12 +684,15 @@ fn direct_and_redirected_events_use_distinct_dedup_maps() {
     assert!(out.transitions.is_empty(), "already a member; no re-enter");
     let after = record(&store, p_new).unwrap();
     assert!(
-        after.applied_offsets.is_replay(5, 60),
+        after
+            .applied_offsets
+            .is_replay(SourcePartition::clickhouse_events_json(5), 60),
         "the main map advanced"
     );
     assert!(
-        after.redirect_dedup[&ancestor].is_replay(5, 100)
-            && !after.redirect_dedup[&ancestor].is_replay(5, 101),
+        after.redirect_dedup[&ancestor].is_replay(SourcePartition::clickhouse_events_json(5), 100)
+            && !after.redirect_dedup[&ancestor]
+                .is_replay(SourcePartition::clickhouse_events_json(5), 101),
         "the ancestor entry is untouched by a direct event",
     );
 }
