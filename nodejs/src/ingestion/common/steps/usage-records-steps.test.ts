@@ -140,6 +140,30 @@ describe('usage-records-steps', () => {
     })
 
     it.each([
+        [
+            'a verified gateway request',
+            { $ai_gateway_verified: true, $ai_gateway_request_id: 'request-1' },
+            'wallet_paid_ai_events',
+        ],
+        [
+            'a relayed gateway request',
+            { $ai_gateway_verified: true, $ai_gateway_request_id: 'request-1', $ai_gateway_relay: true },
+            'ai_events',
+        ],
+        ['a request ID without the verified flag', { $ai_gateway_request_id: 'request-1' }, 'ai_events'],
+        ['a verified flag without a request ID', { $ai_gateway_verified: true }, 'ai_events'],
+    ])('files an AI event from %s under %s', async (_name, properties, usageKey) => {
+        await queueEventUsage([Promise.resolve({ topic: 'events', partition: 0 })], {
+            event: '$ai_generation',
+            properties,
+        })
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual([usageKey])
+    })
+
+    it.each([
         ['a product tour', { $product_tour_id: 'tour-1' }, 'product_tour_survey_responses'],
         ['an empty product tour ID', { $product_tour_id: '' }, 'survey_responses'],
         ['no product tour', {}, 'survey_responses'],

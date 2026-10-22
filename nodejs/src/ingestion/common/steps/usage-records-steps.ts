@@ -4,6 +4,7 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import {
+    AI_EVENTS_USAGE_KEY,
     EVENTS_USAGE_KEY,
     SURVEY_RESPONSES_USAGE_KEY,
     UsageKeyResolver,
@@ -90,18 +91,34 @@ function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
 }
 
-// No billed counter reads this key (`RECORD_USAGE_KEYS` in `posthog/usage_counters.py`), so the
+// No billed counter reads these keys (`RECORD_USAGE_KEYS` in `posthog/usage_counters.py`), so the
 // records stay available for reporting without a charge.
 const PRODUCT_TOUR_SURVEY_RESPONSES_USAGE_KEY = 'product_tour_survey_responses'
+const WALLET_PAID_AI_EVENTS_USAGE_KEY = 'wallet_paid_ai_events'
 
 /**
- * The usage key for usage that the nightly report does not bill. The report leaves out responses
- * to product tours, which are free. posthog-js sets `$product_tour_id` on the survey events that a
- * tour sends.
+ * The usage key for usage that the nightly report does not bill.
+ *
+ * The report leaves out responses to product tours, which are free. posthog-js sets
+ * `$product_tour_id` on the survey events that a tour sends.
+ *
+ * The report also leaves out AI events from the AI gateway, because the PostHog wallet already
+ * charges for the request. Capture sets `$ai_gateway_verified` and `$ai_gateway_request_id` only
+ * on events from a signed gateway request, so a client cannot claim the exemption. A relayed
+ * request uses a per-trace allowance in the report, which one record cannot express, so its
+ * events keep the billable key.
  */
 function exemptUsageKey(usageKey: string, properties: Properties): string | null {
     if (usageKey === SURVEY_RESPONSES_USAGE_KEY && isNonEmptyString(properties.$product_tour_id)) {
         return PRODUCT_TOUR_SURVEY_RESPONSES_USAGE_KEY
+    }
+    if (
+        usageKey === AI_EVENTS_USAGE_KEY &&
+        properties.$ai_gateway_verified === true &&
+        isNonEmptyString(properties.$ai_gateway_request_id) &&
+        properties.$ai_gateway_relay !== true
+    ) {
+        return WALLET_PAID_AI_EVENTS_USAGE_KEY
     }
     return null
 }
