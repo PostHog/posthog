@@ -92,4 +92,41 @@ describe('holiday gold rings keys', () => {
         stopListening()
         input.remove()
     })
+
+    test.each([
+        ['an input', '<input data-key-target />'],
+        ['a textarea', '<textarea data-key-target></textarea>'],
+        ['contenteditable text', '<div contenteditable="true"><span data-key-target></span></div>'],
+        ['a code editor', '<div class="monaco-editor"><span data-key-target></span></div>'],
+    ])('does not play while typing in %s', (_name, markup) => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+        const container = document.createElement('div')
+        container.innerHTML = markup
+        document.body.appendChild(container)
+        const stopListening = listenForGoldRingsKeys(() => true)
+
+        container
+            .querySelector('[data-key-target]')
+            ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: '5' }))
+
+        expect(play).not.toHaveBeenCalled()
+        stopListening()
+        container.remove()
+    })
+
+    test('can opt out while typing in an input', () => {
+        const input = document.createElement('input')
+        document.body.appendChild(input)
+        const stopListening = listenForGoldRingsKeys(() => true)
+
+        for (const key of 'I hate Xmas') {
+            input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }))
+        }
+
+        expect(isGoldRingsMuted()).toBe(true)
+        stopListening()
+        input.remove()
+    })
 })
