@@ -1279,6 +1279,129 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+# ── Community, survey, docs feedback and reviews ──────────────────────────────────
+
+
+class SleekplanFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    type: str | None
+    total_up: str | None
+    created: str | None
+
+
+class SleekplanFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SLEEKPLAN]
+    extra: SleekplanFeedbackSignalExtra
+
+
+class BettermodeFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    url: str | None
+    created_at: str | None
+
+
+class BettermodeFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BETTERMODE]
+    extra: BettermodeFeedbackSignalExtra
+
+
+class DiscourseFeedbackSignalExtra(SignalExtraBase):
+    topic_id: str | None
+    category_id: str | None
+    created_at: str | None
+
+
+class DiscourseFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.DISCOURSE]
+    extra: DiscourseFeedbackSignalExtra
+
+
+class MintlifyFeedbackSignalExtra(SignalExtraBase):
+    path: str | None
+    helpful: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class MintlifyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.MINTLIFY]
+    extra: MintlifyFeedbackSignalExtra
+
+
+class LangsmithFeedbackSignalExtra(SignalExtraBase):
+    key: str | None
+    score: str | None
+    value: str | None
+    run_id: str | None
+    trace_id: str | None
+    created_at: str | None
+
+
+class LangsmithFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.LANGSMITH]
+    extra: LangsmithFeedbackSignalExtra
+
+
+class SprigFeedbackSignalExtra(SignalExtraBase):
+    question_type: str | None
+    survey_id: str | None
+    created_at: str | None
+
+
+class SprigFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SPRIG]
+    extra: SprigFeedbackSignalExtra
+
+
+class GainsightPxFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    question_type: str | None
+    content_type: str | None
+    engagement_id: str | None
+    date: str | None
+
+
+class GainsightPxFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.GAINSIGHT_PX]
+    extra: GainsightPxFeedbackSignalExtra
+
+
+class TrustpilotReviewSignalExtra(SignalExtraBase):
+    stars: str | None
+    language: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class TrustpilotReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.TRUSTPILOT]
+    extra: TrustpilotReviewSignalExtra
+
+
+class OkendoReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    status: str | None
+    product_name: str | None
+    is_recommended: str | None
+    date_created: str | None
+
+
+class OkendoReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.OKENDO]
+    extra: OkendoReviewSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1353,7 +1476,16 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | SleekplanFeedbackSignalInput
+    | BettermodeFeedbackSignalInput
+    | DiscourseFeedbackSignalInput
+    | MintlifyFeedbackSignalInput
+    | LangsmithFeedbackSignalInput
+    | SprigFeedbackSignalInput
+    | GainsightPxFeedbackSignalInput
+    | TrustpilotReviewSignalInput
+    | OkendoReviewSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1425,6 +1557,15 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    SleekplanFeedbackSignalInput,
+    BettermodeFeedbackSignalInput,
+    DiscourseFeedbackSignalInput,
+    MintlifyFeedbackSignalInput,
+    LangsmithFeedbackSignalInput,
+    SprigFeedbackSignalInput,
+    GainsightPxFeedbackSignalInput,
+    TrustpilotReviewSignalInput,
+    OkendoReviewSignalInput,
     CheckFailedSignalInput,
 )
 
