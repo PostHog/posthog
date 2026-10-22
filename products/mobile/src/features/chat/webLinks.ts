@@ -1,7 +1,6 @@
-import { Linking } from 'react-native'
-
 import { apiUrl } from '@/api/client'
 import { track } from '@/lib/analytics'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 
 // PostHog AI writes app links as paths such as `/project/2/insights/abc`. Only http(s) links open.
 export function resolveReplyLink(url: string): string | undefined {
@@ -29,7 +28,7 @@ export function openReplyUrl(
     source: ReplyLinkSource,
     detail: { objectKind?: string; appLink?: boolean } = {}
 ): void {
-    Linking.openURL(url)
+    openPostHogUrl(url)
         .then(() => {
             track('mobile_chat_link_opened', {
                 source,
