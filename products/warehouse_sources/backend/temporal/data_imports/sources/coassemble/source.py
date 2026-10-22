@@ -52,7 +52,7 @@ class CoassembleSource(ResumableSource[CoassembleSourceConfig, CoassembleResumeC
             name=ExternalDataSourceType.COASSEMBLE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Coassemble",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["lms", "training", "courses"],
             caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, learner progress, and client usage into the PostHog Data warehouse.
 

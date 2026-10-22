@@ -922,7 +922,15 @@ fn experiment_rule_contract_violations_reject_the_whole_flag() {
         result(&read(document)).as_ref().unwrap_err(),
         &ParseError::LimitExceeded("variants")
     );
-    // Hundredths are summed exactly, so binary64 accumulation cannot round 99.99 up to 100.
+    // Hundredths are summed exactly: these weights total 100, but their binary64 sum is
+    // 100.00000000000001.
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!([
+        {"key": "a", "weight": 0.01, "value": "standard"},
+        {"key": "b", "weight": 65.4, "value": "standard"},
+        {"key": "c", "weight": 34.59, "value": "standard"}
+    ]);
+    assert!(result(&read(document)).is_ok());
     let mut document = experiment();
     document["rules"][0]["variants"] = json!([
         {"key": "a", "weight": 33.33, "value": "standard"},

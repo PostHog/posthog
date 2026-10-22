@@ -37,6 +37,7 @@ impl HashUse {
         match self {
             Self::Rollout => calculate_hash(&format!("{seed}."), subject, ""),
             Self::Variant => calculate_hash(&format!("{seed}."), subject, "variant"),
+            // No ".": a holdout seed of "holdout-" reproduces v1's `get_holdout_hash`.
             Self::Holdout => calculate_hash(seed, subject, ""),
         }
         .map_err(|_| EvaluationError::Hash)
@@ -61,7 +62,7 @@ pub enum Evaluation<'a> {
     ExperimentSplit {
         value: &'a Value,
         rule: MatchedRule,
-        variant: &'a str,
+        variant_key: &'a str,
     },
     RolloutMiss {
         value: Option<&'a Value>,
@@ -123,9 +124,9 @@ impl<'a> Evaluation<'a> {
         }
     }
 
-    pub fn variant(self) -> Option<&'a str> {
+    pub fn variant_key(self) -> Option<&'a str> {
         match self {
-            Self::ExperimentSplit { variant, .. } => Some(variant),
+            Self::ExperimentSplit { variant_key, .. } => Some(variant_key),
             _ => None,
         }
     }
@@ -151,7 +152,7 @@ pub struct EvaluationDetail {
     /// `Value::Null` is a null default.
     pub value: Value,
     pub rule: Option<MatchedRule>,
-    pub variant: Option<String>,
+    pub variant_key: Option<String>,
     pub description: String,
 }
 
@@ -161,7 +162,7 @@ impl From<Evaluation<'_>> for EvaluationDetail {
             code: evaluation.code(),
             value: evaluation.value().cloned().unwrap_or(Value::Null),
             rule: evaluation.rule(),
-            variant: evaluation.variant().map(str::to_owned),
+            variant_key: evaluation.variant_key().map(str::to_owned),
             description: evaluation.description(),
         }
     }
@@ -312,7 +313,7 @@ impl<'a> Evaluator<'a> {
                         return Ok(Evaluation::ExperimentSplit {
                             value: &variant.value,
                             rule,
-                            variant: &variant.key,
+                            variant_key: &variant.key,
                         });
                     }
                     (rule, on_rollout_miss)
@@ -329,7 +330,8 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-/// The hashes one evaluation draws for its subject; repeated draws of one seed share a hash.
+/// The hashes one evaluation draws for its subject; repeated draws with the same use and seed
+/// share a hash.
 struct Draws<'a, 's, H> {
     subject: &'s str,
     hash: H,

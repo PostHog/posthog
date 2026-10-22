@@ -91,7 +91,7 @@ pub fn result_json(result: Result<Evaluation, EvaluationError>) -> Value {
             if let Some(rule) = evaluation.rule() {
                 json["rule"] = rule_json(rule);
             }
-            if let Some(variant) = evaluation.variant() {
+            if let Some(variant) = evaluation.variant_key() {
                 json["variant"] = json!(variant);
             }
             json
