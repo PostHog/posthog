@@ -145,7 +145,9 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 NULL_ON_FAILURE_DATE_PARSERS = frozenset(
     {"parseDateTime64BestEffortOrNull", "parseDateTime64BestEffortUSOrNull", "toDateOrNull"}
 )
-TEMPLATE_PLACEHOLDER_TOKEN = re.compile(r"[{<][^{}<>]*[A-Za-z_][^{}<>]*[}>]")
+# The run before the first letter excludes letters, so the search stays linear. Two runs that both
+# accept letters backtrack quadratically on a long literal with an unclosed bracket.
+TEMPLATE_PLACEHOLDER_TOKEN = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 
 
 class ClickHousePrinter(BasePrinter):
