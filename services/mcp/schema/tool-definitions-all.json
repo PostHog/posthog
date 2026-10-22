@@ -17200,7 +17200,7 @@
         "title": "Make email template transactional (execute)",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

@@ -84,7 +84,7 @@ tools:
             - hog_flow:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         enrich_url: '{id}'
         title: Make email template transactional
