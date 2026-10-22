@@ -1,12 +1,12 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -19,7 +19,7 @@ from products.ai_observability.backend.models.evaluation_outcomes import (
     get_outcome_definition,
 )
 
-from ...facade import contracts
+from .pass_filters import PassRules
 from .period import Interval, OverviewPeriod
 
 _SKIPPED = "properties.$ai_evaluation_skipped = 'true'"
@@ -37,7 +37,7 @@ SCORE = "toFloat(properties.$ai_evaluation_numeric_result)"
 # A run any summary kind grades, so an evaluation whose recent runs were all N/A or skipped still reads as silent
 # since its last real result.
 _GRADED_ANY = (
-    f"({{graded}}) OR ({NUMERIC_SCORED}) OR ({_CATEGORIZED})"
+    f"graded_run OR ({NUMERIC_SCORED}) OR ({_CATEGORIZED})"
     f" OR (properties.$ai_sentiment_label IN ('positive', 'neutral', 'negative') AND {_NOT_SKIPPED})"
 )
 
@@ -57,8 +57,8 @@ _COUNTS_QUERY = f"""
 SELECT
     toString(properties.$ai_evaluation_id) AS evaluation_id,
     {_BUCKET} AS bucket,
-    countIf({{passed}}) AS passed,
-    countIf({{graded}} AND NOT {{passed}}) AS failed,
+    countIf(and(({{graded}}) AS graded_run, ({{passes}}) AS passing_run)) AS passed,
+    countIf(graded_run AND NOT passing_run) AS failed,
     countIf({_NOT_APPLICABLE}) AS not_applicable,
     countIf({_SKIPPED}) AS skipped,
     countIf({NUMERIC_SCORED}) AS score_count,
@@ -67,7 +67,7 @@ SELECT
     countIf(properties.$ai_sentiment_label = 'positive' AND {_NOT_SKIPPED}) AS positive,
     countIf(properties.$ai_sentiment_label = 'neutral' AND {_NOT_SKIPPED}) AS neutral,
     countIf(properties.$ai_sentiment_label = 'negative' AND {_NOT_SKIPPED}) AS negative,
-    if(countIf({_GRADED_ANY}) = 0, NULL, maxIf(timestamp, {_GRADED_ANY})) AS last_run_at
+    if(countIf(({_GRADED_ANY}) AS graded_any) = 0, NULL, maxIf(timestamp, graded_any)) AS last_run_at
 FROM events
 WHERE {_WHERE}
 GROUP BY evaluation_id, bucket
@@ -125,10 +125,10 @@ def _run(
     extra: dict[str, ast.Expr],
 ) -> list[Sequence[Any]]:
     placeholders: dict[str, ast.Expr] = {
-        "previous_start": ast.Constant(value=period.previous_start),
-        "previous_end": ast.Constant(value=period.previous_end),
-        "current_start": ast.Constant(value=period.start),
-        "end": ast.Constant(value=period.end),
+        "previous_start": instant(period.previous_start),
+        "previous_end": instant(period.previous_end),
+        "current_start": instant(period.start),
+        "end": instant(period.end),
         # The project's timezone is explicit, because the team's modifiers can turn off the conversion to it, and
         # `overview_period` builds its buckets in that timezone.
         "bucket_start": ast.Call(
@@ -137,7 +137,8 @@ def _run(
                 ast.Call(name="toTimeZone", args=[ast.Field(chain=["timestamp"]), ast.Constant(value=team.timezone)])
             ],
         ),
-        "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=value) for value in evaluation_ids]),
+        # One placeholder for the whole list, so the query text stays the same size however many evaluations it reads.
+        "evaluation_ids": ast.Constant(value=tuple(evaluation_ids)),
         **extra,
     }
     rows: list[Sequence[Any]] = []
@@ -152,6 +153,19 @@ def _run(
         rows += page
         if len(page) < PAGE_SIZE:
             return rows
+
+
+def instant(value: datetime) -> ast.Expr:
+    """A datetime constant prints as wall time in the project's timezone, which names two instants in a repeated
+    daylight saving hour. UTC wall time names exactly one."""
+    return ast.Call(
+        name="toDateTime64",
+        args=[
+            ast.Constant(value=value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")),
+            ast.Constant(value=6),
+            ast.Constant(value="UTC"),
+        ],
+    )
 
 
 def run_evaluation_query(
@@ -176,7 +190,7 @@ def load_bucket_counts(
     user: User | None,
     period: OverviewPeriod,
     evaluation_ids: Sequence[str],
-    pass_filters: contracts.EvaluationPassFilters,
+    pass_rules: PassRules,
 ) -> list[EvaluationBucketCounts]:
     if not evaluation_ids:
         return []
@@ -187,7 +201,7 @@ def load_bucket_counts(
         user,
         period,
         evaluation_ids,
-        {"graded": parse_expr(pass_filters.graded), "passed": parse_expr(pass_filters.passed)},
+        {"graded": pass_rules.graded, "passes": pass_rules.passes},
     )
     return [
         EvaluationBucketCounts(

@@ -4,6 +4,7 @@ Pure functions over the grouped counts from `overview_queries`.
 """
 
 import math
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
@@ -274,8 +275,15 @@ def _previous_value(summary: contracts.ResultSummary, tracked: str | None) -> fl
             return next((category.previous_share for category in summary.categories if category.key == tracked), None)
 
 
+def _bucket_index(instants: Sequence[datetime], bucket: datetime) -> int:
+    """The bucket that holds a ClickHouse bucket start: the last one that starts at or before it, compared by
+    instant. Where a daylight saving change moves the clocks by half an hour, ClickHouse starts its hours at other
+    instants than the buckets do, so an exact match would drop runs from the trend."""
+    return max(bisect_right(instants, bucket.astimezone(UTC)) - 1, 0)
+
+
 def _bucket_value(
-    meta: EvaluationMeta, row: EvaluationBucketCounts | None, tracked_key: str | None, category_runs: int
+    meta: EvaluationMeta, row: _Totals | None, tracked_key: str | None, category_runs: int
 ) -> float | None:
     if row is None:
         return None
@@ -362,10 +370,12 @@ def evaluation_result(
     categories: Sequence[CategoryBucketCount],
 ) -> contracts.EvaluationResult:
     """`counts` and `categories` hold only this evaluation's rows, see `group_by_evaluation`."""
-    # Keyed by UTC instant: in a repeated daylight saving hour, a local bucket never equals the same instant from
-    # the ClickHouse driver, which uses another tzinfo.
-    by_bucket = {row.bucket.astimezone(UTC): row for row in counts if row.bucket is not None}
-    current = _sum(list(by_bucket.values()))
+    instants = [bucket.astimezone(UTC) for bucket in buckets]
+    by_bucket: dict[int, list[EvaluationBucketCounts]] = defaultdict(list)
+    for row in counts:
+        if row.bucket is not None:
+            by_bucket[_bucket_index(instants, row.bucket)].append(row)
+    current = _sum([row for row in counts if row.bucket is not None])
     previous = _sum([row for row in counts if row.bucket is None])
     previous_graded = _graded(meta.kind, previous)
     # A thin previous period is no fairer a baseline than a thin current one, so the summary leaves it out.
@@ -375,14 +385,16 @@ def evaluation_result(
     change = result_change(graded_count, summary)
     tracked = _tracked_category(summary, change, graded_count)
     tracked_key = tracked.key if tracked else None
-    tracked_runs: dict[datetime, int] = defaultdict(int)
-    for row in categories:
-        if row.bucket is not None and row.key == tracked_key:
-            tracked_runs[row.bucket.astimezone(UTC)] += row.runs
-    instants = [bucket.astimezone(UTC) for bucket in buckets]
+    tracked_runs: dict[int, int] = defaultdict(int)
+    for category in categories:
+        if category.bucket is not None and category.key == tracked_key:
+            tracked_runs[_bucket_index(instants, category.bucket)] += category.runs
+    bucket_totals = [_sum(by_bucket[index]) if index in by_bucket else None for index in range(len(buckets))]
     trend = contracts.EvaluationResultTrend(
-        values=[_bucket_value(meta, by_bucket.get(at), tracked_key, tracked_runs[at]) for at in instants],
-        volume=[_graded(meta.kind, _sum([by_bucket[at]])) if at in by_bucket else 0 for at in instants],
+        values=[
+            _bucket_value(meta, totals, tracked_key, tracked_runs[index]) for index, totals in enumerate(bucket_totals)
+        ],
+        volume=[_graded(meta.kind, totals) if totals is not None else 0 for totals in bucket_totals],
     )
     last_run_at = max((row.last_run_at for row in counts if row.last_run_at is not None), default=None)
     return contracts.EvaluationResult(

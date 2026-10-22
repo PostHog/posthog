@@ -7,6 +7,7 @@ that reads only those is correct without passing `true_is_failure` or `output_co
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Literal
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
@@ -118,21 +119,40 @@ _DEFINITION_BUILDERS: Mapping[str, Callable[[bool], EvaluationReportOutcomeDefin
 SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric", "categorical")
 
 
+_CATEGORIES_EXPRESSION = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
+_SCORE_EXPRESSION = "toFloat(properties.$ai_evaluation_numeric_result)"
+
+
+def categorical_rule_predicates(passing_categories: str | None) -> tuple[str, str]:
+    """The pass and fail predicates of a categorical passing rule. `passing_categories` is a HogQL array, or None
+    for a rule that passes only a run that chose no category."""
+    if passing_categories is None:
+        passing = f"empty({_CATEGORIES_EXPRESSION})"
+    else:
+        passing = f"(notEmpty({_CATEGORIES_EXPRESSION}) AND hasAll({passing_categories}, {_CATEGORIES_EXPRESSION}))"
+    applicable = "properties.$ai_evaluation_applicable = 'true'"
+    return f"{passing} AND {applicable}", f"NOT {passing} AND {applicable}"
+
+
+def numeric_rule_predicates(operator: Literal["gte", "lte"], threshold: str) -> tuple[str, str]:
+    """The pass and fail predicates of a numeric passing rule. `threshold` is a HogQL expression."""
+    passed_op, failed_op = (">=", "<") if operator == "gte" else ("<=", ">")
+    return (
+        f"{_SCORE_EXPRESSION} {passed_op} {threshold} AND {APPLICABLE_PREDICATE}",
+        f"{_SCORE_EXPRESSION} {failed_op} {threshold} AND {APPLICABLE_PREDICATE}",
+    )
+
+
 def _categorical_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = CategoricalOutputConfig.model_validate(output_config) if output_config else None
-    categories_expression = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
-    applicable_predicate = "properties.$ai_evaluation_applicable = 'true'"
     passed_predicate = "false"
     failed_predicate = "false"
 
     if config is not None and config.passing_rule is not None:
-        if config.passing_rule.categories:
-            passing = ", ".join(escape_hogql_string(category) for category in config.passing_rule.categories)
-            passing_condition = f"(notEmpty({categories_expression}) AND hasAll([{passing}], {categories_expression}))"
-        else:
-            passing_condition = f"empty({categories_expression})"
-        passed_predicate = f"{passing_condition} AND {applicable_predicate}"
-        failed_predicate = f"NOT {passing_condition} AND {applicable_predicate}"
+        categories = config.passing_rule.categories
+        passed_predicate, failed_predicate = categorical_rule_predicates(
+            f"[{', '.join(escape_hogql_string(category) for category in categories)}]" if categories else None
+        )
 
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
@@ -142,7 +162,7 @@ def _categorical_definition(output_config: dict | None) -> EvaluationReportOutco
             "na": "properties.$ai_evaluation_applicable = 'false'",
         },
         event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {NOT_SKIPPED_PREDICATE}",
-        result_expression=categories_expression,
+        result_expression=_CATEGORIES_EXPRESSION,
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression="NULL",
         passing_result=None,
@@ -152,21 +172,16 @@ def _categorical_definition(output_config: dict | None) -> EvaluationReportOutco
 
 def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = NumericOutputConfig.model_validate(output_config or {})
-    score = "toFloat(properties.$ai_evaluation_numeric_result)"
-    applicable = "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
     passed = failed = "false"
     if config.passing_rule is not None:
-        passed_op, failed_op = (">=", "<") if config.passing_rule.operator == "gte" else ("<=", ">")
-        threshold = repr(config.passing_rule.threshold)
-        passed = f"{score} {passed_op} {threshold} AND {applicable}"
-        failed = f"{score} {failed_op} {threshold} AND {applicable}"
+        passed, failed = numeric_rule_predicates(config.passing_rule.operator, repr(config.passing_rule.threshold))
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
         outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
         event_predicate=f"properties.$ai_evaluation_result_type = 'numeric' AND {NOT_SKIPPED_PREDICATE}",
-        result_expression=score,
+        result_expression=_SCORE_EXPRESSION,
         applicable_expression="properties.$ai_evaluation_applicable",
-        score_expression=score,
+        score_expression=_SCORE_EXPRESSION,
         passing_result=None,
         numeric_config=config,
     )

@@ -7,8 +7,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.printer.utils import prepare_and_print_ast
+
 from products.ai_observability.backend.facade.api import (
-    get_evaluation_pass_filters,
+    get_evaluation_overview_details,
     get_evaluations_overview,
     period_bound,
 )
@@ -17,6 +21,7 @@ from products.ai_observability.backend.logic.evaluations.overview_queries import
     load_bucket_counts,
     load_category_counts,
 )
+from products.ai_observability.backend.logic.evaluations.pass_filters import build_pass_rules
 from products.ai_observability.backend.logic.evaluations.period import OverviewPeriod, overview_period
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -111,7 +116,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
 
         ids = [str(judge.id), str(topic.id)]
         with patch("products.ai_observability.backend.logic.evaluations.overview_queries.PAGE_SIZE", page_size):
-            bucket_counts = load_bucket_counts(self.team, None, PERIOD, ids, get_evaluation_pass_filters(self.team.pk))
+            bucket_counts = load_bucket_counts(self.team, None, PERIOD, ids, build_pass_rules(self.team.pk, ids))
             category_counts = load_category_counts(self.team, None, PERIOD, [str(topic.id)])
         counts = {
             (row.evaluation_id, row.bucket): (row.passed, row.failed, row.not_applicable, row.skipped, row.categorized)
@@ -187,23 +192,86 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         assert overview.interval == "day"
         assert row.trend.volume == [0, 1, 0, 0]
 
+    @parameterized.expand(
+        [
+            # 01:30 on November 1 in New York, before and after the clocks fall back.
+            ("new_york_fall_back", "America/New_York", datetime(2026, 11, 1, 18, tzinfo=UTC), 24, ["05:30", "06:30"]),
+            # Lord Howe moves its clocks by 30 minutes on October 4, so from the next local midnight ClickHouse
+            # starts its hours half an hour away from the buckets.
+            (
+                "lord_howe_spring_forward",
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 4, 20, tzinfo=UTC),
+                48,
+                ["2026-10-03T10:00", "2026-10-04T14:10"],
+            ),
+            ("kolkata_half_hour_offset", "Asia/Kolkata", datetime(2026, 3, 10, 12, tzinfo=UTC), 24, ["05:15", "06:45"]),
+        ]
+    )
+    def test_every_hourly_run_lands_in_the_trend(
+        self, _name: str, timezone: str, now: datetime, hours: int, times: list[str]
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        judge = self._judge()
+        for at in times:
+            timestamp = at if "T" in at else f"{now.date().isoformat()}T{at}"
+            self._run(judge, f"{timestamp}:00Z", **{"$ai_evaluation_result": True})
+        flush_persons_and_events()
+
+        with time_machine.travel(now, tick=False):
+            overview = get_evaluations_overview(self.team, None, [str(judge.id)], now - timedelta(hours=hours), now)
+
+        [row] = overview.evaluations
+        assert overview.interval == "hour"
+        assert [volume for volume in row.trend.volume if volume] == [1] * len(times)
+        assert row.graded_count == len(times)
+
     @time_machine.travel(datetime(2026, 11, 1, 18, 0, tzinfo=UTC), tick=False)
-    def test_runs_in_a_repeated_daylight_saving_hour_land_in_their_own_buckets(self) -> None:
+    def test_a_window_inside_a_repeated_daylight_saving_hour_reads_its_runs(self) -> None:
         self.team.timezone = "America/New_York"
         self.team.save()
         judge = self._judge()
-        # 01:30 on November 1 in New York, before and after the clocks fall back.
-        for timestamp in ("2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z"):
-            self._run(judge, timestamp, **{"$ai_evaluation_result": True})
+        # 01:00 on November 1 in New York after the clocks fall back, between 01:40 before and 01:20 after it.
+        self._run(judge, "2026-11-01T06:00:00Z", **{"$ai_evaluation_result": False})
         flush_persons_and_events()
-        now = datetime(2026, 11, 1, 18, 0, tzinfo=UTC)
+        start, end = datetime(2026, 11, 1, 5, 40, tzinfo=UTC), datetime(2026, 11, 1, 6, 20, tzinfo=UTC)
 
-        overview = get_evaluations_overview(self.team, None, [str(judge.id)], now - timedelta(hours=24), now)
+        overview = get_evaluations_overview(self.team, None, [str(judge.id)], start, end)
+        details = get_evaluation_overview_details(self.team, None, str(judge.id), start, end)
 
-        [row] = overview.evaluations
-        first_hour = [bucket.astimezone(UTC) for bucket in overview.buckets].index(datetime(2026, 11, 1, 5, tzinfo=UTC))
-        assert row.trend.volume[first_hour : first_hour + 2] == [1, 1]
-        assert sum(row.trend.volume) == row.graded_count == 2
+        assert overview.evaluations[0].graded_count == 1
+        assert details.recent_failures is not None and len(details.recent_failures) == 1
+
+    def test_query_size_does_not_grow_with_the_number_of_evaluations(self) -> None:
+        def printed_size(count: int) -> int:
+            Evaluation.objects.filter(team=self.team).delete()
+            evaluations = Evaluation.objects.bulk_create(
+                Evaluation(
+                    team=self.team,
+                    name=f"Score {index}",
+                    evaluation_type="hog",
+                    output_type="numeric",
+                    output_config={"passing_rule": {"operator": "gte", "threshold": index}},
+                )
+                for index in range(count)
+            )
+            ids = [str(evaluation.id) for evaluation in evaluations]
+            with patch(
+                "products.ai_observability.backend.logic.evaluations.overview_queries.execute_hogql_query"
+            ) as execute:
+                execute.return_value.results = []
+                load_bucket_counts(self.team, None, PERIOD, ids, build_pass_rules(self.team.pk, ids))
+            context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                enable_select_queries=True,
+                database=Database.create_for_posthog_tables(self.team),
+            )
+            sql, _ = prepare_and_print_ast(execute.call_args.kwargs["query"], context, "clickhouse")
+            return len(sql)
+
+        assert printed_size(300) < printed_size(10) * 1.1
 
     @time_machine.travel(datetime(2026, 3, 10, 12, 30, tzinfo=UTC), tick=False)
     def test_a_day_or_shorter_buckets_by_hour_against_the_hours_before(self) -> None:

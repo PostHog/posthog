@@ -18,7 +18,7 @@ from ..logic.evaluations.overview import (
 )
 from ..logic.evaluations.overview_details import DetailsWindow, load_recent_failures, load_score_distribution
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
-from ..logic.evaluations.pass_filters import build_evaluation_pass_filters
+from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
 from ..logic.evaluations.period import overview_period, resolve_bound
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
@@ -227,9 +227,7 @@ def get_evaluations_overview(
     )
     metas = [_evaluation_meta(evaluation) for evaluation in evaluations]
     ids = [meta.id for meta in metas]
-    counts = group_by_evaluation(
-        load_bucket_counts(team, user, period, ids, build_evaluation_pass_filters(team.pk, evaluation_ids=ids))
-    )
+    counts = group_by_evaluation(load_bucket_counts(team, user, period, ids, build_pass_rules(team.pk, ids)))
     categories = group_by_evaluation(
         load_category_counts(team, user, period, [meta.id for meta in metas if meta.kind == "categories"])
     )
@@ -316,9 +314,7 @@ def get_evaluation_overview_details(
         evaluation_id=meta.id,
         start=start,
         end=end,
-        recent_failures=load_recent_failures(
-            team, user, meta.id, window, build_evaluation_pass_filters(team.pk, evaluation_ids=[meta.id])
-        )
+        recent_failures=load_recent_failures(team, user, meta.id, window, build_pass_rules(team.pk, [meta.id]))
         if meta.kind == "pass_rate"
         else None,
         score_distribution=load_score_distribution(team, user, meta.id, window, meta.scale, meta.score_step)

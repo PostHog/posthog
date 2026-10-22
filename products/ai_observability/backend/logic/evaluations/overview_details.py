@@ -3,13 +3,13 @@
 from datetime import datetime
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from ...facade import contracts
-from .overview_queries import NUMERIC_SCORED, SCORE, run_evaluation_query
+from .overview_queries import NUMERIC_SCORED, SCORE, instant, run_evaluation_query
+from .pass_filters import PassRules
 
 RECENT_FAILURES_LIMIT = 5
 REASONING_MAX_CHARS = 1000
@@ -25,7 +25,7 @@ _WHERE = (
 _FAILURES_QUERY = f"""
 SELECT timestamp, properties.$ai_evaluation_reasoning, properties.$ai_target_event_id, properties.$ai_trace_id
 FROM events
-WHERE {_WHERE} AND {{graded}} AND NOT {{passed}}
+WHERE {_WHERE} AND {{graded}} AND NOT {{passes}}
 ORDER BY timestamp DESC
 LIMIT {RECENT_FAILURES_LIMIT}
 """
@@ -92,8 +92,8 @@ def _truncate(value: object) -> str | None:
 def _placeholders(evaluation_id: str, window: DetailsWindow) -> dict[str, ast.Expr]:
     return {
         "evaluation_id": ast.Constant(value=evaluation_id),
-        "start": ast.Constant(value=window.start),
-        "end": ast.Constant(value=window.end),
+        "start": instant(window.start),
+        "end": instant(window.end),
     }
 
 
@@ -102,7 +102,7 @@ def load_recent_failures(
     user: User | None,
     evaluation_id: str,
     window: DetailsWindow,
-    pass_filters: contracts.EvaluationPassFilters,
+    pass_rules: PassRules,
 ) -> list[contracts.EvaluationFailure]:
     rows = run_evaluation_query(
         "ai_evaluations_overview_failures",
@@ -111,8 +111,8 @@ def load_recent_failures(
         user,
         {
             **_placeholders(evaluation_id, window),
-            "graded": parse_expr(pass_filters.graded),
-            "passed": parse_expr(pass_filters.passed),
+            "graded": pass_rules.graded,
+            "passes": pass_rules.passes,
         },
     )
     return [
