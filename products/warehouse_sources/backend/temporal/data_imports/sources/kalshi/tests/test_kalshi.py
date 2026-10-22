@@ -1,6 +1,13 @@
+import base64
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import pytest
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -12,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import (
+    KalshiCredentialsError,
     KalshiResumeConfig,
+    KalshiSignedAuth,
     _batch_markets,
     _candlestick_market,
     _CandlestickMarket,
@@ -26,8 +35,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
 
 
+def _pem(key: PrivateKeyTypes) -> str:
+    return key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode()
+
+
+_RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_ED25519_KEY = ed25519.Ed25519PrivateKey.generate()
+
+
 def _driver() -> SourceDriver:
-    return SourceDriver(KalshiSource(), KalshiSourceConfig())
+    return SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id="key-id", private_key=_pem(_RSA_KEY)))
+
+
+def _verify(key: PrivateKeyTypes, signature: bytes, message: bytes) -> bool:
+    try:
+        if isinstance(key, ed25519.Ed25519PrivateKey):
+            key.public_key().verify(signature, message)
+        else:
+            assert isinstance(key, rsa.RSAPrivateKey)
+            key.public_key().verify(
+                signature,
+                message,
+                padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+                hashes.SHA256(),
+            )
+    except InvalidSignature:
+        return False
+    return True
 
 
 def _page(data_key: str, items: list[dict[str, Any]], *, cursor: str | None = None) -> ScriptedResponse:
@@ -75,15 +111,18 @@ class TestKalshiTransport:
 
     @parameterized.expand(
         [
-            ("trades", "/trade-api/v2/markets/trades"),
-            ("historical_trades", "/trade-api/v2/historical/trades"),
+            ("trades", "/trade-api/v2/markets/trades", "created_time"),
+            ("historical_trades", "/trade-api/v2/historical/trades", "created_time"),
+            ("fills", "/trade-api/v2/portfolio/fills", "created_time"),
+            ("historical_fills", "/trade-api/v2/historical/fills", "created_time"),
+            ("settlements", "/trade-api/v2/portfolio/settlements", "settled_time"),
         ]
     )
-    def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str) -> None:
+    def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str, incremental_field: str) -> None:
         result = _driver().run(
             endpoint,
-            [_page("trades", [{"trade_id": "t1"}])],
-            incremental_field="created_time",
+            [_page(KALSHI_ENDPOINTS[endpoint].data_key, [{"id": "1"}])],
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
@@ -92,7 +131,9 @@ class TestKalshiTransport:
         assert result.requests[0].param("min_ts") == "1609459200"
         assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(["markets", "events", "milestones", "historical_markets"])
+    @parameterized.expand(
+        ["markets", "events", "milestones", "historical_markets", "orders", "historical_orders", "positions"]
+    )
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
@@ -136,6 +177,8 @@ class TestKalshiTransport:
         [
             ("trades", "desc"),
             ("historical_trades", "desc"),
+            ("fills", "desc"),
+            ("settlements", "desc"),
             ("markets", "asc"),
             ("series", "asc"),
         ]
@@ -193,6 +236,75 @@ class TestKalshiTransport:
             assert validate_credentials() is expected
 
         assert network.requests_log[0].path == "/trade-api/v2/exchange/status"
+
+
+class TestKalshiPortfolio:
+    @parameterized.expand([("rsa", _RSA_KEY), ("ed25519", _ED25519_KEY)])
+    def test_signs_method_and_path_without_the_query(self, _name: str, key: PrivateKeyTypes) -> None:
+        driver = SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id="key-id", private_key=_pem(key)))
+        result = driver.run("fills", [_page("fills", [{"fill_id": "f1"}])])
+
+        assert result.raised is None
+        request = result.requests[0]
+        assert request.param("limit") == "1000"
+        assert request.headers["kalshi-access-key"] == "key-id"
+        message = f"{request.headers['kalshi-access-timestamp']}GET/trade-api/v2/portfolio/fills".encode()
+        assert _verify(key, base64.b64decode(request.headers["kalshi-access-signature"]), message)
+
+    def test_public_endpoints_are_not_signed(self) -> None:
+        result = _driver().run("markets", [_page("markets", [{"ticker": "A"}])])
+
+        assert result.raised is None
+        assert "kalshi-access-signature" not in result.requests[0].headers
+
+    @parameterized.expand(
+        [
+            ("no_key", None, None),
+            ("key_id_only", "key-id", None),
+        ]
+    )
+    def test_portfolio_endpoint_without_a_key_fails_before_any_request(
+        self, _name: str, api_key_id: str | None, private_key: str | None
+    ) -> None:
+        driver = SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id=api_key_id, private_key=private_key))
+        result = driver.run("orders", [_page("orders", [])])
+
+        assert isinstance(result.raised, KalshiCredentialsError)
+        assert result.requests == []
+
+    def test_rejects_a_private_key_that_is_not_pem(self) -> None:
+        with pytest.raises(KalshiCredentialsError):
+            KalshiSignedAuth("key-id", "not a key")
+
+    @parameterized.expand(
+        [
+            ("positions", "/trade-api/v2/portfolio/positions", "all"),
+            ("historical_positions", "/trade-api/v2/historical/positions", None),
+        ]
+    )
+    def test_positions_read_market_positions_in_every_settlement_state(
+        self, endpoint: str, path: str, settlement_status: str | None
+    ) -> None:
+        # `/portfolio/positions` returns only unsettled positions unless asked for all of them.
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(
+                    json={
+                        "market_positions": [{"ticker": "A"}],
+                        "event_positions": [{"event_ticker": "E"}],
+                        "cursor": "c1",
+                    }
+                ),
+                ScriptedResponse(json={"market_positions": [{"ticker": "B"}], "event_positions": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [path, path]
+        assert result.params("settlement_status") == [settlement_status, settlement_status]
+        assert result.params("cursor") == [None, "c1"]
+        assert [row["ticker"] for row in result.rows] == ["A", "B"]
 
 
 class TestKalshiCandlesticks:
