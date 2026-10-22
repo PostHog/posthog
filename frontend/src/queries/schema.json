@@ -18582,7 +18582,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "enum": ["custom_property", "relationship"],
+                    "enum": ["custom_property", "relationship", "account_field"],
                     "type": "string"
                 }
             },
