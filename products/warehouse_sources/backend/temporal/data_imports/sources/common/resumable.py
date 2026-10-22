@@ -261,14 +261,18 @@ class ResumableSourceManager(Generic[ResumableData]):
 
         A cursor is keyed by job, and the run after an interrupted job is a new job. Without the copy
         that run reads the source from the start again, so a table whose first load takes longer than
-        one job can run never finishes. The copy covers every namespace, and it never replaces state
-        that this job committed itself. The caller must make sure that every row before the copied
-        cursor reaches the table.
+        one job can run never finishes. The copy covers every namespace. It copies nothing once this
+        job has state of its own, in any namespace: every execution of this job calls it, and a
+        later one must not bring back a namespace that this job already cleared. The caller must
+        make sure that every row before the copied cursor reaches the table.
         """
         source_base = self._job_key(job_id)
         target_base = self._job_key(self._inputs.job_id)
         found = 0
         with self._write_fence.writing(), self._get_redis() as redis_client:
+            if redis_client.exists(target_base) or next(iter(redis_client.scan_iter(match=f"{target_base}:*")), None):
+                self._logger.debug(f"Not continuing another job: this job has resume state. key={target_base}")
+                return False
             for source_key in [source_base, *redis_client.scan_iter(match=f"{source_base}:*")]:
                 source_key = source_key.decode() if isinstance(source_key, bytes) else source_key
                 data = redis_client.get(source_key)

@@ -356,33 +356,60 @@ class TestJobToContinue(BaseTest):
         )
         ExternalDataJob.objects.filter(id=previous.id).update(created_at=job.created_at - timedelta(minutes=1))
 
-        job_to_continue = cast(Any, module._job_to_continue).func(job, schema)
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
 
-        assert (job_to_continue.id if job_to_continue else None) == (previous.id if expected else None)
+        assert [continued.id for continued in jobs_to_continue] == ([previous.id] if expected else [])
 
-    def test_only_the_job_right_before_counts(self) -> None:
+    def test_the_chain_stops_at_the_first_job_that_worker_restarts_did_not_stop(self) -> None:
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
         )
         schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
-        interrupted = ExternalDataJob.objects.create(
-            team=self.team,
-            pipeline=source,
-            schema=schema,
-            status=ExternalDataJob.Status.FAILED,
-            latest_error=WORKER_RESTART_ERROR_MESSAGE,
-            schema_snapshot={"sync_type": "webhook"},
-        )
+
+        def stopped() -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error=WORKER_RESTART_ERROR_MESSAGE,
+                schema_snapshot={"sync_type": "webhook"},
+            )
+
+        before_completed = stopped()
         completed = ExternalDataJob.objects.create(
             team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED
         )
+        older, newer = stopped(), stopped()
         job = ExternalDataJob.objects.create(
             team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
         )
-        ExternalDataJob.objects.filter(id=interrupted.id).update(created_at=job.created_at - timedelta(minutes=2))
-        ExternalDataJob.objects.filter(id=completed.id).update(created_at=job.created_at - timedelta(minutes=1))
+        for minutes, previous in enumerate([newer, older, completed, before_completed], start=1):
+            ExternalDataJob.objects.filter(id=previous.id).update(
+                created_at=job.created_at - timedelta(minutes=minutes)
+            )
 
-        assert cast(Any, module._job_to_continue).func(job, schema) is None
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
+
+        assert [continued.id for continued in jobs_to_continue] == [newer.id, older.id]
+
+    def test_the_continuing_job_counts_the_rows_of_the_job_it_continues_once(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
+        stopped = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.FAILED, rows_synced=500
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+
+        job.refresh_from_db()
+        assert job.rows_synced == 500
 
 
 @pytest.mark.asyncio
@@ -1270,9 +1297,13 @@ async def test_reset_run_drops_cursors_but_preserves_sync_history(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reset_pipeline,continues", [(False, True), (True, False)], ids=["sync", "reset"])
+@pytest.mark.parametrize(
+    "reset_pipeline,copied,continues",
+    [(False, True, True), (False, False, True), (True, False, False)],
+    ids=["first_execution", "later_execution", "reset"],
+)
 async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unless_it_resets(
-    reset_pipeline: bool, continues: bool
+    reset_pipeline: bool, copied: bool, continues: bool
 ) -> None:
     source = mock.MagicMock(spec=ResumableSource)
     source.parse_config.return_value = {}
@@ -1281,10 +1312,13 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
     schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
 
     interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+    earlier = mock.MagicMock(id="earlier-job", workflow_run_id="earlier-run")
+    manager.continue_from_job.return_value = copied
 
     with (
         _patched_activity_reaching_run(source, schema) as run_mock,
-        mock.patch.object(module, "_job_to_continue", new=mock.AsyncMock(return_value=interrupted)),
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted, earlier])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()) as carry,
     ):
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
 
@@ -1292,7 +1326,10 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
         manager.continue_from_job.assert_called_once_with("interrupted-job")
     else:
         manager.continue_from_job.assert_not_called()
+    # A later execution of the continuing job copies nothing, and still holds the loader to the stopped jobs.
+    assert carry.await_count == (1 if continues and copied else 0)
     assert run_mock.call_args.kwargs["continued_workflow_run_id"] == ("interrupted-run" if continues else None)
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (("interrupted-job", "earlier-job") if continues else ())
 
 
 @pytest.mark.asyncio

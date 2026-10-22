@@ -227,9 +227,24 @@ class TestContinueFromJob:
         next_job.continue_from_job("job-1")
         _commit(next_job, "ch_50")
 
-        next_job.continue_from_job("job-1")
+        assert next_job.continue_from_job("job-1") is False
 
         assert next_job.load_state() == _SweepPosition(cursor="ch_50")
+
+    def test_a_later_execution_does_not_bring_back_a_namespace_the_job_cleared(self):
+        interrupted = _manager("job-1")
+        _commit(interrupted, "ch_100")
+        _commit(interrupted.with_namespace("refunds"), "re_7")
+        next_job = _manager("job-2")
+        next_job.continue_from_job("job-1")
+        next_job.with_namespace("refunds").clear_state()
+        next_job.clear_state()
+        _commit(next_job.with_namespace("disputes"), "dp_3")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.with_namespace("refunds").load_state() is None
+        assert next_job.load_state() is None
 
 
 class TestResumeCoversRun:

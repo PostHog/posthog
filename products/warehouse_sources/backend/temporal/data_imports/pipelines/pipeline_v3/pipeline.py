@@ -214,6 +214,7 @@ class PipelineV3(Generic[ResumableData]):
         preemption: PreemptionConfig | None = None,
         kept_rows_synced: int | None = None,
         continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
     ) -> None:
         self._resource = source_response
         self._kept_rows_synced = kept_rows_synced
@@ -370,6 +371,7 @@ class PipelineV3(Generic[ResumableData]):
             "partition_format": partition_format,
             "partition_mode": partition_mode,
             "is_first_ever_sync": is_first_ever_sync,
+            "continued_job_ids": list(continued_job_ids),
         }
         self._pg_producer = self._build_producer(
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
