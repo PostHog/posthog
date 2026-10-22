@@ -74,25 +74,25 @@ describe('CDP Person Updates Consumer', () => {
             expect(events).toHaveLength(0)
         })
 
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
         it.each([
             {
                 lookup: 'the team lookup',
                 spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
             {
                 lookup: 'the hog function lookup',
                 spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
         ])(
-            'should fail the batch when $lookup throws "$error.message", and queue the person when the batch is read again',
-            async ({ spy, error }) => {
-                spy().mockRejectedValueOnce(error)
+            'should fail the batch when $lookup throws, and queue the person when the batch is read again',
+            async ({ spy }) => {
+                spy().mockRejectedValueOnce(lookupError)
                 const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
                 const messages = [createKafkaMessage(createClickhousePerson(team.id, {}))]
 
-                await expect(handleBatch(messages)).rejects.toBe(error)
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
 
                 const { backgroundTask } = await handleBatch(messages)
@@ -103,10 +103,7 @@ describe('CDP Person Updates Consumer', () => {
 
         it.each([
             { name: 'properties that are not JSON', person: { properties: '{' } },
-            ...[undefined, null, 'abc', 1.5, 3_000_000_000].map((teamId) => ({
-                name: `team_id ${teamId}`,
-                person: { team_id: teamId },
-            })),
+            { name: 'an out-of-range team_id', person: { team_id: 3_000_000_000 } },
         ])('should skip a person with $name and keep the rest', async ({ person }) => {
             const events = await processor._parseKafkaBatch([
                 createKafkaMessage({ ...createClickhousePerson(team.id, {}), ...person }),

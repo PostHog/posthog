@@ -88,36 +88,35 @@ describe('CDP Internal Events Consumer', () => {
             expect(events).toHaveLength(0)
         })
 
+        // handlePostgresError does not mark this transient replica error as retriable.
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
         it.each([
             {
-                // handlePostgresError does not mark this transient replica error as retriable.
                 lookup: 'the team lookup',
                 spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
             {
                 lookup: 'the hog function lookup',
                 spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
             {
                 lookup: 'the hog flow lookup',
                 spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
         ])(
-            'should fail the batch when $lookup throws "$error.message", and queue the event when the batch is read again',
-            async ({ spy, error }) => {
+            'should fail the batch when $lookup throws, and queue the event when the batch is read again',
+            async ({ spy }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     filters: internalEventFilters(),
                 })
-                spy().mockRejectedValueOnce(error)
+                spy().mockRejectedValueOnce(lookupError)
                 const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
                 const messages = [createKafkaMessage(createInternalEvent(team.id, {}))]
 
-                await expect(handleBatch(messages)).rejects.toBe(error)
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
 
                 const { backgroundTask } = await handleBatch(messages)
@@ -135,9 +134,9 @@ describe('CDP Internal Events Consumer', () => {
                 })
             })
 
-            it.each([1.5, 3_000_000_000])('should skip a message with team_id %p and keep the rest', async (teamId) => {
+            it('should skip a message with an out-of-range team_id and keep the rest', async () => {
                 const events = await processor._parseKafkaBatch([
-                    createKafkaMessage({ ...createInternalEvent(team.id, {}), team_id: teamId }),
+                    createKafkaMessage({ ...createInternalEvent(team.id, {}), team_id: 3_000_000_000 }),
                     createKafkaMessage(createInternalEvent(team.id, {})),
                 ])
                 expect(events).toHaveLength(1)

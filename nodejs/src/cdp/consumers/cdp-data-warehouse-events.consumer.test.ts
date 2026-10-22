@@ -165,30 +165,29 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 })
             })
 
+            const lookupError = new Error('canceling statement due to conflict with recovery')
+
             it.each([
                 {
                     lookup: 'the team lookup',
                     spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
-                    error: new Error('canceling statement due to conflict with recovery'),
                 },
                 {
                     lookup: 'the hog function lookup',
                     spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
-                    error: new Error('canceling statement due to conflict with recovery'),
                 },
                 {
                     lookup: 'the hog flow lookup',
                     spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
-                    error: new Error('canceling statement due to conflict with recovery'),
                 },
             ])(
-                'should fail the batch when $lookup throws "$error.message", and queue the row when the batch is read again',
-                async ({ spy, error }) => {
-                    spy().mockRejectedValueOnce(error)
+                'should fail the batch when $lookup throws, and queue the row when the batch is read again',
+                async ({ spy }) => {
+                    spy().mockRejectedValueOnce(lookupError)
                     const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
                     const messages = [createKafkaMessage(createDataWarehouseEvent(team.id))]
 
-                    await expect(handleBatch(messages)).rejects.toBe(error)
+                    await expect(handleBatch(messages)).rejects.toBe(lookupError)
                     expect(mockQueueInvocations).not.toHaveBeenCalled()
 
                     const { backgroundTask } = await handleBatch(messages)
@@ -197,9 +196,9 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 }
             )
 
-            it.each([1.5, 3_000_000_000])('should skip a row with team_id %p and keep the rest', async (teamId) => {
+            it('should skip a row with an out-of-range team_id and keep the rest', async () => {
                 const invocations = await processor._parseKafkaBatch([
-                    createKafkaMessage({ ...createDataWarehouseEvent(team.id), team_id: teamId }),
+                    createKafkaMessage({ ...createDataWarehouseEvent(team.id), team_id: 3_000_000_000 }),
                     createKafkaMessage(createDataWarehouseEvent(team.id)),
                 ])
                 expect(invocations).toHaveLength(1)

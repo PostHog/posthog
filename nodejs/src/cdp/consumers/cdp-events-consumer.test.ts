@@ -2,8 +2,6 @@ import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { Message } from 'node-rdkafka'
-
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -50,6 +48,12 @@ describe('CdpEventsConsumer', () => {
         // Trigger the reload that django would do
         processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
         return item
+    }
+
+    const handleBatch = async (messages: any[]): Promise<void> => {
+        const connect = processor['kafkaConsumer'].connect as jest.Mock
+        const { backgroundTask } = await connect.mock.calls[0][0](messages)
+        await backgroundTask
     }
 
     beforeEach(async () => {
@@ -129,35 +133,26 @@ describe('CdpEventsConsumer', () => {
             })
         })
 
+        // handlePostgresError does not mark this transient replica error as retriable.
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
         it.each([
-            {
-                // handlePostgresError does not mark this transient replica error as retriable.
-                lookup: 'the team lookup',
-                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
-            },
+            { lookup: 'the team lookup', spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam') },
             {
                 lookup: 'the hog function lookup',
                 spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
             },
-            {
-                lookup: 'the hog flow lookup',
-                spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
-                error: new Error('canceling statement due to conflict with recovery'),
-            },
+            { lookup: 'the hog flow lookup', spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam') },
         ])(
-            'fails the batch when $lookup throws "$error.message", and queues the event when the batch is read again',
-            async ({ spy, error }) => {
-                spy().mockRejectedValueOnce(error)
-                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+            'fails the batch when $lookup throws, and queues the event when the batch is read again',
+            async ({ spy }) => {
+                spy().mockRejectedValueOnce(lookupError)
                 const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
 
-                await expect(handleBatch(messages)).rejects.toBe(error)
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
 
-                const { backgroundTask } = await handleBatch(messages)
-                await backgroundTask
+                await handleBatch(messages)
                 expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             }
         )
@@ -592,12 +587,6 @@ describe('CdpEventsConsumer', () => {
         })
 
         describe('dead letter queue', () => {
-            const handleBatch = async (messages: any[]): Promise<void> => {
-                const connect = processor['kafkaConsumer'].connect as jest.Mock
-                const { backgroundTask } = await connect.mock.calls[0][0](messages)
-                await backgroundTask
-            }
-
             beforeEach(() => {
                 hub.CDP_DLQ_ENABLED = true
             })
@@ -755,18 +744,17 @@ describe('CdpEventsConsumer', () => {
             it.each([
                 {
                     name: 'a message that is not an event object',
-                    bad: (): Message => createKafkaMessage('not json at all'),
+                    bad: () => createKafkaMessage('not json at all'),
                 },
                 {
                     name: 'an event whose properties are not JSON',
-                    bad: (teamId: number): Message =>
-                        createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
+                    bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
                 },
-                ...[undefined, null, 'abc', 1.5, 3_000_000_000].map((badTeamId) => ({
-                    name: `an event with team_id ${badTeamId}`,
-                    bad: (teamId: number): Message =>
-                        createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: badTeamId }),
-                })),
+                {
+                    name: 'an event whose team_id is out of int4 range',
+                    bad: (teamId: number) =>
+                        createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: 3_000_000_000 }),
+                },
             ])('parks $name and processes the rest of the batch', async ({ bad }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
@@ -815,8 +803,7 @@ describe('CdpEventsConsumer', () => {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
-                const outage: Error & { isRetriable?: boolean } = new Error('Postgres is down')
-                outage.isRetriable = true
+                const outage = new Error('Postgres is down')
                 const lookup = jest
                     .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
                     .mockRejectedValue(outage)

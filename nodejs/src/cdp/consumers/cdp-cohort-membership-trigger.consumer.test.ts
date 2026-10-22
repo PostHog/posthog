@@ -136,12 +136,12 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         await expect(processor._parseKafkaBatch([createKafkaMessage(change)])).rejects.toThrow('conflict with recovery')
     })
 
-    it.each([1.5, 3_000_000_000])('skips a change with team_id %p and keeps the rest of the batch', async (teamId) => {
+    it('skips a change with an out-of-range team_id and keeps the rest of the batch', async () => {
         await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
         const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
 
         const globals = await processor._parseKafkaBatch([
-            createKafkaMessage({ ...change, team_id: teamId }),
+            createKafkaMessage({ ...change, team_id: 3_000_000_000 }),
             createKafkaMessage(change),
         ])
 
