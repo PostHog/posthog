@@ -52,7 +52,7 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",), ("pr_owner_selection",)])
+    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",)])
     def test_system_decision_type_cannot_be_written(self, artefact_type: str) -> None:
         report = self._create_report()
         response = self.client.post(
@@ -62,19 +62,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "read-only" in response.json()["error"]
-
-    @parameterized.expand([("patch",), ("delete",)])
-    def test_pr_owner_selection_cannot_be_mutated(self, method: str) -> None:
-        report = self._create_report()
-        artefact = SignalReportArtefact.objects.create(
-            team=self.team, report=report, type="pr_owner_selection", content="{}"
-        )
-        response = getattr(self.client, method)(
-            self._detail_url(str(report.id), str(artefact.id)), {"content": {}}, format="json"
-        )
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        artefact.refresh_from_db()
-        assert artefact.content == "{}"
 
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"

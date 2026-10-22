@@ -1,32 +1,21 @@
-"""Assign ownership and request reviews on a report's implementation PR.
+"""Apply report assignments and request reviews on implementation pull requests.
 
-Somebody whose workflow is GitHub's "Assigned to me" never sees an inbox PR otherwise, because
-every self-driving pull request opens with no assignee.
+With research selection and the assignment writer enabled, the report's saved reviewers
+supply the PR assignees. GitHub access checks can reject a person but never select another.
+Existing GitHub assignments and manual unassignment remain authoritative.
 
-Under `signals-pr-dri-assignee`, an unassigned pull request gets at most one owner. Human claims
-and protected reviewer lists take precedence. With the writer and research selection enabled,
-a saved PR-specific relevance decision orders suitable candidates, with opted-in people first.
-Otherwise the legacy policy uses owning-team membership and report reviewers.
-
-Without the flag the older rule stands: every suggested reviewer who opted in through
-`SignalUserAutonomyConfig.github_assign_on_pull_request` is added, and there is no DRI.
-
-Suggested reviewers with a connected GitHub account receive review requests. The pull request
-author, assignees, and existing requested reviewers are left alone.
-
-Best effort throughout: a GitHub failure must never break the claim, sync, or reviewer edit that
-triggered it.
+Other projects retain the legacy DRI and opt-in policies. Task execution permission is
+separate from report and PR assignment. GitHub failures must not break report writes.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import prefetch_related_objects
 
 import structlog
 from pydantic import ValidationError
@@ -50,19 +39,20 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.pr_owner_decisions import PROwnerDecisionService
-from products.signals.backend.pr_owner_selection import dri_candidate_logins, ordered_owner_logins
 from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
     _github_identity_prefetches,
     _normalized_reviewer_user_uuid,
+    get_org_member_github_logins_by_user_uuid,
     normalized_github_logins_from_reviewer_payloads,
     resolve_org_github_login_to_users,
-    resolve_org_users_by_uuid,
 )
-from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
+
+if TYPE_CHECKING:
+    from products.signals.backend.reviewer_rules import ReviewerSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -119,7 +109,7 @@ def schedule_reviewer_pr_assignment(
     )
 
 
-def _latest_reviewer_rows(*, team_id: int, report_id: str) -> list[dict[str, Any]]:
+def _latest_reviewer_rows(report_id: str) -> list[dict[str, Any]]:
     """The rows of the report's latest `suggested_reviewers` artefact, in their stored order.
 
     Only the latest row is the live reviewer set, so a reviewer removed from the list is not
@@ -127,7 +117,6 @@ def _latest_reviewer_rows(*, team_id: int, report_id: str) -> list[dict[str, Any
     """
     latest = (
         SignalReportArtefact.objects.filter(
-            team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
@@ -147,9 +136,7 @@ def _latest_reviewer_rows(*, team_id: int, report_id: str) -> list[dict[str, Any
 
 def opted_in_assignee_logins(*, team_id: int, report_id: str) -> list[str]:
     """GitHub logins of the report's current suggested reviewers who opted in to PR assignment."""
-    logins = normalized_github_logins_from_reviewer_payloads(
-        _latest_reviewer_rows(team_id=team_id, report_id=report_id)
-    )
+    logins = normalized_github_logins_from_reviewer_payloads(_latest_reviewer_rows(report_id))
     if not logins:
         return []
     login_to_user = resolve_org_github_login_to_users(team_id, logins)
@@ -225,23 +212,10 @@ def human_claimant_login(*, team_id: int, report_id: str) -> str | None:
         user = responsible_user(claim)
     else:
         return None
-    if (
-        user is None
-        or not Team.objects.get(id=team_id).all_users_with_access().filter(id=user.id, is_active=True).exists()
-    ):
+    if user is None:
         return None
-    login = user.get_github_login(include_team_fallback=False)
-    return login.lower() if login else None
-
-
-def _has_human_claim(*, team_id: int, report_id: str) -> bool:
-    claim = get_active_claim(team_id=team_id, report_id=report_id)
-    if claim is None:
-        return False
-    return claim.actor_kind in (SignalActorKind.USER, SignalActorKind.AGENT) or (
-        claim.actor_task_id is not None
-        and _is_manual_implementation_task(team_id=team_id, report_id=report_id, task_id=claim.actor_task_id)
-    )
+    user_uuid = str(user.uuid)
+    return get_org_member_github_logins_by_user_uuid(team_id, [user_uuid]).get(user_uuid)
 
 
 def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
@@ -251,35 +225,14 @@ def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
     from commit history that belongs to nobody in the organization is never assigned.
     """
     rows_with_uuid = [
-        (row, _normalized_reviewer_user_uuid(row.get("user_uuid")))
-        for row in _latest_reviewer_rows(team_id=team_id, report_id=report_id)
+        (row, _normalized_reviewer_user_uuid(row.get("user_uuid"))) for row in _latest_reviewer_rows(report_id)
     ]
-    if not rows_with_uuid:
-        return []
-    members_by_uuid = resolve_org_users_by_uuid(team_id, [uuid for _, uuid in rows_with_uuid if uuid])
-    prefetch_related_objects(list(members_by_uuid.values()), *_github_identity_prefetches())
+    login_by_uuid = get_org_member_github_logins_by_user_uuid(team_id, [uuid for _, uuid in rows_with_uuid if uuid])
     # A row stored by uuid names the reviewer by that uuid, so its login is only read for a row without one.
     member_logins = resolve_org_github_login_to_users(
         team_id,
         normalized_github_logins_from_reviewer_payloads(row for row, uuid in rows_with_uuid if uuid is None),
     )
-    candidate_uuids = {str(member.uuid) for member in [*members_by_uuid.values(), *member_logins.values()]}
-    eligible_ids = set(
-        Team.objects.get(id=team_id)
-        .all_users_with_access(user_uuids=candidate_uuids)
-        .filter(is_active=True)
-        .values_list("id", flat=True)
-    )
-    login_by_uuid = {
-        uuid: login.lower()
-        for uuid, member in members_by_uuid.items()
-        if member.id in eligible_ids and (login := member.get_github_login(include_team_fallback=False))
-    }
-    member_logins = {
-        login: user
-        for login, user in member_logins.items()
-        if user.id in eligible_ids and (user.get_github_login(include_team_fallback=False) or "").lower() == login
-    }
 
     candidates: list[str | None] = []
     for row, uuid in rows_with_uuid:
@@ -343,13 +296,7 @@ def _assignable_pull_request(
 
 
 def _add_assignees(
-    github: GitHubIntegration,
-    *,
-    team_id: int,
-    report_id: str,
-    parsed: PullRequestRef,
-    logins: list[str],
-    require_delivery_flags: bool = False,
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
 ) -> list[str] | None:
     """Add the logins to the pull request.
 
@@ -360,13 +307,6 @@ def _add_assignees(
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
-            return None
-        if require_delivery_flags and not (
-            _pr_dri_enabled(team_id)
-            and assignment_writer_enabled(team_id)
-            and team_research_reviewer_selection_enabled(team_id)
-            and assignment_side_effects_enabled(team_id)
-        ):
             return None
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
@@ -392,7 +332,6 @@ def _request_reviews(
     parsed: PullRequestRef,
     pr: dict[str, Any],
     reviewers: list[str],
-    require_delivery_flags: bool = False,
 ) -> list[str]:
     existing = {
         str(login).lower()
@@ -419,12 +358,6 @@ def _request_reviews(
 
     try:
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
-            return []
-        if require_delivery_flags and not (assignment_side_effects_enabled(team_id)):
-            return []
-        current_reviewers = set(ranked_reviewer_logins(team_id=team_id, report_id=report_id))
-        wanted = [login for login in wanted if login in current_reviewers]
-        if not wanted:
             return []
         result = github.request_pull_request_reviews(parsed.repository, parsed.number, wanted)
     except Exception:
@@ -501,150 +434,121 @@ def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_i
     return bool(result.get("unassigned"))
 
 
-def _assign_relevant_owner(
+def dri_candidate_logins(
+    *, claimant: str | None, opted_in: set[str], team: OwningTeam | None, reviewers: list[str]
+) -> list[str]:
+    """GitHub logins that can be the DRI, the most responsible first.
+
+    In order: the person who chose the work, then somebody who asked to be assigned, then a member
+    of the team that owns the changed files. The suggested reviewers are the owners only when no
+    ownership source names a team.
+
+    Among those who opted in, an owning-team member comes first. Among the owning team, commit
+    history gives no priority, so one prolific committer does not get every pull request.
+    """
+    team_logins = list(team.logins) if team is not None and team.logins else []
+    owners = team_logins or reviewers
+    opted_in_ranked = [login for login in reviewers if login in opted_in]
+
+    candidates = [claimant]
+    candidates += [login for login in opted_in_ranked if login in team_logins]
+    candidates += opted_in_ranked
+    candidates += owners
+    return list(dict.fromkeys(login for login in candidates if login))
+
+
+def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot) -> list[str]:
+    linked = resolve_org_github_login_to_users(
+        team.id, [entry.github_login for entry in snapshot.reviewers if entry.github_login and not entry.user_uuid]
+    )
+    identities = [
+        entry.model_copy(update={"user_uuid": str(member.uuid)})
+        if not entry.user_uuid and entry.github_login and (member := linked.get(entry.github_login.lower()))
+        else entry
+        for entry in snapshot.reviewers
+    ]
+    uuids = [entry.user_uuid for entry in identities if entry.user_uuid]
+    members = (
+        team.all_users_with_access(user_uuids=uuids)
+        .filter(is_active=True)
+        .prefetch_related(*_github_identity_prefetches())
+        if uuids
+        else []
+    )
+    logins = {
+        str(member.uuid): login.lower()
+        for member in members
+        if (login := member.get_github_login(include_team_fallback=False))
+    }
+    return list(
+        dict.fromkeys(
+            login
+            for entry in identities
+            if entry.user_uuid
+            and (login := logins.get(entry.user_uuid))
+            and not contains_reviewer(snapshot.corrections.excluded, entry)
+        )
+    )
+
+
+def _assign_report_reviewers(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, pr: dict[str, Any]
 ) -> list[str]:
+    if pr.get("assignees") or _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        return []
+
     log = logger.bind(team_id=team_id, report_id=report_id)
-    if not pr.get("head_sha") or not pr.get("base_sha"):
-        log.warning("signals.pr_owner.scope_lookup_failed")
-        return []
-    service = PROwnerDecisionService(team_id=team_id, report_id=report_id, github=github)
-    snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-    inputs = service.inputs(
-        repository=parsed.repository, pr_number=parsed.number, head_sha=pr["head_sha"], base_sha=pr["base_sha"]
-    )
-    if snapshot.corrections.needs_review or snapshot.state != inputs.report_state:
-        log.info("signals.pr_owner.human_protected")
-        return []
-    selected = service.prepare(inputs, snapshot)
-    if selected is None or selected.decision.outcome != "selected":
-        return []
-    eligible = service.eligible_logins(selected)
-    candidates = [
-        login for login in ordered_owner_logins(selected.decision, eligible.opted_in) if login in eligible.logins
-    ]
-    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
-    if dri is None:
-        return []
-
-    current_eligible = service.eligible_logins(selected)
-    if dri not in current_eligible.logins or current_eligible.opted_in != eligible.opted_in:
-        log.info("signals.pr_owner.access_changed")
-        return []
-    current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if current_pr is None or current_pr.get("assignees"):
-        return []
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
-        return []
-    current = service.inputs(
-        repository=parsed.repository,
-        pr_number=parsed.number,
-        head_sha=current_pr.get("head_sha") or "",
-        base_sha=current_pr.get("base_sha") or "",
-    )
-    if not service.same_scope(inputs, current) or _has_human_claim(team_id=team_id, report_id=report_id):
-        log.info("signals.pr_owner.stale")
-        return []
-    if not (
-        _pr_dri_enabled(team_id)
-        and assignment_writer_enabled(team_id)
-        and team_research_reviewer_selection_enabled(team_id)
-        and assignment_side_effects_enabled(team_id)
-        and assignment_side_effects_allowed(team_id=team_id, report_id=report_id)
-    ):
-        log.info("signals.pr_owner.application_disabled")
-        return []
-    return (
-        _add_assignees(
-            github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri], require_delivery_flags=True
-        )
-        or []
-    )
-
-
-def _assign_one_dri(
-    github: GitHubIntegration,
-    *,
-    team_id: int,
-    report_id: str,
-    parsed: PullRequestRef,
-    pr: dict[str, Any],
-    opted_in: set[str],
-    reviewers: list[str],
-    require_delivery_flags: bool = False,
-) -> list[str]:
-    """Put exactly one directly responsible individual on a pull request that has none.
-
-    A pull request somebody already assigned has an owner, and a pull request somebody unassigned by
-    hand was a decision a later report event must not undo. Both are left alone.
-    """
-    if pr.get("assignees"):
-        return []
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
-        return []
-
     try:
+        team = Team.objects.get(id=team_id)
         snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-        service = PROwnerDecisionService(team_id=team_id, report_id=report_id, github=github)
-        if snapshot.corrections.needs_review or (snapshot.corrections.confirmed and not snapshot.reviewers):
+        if snapshot.corrections.needs_review:
             return []
-        claimant = human_claimant_login(team_id=team_id, report_id=report_id)
-        if claimant is None and _has_human_claim(team_id=team_id, report_id=report_id):
-            logger.info("signals.pr_owner.claimant_unavailable", team_id=team_id, report_id=report_id)
-            return []
-        if claimant:
-            candidates = [claimant]
-        elif assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id):
-            return _assign_relevant_owner(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
-        else:
-            logger.info("signals.pr_owner.legacy_policy", team_id=team_id, report_id=report_id)
-            candidates = dri_candidate_logins(
-                claimant=None,
-                opted_in=opted_in,
-                team=_owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed),
-                reviewers=reviewers,
+        candidates = _report_assignee_logins(team, snapshot)
+        if len(candidates) < len(snapshot.reviewers):
+            log.info(
+                "signals.reviewer_pr_assignment.unavailable_accounts",
+                selected=len(snapshot.reviewers),
+                linked=len(candidates),
             )
-        candidates = service.filter_corrections(candidates, snapshot)
-    except Exception as error:
-        logger.warning(
-            "signals.pr_owner.lookup_failed", team_id=team_id, report_id=report_id, error_type=type(error).__name__
-        )
-        return []
+        assignable: list[str] = []
+        for login in candidates:
+            result = github.is_assignable(parsed.repository, login)
+            if not result.get("success"):
+                log.warning("signals.reviewer_pr_assignment.assignable_check_failed")
+                return []
+            if result.get("assignable"):
+                assignable.append(login)
+        if len(assignable) < len(candidates):
+            log.info(
+                "signals.reviewer_pr_assignment.unassignable_accounts",
+                selected=len(candidates),
+                assignable=len(assignable),
+            )
+        if not assignable:
+            return []
 
-    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
-    if dri is None:
+        current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
+        if current_pr is None or current_pr.get("assignees"):
+            return []
+        if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+            return []
+        current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+        if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
+            return []
+        if not (
+            assignment_writer_enabled(team_id)
+            and team_research_reviewer_selection_enabled(team_id)
+            and assignment_side_effects_enabled(team_id)
+        ):
+            return []
+        return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=assignable) or []
+    except Exception:
+        log.exception("signals.reviewer_pr_assignment.report_assignment_failed")
         return []
-    current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if (
-        current_pr is None
-        or current_pr.get("assignees")
-        or _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    ):
-        return []
-    current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-    if current.state != snapshot.state or not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
-        return []
-    if claimant != human_claimant_login(team_id=team_id, report_id=report_id) or (
-        claimant is None and _has_human_claim(team_id=team_id, report_id=report_id)
-    ):
-        return []
-    if not service.filter_corrections([dri], current):
-        return []
-    return (
-        _add_assignees(
-            github,
-            team_id=team_id,
-            report_id=report_id,
-            parsed=parsed,
-            logins=[dri],
-            require_delivery_flags=require_delivery_flags,
-        )
-        or []
-    )
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
-    """Request reviews and assign one DRI under the flag, else every opted-in reviewer.
+    """Apply the shared report assignment, or the legacy DRI/opt-in policy, and request reviews.
 
     Returns the assignees GitHub accepted. Never unassigns: the add-assignees endpoint is additive,
     so a person somebody assigned by hand stays on the pull request. Returns an empty list when
@@ -656,14 +560,12 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return []
 
-    reviewers = ranked_reviewer_logins(team_id=team_id, report_id=report_id)
-    logins = [login for login in opted_in_assignee_logins(team_id=team_id, report_id=report_id) if login in reviewers]
-    dri_enabled = _pr_dri_enabled(team_id)
-    relevance_enabled = (
-        dri_enabled and assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id)
-    )
-    if relevance_enabled and not (assignment_side_effects_enabled(team_id)):
+    shared_assignment = assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id)
+    if shared_assignment and not assignment_side_effects_enabled(team_id):
         return []
+    logins = [] if shared_assignment else opted_in_assignee_logins(team_id=team_id, report_id=report_id)
+    reviewers = ranked_reviewer_logins(team_id=team_id, report_id=report_id)
+    dri_enabled = _pr_dri_enabled(team_id)
     if not reviewers and not logins and not dri_enabled:
         return []
 
@@ -679,7 +581,9 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if pr is None:
         return []
 
-    if dri_enabled:
+    if shared_assignment:
+        assigned = _assign_report_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
+    elif dri_enabled:
         assigned = _assign_one_dri(
             github,
             team_id=team_id,
@@ -688,7 +592,6 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             pr=pr,
             opted_in=set(logins),
             reviewers=reviewers,
-            require_delivery_flags=relevance_enabled,
         )
     else:
         assigned = (
@@ -697,20 +600,67 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             else []
         )
 
-    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id) or (
-        relevance_enabled and not (assignment_side_effects_enabled(team_id))
-    ):
-        return assigned
-    current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if current_pr is None:
-        return assigned
+    if shared_assignment:
+        if not (
+            assignment_writer_enabled(team_id)
+            and team_research_reviewer_selection_enabled(team_id)
+            and assignment_side_effects_enabled(team_id)
+        ):
+            return assigned
+        try:
+            snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+            reviewers = (
+                []
+                if snapshot.corrections.needs_review
+                else _report_assignee_logins(Team.objects.get(id=team_id), snapshot)
+            )
+        except Exception:
+            logger.exception(
+                "signals.reviewer_pr_assignment.reviewers_lookup_failed", team_id=team_id, report_id=report_id
+            )
+            return assigned
+        current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
+        if current_pr is None:
+            return assigned
+        pr = current_pr
     _request_reviews(
         github,
         team_id=team_id,
         report_id=report_id,
         parsed=parsed,
-        pr={**current_pr, "assignees": [*(current_pr.get("assignees") or []), *assigned]},
-        reviewers=ranked_reviewer_logins(team_id=team_id, report_id=report_id),
-        require_delivery_flags=relevance_enabled,
+        pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
+        reviewers=reviewers,
     )
     return assigned
+
+
+def _assign_one_dri(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    pr: dict[str, Any],
+    opted_in: set[str],
+    reviewers: list[str],
+) -> list[str]:
+    """Put exactly one directly responsible individual on a pull request that has none.
+
+    A pull request somebody already assigned has an owner, and a pull request somebody unassigned by
+    hand was a decision a later report event must not undo. Both are left alone.
+    """
+    if pr.get("assignees"):
+        return []
+    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        return []
+
+    candidates = dri_candidate_logins(
+        claimant=human_claimant_login(team_id=team_id, report_id=report_id),
+        opted_in=opted_in,
+        team=_owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed),
+        reviewers=reviewers,
+    )
+    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
+    if dri is None:
+        return []
+    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri]) or []

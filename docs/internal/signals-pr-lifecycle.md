@@ -184,7 +184,7 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
-When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
+When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. The legacy DRI rule applies only outside shared report and PR assignment.
 
 ## Assignment decisions
 
@@ -233,7 +233,7 @@ The same artefact table stores `reviewer_corrections`, with pins, exclusions, co
 Corrections and membership are saved atomically with the existing actor and process attribution.
 The first protected reviewer write recovers old corrections from reviewer deltas matched to activity records, under the report lock.
 It saves the result once. Reads use saved corrections; before recovery, they mark reports with old human edits as needing review.
-During rollout, automatic task start and PR owner selection wait for that recovery.
+During rollout, automatic task start and PR assignment wait for that recovery.
 A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
@@ -263,53 +263,51 @@ Generic artefact PATCH and DELETE cannot change reviewer history, and clients ca
 If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
 The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
 
-### GitHub PR ownership
+### Shared report and PR assignment
 
-With `signals-research-reviewer-selection`, `signals-assignment-writer`, and `signals-pr-dri-assignee` enabled,
-`reviewer_pr_assignment.py` consumes a PR-specific relevance decision instead of shuffling an owning team.
-Existing GitHub assignees and manual unassignment take precedence. A human claimant gets first choice;
-an unavailable or excluded claimant does not cause assignment to someone else.
-Per-person exclusions block those PR owners. A confirmed list restricts ownership to its eligible members, including an empty list.
-A pin alone does not select the PR owner. Incomplete edit history stops selection until the list is confirmed.
-These protections also apply when relevance selection is disabled.
+With `signals-research-reviewer-selection` and `signals-assignment-writer` enabled, the saved report assignment also supplies the PR assignees.
+`signals-assignment-side-effects` must allow delivery. The legacy DRI flag does not change this shared list.
 
-Suitable candidates who opted in come first, in relevance order, followed by other
-suitable candidates in relevance order. Owning-team membership supplies candidates, not a priority class.
-GitHub-only team members remain eligible for PR ownership, subject to current membership and assignability.
-Account-backed candidates also need active project access and a verified linked GitHub identity.
+```mermaid
+flowchart LR
+    A{{Research or scout reads feedback}} --> B[Choose assignees]
+    B --> C[Check access and human corrections]
+    C --> D[(suggested_reviewers)]
+    D --> E[Inbox report]
+    D --> F[Map accounts and check GitHub access]
+    F --> G[First PR assignment]
+    E --> H[Human edit and reason]
+    H --> I[(Existing corrections and notes)]
+    I --> A
+    classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
+    classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
+    classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
+    classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+    class A phBlue;
+    class G phRed;
+    class E,H phYellow;
+    class B,C,D,F,I phGray;
+```
 
-`pr_owner_evidence.py` collects the actual PR paths, current ownership, cached code history, report findings,
-verified identities, and scoped corrections. `pr_owner_selection.py` runs one bounded model assessment through
-the existing Signals LLM client on the assignment worker, without mutation tools. The first assessment needs
-the PR's actual scope. Each attempt collects current evidence before it can reuse a saved decision.
-Repository content and corrections from other reports provide evidence. The current report corrections also constrain application.
-A correction on another report is scoped evidence, not a project-wide exclusion.
-Ownership evidence retains every declared team and person, including ownerless CODEOWNERS overrides.
-Team roster reads stop at the candidate budget; an incomplete roster is a lookup failure, never an empty team.
+The worker maps selected project members to their current personal GitHub accounts and checks repository assignability.
+It assigns all eligible selected people in the saved order. Claims, opt-in preferences, and owning teams do not select different people or reorder this list.
+A missing GitHub account or lost access prevents delivery to that person; it does not cause a replacement selection.
+The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
 
-`PROwnerDecisionService` stores a server-only `pr_owner_selection` artefact with the captured inputs, their hash,
-the report reviewer state and evidence version, PR head/base SHAs, ordered candidates, reasons, and evidence references.
-It performs model and network calls outside database locks. A short report lock rejects concurrent edits before saving.
-Before the GitHub call, the worker rechecks report and PR versions, corrections, access, preferences, and delivery gates.
-The PR decision never rewrites Inbox recipients or grants task-start permission. Review requests still use the current Inbox list.
+The worker rechecks the report state, account links, project access, GitHub state, and delivery controls before assigning.
+Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+This first version copies the list only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
+That work must preserve human GitHub changes and copy the shared report assignment, not select another owner.
+GitHub's final read and write are not atomic, so a small external race remains.
 
-An explicit `no_suitable_owner` leaves an unassigned PR unassigned. Missing evidence, failed identity lookups,
-and malformed model outputs record `lookup_failed`; they do not fall back to random assignment.
-The newest decision for the same report/PR version can be reused for less than ten minutes, only when its full input hash matches
-the newly collected evidence. This limit applies to successful, empty, and failed decisions. Changed ownership, team membership,
-or identities trigger a new assessment even before expiry. A failed evidence refresh records a failure instead of applying an old
-success. A later successful lookup starts a new assessment; it cannot revive a success from before that failure.
-These checks add bounded evidence reads on assignment attempts, but unchanged evidence avoids another model call within the reuse period.
-They do not schedule retries or continuously reassess existing assignments. Cached code history still depends on its existing refresh process.
-Logs distinguish reuse, validation rejection, human protection, stale state, lookup failure, legacy policy,
-and GitHub application failure. Existing LLM tracing records the assessment.
+There is no separate PR model call, evidence collector, decision cache, or assignment artefact.
+The existing task permission checks remain separate. Report assignment does not authorize an agent to run under that person's account.
+GitHub review requests still use the current report list, subject to the existing request policy.
 
-The offline `signals/eval_pr_owner_selection` suite compares both policies on identical saved inputs without
-constructing assignment, notification, task-start, or PR-creation clients. Its invented regression snapshots and
-controlled-output replay check policy rules, not real assignment accuracy. Recipient-reviewed labels and a live-model
-comparison of suitability, unresolved results, failures, latency, and cost remain prerequisites to a production trial.
-When `POSTHOG_OFFLINE_EVAL_API_KEY` is configured, the suite publishes comparison results to PostHog through its `evals/offline_config.py` catalog.
-Braintrust uploads remain disabled.
+The first loop trial uses one correction with a reason, a new related report, and an unrelated control case.
+Inspect the existing research trace and selection reason, then check the saved report list and PR assignment.
+Confirm that feedback changes the relevant choice, leaves the unrelated case unchanged, and reaches the same assignable people on both surfaces.
+The live trial remains pending; automated delivery tests do not establish research selection quality.
 
 ### Identity and organization changes
 
@@ -317,7 +315,7 @@ Braintrust uploads remain disabled.
 exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
 some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
 
-The PR assessment selects from identities collected by Python. It does not run an agent loop that discovers or saves new identity links.
+The PR worker uses current personal GitHub integrations and OAuth links. It does not use the team installer identity as a personal link or discover new accounts.
 Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
 and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
 
@@ -333,9 +331,9 @@ Such a process remains future work and must use the same correction rules. Exist
 | `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
 
 Both flags support organization targeting and require explicit enablement.
-The existing `signals-research-reviewer-selection` flag controls agent selection for reports and, with `signals-pr-dri-assignee`, for PRs.
-The PR relevance path also requires the writer and side-effect flags, including before a report enters the writer.
-Disabling research selection restores legacy ordering, while corrections and claims still constrain the result.
+The existing `signals-research-reviewer-selection` flag controls research selection and, with the writer enabled, shared report and PR assignment.
+PR delivery also requires the side-effect flag, including before a report enters the writer.
+Disabling research selection restores the legacy PR policies. Saved report corrections remain protected.
 They use local evaluation, so a report lock never waits for the flag service.
 Missing flag definitions keep the new behavior disabled.
 Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.

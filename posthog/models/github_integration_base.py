@@ -864,7 +864,6 @@ class GitHubIntegrationBase:
         endpoint: str,
         params: dict[str, str | int] | None = None,
         timeout: int = 10,
-        max_pages: int | None = None,
     ) -> tuple[list[requests.Response], bool]:
         """Follow GitHub's trusted ``next`` links and report whether every page was fetched."""
         responses: list[requests.Response] = []
@@ -873,8 +872,6 @@ class GitHubIntegrationBase:
         seen_urls: set[str] = set()
 
         while True:
-            if max_pages is not None and len(responses) >= max_pages:
-                return responses, False
             if next_url in seen_urls:
                 return responses, False
             seen_urls.add(next_url)
@@ -1723,18 +1720,16 @@ class GitHubIntegrationBase:
                 return {"success": True, "unassigned": True}
         return {"success": True, "unassigned": False}
 
-    def list_team_members(self, org: str, team_slug: str, *, max_members: int | None = None) -> dict[str, Any]:
+    def list_team_members(self, org: str, team_slug: str) -> dict[str, Any]:
         """The logins of every member of a GitHub team, including members of its child teams.
 
         Needs the app's organization members read permission. Without it GitHub answers 403, which
-        comes back as a failure. A roster that exceeds ``max_members`` also fails rather than
-        returning a partial list.
+        comes back as a failure.
         """
         responses, complete = self._installation_authenticated_get_pages(
             f"https://api.github.com/orgs/{org}/teams/{team_slug}/members",
             endpoint="/orgs/{org}/teams/{team_slug}/members",
             params={"per_page": 100},
-            max_pages=(max_members + 99) // 100 if max_members is not None else None,
         )
         if not complete:
             last = responses[-1] if responses else None
@@ -1749,13 +1744,11 @@ class GitHubIntegrationBase:
                 members = response.json()
             except Exception:
                 return {"success": False, "error": "Failed to parse team members JSON"}
-            if not isinstance(members, list):
-                return {"success": False, "error": "Team members JSON is not a list"}
             logins.extend(
-                entry["login"] for entry in members if isinstance(entry, dict) and isinstance(entry.get("login"), str)
+                entry["login"]
+                for entry in (members if isinstance(members, list) else [])
+                if isinstance(entry, dict) and isinstance(entry.get("login"), str)
             )
-            if max_members is not None and len(logins) > max_members:
-                return {"success": False, "error": "Team member limit exceeded"}
         return {"success": True, "logins": logins}
 
     def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:

@@ -306,71 +306,6 @@ class ReviewerState(BaseModel):
     corrections_id: UUID | None = None
 
 
-class PROwnerIdentity(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    login: str = Field(pattern=r"^[a-z0-9](?:-?[a-z0-9]){0,38}$")
-    user_uuid: UUID | None = None
-    teams: tuple[str, ...] = ()
-    opted_in: bool = False
-
-
-class PROwnerEvidence(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    ref: str
-    kind: Literal["ownership", "history", "research", "correction"]
-    content: str = Field(max_length=8000)
-
-
-class PROwnerInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    target: Literal["github_pr_owner"] = "github_pr_owner"
-    repository: str
-    pr_number: int
-    head_sha: str
-    base_sha: str
-    report_state: ReviewerState
-    report_version: str
-    paths: tuple[str, ...] = ()
-    identities: tuple[PROwnerIdentity, ...] = ()
-    evidence: tuple[PROwnerEvidence, ...] = ()
-
-
-class PROwnerCandidate(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    login: str
-    reason: str = Field(min_length=1, max_length=500)
-    evidence_refs: tuple[str, ...] = Field(min_length=1, max_length=8)
-
-
-class PROwnerDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"]
-    candidates: tuple[PROwnerCandidate, ...] = Field(default=(), max_length=20)
-    reason: str = Field(min_length=1, max_length=500)
-
-    @model_validator(mode="after")
-    def validate_candidates(self) -> PROwnerDecision:
-        if bool(self.candidates) != (self.outcome == "selected"):
-            raise ValueError("Only a selected outcome may contain candidates, and must contain at least one.")
-        if len({candidate.login for candidate in self.candidates}) != len(self.candidates):
-            raise ValueError("Candidates must be distinct.")
-        return self
-
-
-class PROwnerSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    policy_version: Literal[1] = 1
-    input_version: str
-    inputs: PROwnerInput
-    decision: PROwnerDecision
-
-
 class ReviewerCorrections(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1298,7 +1233,6 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
-    | PROwnerSelection
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1333,7 +1267,6 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "reviewer_corrections": ReviewerCorrections,
-    "pr_owner_selection": PROwnerSelection,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1389,7 +1322,6 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "reviewer_corrections",
-        "pr_owner_selection",
         "task_run",
         "video_segment",
         "title_change",

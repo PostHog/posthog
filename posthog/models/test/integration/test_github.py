@@ -91,44 +91,6 @@ class TestExtractFailingChecks(SimpleTestCase):
         assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
 
 
-class TestGitHubTeamMembers(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("within_budget", 150, 2, False, True),
-            ("exact_budget", 200, 2, False, True),
-            ("more_pages", 200, 2, True, False),
-            ("partial_page_exceeds_budget", 150, 2, True, False),
-            ("unbounded", None, 3, False, True),
-            ("no_budget", 0, 0, False, False),
-        ]
-    )
-    def test_team_roster_stops_at_member_budget(
-        self, _name: str, max_members: int | None, expected_calls: int, more_members: bool, success: bool
-    ) -> None:
-        integration = MagicMock(kind="github")
-        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
-        total_members = 300 if max_members is None else max_members + (1 if more_members else 0)
-        pages = []
-        for start in range(0, total_members, 100):
-            page = MagicMock(status_code=200, links={})
-            page.json.return_value = [{"login": f"member-{i}"} for i in range(start, min(start + 100, total_members))]
-            if start + 100 < total_members:
-                page.links = {
-                    "next": {"url": f"https://api.github.com/orgs/example/teams/owners/members?page={start // 100 + 2}"}
-                }
-            pages.append(page)
-
-        with patch.object(github, "api_request", side_effect=pages) as request:
-            result = github.list_team_members("example", "owners", max_members=max_members)
-
-        assert request.call_count == expected_calls
-        assert result["success"] is success
-        if success:
-            assert result["logins"] == [f"member-{i}" for i in range(total_members)]
-        else:
-            assert "logins" not in result
-
-
 class TestGitHubPullRequestChecks(SimpleTestCase):
     def test_reports_missing_checks_permission(self):
         integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
