@@ -151,7 +151,7 @@ class UntaggedFollowupMode(models.TextChoices):
 class ThreadJoinMode(models.TextChoices):
     """What PostHog does when someone else tags it in a thread a user started.
 
-    Read from the thread creator's settings row. An unset row resolves to ``ALLOW``.
+    Read from the thread creator's settings row. An unset row resolves to ``ASK_PER_THREAD``.
     Under ``ASK_PER_THREAD`` the creator's first approval in a thread lets anyone join it.
     """
 
@@ -226,7 +226,7 @@ class SlackSettings(UUIDModel):
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with this user's top-level channel questions that do not tag the app.",
     )
-    # NULL means the user has never picked, which resolves to ``ALLOW``.
+    # NULL means the user has never picked, which resolves to ``ASK_PER_THREAD``.
     thread_join_mode = models.CharField(
         max_length=16,
         null=True,

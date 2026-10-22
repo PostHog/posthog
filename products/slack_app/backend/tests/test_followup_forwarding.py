@@ -1176,6 +1176,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @parameterized.expand(
         [
             ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
+            # A creator who never picked a mode is asked once per thread.
+            ("unset", None, None, False, True, True),
             ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
             ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
             ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),
@@ -1231,7 +1233,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         removed = [c.kwargs for c in mock_slack.client.reactions_remove.call_args_list]
         assert ({"channel": "C123", "timestamp": "1234.5679", "name": "eyes"} in removed) is not delivered
         if prompted:
-            assert mock_prompt.call_args.kwargs["opens_thread"] is (mode == ThreadJoinMode.ASK_PER_THREAD)
+            assert mock_prompt.call_args.kwargs["opens_thread"] is (mode in (None, ThreadJoinMode.ASK_PER_THREAD))
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")

@@ -33,7 +33,7 @@ def decide_thread_join(
     mode = resolve_thread_join_mode(integration, mapping.mentioning_slack_user_id)
     if mode == ThreadJoinMode.ALLOW:
         return ThreadJoinDecision.ALLOW
-    # Checked after the mode, so a creator who never changed it costs no flag request.
+    # Checked after the mode, so a creator who lets anyone join costs no flag request.
     creator = mapping.task.created_by
     if not is_slack_app_multiplayer_approvals_enabled(integration, creator.distinct_id if creator else None):
         return ThreadJoinDecision.ALLOW
