@@ -24,12 +24,14 @@ import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { LogsIngestionConsumerConfig } from './config'
 import {
+    recordInternalLogs,
     recordLogMessageDlq,
     recordLogMessageDropped,
     recordLogsAllowed,
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { INTERNAL_LOGS_HEADER, InternalLogsVerifier, withoutInternalLogsHeader } from './internal-logs'
 import { MESSAGE_KEYS } from './log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
@@ -238,6 +240,18 @@ export const logsRecordsReceivedCounter = new Counter({
     help: 'Total log records received',
 })
 
+export const logsInternalBytesCounter = new Counter({
+    name: 'logs_ingestion_internal_bytes_total',
+    help: 'Uncompressed bytes of verified internal logs, which stay out of the received and allowed counters.',
+    labelNames: ['team_id'],
+})
+
+export const logsInternalRecordsCounter = new Counter({
+    name: 'logs_ingestion_internal_records_total',
+    help: 'Records of verified internal logs, which stay out of the received and allowed counters.',
+    labelNames: ['team_id'],
+})
+
 export const logsRecordsAllowedCounter = new Counter({
     name: 'logs_ingestion_records_allowed_total',
     help: 'Total log records allowed through quota and rate limiting. Gross of the drop-rule billing credit: billed records_ingested = this − logs_ingestion_billing_records_credited_total.',
@@ -373,6 +387,7 @@ export class LogsIngestionConsumer {
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
     private readonly backfillEnabledTeamsRaw: string
+    private readonly internalLogsVerifier: InternalLogsVerifier
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
@@ -426,6 +441,10 @@ export class LogsIngestionConsumer {
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
+        this.internalLogsVerifier = new InternalLogsVerifier(
+            mergedConfig.LOGS_INTERNAL_SIGNING_KEYS,
+            mergedConfig.LOGS_INTERNAL_ENABLED_TEAMS
+        )
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
@@ -470,6 +489,15 @@ export class LogsIngestionConsumer {
         return teamIdMatchesCsv(this.metricRulesEnabledTeamsRaw, teamId)
     }
 
+    /**
+     * Sampling and drop rules, hog transformations, metric rules and retention rules are the team's cost
+     * and data controls for the logs it pays for. Internal logs are PostHog-owned, so none of them apply.
+     * Transformations also write hog_function logs, which could come back here as internal logs and loop.
+     */
+    private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
+        return !message.internalLogs
+    }
+
     private isTransformationsEnabledForTeam(teamId: number): boolean {
         if (this.transformationsKillswitch || !this.deps.logsTransformer) {
             return false
@@ -496,7 +524,11 @@ export class LogsIngestionConsumer {
         batchBudget?: TransformationBatchBudget
     ): Promise<LogRecordsTransform | undefined> {
         const transformer = this.deps.logsTransformer
-        if (!transformer || !this.isTransformationsEnabledForTeam(message.teamId)) {
+        if (
+            !transformer ||
+            !this.appliesTeamLogRules(message) ||
+            !this.isTransformationsEnabledForTeam(message.teamId)
+        ) {
             return undefined
         }
         if (!(await transformer.teamHasTransformations(message.teamId))) {
@@ -543,7 +575,7 @@ export class LogsIngestionConsumer {
         const samplingCache = this.deps.samplingRulesCache
         const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
         let ruleSet: CompiledRuleSet | null = null
-        if (samplingCache && samplingEvalEnabled) {
+        if (samplingCache && samplingEvalEnabled && this.appliesTeamLogRules(message)) {
             ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
@@ -556,7 +588,9 @@ export class LogsIngestionConsumer {
         const retentionCache = this.deps.retentionRulesCache
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
-        if (retentionCache && retentionEvalEnabled) {
+        // An internal batch keeps the per-row retention its producer stamped. The expiry stage below
+        // still runs for it.
+        if (retentionCache && retentionEvalEnabled && this.appliesTeamLogRules(message)) {
             retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
@@ -683,8 +717,13 @@ export class LogsIngestionConsumer {
         this.trackIncomingTraffic(messages)
 
         const { backfillAllowedMessages, backfillDroppedMessages } = this.filterBackfillNotEnabledMessages(messages)
-        const { quotaAllowedMessages, quotaDroppedMessages } =
-            await this.filterQuotaLimitedMessages(backfillAllowedMessages)
+        // Internal batches skip quota, rate limits and usage stats, so they never count as billed logs usage.
+        const internalMessages: LogsIngestionMessage[] = []
+        const billedMessages: LogsIngestionMessage[] = []
+        for (const message of backfillAllowedMessages) {
+            ;(message.internalLogs ? internalMessages : billedMessages).push(message)
+        }
+        const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(billedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
             await this.filterRateLimitedMessages(quotaAllowedMessages)
 
@@ -693,6 +732,8 @@ export class LogsIngestionConsumer {
             ...quotaDroppedMessages,
             ...rateLimiterDroppedMessages,
         ])
+
+        this.queueInternalLogsMetrics(internalMessages)
 
         // One transformation time budget shared by all messages of this batch
         const transformationBatchBudget = this.deps.logsTransformer?.startBatch()
@@ -705,6 +746,11 @@ export class LogsIngestionConsumer {
                     usageStats,
                     transformationBatchBudget
                 )
+                // Internal batches write to a usage map that is never emitted, so no per-message stat
+                // (drop-rule credit, PII counts) can reach the team's billed row. They run after the
+                // billed batches so the per-batch processing concurrency limit still holds.
+                await this.processAndProduceLogMessages(internalMessages, new Map(), transformationBatchBudget)
+                // PostHog produced internal batches, so they must not mark the team as having sent its own logs.
                 await this.deps.teamManager.setTeamsIngestedData(
                     rateLimiterAllowedMessages.map((message) => message.teamId)
                 )
@@ -716,7 +762,22 @@ export class LogsIngestionConsumer {
                     })
                 }
             })(),
-            messages: rateLimiterAllowedMessages,
+            messages: [...rateLimiterAllowedMessages, ...internalMessages],
+        }
+    }
+
+    /**
+     * Internal batches get their own metric names. The usage report matches `bytes_ingested` and
+     * `records_ingested` exactly, so these never reach billing or the count of teams using logs.
+     */
+    private queueInternalLogsMetrics(internalMessages: LogsIngestionMessage[]): void {
+        for (const message of internalMessages) {
+            this.queueUsageMetric(message.teamId, 'bytes_ingested_internal', message.bytesUncompressed)
+            this.queueUsageMetric(message.teamId, 'records_ingested_internal', message.recordCount)
+            const teamId = message.teamId.toString()
+            logsInternalBytesCounter.inc({ team_id: teamId }, message.bytesUncompressed)
+            logsInternalRecordsCounter.inc({ team_id: teamId }, message.recordCount)
+            recordInternalLogs(message.teamId, message.bytesUncompressed, message.recordCount)
         }
     }
 
@@ -724,6 +785,11 @@ export class LogsIngestionConsumer {
         let totalBytesReceived = 0
         let totalRecordsReceived = 0
         for (const message of messages) {
+            // Internal batches are never quota or rate limited, so counting them here would show as drops
+            // in received minus allowed. queueInternalLogsMetrics counts them on their own.
+            if (message.internalLogs) {
+                continue
+            }
             totalBytesReceived += message.bytesUncompressed
             totalRecordsReceived += message.recordCount
         }
@@ -891,7 +957,7 @@ export class LogsIngestionConsumer {
         byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>,
         message: LogsIngestionMessage
     ): Promise<{ token: string; rules: CompiledMetricRule[]; tallies: BatchTallies } | null> {
-        if (!this.isMetricRulesEnabledForTeam(message.teamId)) {
+        if (!this.appliesTeamLogRules(message) || !this.isMetricRulesEnabledForTeam(message.teamId)) {
             return null
         }
         let state = byTeam.get(message.teamId)
@@ -1152,7 +1218,7 @@ export class LogsIngestionConsumer {
                                     value: processedValue,
                                     key: null,
                                     headers: {
-                                        ...parseKafkaHeaders(message.message.headers),
+                                        ...withoutInternalLogsHeader(parseKafkaHeaders(message.message.headers)),
                                         token: message.token,
                                         team_id: message.teamId.toString(),
                                         'json-parse': jsonParse.toString(),
@@ -1485,6 +1551,11 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
+                        internalLogs: this.internalLogsVerifier.isInternal(
+                            headers[INTERNAL_LOGS_HEADER],
+                            team.id,
+                            message.value
+                        ),
                     })
                 } catch (e) {
                     // A message we cannot parse is message-scoped and will fail the same way on

@@ -28,6 +28,7 @@ import { Hub, Team } from '~/types'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
+import { INTERNAL_LOGS_HEADER, signInternalLogs } from './internal-logs'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords, logsJsonAttributeSniffCounter } from './log-record-avro'
 import {
@@ -1045,6 +1046,77 @@ describe('LogsIngestionConsumer', () => {
                     1
                 )
             }
+        })
+    })
+
+    describe('internal logs', () => {
+        const SIGNING_KEY = 'internal-logs-test-key'
+
+        it.each([
+            { name: "stores a signed batch outside quota, billing and the team's drop rules", signed: true },
+            { name: 'bills a batch whose signature does not verify', signed: false },
+        ])('$name', async ({ signed }) => {
+            await consumer.stop()
+            const dropEverything: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                getCompiledRuleSet: () =>
+                    Promise.resolve(
+                        compileRuleSet([
+                            {
+                                id: '00000000-0000-0000-0000-0000000000aa',
+                                rule_type: 'severity_sampling',
+                                scope_service: 'test-service',
+                                scope_path_pattern: null,
+                                scope_attribute_filters: [],
+                                config: { actions: { INFO: { type: 'drop' } } },
+                            },
+                        ])
+                    ),
+            }
+            consumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_INTERNAL_ENABLED_TEAMS: String(team.id), LOGS_INTERNAL_SIGNING_KEYS: SIGNING_KEY },
+                { samplingRulesCache: dropEverything as SamplingRulesCache }
+            )
+            // A quota-limited team with a drop-everything rule shows the bypass: an internal batch is
+            // produced, a billed one is dropped.
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+
+            const [message] = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '100',
+                record_count: '1',
+            })
+            const signature = signed ? signInternalLogs(SIGNING_KEY, team.id, message.value!) : 'v1.not-a-signature'
+            message.headers!.push({ [INTERNAL_LOGS_HEADER]: Buffer.from(signature) })
+            const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
+            const recordInternalLogsSpy = jest.spyOn(otelMetrics, 'recordInternalLogs')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const metricNames = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m) => m.value.team_id === team.id)
+                .map((m) => m.value.metric_name)
+            const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect({
+                produced: produced.length,
+                forwardsSignature: produced.some((m) => INTERNAL_LOGS_HEADER in (m.headers ?? {})),
+                received: recordLogsReceivedSpy.mock.calls,
+                internal: recordInternalLogsSpy.mock.calls,
+                internalMetrics: ['bytes_ingested_internal', 'records_ingested_internal'].every((n) =>
+                    metricNames.includes(n)
+                ),
+                billedMetrics: ['bytes_ingested', 'records_ingested', 'bytes_received'].some((n) =>
+                    metricNames.includes(n)
+                ),
+            }).toEqual({
+                produced: signed ? 1 : 0,
+                forwardsSignature: false,
+                received: [signed ? [0, 0] : [100, 1]],
+                internal: signed ? [[team.id, 100, 1]] : [],
+                internalMetrics: signed,
+                billedMetrics: !signed,
+            })
         })
     })
 
@@ -2479,6 +2551,25 @@ describe('LogsIngestionConsumer', () => {
             } as any
             return tracesConsumer
         }
+
+        it('bills a signed traces batch, because the internal flag covers logs only', async () => {
+            const key = 'internal-logs-test-key'
+            await consumer.stop()
+            consumer = createTracesIngestionConsumer({
+                LOGS_INTERNAL_SIGNING_KEYS: key,
+                LOGS_INTERNAL_ENABLED_TEAMS: String(team.id),
+            })
+            await consumer.start()
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+            const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
+            message.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, team.id, message.value!)),
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+        })
 
         it('leaves pattern masking off even on a wildcard allowlist, because a trace record has no body', () => {
             const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
