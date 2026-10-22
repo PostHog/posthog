@@ -10,7 +10,6 @@ from products.alerts_platform.backend.delivery import (
     describers,
     destinations,
     legacy_webhook,
-    transition_events,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -19,9 +18,8 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmitter,
     LegacyWebhookBody,
     SourceDescriber,
-    SourceFacts,
+    SourceImageResolver,
     SourceKind,
-    TransitionEventProducer,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +32,10 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
     describers.register(source, describer)
+
+
+def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
+    describers.register_image_resolver(source, resolver)
 
 
 def refused_destination(data: AlertDestinationData) -> str | None:
@@ -60,16 +62,12 @@ def register_legacy_event_emitter(source: SourceKind, emitter: LegacyEventEmitte
     delivery_paths.register_emitter(source, emitter)
 
 
+def has_legacy_event_emitter(source: SourceKind) -> bool:
+    """Whether the source emits its own events for the HogFunction path. Without an emitter, an alert
+    on that path would deliver natively, so its customized destinations would lose what they add."""
+    return delivery_paths.emitter_for(source) is not None
+
+
 def native_sends_legacy_webhook_body(source: SourceKind, team: Team) -> bool | None:
     """Whether a stock webhook receives the body its HogFunction sent when delivered natively. None when unknown."""
     return legacy_webhook.native_sends_legacy_body(source, team)
-
-
-def register_transition_event_producer(producer: TransitionEventProducer) -> None:
-    """The product that produces internal events puts the platform's `$alert_transition` events on the topic."""
-    transition_events.register_producer(producer)
-
-
-def register_source_facts(source: SourceKind, facts: SourceFacts) -> None:
-    """A source's facts ride on each `$alert_transition` under the property names its own alert events used."""
-    transition_events.register_source_facts(source, facts)

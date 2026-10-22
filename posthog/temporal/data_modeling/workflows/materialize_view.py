@@ -506,8 +506,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # rows behind. The activity cleans up after its own failures itself.
                 if materialize_result is not None:
                     await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
+                failed_run_mode = None
                 try:
-                    await temporalio.workflow.execute_activity(
+                    failed_run_mode = await temporalio.workflow.execute_activity(
                         fail_materialization_activity,
                         FailMaterializationInputs(
                             team_id=inputs.team_id,
@@ -531,7 +532,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     "cancelled" if cancelled else "failed",
                     CLICKHOUSE_ENGINE,
                     tier=tier,
-                    run_mode=_run_mode(materialize_result),
+                    # A history recorded before the activity returned the mode decodes it as None.
+                    run_mode=failed_run_mode or _run_mode(materialize_result),
                     error_class="none" if cancelled else error_class(error_message),
                 ).add(1)
                 raise
