@@ -1240,8 +1240,11 @@ class LazyComputationExecutor:
 
         before_retention_floor = False
         if self.events_retention_months is not None:
-            start_utc = start if start.tzinfo is not None else start.replace(tzinfo=UTC)
+            # Daily windows take the calendar date of `start` as given, so a non-UTC start would
+            # select a UTC window for its local date, which can sit before the floor.
+            start_utc = start.astimezone(UTC) if start.tzinfo is not None else start.replace(tzinfo=UTC)
             start = max(start_utc, retention_build_floor(self.events_retention_months, now_utc))
+            end = end_utc
             before_retention_floor = start >= end_utc
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
