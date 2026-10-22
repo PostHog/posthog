@@ -50,6 +50,10 @@ export const MAX_LOCAL_CACHE_DOMAINS = 100_000
 // Same key style as the SES rate limiter's '@posthog/ses/global' on the shared Valkey.
 const VALKEY_KEY_PREFIX = '@posthog/ses/email-mx/'
 
+export type Undeliverable =
+    | { reason: 'invalid_syntax'; address: string; message: string }
+    | { reason: 'invalid_domain'; address: string; domain: string; message: string }
+
 type CacheEntry = { deliverable: boolean; transient?: boolean; expiresAt: number }
 
 // `none` = domain exists but no records of this type; `transient` = the lookup
@@ -104,15 +108,21 @@ export class EmailValidationService {
             // EmailService skips a missing recipient at send time and records email_missing_recipient.
             return null
         }
+        const undeliverable = await this.findUndeliverable(rawEmail, invocation.teamId)
+        return undeliverable ? this.skip(invocation.teamId, undeliverable.reason, undeliverable.message) : null
+    }
+
+    /** Why the address can never receive email, or null when it may. */
+    public async findUndeliverable(rawEmail: string, teamId: number): Promise<Undeliverable | null> {
         const email = rawEmail.trim()
 
         if (!EMAIL_SYNTAX_RE.test(email)) {
             cdpEmailMxValidationTotal.inc({ result: 'invalid_syntax' })
-            return this.skip(
-                invocation.teamId,
-                'invalid_syntax',
-                `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`
-            )
+            return {
+                reason: 'invalid_syntax',
+                address: email,
+                message: `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`,
+            }
         }
 
         // domainToASCII lowercases and punycodes IDN domains (`bücher.example` →
@@ -124,20 +134,21 @@ export class EmailValidationService {
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
         // Above resolveDeliverability on purpose: one verdict is cached and shared across teams for
         // up to a day, so a check inside the lookup would miss every send that hits the cache.
-        noteOobDomain(domain, 'node_email_validation', { teamId: invocation.teamId })
+        noteOobDomain(domain, 'node_email_validation', { teamId })
 
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
-            return this.skip(
-                invocation.teamId,
-                'invalid_domain',
-                `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`
-            )
+            return {
+                reason: 'invalid_domain',
+                address: email,
+                domain,
+                message: `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`,
+            }
         }
         return null
     }
 
-    private skip(teamId: number, reason: 'invalid_syntax' | 'invalid_domain', message: string): string {
+    private skip(teamId: number, reason: Undeliverable['reason'], message: string): string {
         cdpEmailMxSkippedTotal.inc({ team_id: String(teamId), reason })
         return message
     }
