@@ -58,11 +58,11 @@ class EmailDomainApiTestCase(APIBaseTest):
         return response.json()["id"]
 
     def get_status(self, integration_id: int, *, refresh: bool = True, as_browser: bool = False) -> Any:
-        return self.client.get(
-            f"/api/projects/{self.team.id}/integrations/{integration_id}/email/status",
-            {"refresh": str(refresh).lower()},
-            **({} if as_browser else {"HTTP_AUTHORIZATION": "Bearer admin_key"}),
-        )
+        url = f"/api/projects/{self.team.id}/integrations/{integration_id}/email/status"
+        params = {"refresh": str(refresh).lower()}
+        if as_browser:
+            return self.client.get(url, params)
+        return self.client.get(url, params, HTTP_AUTHORIZATION="Bearer admin_key")
 
     def status_body(self, integration_id: int, *, refresh: bool = True) -> dict[str, Any]:
         response = self.get_status(integration_id, refresh=refresh)
