@@ -3,6 +3,7 @@ import json
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import lru_cache
 from itertools import batched, groupby
 from time import time
 from typing import Any, Optional, TypedDict, cast
@@ -429,6 +430,11 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
     return get_signals_credited_refund_credits_for_org(organization.id, period_start, period_end)
 
 
+@lru_cache(maxsize=8192)
+def _period_timestamp(value: str) -> int:
+    return round(dateutil.parser.isoparse(value).timestamp())
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -512,8 +518,8 @@ def org_quota_limited_until(
     refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
 
     is_over_limit = current_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
-    billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
-    billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    billing_period_start = _period_timestamp(organization.usage["period"][0])
+    billing_period_end = _period_timestamp(organization.usage["period"][1])
 
     # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
