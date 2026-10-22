@@ -3498,6 +3498,28 @@ export interface BigeyeIssueSignalExtraApi {
     opened_time_seconds: string | null
 }
 
+export interface TriggerDevErrorSignalExtraApi {
+    task_identifier: string | null
+    status: string | null
+    count: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface ChecklyErrorGroupSignalExtraApi {
+    check_id: string | null
+    error_hash: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface RoarkIssueSignalExtraApi {
+    severity: string | null
+    status: string | null
+    event_count: string | null
+    created_at: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3571,6 +3593,9 @@ export type SignalExtraApi =
     | BetterstackIncidentSignalExtraApi
     | MonteCarloAlertSignalExtraApi
     | BigeyeIssueSignalExtraApi
+    | TriggerDevErrorSignalExtraApi
+    | ChecklyErrorGroupSignalExtraApi
+    | RoarkIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
