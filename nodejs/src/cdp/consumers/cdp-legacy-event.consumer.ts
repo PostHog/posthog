@@ -5,7 +5,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
@@ -98,6 +98,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             refreshAgeMs: 600000, // 10 minutes
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
         // This loader caches the combined plugin-config and migrated-function view, so the manager
@@ -421,6 +422,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
     ): Promise<{ invocation: CyclotronJobInvocationHogFunction; pluginConfigId: number | null }[]> {
+        // The batch handler always finds the configs that _parseKafkaBatch stored, so it never makes a second lookup.
+        // Only callers that build their own globals reach the loader call.
         const pluginConfigHogFunctions =
             this.pluginConfigsByGlobals.get(invocation) ??
             (await this.pluginConfigsLoader.get(invocation.project.id.toString()))

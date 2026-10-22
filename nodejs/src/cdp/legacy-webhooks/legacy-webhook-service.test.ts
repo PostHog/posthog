@@ -54,7 +54,7 @@ describe('LegacyWebhookService', () => {
         }
     }
 
-    const processBatch = async (messages: Message[]): Promise<void> => {
+    const parseAndSend = async (messages: Message[]): Promise<void> => {
         await service.processEvents(await service.parseBatch(messages)).backgroundTask
     }
 
@@ -90,7 +90,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(service['actionMatcher'].hasWebhooks).toHaveBeenCalledWith(team.id)
         })
@@ -105,7 +105,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -117,7 +117,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -129,7 +129,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -144,7 +144,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(service.processEvent).toHaveBeenCalledTimes(1)
         })
@@ -166,7 +166,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            await processBatch(messages)
+            await parseAndSend(messages)
 
             expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
             expect(fetchGroupSpy).not.toHaveBeenCalled()
@@ -197,7 +197,7 @@ describe('LegacyWebhookService', () => {
 
             // group_analytics ON (and zapier ON)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            await processBatch([makeMessage()])
+            await parseAndSend([makeMessage()])
             const bodyWithGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
 
             mockFetch.mockClear()
@@ -206,7 +206,7 @@ describe('LegacyWebhookService', () => {
             hub.teamManager.hasAvailableFeature = jest
                 .fn()
                 .mockImplementation((_teamId, feature) => Promise.resolve(feature === 'zapier'))
-            await processBatch([makeMessage()])
+            await parseAndSend([makeMessage()])
             const bodyWithoutGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
 
             // The payload is byte-for-byte identical whether or not group_analytics is enabled
