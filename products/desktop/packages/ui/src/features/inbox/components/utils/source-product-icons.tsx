@@ -190,12 +190,6 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
   },
   intercom: { Icon: ChatsIcon, color: "var(--blue-9)", label: "Intercom" },
   hubspot: { Icon: LifebuoyIcon, color: "var(--orange-9)", label: "HubSpot" },
-  dynamics365: {
-    Icon: LifebuoyIcon,
-    color: "var(--blue-9)",
-    label: "Dynamics 365",
-  },
-  zoho_crm: { Icon: LifebuoyIcon, color: "var(--red-9)", label: "Zoho CRM" },
   google_search_console: {
     Icon: MagnifyingGlassIcon,
     color: "var(--sky-9)",

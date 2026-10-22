@@ -179,7 +179,7 @@ export class SignalSourceService {
 
     for (const table of dwConfig.requiredTables) {
       const requiredSchema = schemas.find(
-        (s) => s.name.toLowerCase() === table.toLowerCase(),
+        (s) => s.name.toLowerCase() === table,
       );
       if (!requiredSchema) {
         continue;
