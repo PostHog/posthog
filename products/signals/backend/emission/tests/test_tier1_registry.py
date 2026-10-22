@@ -75,6 +75,10 @@ TIER1_SOURCES = [
         "tenable_vulnerability_management",
         "scanner_finding",
     ),
+    # Error monitors
+    (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
+    (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),
+    (ExternalDataSourceType.ROARK, "issue", "roark", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
