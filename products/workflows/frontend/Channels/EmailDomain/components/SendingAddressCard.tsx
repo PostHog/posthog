@@ -71,16 +71,19 @@ function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
     return (
         <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5 text-sm">
-                <label htmlFor="email-domain-sender-name-input">From name</label>
+                <label htmlFor="email-domain-sender-name-input">Name</label>
                 <LemonInput
                     id="email-domain-sender-name-input"
                     value={senderName}
                     onChange={setSenderNameInput}
                     placeholder={suggestedSenderName}
                 />
+                <span className="text-xs text-secondary">
+                    Shown as the sender in the inbox, like Thomas Obermüller.
+                </span>
             </div>
             <div className="flex flex-col gap-1.5 text-sm">
-                <label htmlFor="email-domain-local-part">Address</label>
+                <label htmlFor="email-domain-local-part">Email address</label>
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonInput
                         id="email-domain-local-part"
@@ -91,6 +94,7 @@ function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
                     />
                     <span className="font-mono text-secondary break-all">@{sendingDomain}</span>
                 </div>
+                <span className="text-xs text-secondary">Replies go to this address unless you set another.</span>
             </div>
         </div>
     )
