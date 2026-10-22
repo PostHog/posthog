@@ -11,7 +11,7 @@ import {
     LemonModal,
     LemonModalProps,
     LemonSelect,
-    LemonSelectOptions,
+    LemonSelectOption,
     LemonTableColumn,
     LemonTag,
     LemonTextArea,
@@ -245,7 +245,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
 const EXPIRY_DATE_FORMAT = 'MMMM D, YYYY'
 const EXPIRY_TIME_FORMAT = 'h:mm A'
 
-const EXPIRATION_PRESETS: LemonSelectOptions<KeyExpirationOption> = [
+const EXPIRATION_PRESETS: LemonSelectOption<KeyExpirationOption>[] = [
     { value: 'never', label: 'Never' },
     { value: '1', label: '1 day' },
     { value: '7', label: '7 days' },
@@ -257,7 +257,7 @@ const EXPIRATION_PRESETS: LemonSelectOptions<KeyExpirationOption> = [
 function KeyExpirationField({ currentExpiresAt }: { currentExpiresAt: string | null }): JSX.Element {
     const { editingKey } = useValues(personalAPIKeysLogic)
 
-    const options: LemonSelectOptions<KeyExpirationOption> = currentExpiresAt
+    const options: LemonSelectOption<KeyExpirationOption>[] = currentExpiresAt
         ? [
               {
                   value: 'keep',
