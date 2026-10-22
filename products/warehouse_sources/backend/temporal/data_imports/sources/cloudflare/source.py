@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+    DNS_ANALYTICS_ALL_ZONES_FAILED,
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
 )
@@ -192,6 +193,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.cloudflare.com": "Cloudflare authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url: https://api.cloudflare.com": "Cloudflare denied access. Please check that your API token has read permissions for this resource.",
+            DNS_ANALYTICS_ALL_ZONES_FAILED: "Your Cloudflare API token can't read analytics for any of your zones. Add the Zone Analytics read permission to the token, then re-enable the sync.",
         }
 
     @property
@@ -202,7 +204,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
             label="Cloudflare",
             caption="""Enter your Cloudflare API token to pull your Cloudflare configuration, security, and usage data into the PostHog Data warehouse.
 
-Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for the areas you want to sync, such as Account Settings, Zone, DNS, Firewall Services, Logs, Workers, and Access. Zone tables are synced from every zone the token can read, and account tables from every account. Zones and accounts the token can't read are skipped.""",
+Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for the areas you want to sync, such as Account Settings, Zone, Zone Analytics, DNS, Firewall Services, Logs, Workers, and Access. Zone tables are synced from every zone the token can read, and account tables from every account. Zones and accounts the token can't read are skipped.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare",
             releaseStatus=ReleaseStatus.GA,

@@ -1402,6 +1402,10 @@ export interface PersonPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2466,7 +2470,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3463,7 +3466,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4352,7 +4354,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4684,6 +4685,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**
@@ -5067,6 +5070,35 @@ export interface FileSystemHomeFolderApi {
      * @nullable
      */
     readonly path: string | null
+}
+
+export interface FileSystemRankedSearchItemApi {
+    /** The matching file system entry. */
+    entry: FileSystemApi
+    /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+    rank: number[]
+}
+
+export interface FileSystemRankedSearchTypeCountApi {
+    /** File system type, for example insight or dashboard. */
+    type: string
+    /** Number of matches of this type. */
+    count: number
+}
+
+export interface FileSystemRankedSearchResponseApi {
+    /** Matches, best first. */
+    results: FileSystemRankedSearchItemApi[]
+    /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+    matched_all_words: boolean
+    /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+    matched_words: string[]
+    /** Number of matches for each type, largest first. */
+    type_counts: FileSystemRankedSearchTypeCountApi[]
+    /** True when no entry matched the words as typed, so every result is a close spelling. */
+    matched_with_typos: boolean
+    /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+    counts_capped: boolean
 }
 
 export interface FileSystemShortcutApi {
@@ -5979,6 +6011,7 @@ export const ShortcutPositionEnumApi = {
  * * `later` - Skipped for later
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
+ * * `connector` - Signed up through an OAuth connector
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -5988,6 +6021,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Later: 'later',
     Other: 'other',
     Provisioned: 'provisioned',
+    Connector: 'connector',
 } as const
 
 /**
@@ -6104,7 +6138,7 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
 }
 
@@ -6220,7 +6254,7 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
 }
 
@@ -6968,6 +7002,27 @@ export type FileSystemDestroyParams = {
     recursive?: boolean
 }
 
+export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string
+}
+
 export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
@@ -7114,6 +7169,7 @@ export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof t
 export const UploadedMediaListPurpose = {
     Canvas: 'canvas',
     Email: 'email',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -7125,6 +7181,7 @@ export type UploadedMediaCreateBodyPurpose =
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
+    Experiment: 'experiment',
 } as const
 
 export type UploadedMediaCreateBody = {

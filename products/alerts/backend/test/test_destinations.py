@@ -708,20 +708,27 @@ class TestAlertInternalEventDelivery(APIBaseTest):
 
 
 class TestProduceAlertInternalEvent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("id_in_properties", {"alert_id": "alert-1"}, None, "alert-1"),
+            ("id_passed_for_an_event_without_it", {"alert_configuration_id": "cfg-1"}, "cfg-1", "cfg-1"),
+        ]
+    )
     @patch("products.alerts.backend.logic.destinations.capture_exception")
     @patch(
         "products.alerts.backend.logic.destinations.produce_internal_event",
         side_effect=RuntimeError("broker down"),
     )
-    def test_a_producer_failure_is_swallowed_so_a_batch_caller_still_saves(
-        self, _produce_internal_event, capture_exception
+    def test_a_producer_failure_is_swallowed_and_names_its_alert(
+        self, _name, properties, alert_id, reported_alert_id, _produce_internal_event, capture_exception
     ) -> None:
         result = produce_alert_internal_event(
-            team_id=1, event_name="$logs_alert_firing", properties={"alert_id": "alert-1"}
+            team_id=1, event_name="$logs_alert_firing", properties=properties, alert_id=alert_id
         )
 
         assert result is None
         capture_exception.assert_called_once()
+        assert capture_exception.call_args.args[1]["alert_id"] == reported_alert_id
 
 
 class TestFlushAlertInternalEvents(SimpleTestCase):

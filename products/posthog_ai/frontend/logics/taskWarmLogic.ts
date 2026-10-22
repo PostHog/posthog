@@ -61,6 +61,8 @@ export function warmLeaseKey(request: TaskWarmRequest): string {
         request.runtime_adapter ?? '',
         request.model ?? '',
         request.initial_permission_mode ?? '',
+        request.sandbox_environment_id ?? '',
+        request.custom_image_id ?? '',
     ].join('|')
 }
 

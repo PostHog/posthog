@@ -1462,6 +1462,7 @@ export type ActivityLogListParams = {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -1575,6 +1576,7 @@ export const ActivityLogListScope = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
@@ -1675,6 +1677,7 @@ export const ActivityLogListScope = {
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
@@ -1776,6 +1779,7 @@ export const ActivityLogListScopesItem = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
