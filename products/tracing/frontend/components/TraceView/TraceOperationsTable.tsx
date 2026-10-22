@@ -15,12 +15,12 @@ import {
 // operations by the sorted column. The note under the table says how many operations there are in all.
 const MAX_OPERATIONS = 5
 
-const DEFAULT_SORT: VirtualizedSort = { columnKey: 'total', order: -1 }
+const DEFAULT_SORT: VirtualizedSort = { columnKey: 'self', order: -1 }
 
 const HIGHLIGHTED_ROW_CLASS = 'bg-accent-highlight-secondary font-semibold'
 
 export interface TraceOperationsTableProps {
-    /** Sorted by total time descending, as summarizeTraceOperations returns them. */
+    /** Sorted by self time descending, as summarizeTraceOperations returns them. */
     operations: TraceOperation[]
     highlightedOperationKey: string | null
     /** Called with the row's key, or null when the highlighted row is clicked again. */
@@ -29,7 +29,7 @@ export interface TraceOperationsTableProps {
     partial?: boolean
     /** Drop the Avg and p50 columns for a narrow container. The operation's tooltip shows them instead. */
     compact?: boolean
-    /** What the Share column divides by: the trace duration, or the duration of the inspected span. */
+    /** What the operations cover, for the Share column's tooltip: the whole trace, or the inspected span's subtree. */
     shareOf?: 'trace' | 'span'
 }
 
@@ -45,10 +45,18 @@ function operationRowKey(operation: TraceOperation): string {
     return operation.key
 }
 
+// The tooltip carries the duration numbers the columns leave out: the total always, and avg and p50 when compact.
 function withTimings(title: string, operation: TraceOperation, compact: boolean): string {
-    return compact
-        ? `${title}\navg ${formatDuration(operation.avg_duration_nano)} · p50 ${formatDuration(operation.p50_duration_nano)}`
-        : title
+    const timings = [
+        ...(compact
+            ? [
+                  `avg ${formatDuration(operation.avg_duration_nano)}`,
+                  `p50 ${formatDuration(operation.p50_duration_nano)}`,
+              ]
+            : []),
+        `total ${formatDuration(operation.total_duration_nano)}`,
+    ]
+    return `${title}\n${timings.join(' · ')}`
 }
 
 // The service name shares the Operation cell instead of a column of its own. Together the default widths
@@ -64,14 +72,14 @@ const SPANS_COLUMN: VirtualizedTableColumn<TraceOperation> = {
     render: (row) => humanFriendlyNumber(row.count),
 }
 
-const TOTAL_COLUMN: VirtualizedTableColumn<TraceOperation> = {
-    key: 'total',
-    title: 'Total',
-    width: 80,
+const SELF_TIME_COLUMN: VirtualizedTableColumn<TraceOperation> = {
+    key: 'self',
+    title: 'Self time',
+    width: 84,
     align: 'right',
-    tooltip: 'Sum of span durations. Nested spans count in both parent and child.',
-    sorter: (a, b) => a.total_duration_nano - b.total_duration_nano,
-    render: (row) => <span className="font-mono">{formatDuration(row.total_duration_nano)}</span>,
+    tooltip: 'Time these spans spend outside their child spans, so time in nested spans counts once.',
+    sorter: (a, b) => a.self_time_nano - b.self_time_nano,
+    render: (row) => <span className="font-mono">{formatDuration(row.self_time_nano)}</span>,
 }
 
 const AVG_COLUMN: VirtualizedTableColumn<TraceOperation> = {
@@ -79,6 +87,7 @@ const AVG_COLUMN: VirtualizedTableColumn<TraceOperation> = {
     title: 'Avg',
     width: 72,
     align: 'right',
+    tooltip: 'Average span duration, including time in child spans.',
     sorter: (a, b) => a.avg_duration_nano - b.avg_duration_nano,
     render: (row) => <span className="font-mono">{formatDuration(row.avg_duration_nano)}</span>,
 }
@@ -88,6 +97,7 @@ const P50_COLUMN: VirtualizedTableColumn<TraceOperation> = {
     title: 'p50',
     width: 72,
     align: 'right',
+    tooltip: 'Median span duration, including time in child spans.',
     sorter: (a, b) => a.p50_duration_nano - b.p50_duration_nano,
     render: (row) => <span className="font-mono">{formatDuration(row.p50_duration_nano)}</span>,
 }
@@ -105,8 +115,8 @@ function shareColumn(tooltip: string): VirtualizedTableColumn<TraceOperation> {
 }
 
 const SHARE_COLUMNS: Record<'trace' | 'span', VirtualizedTableColumn<TraceOperation>> = {
-    trace: shareColumn('Total as a share of the trace duration. Nested spans can push this above 100%.'),
-    span: shareColumn("Total as a share of this span's duration. Nested spans can push this above 100%."),
+    trace: shareColumn('Self time as a share of the self time of every span in the trace.'),
+    span: shareColumn('Self time as a share of the self time of this span and the spans under it.'),
 }
 
 // Memoized because the drawer re-renders on every mousemove of an inspector resize drag. The props stay
@@ -139,7 +149,7 @@ export const TraceOperationsTable = memo(function TraceOperationsTable({
                             // pinned: autocapture selects on this value, so renaming it breaks saved actions
                             data-attr="tracing-trace-operations-highlight"
                             aria-pressed={isHighlighted}
-                            className="block w-full font-mono text-left truncate cursor-pointer"
+                            className="block w-full font-mono text-left cursor-pointer"
                             title={withTimings(highlightTitle(isHighlighted), row, compact)}
                             onClick={(event) => {
                                 // Stop here so that the row handler does not toggle the highlight a second time.
@@ -147,29 +157,42 @@ export const TraceOperationsTable = memo(function TraceOperationsTable({
                                 onHighlightOperation(nextHighlightKey(row, highlightedOperationKey))
                             }}
                         >
-                            <span title={withTimings(`${row.service_name} ${row.name}`, row, compact)} translate="no">
-                                <span className="text-muted">{row.service_name}</span> {row.name}
+                            {/* The operations of one trace often share a long service name, so the name comes first
+                                and keeps its width: the service truncates to nothing before the name truncates. */}
+                            <span
+                                className="flex min-w-0 overflow-hidden"
+                                title={withTimings(`${row.service_name} ${row.name}`, row, compact)}
+                                translate="no"
+                            >
+                                <span className="shrink-0 max-w-full truncate">{row.name}</span>
+                                <span className="min-w-0 truncate pl-1.5 text-muted">{row.service_name}</span>
                             </span>
                         </button>
                     )
                 },
             },
             SPANS_COLUMN,
-            TOTAL_COLUMN,
+            SELF_TIME_COLUMN,
             ...(compact ? [] : [AVG_COLUMN, P50_COLUMN]),
             SHARE_COLUMNS[shareOf],
         ],
         [highlightedOperationKey, onHighlightOperation, compact, shareOf]
     )
+    // A sort by a column the table no longer shows, such as Avg after the table turns compact, falls back to the
+    // default sort, so the header always marks the order the rows are in.
+    const effectiveSort = useMemo(
+        (): VirtualizedSort =>
+            sort && columns.some((column) => column.key === sort.columnKey && column.sorter) ? sort : DEFAULT_SORT,
+        [sort, columns]
+    )
     // Sort the whole list before the cap. Otherwise a sort by Spans only reorders the five operations with
-    // the largest totals, and the most-called operations of the trace stay hidden.
+    // the most self time, and the most-called operations of the trace stay hidden.
     const visibleOperations = useMemo((): TraceOperation[] => {
-        const sorter = columns.find((column) => column.key === sort?.columnKey)?.sorter
-        if (!sort || !sorter) {
-            return operations.slice(0, MAX_OPERATIONS)
-        }
-        return [...operations].sort((a, b) => sorter(a, b) * sort.order).slice(0, MAX_OPERATIONS)
-    }, [operations, columns, sort])
+        const sorter = columns.find((column) => column.key === effectiveSort.columnKey)?.sorter
+        return sorter
+            ? [...operations].sort((a, b) => sorter(a, b) * effectiveSort.order).slice(0, MAX_OPERATIONS)
+            : operations.slice(0, MAX_OPERATIONS)
+    }, [operations, columns, effectiveSort])
     const onRowClick = useCallback(
         (row: TraceOperation): void => onHighlightOperation(nextHighlightKey(row, highlightedOperationKey)),
         [highlightedOperationKey, onHighlightOperation]
@@ -200,7 +223,7 @@ export const TraceOperationsTable = memo(function TraceOperationsTable({
                     rowKey={operationRowKey}
                     onRowClick={onRowClick}
                     rowClassName={rowClassName}
-                    sort={sort}
+                    sort={effectiveSort}
                     onSortChange={setSort}
                 />
             </div>
