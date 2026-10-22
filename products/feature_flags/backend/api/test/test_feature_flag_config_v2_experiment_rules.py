@@ -1,9 +1,5 @@
-"""Config version 2 experiment rules: identity, admission and warnings through the API.
-
-These flags are invented test rows.
-"""
-
 import copy
+from collections.abc import Callable
 from typing import Any
 
 from unittest.mock import patch
@@ -47,8 +43,6 @@ def keyed_split(first_key: str, return_type: str = "boolean", **extra: Any) -> d
 
 
 class TestExperimentRules(AdmittedV2TestCase):
-    """Experiment rules create no Experiment row, keep server-owned seeds and follow the shared validator's limits."""
-
     def test_create_assigns_the_rule_and_holdout_seeds(self) -> None:
         submitted = config(
             targeted(rule_id=None), experiment(rule_id=None, seed=None, holdout=local_holdout(seed=None))
@@ -123,9 +117,11 @@ class TestExperimentRules(AdmittedV2TestCase):
             ("null_experiment_id", experiment(experiment_id=None), "filters.rules[0].experiment_id"),
             ("holdout_id", experiment(holdout={**local_holdout(), "id": 7}), "filters.rules[0].holdout.id"),
             ("null_holdout_id", experiment(holdout={**local_holdout(), "id": None}), "filters.rules[0].holdout.id"),
+            # Reported as the unknown field, not as a client-chosen holdout seed.
+            ("rollout_holdout", rollout(rule_id=None, seed=None, holdout=local_holdout()), "filters.rules[0].holdout"),
         ]
     )
-    def test_experiment_and_holdout_ids_are_unknown_fields(self, _name: str, rule: dict, path: str) -> None:
+    def test_ids_and_misplaced_holdouts_are_unknown_fields(self, _name: str, rule: dict, path: str) -> None:
         flag = self.flag(config(experiment(holdout=local_holdout())))
         stored = copy.deepcopy(flag.filters)
         response = self.patch_flag(flag, {"version": 3, "filters": config(rule)})
@@ -157,9 +153,12 @@ class TestExperimentRules(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (string_split("off"), 3)
 
-    def test_a_null_variant_value_the_row_already_serves_is_kept_and_can_be_enabled(self) -> None:
-        flag = self.flag(string_split("null"), active=False)
-        replacement = string_split("null", paused=True)
+    @parameterized.expand([("variant_value", string_split), ("variant_key", keyed_split)])
+    def test_a_null_variant_the_rule_already_holds_is_kept_and_can_be_enabled(
+        self, _name: str, split: Callable[..., dict]
+    ) -> None:
+        flag = self.flag(split("null"), active=False)
+        replacement = split("null", paused=True)
         response = self.patch_flag(flag, {"version": 3, "filters": replacement})
         assert response.status_code == status.HTTP_200_OK, response.json()
         response = self.patch_flag(flag, {"version": 4, "active": True})
@@ -177,25 +176,31 @@ class TestExperimentRules(AdmittedV2TestCase):
         assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", NULL_KEY_ATTR, NULL_KEY_DETAIL)
         assert not FeatureFlag.objects.filter(team=self.team, key="split-v2").exists()
 
-    @parameterized.expand([("boolean",), ("string",)])
-    def test_update_rejects_a_new_null_variant_key(self, return_type: str) -> None:
-        flag = self.flag(keyed_split("control", return_type))
-        response = self.patch_flag(flag, {"version": 3, "filters": keyed_split("null", return_type)})
+    @parameterized.expand(
+        [
+            ("boolean", keyed_split("control"), keyed_split("null"), NULL_KEY_ATTR),
+            ("string", keyed_split("control", "string"), keyed_split("null", "string"), NULL_KEY_ATTR),
+            (
+                # A held key stays with its rule's experiment, so a new rule cannot take it over.
+                "held_by_another_rule",
+                keyed_split("null"),
+                config(
+                    *keyed_split("control")["rules"],
+                    *keyed_split("null", rule_id=None, seed=None)["rules"],
+                    default_value=None,
+                ),
+                "filters__rules__1__variants__0__key",
+            ),
+        ]
+    )
+    def test_update_rejects_a_new_null_variant_key(self, _name: str, stored: dict, submitted: dict, attr: str) -> None:
+        flag = self.flag(stored)
+        response = self.patch_flag(flag, {"version": 3, "filters": submitted})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
-        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", NULL_KEY_ATTR, NULL_KEY_DETAIL)
+        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", attr, NULL_KEY_DETAIL)
         flag.refresh_from_db()
-        assert (flag.filters, flag.version) == (keyed_split("control", return_type), 3)
-
-    def test_a_null_variant_key_the_row_already_uses_is_kept_and_can_be_enabled(self) -> None:
-        flag = self.flag(keyed_split("null"), active=False)
-        replacement = keyed_split("null", paused=True)
-        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        response = self.patch_flag(flag, {"version": 4, "active": True})
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        flag.refresh_from_db()
-        assert (flag.filters, flag.active, flag.version) == (replacement, True, 5)
+        assert (flag.filters, flag.version) == (stored, 3)
 
     def test_a_split_above_a_lower_rule_reports_warnings_and_is_cached(self) -> None:
         flag = self.flag(config(experiment()), active=True)

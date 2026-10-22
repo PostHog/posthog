@@ -291,7 +291,7 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         )
 
     rules: list[ValidatedRule] = []
-    if _field(document, "rules", "filters", errors, (lambda v: isinstance(v, list), "Must be an array.")):
+    if _field(document, "rules", "filters", errors, _ARRAY_CHECK):
         if len(document["rules"]) > MAX_RULES:
             errors.append(
                 ConfigError(
@@ -422,14 +422,14 @@ def _validate_variants(
     if len(items) < MIN_VARIANTS:
         errors.append(ConfigError(code="invalid", detail=f"At least {MIN_VARIANTS} variants are required.", attr=path))
         return ()
-    before = len(errors)
     variants: list[ValidatedVariant] = []
     seen_keys: set[str] = set()
     for index, variant in enumerate(items):
         validated = _validate_variant(variant, f"{path}[{index}]", value_check, seen_keys, errors)
         if validated is not None:
             variants.append(validated)
-    if len(errors) == before and sum(variant.weight for variant in variants) != 100:
+    # Sum only a fully validated list: without a valid return type no variant validates.
+    if len(variants) == len(items) and sum(variant.weight for variant in variants) != 100:
         errors.append(ConfigError(code="invalid", detail="Variant weights must total exactly 100.", attr=path))
     return tuple(variants)
 
@@ -479,7 +479,7 @@ def _validate_targeting(rule: Mapping[str, Any], path: str, errors: list[ConfigE
     for name in targeting:
         if name != "properties":
             errors.append(_unknown_field(f"{path}.{name}"))
-    if not _field(targeting, "properties", path, errors, (lambda v: isinstance(v, list), "Must be an array.")):
+    if not _field(targeting, "properties", path, errors, _ARRAY_CHECK):
         return None
     properties = targeting["properties"]
     if len(properties) > MAX_PREDICATES_PER_RULE:
