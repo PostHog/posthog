@@ -596,7 +596,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .array(zod.record(zod.string(), zod.unknown()))
                         .optional()
                         .describe(
-                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet."
                         ),
                     events: zod
                         .array(
@@ -1003,7 +1003,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .array(zod.record(zod.string(), zod.unknown()))
                         .optional()
                         .describe(
-                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet."
                         ),
                     events: zod
                         .array(
@@ -1415,7 +1415,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .array(zod.record(zod.string(), zod.unknown()))
                         .optional()
                         .describe(
-                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet."
                         ),
                     events: zod
                         .array(
@@ -2084,7 +2084,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .array(zod.record(zod.string(), zod.unknown()))
                             .optional()
                             .describe(
-                                "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                                "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet."
                             ),
                         events: zod
                             .array(
@@ -2938,7 +2938,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .array(zod.record(zod.string(), zod.unknown()))
                         .optional()
                         .describe(
-                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                            "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet."
                         ),
                     events: zod
                         .array(

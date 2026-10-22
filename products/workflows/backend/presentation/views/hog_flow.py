@@ -364,6 +364,21 @@ _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "sour
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
+def _cohort_conditions_enabled_in(context: dict) -> bool:
+    """Whether the requesting user's organization has the cohort-conditions flag. Fails closed."""
+    try:
+        request = context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+            return False
+        get_team = context.get("get_team")
+        if get_team is None:
+            return False
+        return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
+    except Exception:
+        return False
+
+
 def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
@@ -1484,17 +1499,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         return self._cohort_conditions_flag
 
     def _check_cohort_conditions_flag(self) -> bool:
-        try:
-            request = self.context.get("request")
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
-                return False
-            get_team = self.context.get("get_team")
-            if get_team is None:
-                return False
-            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
-        except Exception:
-            return False
+        return _cohort_conditions_enabled_in(self.context)
 
     def _validate_cohort_trigger(self, action: dict) -> None:
         config = action.get("config") or {}
@@ -2320,7 +2325,9 @@ class HogFlowConversionSerializer(serializers.Serializer):
         help_text=(
             "Property-based conversion conditions, as an ARRAY of property filters: "
             "[{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — "
-            "put them in 'events'. Empty array = any event within the window converts."
+            "put them in 'events'. Empty array = any event within the window converts. "
+            "A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, "
+            "and then every condition must be a cohort. Not available to every organization yet."
         ),
     )
     events = serializers.ListField(
@@ -3523,6 +3530,34 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "last_run",
         ]
 
+    def _conversion_cohorts_allowed(self, filters: list, instance: Optional[WorkflowEditState], strict: bool) -> bool:
+        """
+        Whether a conversion goal may read realtime cohort membership. The matcher counts a cohort goal
+        from a membership change, which carries no person properties, so every condition of the goal
+        has to be a cohort. A goal an active flow already stores keeps validating after a flag dial-down.
+
+        A web draft is not strict: it gets False, so the goal stays uncompiled until the problem is fixed.
+        """
+        error: Optional[str] = None
+        if any(not isinstance(f, dict) or f.get("type") != "cohort" for f in filters):
+            error = (
+                "A conversion goal with a cohort can only use cohort conditions. "
+                "Remove the other conditions, or track them with an event goal."
+            )
+        else:
+            stored_filters = (
+                (instance.conversion or {}).get("filters")
+                if instance and instance.status == HogFlow.State.ACTIVE
+                else None
+            )
+            if stored_filters != filters and not _cohort_conditions_enabled_in(self.context):
+                error = "Cohort conversion goals aren't available for this organization."
+        if error is None:
+            return True
+        if strict:
+            raise serializers.ValidationError({"conversion": {"filters": error}})
+        return False
+
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
@@ -3661,7 +3696,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if conversion is not None:
             filters = conversion.get("filters")
             if filters:
-                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+                filters_context = self.context
+                if filter_cohort_ids({"properties": filters}) and self._conversion_cohorts_allowed(
+                    filters, instance, strict
+                ):
+                    filters_context = {**self.context, "cohort_membership_supported": True}
+                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=filters_context)
                 if not strict:
                     if serializer.is_valid():
                         compiled_filters = serializer.validated_data

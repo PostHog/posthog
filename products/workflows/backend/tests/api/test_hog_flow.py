@@ -2127,6 +2127,97 @@ class TestHogFlowAPI(APIBaseTest):
             assert new_adoption.status_code == 400, new_adoption.json()
             assert "Cohort membership can't be evaluated" in new_adoption.json()["detail"]
 
+    def _hog_flow_with_conversion_filters(self, filters: list) -> dict:
+        flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": []})
+        flow["actions"] = flow["actions"][:1]
+        flow["conversion"] = {"filters": filters, "window": "7d"}
+        return flow
+
+    @parameterized.expand(
+        [
+            ("cohort_only_with_flag", "realtime", [], True, 201, None),
+            ("without_flag", "realtime", [], False, 400, "aren't available for this organization"),
+            (
+                "cohort_and_person_property",
+                "realtime",
+                [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}],
+                True,
+                400,
+                "can only use cohort conditions",
+            ),
+            ("static_cohort", "static", [], True, 400, "is a static cohort"),
+        ]
+    )
+    def test_hog_flow_conversion_goal_on_a_realtime_cohort(
+        self, _name, cohort_kind, extra_filters, flag_on, expected_status, expected_error
+    ):
+        cohort = (
+            self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+            if cohort_kind == "realtime"
+            else Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
+        )
+        hog_flow = self._hog_flow_with_conversion_filters(
+            [{"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"}, *extra_filters]
+        )
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=flag_on
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_error:
+            assert expected_error in str(response.json()), response.json()
+        else:
+            assert response.json()["conversion"]["bytecode"] == [
+                "_H",
+                1,
+                33,
+                cohort.id,
+                32,
+                "cohort_ids",
+                1,
+                1,
+                2,
+                "inCohort",
+                2,
+            ]
+
+    def test_hog_flow_grandfathers_a_stored_cohort_conversion_goal_after_flag_dial_down(self):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True
+        ):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                self._hog_flow_with_conversion_filters([{"key": "id", "type": "cohort", "value": cohort.id}]),
+            )
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_conversion = created.json()["conversion"]
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=False
+        ):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "renamed", "conversion": stored_conversion},
+            )
+            assert resave.status_code == 200, resave.json()
+
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {
+                    "conversion": {
+                        **stored_conversion,
+                        "filters": [{"key": "id", "type": "cohort", "value": other_cohort.id}],
+                    }
+                },
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
+            assert "aren't available for this organization" in str(new_adoption.json())
+
     def _cohort_trigger_flow(self, config: dict) -> dict:
         return {
             "name": "Cohort trigger flow",

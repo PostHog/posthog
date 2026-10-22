@@ -18,9 +18,10 @@ def create_workflow_for_test(
     trigger: dict[str, Any] | None = None,
     actions: list[dict[str, Any]] | None = None,
     edges: list[dict[str, Any]] | None = None,
+    conversion: dict[str, Any] | None = None,
 ) -> WorkflowSummary:
     """Seed a workflow row. Fields left as None take the model defaults."""
-    optional = {"name": name, "trigger": trigger, "actions": actions, "edges": edges}
+    optional = {"name": name, "trigger": trigger, "actions": actions, "edges": edges, "conversion": conversion}
     flow = HogFlow.objects.create(
         team_id=team_id,
         status=status,

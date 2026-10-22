@@ -7446,6 +7446,14 @@ class TestCohortTypeIntegration(APIBaseTest):
         return response.data["id"]
 
     def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
+        if usage == "conversion_goal":
+            return create_workflow_for_test(
+                team_id=self.team.id,
+                name=f"Workflow {usage}",
+                status=status,
+                actions=[{"id": "trigger_node", "type": "trigger", "config": {"type": "event", "filters": {}}}],
+                conversion={"filters": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]},
+            ).id
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
@@ -7461,6 +7469,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             ("active_trigger", "trigger", "active", 400),
             ("active_branch", "branch", "active", 400),
             ("active_branch_precalculated", "branch_precalculated", "active", 400),
+            ("active_conversion_goal", "conversion_goal", "active", 400),
             ("draft_trigger", "trigger", "draft", 200),
         ]
     )
