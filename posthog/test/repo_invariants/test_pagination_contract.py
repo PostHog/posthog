@@ -150,6 +150,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.data_quality.backend.presentation.views.DataQualityCheckViewSet",
     "products.data_quality.backend.presentation.views.DataQualityRunViewSet",
     "products.data_warehouse.backend.presentation.views.column_annotation.WarehouseColumnAnnotationViewSet",
+    # extend_schema_view only documents the all_engines query parameter; the list itself stays the stock
+    # paginated one, with -created_at ordering and a page-boundary test.
+    "products.data_warehouse.backend.presentation.views.data_modeling_job.DataModelingJobViewSet",
     "products.data_warehouse.backend.presentation.views.expression.DataWarehouseExpressionViewSet",
     "products.data_warehouse.backend.presentation.views.fix_hogql.FixHogQLViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query.viewset.DataWarehouseSavedQueryViewSet",
