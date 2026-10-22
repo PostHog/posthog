@@ -15,7 +15,7 @@ from products.uptime_monitoring.backend.facade.enums import UptimeMonitorMethod
 MIN_INTERVAL_SECONDS = 60
 MAX_INTERVAL_SECONDS = 24 * 60 * 60
 MIN_TIMEOUT_SECONDS = 1
-MAX_TIMEOUT_SECONDS = 30
+MAX_TIMEOUT_SECONDS = 10
 
 
 class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
