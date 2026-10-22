@@ -19,7 +19,13 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { isGoldRingsActive, playGoldRings, watchForGoldRingsContent } from 'lib/holidayGoldRings'
+import {
+    isGoldRingsActive,
+    isGoldRingsMuted,
+    listenForGoldRingsOptOut,
+    playGoldRings,
+    watchForGoldRingsContent,
+} from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -77,8 +83,13 @@ interface MountedSceneLogic {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
-function checkGoldRingsAfterScenePaint(navigation: string, enabled: boolean): () => void {
-    if (!isGoldRingsActive(new Date(), enabled)) {
+function checkGoldRingsAfterScenePaint(
+    navigation: string,
+    isEnabled: () => boolean,
+    hasPlayed: () => boolean,
+    onMatch: () => void
+): () => void {
+    if (!isGoldRingsActive(new Date(), isEnabled()) || hasPlayed()) {
         return () => undefined
     }
 
@@ -88,16 +99,16 @@ function checkGoldRingsAfterScenePaint(navigation: string, enabled: boolean): ()
             return
         }
 
-        const mainContent = document.getElementById('main-content')
-        const pageContent = mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
-        if (pageContent) {
-            stopWatching = watchForGoldRingsContent(
-                pageContent,
-                enabled,
-                () => router.values.location.pathname + router.values.location.search === navigation,
-                playGoldRings
-            )
-        }
+        stopWatching = watchForGoldRingsContent(
+            () => {
+                const mainContent = document.getElementById('main-content')
+                return mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
+            },
+            isEnabled,
+            () => router.values.location.pathname + router.values.location.search === navigation,
+            hasPlayed,
+            onMatch
+        )
     })
 
     return () => {
@@ -486,6 +497,11 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.disposables.add(() =>
+            listenForGoldRingsOptOut(
+                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+            )
+        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -945,11 +961,19 @@ export const sceneLogic = kea<sceneLogicType>([
             const navigation = router.values.location.pathname + router.values.location.search
             if (cache.lastGoldRingsNavigation !== navigation) {
                 cache.lastGoldRingsNavigation = navigation
+                let played = false
                 cache.disposables.add(
                     () =>
                         checkGoldRingsAfterScenePaint(
                             navigation,
-                            values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+                            () =>
+                                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true &&
+                                !isGoldRingsMuted(),
+                            () => played,
+                            () => {
+                                played = true
+                                playGoldRings()
+                            }
                         ),
                     'gold-rings'
                 )

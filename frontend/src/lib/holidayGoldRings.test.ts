@@ -1,4 +1,60 @@
-import { shouldPlayGoldRings, watchForGoldRingsContent } from './holidayGoldRings'
+import {
+    isGoldRingsMuted,
+    listenForGoldRingsOptOut,
+    shouldPlayGoldRings,
+    watchForGoldRingsContent,
+} from './holidayGoldRings'
+
+describe('gold rings opt-out', () => {
+    afterEach(() => {
+        sessionStorage.removeItem('christmas-gold-rings-muted')
+        jest.useRealTimers()
+    })
+
+    test.each(['I hate Xmas', 'ihatexmas', 'I  HATE   XMAS'])('accepts %s', (phrase) => {
+        jest.useFakeTimers()
+        const stopListening = listenForGoldRingsOptOut(() => true)
+
+        for (const key of phrase) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+        }
+
+        expect(isGoldRingsMuted()).toBe(true)
+        stopListening()
+    })
+
+    test('resets an incomplete phrase after a pause', () => {
+        jest.useFakeTimers()
+        const stopListening = listenForGoldRingsOptOut(() => true)
+
+        for (const key of 'I hate') {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+        }
+        jest.advanceTimersByTime(2_001)
+        for (const key of ' Xmas') {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+        }
+
+        expect(isGoldRingsMuted()).toBe(false)
+        stopListening()
+    })
+
+    test('ignores password input', () => {
+        jest.useFakeTimers()
+        const input = document.createElement('input')
+        input.type = 'password'
+        document.body.appendChild(input)
+        const stopListening = listenForGoldRingsOptOut(() => true)
+
+        for (const key of 'IhateXmas') {
+            input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }))
+        }
+
+        expect(isGoldRingsMuted()).toBe(false)
+        stopListening()
+        input.remove()
+    })
+})
 
 describe('shouldPlayGoldRings', () => {
     afterEach(() => {
@@ -28,15 +84,24 @@ describe('shouldPlayGoldRings', () => {
         jest.setSystemTime(new Date(2026, 11, 25))
 
         const content = document.createElement('div')
-        Object.defineProperty(content, 'innerText', { get: () => content.textContent ?? '' })
+        const readInnerText = jest.fn(() => content.textContent ?? '')
+        Object.defineProperty(content, 'innerText', { get: readInnerText })
         content.textContent = 'Loading'
         const onMatch = jest.fn()
-        const stopWatching = watchForGoldRingsContent(content, true, () => true, onMatch)
+        const stopWatching = watchForGoldRingsContent(
+            () => content,
+            () => true,
+            () => true,
+            () => false,
+            onMatch
+        )
 
         content.textContent = '5 rows'
         await Promise.resolve()
+        jest.advanceTimersByTime(20)
 
         expect(onMatch).toHaveBeenCalledTimes(1)
+        expect(readInnerText).toHaveBeenCalledTimes(1)
 
         stopWatching()
     })
@@ -50,16 +115,124 @@ describe('shouldPlayGoldRings', () => {
         content.textContent = 'Loading'
         let isCurrentNavigation = true
         const onMatch = jest.fn()
-        const stopWatching = watchForGoldRingsContent(content, true, () => isCurrentNavigation, onMatch)
+        const stopWatching = watchForGoldRingsContent(
+            () => content,
+            () => true,
+            () => isCurrentNavigation,
+            () => false,
+            onMatch
+        )
 
         isCurrentNavigation = false
         content.textContent = 'Updated'
         await Promise.resolve()
+        jest.advanceTimersByTime(20)
         content.textContent = '5 rows'
         await Promise.resolve()
+        jest.advanceTimersByTime(20)
 
         expect(onMatch).not.toHaveBeenCalled()
 
+        stopWatching()
+    })
+
+    test('waits for the scene container', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+
+        const content = document.createElement('div')
+        content.textContent = '5 rows'
+        const onMatch = jest.fn()
+        let mounted = false
+        const stopWatching = watchForGoldRingsContent(
+            () => (mounted ? content : null),
+            () => true,
+            () => true,
+            () => false,
+            onMatch
+        )
+
+        mounted = true
+        document.body.appendChild(content)
+        await Promise.resolve()
+
+        expect(onMatch).toHaveBeenCalledTimes(1)
+
+        stopWatching()
+        content.remove()
+    })
+
+    test('does not replay when the watcher resumes on the same navigation', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+
+        const content = document.createElement('div')
+        content.textContent = '5 rows'
+        let played = false
+        const onMatch = jest.fn(() => {
+            played = true
+        })
+        const watch = (): (() => void) =>
+            watchForGoldRingsContent(
+                () => content,
+                () => true,
+                () => true,
+                () => played,
+                onMatch
+            )
+
+        watch()
+        watch()
+
+        expect(onMatch).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not play after the flag turns off', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+
+        const content = document.createElement('div')
+        content.textContent = 'Loading'
+        let enabled = true
+        const onMatch = jest.fn()
+        const stopWatching = watchForGoldRingsContent(
+            () => content,
+            () => enabled,
+            () => true,
+            () => false,
+            onMatch
+        )
+
+        enabled = false
+        content.textContent = '5 rows'
+        await Promise.resolve()
+        jest.advanceTimersByTime(20)
+
+        expect(onMatch).not.toHaveBeenCalled()
+        stopWatching()
+    })
+
+    test('stops watching after the observation window', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+
+        const content = document.createElement('div')
+        content.textContent = 'Loading'
+        const onMatch = jest.fn()
+        const stopWatching = watchForGoldRingsContent(
+            () => content,
+            () => true,
+            () => true,
+            () => false,
+            onMatch
+        )
+
+        jest.advanceTimersByTime(10_001)
+        content.textContent = '5 rows'
+        await Promise.resolve()
+        jest.advanceTimersByTime(20)
+
+        expect(onMatch).not.toHaveBeenCalled()
         stopWatching()
     })
 })

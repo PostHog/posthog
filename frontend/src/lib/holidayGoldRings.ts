@@ -1,4 +1,51 @@
 let goldRingsAudio: HTMLAudioElement | null = null
+const optOutKey = 'christmas-gold-rings-muted'
+const optOutPhrase = 'ihatexmas'
+const sequenceTimeoutMs = 2_000
+
+export function isGoldRingsMuted(): boolean {
+    return sessionStorage.getItem(optOutKey) === 'true'
+}
+
+export function listenForGoldRingsOptOut(isEnabled: () => boolean): () => void {
+    let progress = 0
+    let lastKeyAt = 0
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+        if (
+            !isEnabled() ||
+            isGoldRingsMuted() ||
+            event.repeat ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.key.length !== 1
+        ) {
+            return
+        }
+        if (event.target instanceof HTMLInputElement && event.target.type === 'password') {
+            return
+        }
+        if (event.key === ' ') {
+            return
+        }
+
+        const now = Date.now()
+        progress = now - lastKeyAt > sequenceTimeoutMs ? 0 : progress
+        lastKeyAt = now
+        const key = event.key.toLowerCase()
+        progress = key === optOutPhrase[progress] ? progress + 1 : key === optOutPhrase[0] ? 1 : 0
+
+        if (progress === optOutPhrase.length) {
+            sessionStorage.setItem(optOutKey, 'true')
+            goldRingsAudio?.pause()
+            progress = 0
+        }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+}
 
 export function isGoldRingsActive(date: Date, enabled: boolean): boolean {
     const month = date.getMonth()
@@ -15,38 +62,105 @@ export function shouldPlayGoldRings(date: Date, enabled: boolean, content: strin
 }
 
 export function watchForGoldRingsContent(
-    content: HTMLElement,
-    enabled: boolean,
+    getContent: () => HTMLElement | null,
+    isEnabled: () => boolean,
     isCurrentNavigation: () => boolean,
+    hasPlayed: () => boolean,
     onMatch: () => void
 ): () => void {
-    const shouldStopWatching = (): boolean => {
-        if (!isCurrentNavigation()) {
-            return true
-        }
-        if (!shouldPlayGoldRings(new Date(), enabled, content.innerText)) {
-            return false
-        }
+    const observationWindowMs = 10_000
+    let contentObserver: MutationObserver | undefined
+    let documentObserver: MutationObserver | undefined
+    let scanFrame: number | undefined
+    let isStopped = false
+    const changedNodes = new Set<Node>()
 
-        onMatch()
-        return true
+    const stopWatching = (): void => {
+        if (isStopped) {
+            return
+        }
+        isStopped = true
+        contentObserver?.disconnect()
+        documentObserver?.disconnect()
+        window.clearTimeout(timeout)
+        if (scanFrame !== undefined) {
+            window.cancelAnimationFrame(scanFrame)
+        }
     }
 
-    if (shouldStopWatching()) {
-        return () => undefined
+    const checkForMatch = (text: string): void => {
+        if (!isCurrentNavigation() || !isEnabled() || hasPlayed()) {
+            stopWatching()
+        } else if (shouldPlayGoldRings(new Date(), true, text)) {
+            stopWatching()
+            onMatch()
+        }
     }
 
-    const observer = new MutationObserver(() => {
-        if (shouldStopWatching()) {
-            observer.disconnect()
+    const attachToContent = (): void => {
+        if (isStopped) {
+            return
         }
-    })
-    observer.observe(content, { childList: true, characterData: true, subtree: true })
+        if (!isCurrentNavigation() || !isEnabled() || hasPlayed()) {
+            stopWatching()
+            return
+        }
 
-    return () => observer.disconnect()
+        const content = getContent()
+        if (!content) {
+            return
+        }
+
+        documentObserver?.disconnect()
+        documentObserver = undefined
+        checkForMatch(content.innerText ?? content.textContent ?? '')
+        if (isStopped) {
+            return
+        }
+
+        contentObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'characterData') {
+                    changedNodes.add(mutation.target)
+                } else {
+                    mutation.addedNodes.forEach((node) => changedNodes.add(node))
+                }
+            }
+            if (scanFrame === undefined) {
+                scanFrame = window.requestAnimationFrame(() => {
+                    scanFrame = undefined
+                    const changedText = [...changedNodes]
+                        .filter((node) => content.contains(node))
+                        .map((node) => node.textContent ?? '')
+                        .join(' ')
+                    changedNodes.clear()
+                    if (changedText) {
+                        checkForMatch(changedText)
+                    } else if (!isCurrentNavigation() || !isEnabled() || hasPlayed()) {
+                        stopWatching()
+                    }
+                })
+            }
+        })
+        contentObserver.observe(content, { childList: true, characterData: true, subtree: true })
+    }
+
+    const timeout = window.setTimeout(stopWatching, observationWindowMs)
+    attachToContent()
+    if (!isStopped && !getContent()) {
+        documentObserver = new MutationObserver(attachToContent)
+        if (document.documentElement) {
+            documentObserver.observe(document.documentElement, { childList: true, subtree: true })
+        }
+    }
+
+    return stopWatching
 }
 
 export function playGoldRings(): void {
+    if (isGoldRingsMuted()) {
+        return
+    }
     goldRingsAudio ??= new Audio('/static/sounds/five-gold-rings.mp3')
     goldRingsAudio.pause()
     goldRingsAudio.currentTime = 0
