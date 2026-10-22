@@ -5967,10 +5967,10 @@ Today (5): `Charges`, `Customers`, `PaymentRequests`, `RecurringBilling`, `Subsc
 
 Diffed against: <https://docs.hitpayapp.com/openapi.json>
 
-- [ ] `Payouts (GET /v1/payouts)` — reconcile collected payments with settlement amounts and bank payout status (high)
-- [ ] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
-- [ ] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
-- [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high)
+- [x] `Payouts (GET /v1/payouts)` — reconcile collected payments with settlement amounts and bank payout status (high)
+- [x] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
+- [x] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
+- [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high); skipped, the spec documents no page or cursor parameter for this endpoint and describes the response as a single order, so a full sync cannot be paged reliably
 - [ ] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
 - [ ] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
 
