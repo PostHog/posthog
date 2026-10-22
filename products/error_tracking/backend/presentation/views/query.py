@@ -25,14 +25,18 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
+    contracts,
     queries as query_facade,
+    summaries as summaries_facade,
 )
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
@@ -75,9 +79,58 @@ from products.error_tracking.backend.presentation.views.query_serializers import
     ErrorTrackingIssueQueryRequestSerializer,
     ErrorTrackingIssuesListQueryRequestSerializer,
     ErrorTrackingIssuesListResponseSerializer,
+    IssueSummaryStatus,
 )
 
 logger = structlog.get_logger(__name__)
+
+# Generation took about 3s at p95 in research. The wait holds a web worker, so keep it bounded.
+ISSUE_SUMMARY_WAIT_SECONDS = 6.0
+
+
+@frozen
+class IssueSummaryRead:
+    status: IssueSummaryStatus
+    summary: contracts.ErrorTrackingIssueSummary | None
+
+
+def read_issue_summary(team_id: int, issue_id: str) -> IssueSummaryRead:
+    """Return the stored summary, or wait a bounded time for a first one. A summary failure never fails the read."""
+    try:
+        return _read_issue_summary(team_id, issue_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": issue_id})
+        return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
+
+
+def _read_issue_summary(team_id: int, issue_id: str) -> IssueSummaryRead:
+    # A stale stored summary returns at once while a newer one generates in the background.
+    stored = summaries_facade.get_issue_summary(team_id, issue_id)
+    started_at = now()
+    started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+    if stored is not None:
+        return IssueSummaryRead(status=IssueSummaryStatus.READY, summary=stored)
+    if not started:
+        return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
+    summary = summaries_facade.wait_for_issue_summary(
+        team_id, issue_id, checked_after=started_at, timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS
+    )
+    if summary is None:
+        return IssueSummaryRead(status=IssueSummaryStatus.GENERATING, summary=None)
+    return IssueSummaryRead(status=IssueSummaryStatus.READY, summary=summary)
+
+
+def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, object]:
+    return compact_dict(
+        {
+            "what_happened": summary.what_happened,
+            "likely_cause": summary.likely_cause,
+            "who_is_affected": summary.who_is_affected,
+            "suggested_next_step": summary.suggested_next_step,
+            "category": summary.category.value if summary.category is not None else None,
+            "generated_at": summary.generated_at.isoformat(),
+        }
+    )
 
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -204,10 +257,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload["impact"] = {}
             if include_sparkline:
                 payload["sparkline"] = []
-            self._report_issue_read(
-                request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
-            )
-            return Response(payload)
+            return self._issue_response(request, issue_id, payload, include_breakdown, include_sparkline)
         issue = cast(dict[str, object], raw_results[0])
         event_properties = self._issue_event_properties(
             request,
@@ -243,8 +293,27 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if include_breakdown:
             payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
+        return self._issue_response(request, issue_id, payload, include_breakdown, include_sparkline)
+
+    def _issue_response(
+        self,
+        request: ValidatedRequest,
+        issue_id: str,
+        payload: dict[str, object],
+        include_breakdown: bool,
+        include_sparkline: bool,
+    ) -> Response:
+        summary_read = read_issue_summary(self.team.id, issue_id)
+        if summary_read.summary is not None:
+            payload["summary"] = summary_payload(summary_read.summary)
+        payload["summary_status"] = summary_read.status.value
         self._report_issue_read(
-            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            request,
+            issue_id,
+            "issue",
+            include_breakdown=include_breakdown,
+            include_sparkline=include_sparkline,
+            summary_status=summary_read.status.value,
         )
         return Response(payload)
 

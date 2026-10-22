@@ -1293,6 +1293,60 @@ export interface ErrorTrackingIssueBreakdownApi {
     top_values: ErrorTrackingBreakdownTopValuesApi
 }
 
+/**
+ * * `own_code` - Own Code
+ * * `third_party` - Third Party
+ * * `network` - Network
+ * * `bots` - Bots
+ * * `expected` - Expected
+ * * `unclear` - Unclear
+ */
+export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
+
+export const IssueSummaryCategoryEnumApi = {
+    OwnCode: 'own_code',
+    ThirdParty: 'third_party',
+    Network: 'network',
+    Bots: 'bots',
+    Expected: 'expected',
+    Unclear: 'unclear',
+} as const
+
+export interface ErrorTrackingIssueSummaryApi {
+    /** What the error is and where it happens, in plain language. */
+    what_happened: string
+    /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+    likely_cause: string
+    /** Which users, sessions or platforms the error reaches. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the error. */
+    suggested_next_step: string
+    /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category?: IssueSummaryCategoryEnumApi
+    /** When the summary was written. */
+    generated_at: string
+}
+
+/**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `unavailable` - Unavailable
+ */
+export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
+
+export const IssueSummaryStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    Unavailable: 'unavailable',
+} as const
+
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
     id: string
@@ -1353,6 +1407,14 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
+    /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+    summary?: ErrorTrackingIssueSummaryApi
+    /** 'ready' means summary is present. 'generating' means a summary is being written: call again in a few seconds to get it. 'unavailable' means no summary exists for this issue and none is being written.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable */
+    summary_status: IssueSummaryStatusEnumApi
 }
 
 /**

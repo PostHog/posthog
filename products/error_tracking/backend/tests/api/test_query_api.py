@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -22,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueSummary, IssueSummaryCategory
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
@@ -262,6 +264,27 @@ def test_breakdown_query_date_range(
     assert breakdown_query_date_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == (expected, expected_limited)
 
 
+SUMMARIES_FACADE = "products.error_tracking.backend.facade.summaries"
+STORED_SUMMARY = ErrorTrackingIssueSummary(
+    issue_id=UUID("01936e7f-d7ff-7314-b2d4-7627981e34f0"),
+    what_happened="Checkout throws a TypeError when the cart is empty.",
+    likely_cause="The cart total reads a property of an undefined line item.",
+    who_is_affected="Users who open checkout with an empty cart.",
+    suggested_next_step="Guard the line item lookup in the cart total.",
+    category=IssueSummaryCategory.OWN_CODE,
+    model="test-model",
+    generated_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
+)
+STORED_SUMMARY_PAYLOAD = {
+    "what_happened": STORED_SUMMARY.what_happened,
+    "likely_cause": STORED_SUMMARY.likely_cause,
+    "who_is_affected": STORED_SUMMARY.who_is_affected,
+    "suggested_next_step": STORED_SUMMARY.suggested_next_step,
+    "category": "own_code",
+    "generated_at": "2026-04-24T11:00:00+00:00",
+}
+
+
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     fingerprint = "issue-fingerprint"
@@ -333,22 +356,25 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={
-                "status": "all",
-                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                "library": "posthog-js",
-                "release": "2026.04.24",
-                "fingerprint": self.fingerprint,
-                "url": "/checkout",
-                "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
-            },
-            format="json",
-        )
+        with patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation") as start_generation:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issues",
+                data={
+                    "status": "all",
+                    "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                    "library": "posthog-js",
+                    "release": "2026.04.24",
+                    "fingerprint": self.fingerprint,
+                    "url": "/checkout",
+                    "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+                format="json",
+            )
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+        assert "summary" not in response.json()["results"][0]
+        start_generation.assert_not_called()
 
         project_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
@@ -818,8 +844,18 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("issue", True, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue", False, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
+            (
+                "issue",
+                True,
+                {"includeSparkline": True},
+                {"include_breakdown": False, "include_sparkline": True, "summary_status": "unavailable"},
+            ),
+            (
+                "issue",
+                False,
+                {"includeSparkline": True},
+                {"include_breakdown": False, "include_sparkline": True, "summary_status": "unavailable"},
+            ),
             ("issue_events", True, {}, {}),
         ]
     )
@@ -867,6 +903,48 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 **expected_properties,
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("stored", STORED_SUMMARY, False, None, None, "ready", STORED_SUMMARY_PAYLOAD),
+            ("generated_within_the_wait", None, True, STORED_SUMMARY, None, "ready", STORED_SUMMARY_PAYLOAD),
+            ("wait_times_out", None, True, None, None, "generating", None),
+            ("gates_off", None, False, None, None, "unavailable", None),
+            ("facade_fails", None, None, None, RuntimeError("broker down"), "unavailable", None),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_returns_the_summary(
+        self,
+        _name: str,
+        stored: ErrorTrackingIssueSummary | None,
+        started: bool | None,
+        waited: ErrorTrackingIssueSummary | None,
+        start_error: Exception | None,
+        expected_status: str,
+        expected_summary: dict[str, object] | None,
+    ) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        with (
+            patch(f"{SUMMARIES_FACADE}.get_issue_summary", return_value=stored),
+            patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error),
+            patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", return_value=waited) as wait_for_summary,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["summary_status"] == expected_status
+        assert response.json().get("summary") == expected_summary
+        assert response.json()["impact"]["occurrences"] == 1
+        if stored is not None or not started:
+            wait_for_summary.assert_not_called()
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()

@@ -412,6 +412,32 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
     )
 
 
+class IssueSummaryStatus(models.TextChoices):
+    READY = "ready"
+    GENERATING = "generating"
+    UNAVAILABLE = "unavailable"
+
+
+class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
+    likely_cause = serializers.CharField(
+        help_text="The model's best guess at the cause. A hypothesis to check against the code, never a finding."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        required=False,
+        help_text=(
+            "Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a "
+            "third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' "
+            "automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace "
+            "does not tell. Absent when no category was inferred."
+        ),
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
@@ -439,6 +465,20 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     )
     breakdown = ErrorTrackingIssueBreakdownSerializer(
         required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
+    )
+    summary = ErrorTrackingIssueSummarySerializer(
+        required=False,
+        help_text=(
+            "A model-written summary of the issue. Present only when summary_status is 'ready'. "
+            "Treat likely_cause as a hypothesis, not a fact."
+        ),
+    )
+    summary_status = serializers.ChoiceField(
+        choices=IssueSummaryStatus.choices,
+        help_text=(
+            "'ready' means summary is present. 'generating' means a summary is being written: call again in a few "
+            "seconds to get it. 'unavailable' means no summary exists for this issue and none is being written."
+        ),
     )
 
 
