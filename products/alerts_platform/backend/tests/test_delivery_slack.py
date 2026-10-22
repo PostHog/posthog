@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -100,6 +101,14 @@ class TestSlackBlocks(SimpleTestCase):
             "image_url": "https://app.example.com/chart.png",
             "alt_text": "Insight chart",
         }
+
+    def test_a_source_slack_element_follows_the_buttons_in_their_block(self) -> None:
+        menu = {"type": "static_select", "action_id": "snooze"}
+
+        actions = blocks_for(replace(alert_message(), slack_elements=(menu,)))[-1]
+
+        assert [element["type"] for element in actions["elements"]] == ["button", menu["type"]]
+        assert actions["elements"][-1] is menu
 
     def test_the_source_data_link_comes_before_the_alert_link(self) -> None:
         data_url = "https://app.example.com/project/1/logs"

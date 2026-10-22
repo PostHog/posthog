@@ -30,6 +30,7 @@ MAX_DATA_LINK_URL_CHARS: Final = 2000
 # Its alt text has a 2000-character limit, which a clip keeps the image inside.
 MAX_IMAGE_URL_CHARS: Final = 3000
 MAX_IMAGE_ALT_TEXT_CHARS: Final = 2000
+MAX_SLACK_ELEMENTS: Final = 3
 
 logger = structlog.get_logger(__name__)
 
@@ -82,6 +83,8 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
         details=description.details,
         context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context[:MAX_CONTEXT_LINES]),
         data_link=data_link,
+        # The buttons share the actions block, which Slack caps at 25 elements.
+        slack_elements=description.slack_elements[:MAX_SLACK_ELEMENTS],
     )
 
 

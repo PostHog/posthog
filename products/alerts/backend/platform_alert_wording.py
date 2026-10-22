@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.logic.insight_alert_destinations import snooze_select
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
@@ -22,7 +23,10 @@ from products.alerts_platform.backend.facade.contracts import (
 
 def describe_insight_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
     detail = transition.source_detail
-    breaches = (detail.get("breaches") or []) if transition.kind == AlertEventKind.FIRING else []
+    # A failure keeps the platform's own wording, so only a firing states breaches or offers a snooze.
+    firing = transition.kind == AlertEventKind.FIRING
+    breaches = (detail.get("breaches") or []) if firing else []
+    alert_id = detail.get("alert_id") if firing else None
     insight_name = detail.get("insight_name")
     insight_short_id = detail.get("insight_short_id")
     return SourceDescription(
@@ -32,6 +36,7 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
         data_link=MessageLink(label="View insight", url=insight_url(project_id, insight_short_id))
         if insight_short_id
         else None,
+        slack_elements=(snooze_select(alert_id),) if alert_id else (),
     )
 
 

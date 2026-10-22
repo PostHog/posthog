@@ -206,6 +206,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "breaches": ["above 100"],
             "insight_name": alert.insight.name,
             "insight_short_id": alert.insight.short_id,
+            "alert_id": str(alert.id),
             **chart,
         }
 

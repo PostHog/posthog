@@ -725,6 +725,8 @@ def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedI
     detail: dict[str, Any] = {
         "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
         **_context(alert),
+        # The legacy alert's id, which a native message's snooze menu snoozes.
+        "alert_id": str(alert.id),
     }
     if chart is not None:
         # The ids rather than a URL, because the URL opens the chart without a login and history keeps
