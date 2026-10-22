@@ -1,5 +1,5 @@
 import { compareRowKey } from './compareUtils'
-import { parseTimestampUs } from './spanTree'
+import { childSpansByParentId, parseTimestampUs } from './spanTree'
 import type { Span } from './types'
 
 export interface TraceOperation {
@@ -8,17 +8,18 @@ export interface TraceOperation {
     service_name: string
     name: string
     count: number
+    /** The time the operation's spans spend outside their loaded child spans. See selfTimeNanoBySpan. */
+    self_time_nano: number
+    /** Sum of span durations, so a span and the spans nested in it both count. */
     total_duration_nano: number
     avg_duration_nano: number
     p50_duration_nano: number
-    /** total_duration_nano / traceDurationNano. Above 1 when nested spans overlap. 0 when the trace duration is 0. */
+    /** self_time_nano / the self time of every span summarized, so the shares add up to 1. 0 when that sum is 0. */
     share: number
 }
 
 export interface TraceOperationsSummary {
     operations: TraceOperation[]
-    /** Earliest span start to latest span end, like the span tree timeline. 0 for no spans. */
-    traceDurationNano: number
     spanCount: number
 }
 
@@ -27,6 +28,7 @@ interface OperationAccumulator {
     name: string
     durations: number[]
     total: number
+    selfTime: number
 }
 
 function median(sortedValues: number[]): number {
@@ -34,9 +36,48 @@ function median(sortedValues: number[]): number {
     return sortedValues.length % 2 === 1 ? sortedValues[mid] : (sortedValues[mid - 1] + sortedValues[mid]) / 2
 }
 
+/**
+ * Each span's self time in nanoseconds: its duration minus the union of its loaded child spans' intervals. A child
+ * interval is clipped to the span first, because a child can start before its parent or end after it, such as an
+ * async job the span only enqueued. Children that overlap count once. A child that is not loaded counts as self time.
+ * Keyed by span object, so two spans that share an id in malformed data each get their own value.
+ */
+export function selfTimeNanoBySpan(spans: Span[]): Map<Span, number> {
+    const childrenByParentId = childSpansByParentId(spans)
+    const selfTimes = new Map<Span, number>()
+    for (const span of spans) {
+        const startUs = parseTimestampUs(span.timestamp)
+        const endUs = startUs + span.duration_nano / 1_000
+        const intervals: [number, number][] = []
+        for (const child of childrenByParentId.get(span.span_id) ?? []) {
+            const childStartUs = parseTimestampUs(child.timestamp)
+            const clippedStartUs = Math.max(childStartUs, startUs)
+            const clippedEndUs = Math.min(childStartUs + child.duration_nano / 1_000, endUs)
+            if (clippedEndUs > clippedStartUs) {
+                intervals.push([clippedStartUs, clippedEndUs])
+            }
+        }
+        intervals.sort((a, b) => a[0] - b[0])
+        // Sorted by start, everything from an interval's start up to the furthest end so far is already covered,
+        // so each interval adds only the part past that end.
+        let coveredUs = 0
+        let coveredUntilUs = -Infinity
+        for (const [intervalStartUs, intervalEndUs] of intervals) {
+            const newFromUs = Math.max(intervalStartUs, coveredUntilUs)
+            if (intervalEndUs > newFromUs) {
+                coveredUs += intervalEndUs - newFromUs
+                coveredUntilUs = intervalEndUs
+            }
+        }
+        // Rounded to whole nanoseconds, and floored at 0, so float error in the microsecond math does not show.
+        selfTimes.set(span, Math.max(0, Math.round(span.duration_nano - coveredUs * 1_000)))
+    }
+    return selfTimes
+}
+
 function compareOperations(a: TraceOperation, b: TraceOperation): number {
-    if (a.total_duration_nano !== b.total_duration_nano) {
-        return b.total_duration_nano - a.total_duration_nano
+    if (a.self_time_nano !== b.self_time_nano) {
+        return b.self_time_nano - a.self_time_nano
     }
     if (a.count !== b.count) {
         return b.count - a.count
@@ -45,42 +86,40 @@ function compareOperations(a: TraceOperation, b: TraceOperation): number {
     return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
 }
 
+/**
+ * The spans grouped by operation. Self time measures where the time goes, because it counts each moment once: the
+ * shares add up to 1 over the spans passed in, whether that is the whole trace or one span's subtree.
+ */
 export function summarizeTraceOperations(spans: Span[]): TraceOperationsSummary {
-    if (spans.length === 0) {
-        return { operations: [], traceDurationNano: 0, spanCount: 0 }
-    }
-
+    const selfTimes = selfTimeNanoBySpan(spans)
     const groups = new Map<string, OperationAccumulator>()
-    // A loop, not Math.min(...spread), because a large trace can exceed the engine's argument limit.
-    let traceStartUs = Infinity
-    let traceEndUs = -Infinity
+    let selfTimeSum = 0
     for (const span of spans) {
-        const startUs = parseTimestampUs(span.timestamp)
-        traceStartUs = Math.min(traceStartUs, startUs)
-        traceEndUs = Math.max(traceEndUs, startUs + span.duration_nano / 1_000)
-
         const key = compareRowKey(span)
         let group = groups.get(key)
         if (!group) {
-            group = { service_name: span.service_name, name: span.name, durations: [], total: 0 }
+            group = { service_name: span.service_name, name: span.name, durations: [], total: 0, selfTime: 0 }
             groups.set(key, group)
         }
+        const selfTime = selfTimes.get(span) ?? 0
         group.durations.push(span.duration_nano)
         group.total += span.duration_nano
+        group.selfTime += selfTime
+        selfTimeSum += selfTime
     }
 
-    const traceDurationNano = (traceEndUs - traceStartUs) * 1_000
     const operations: TraceOperation[] = Array.from(groups, ([key, group]) => ({
         key,
         service_name: group.service_name,
         name: group.name,
         count: group.durations.length,
+        self_time_nano: group.selfTime,
         total_duration_nano: group.total,
         avg_duration_nano: group.total / group.durations.length,
         p50_duration_nano: median(group.durations.sort((a, b) => a - b)),
-        share: traceDurationNano > 0 ? group.total / traceDurationNano : 0,
+        share: selfTimeSum > 0 ? group.selfTime / selfTimeSum : 0,
     }))
     operations.sort(compareOperations)
 
-    return { operations, traceDurationNano, spanCount: spans.length }
+    return { operations, spanCount: spans.length }
 }

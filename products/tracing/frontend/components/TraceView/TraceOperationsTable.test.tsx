@@ -12,16 +12,23 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 600, width: 800 }),
 }))
 
-function makeOperation(service_name: string, name: string, total_duration_nano: number, count = 1): TraceOperation {
+function makeOperation(
+    service_name: string,
+    name: string,
+    self_time_nano: number,
+    count = 1,
+    total_duration_nano = self_time_nano
+): TraceOperation {
     return {
         key: compareRowKey({ service_name, name }),
         service_name,
         name,
         count,
+        self_time_nano,
         total_duration_nano,
-        avg_duration_nano: total_duration_nano,
-        p50_duration_nano: total_duration_nano,
-        share: total_duration_nano / 3_000_000,
+        avg_duration_nano: total_duration_nano / count,
+        p50_duration_nano: total_duration_nano / count,
+        share: self_time_nano / 3_000_000,
     }
 }
 
@@ -67,16 +74,17 @@ describe('TraceOperationsTable', () => {
     })
 
     it.each([
-        // Fails when the cap keeps the wrong end of the list, because op-29 has the smallest total.
-        { sortedBy: 'total', header: null, shown: 'op-0', hidden: 'op-29' },
-        // Fails when the cap runs before the sort. That cap keeps the five largest totals, so op-0, the
+        // Fails when the cap keeps the wrong end of the list, or when the rows sort by total: op-29 has the least
+        // self time and the largest total.
+        { sortedBy: 'self time', header: null, shown: 'op-0', hidden: 'op-29' },
+        // Fails when the cap runs before the sort. That cap keeps the five largest self times, so op-0, the
         // operation with the fewest spans, stays and op-29, the one with the most, never shows.
         { sortedBy: 'span count', header: 'Spans', shown: 'op-29', hidden: 'op-0' },
     ])('renders only the top operations by $sortedBy and says how many there are', ({ header, shown, hidden }) => {
-        // A trace with many operations must not render every row. The span counts rise as the totals
-        // fall, so the two sorts keep opposite ends of the list.
+        // A trace with many operations must not render every row. The span counts and the totals rise as the
+        // self times fall, so the two sorts keep opposite ends of the list.
         const operations = Array.from({ length: 30 }, (_, index) =>
-            makeOperation('catalog-api', `op-${index}`, (30 - index) * 1_000_000, index + 1)
+            makeOperation('catalog-api', `op-${index}`, (30 - index) * 1_000_000, index + 1, (index + 1) * 10_000_000)
         )
         const { container } = render(
             <TraceOperationsTable
