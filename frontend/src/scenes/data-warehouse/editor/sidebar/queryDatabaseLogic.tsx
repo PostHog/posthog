@@ -61,6 +61,7 @@ import {
     createVirtualTableField,
     resolveFieldTraverserTarget,
 } from 'products/data_warehouse/frontend/shared/fieldTraversal'
+import { filterFailedMaterializations } from 'products/data_warehouse/frontend/shared/filterFailedMaterializations'
 import {
     connectionSelectorLogic,
     POSTHOG_WAREHOUSE,
@@ -1766,6 +1767,7 @@ export interface queryDatabaseLogicValues {
     searchTreeSourceContext: SearchTreeSourceContext
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null
+    showFailedMaterializationsOnly: boolean
     sidebarOverlayTreeItems: TreeItem[]
     sidebarPosthogTables: DatabaseSchemaTable[]
     syncMoreNoticeDismissed: boolean
@@ -2022,6 +2024,9 @@ export interface queryDatabaseLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    setShowFailedMaterializationsOnly: (showFailedMaterializationsOnly: boolean) => {
+        showFailedMaterializationsOnly: boolean
+    }
     setSyncMoreNoticeDismissed: (dismissed: boolean) => {
         dismissed: boolean
     }
@@ -2165,7 +2170,8 @@ export interface queryDatabaseLogicMeta {
             selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
             databaseLoading: boolean,
             databaseLoadError: string | null,
-            allTablesMap: Record<string, DatabaseSchemaTable>
+            allTablesMap: Record<string, DatabaseSchemaTable>,
+            showFailedMaterializationsOnly: boolean
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
             searchTerm: string,
@@ -2214,6 +2220,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setShowFailedMaterializationsOnly: (showFailedMaterializationsOnly: boolean) => ({
+            showFailedMaterializationsOnly,
+        }),
         setPropertyDefinitionSearch: (
             propertyFieldKey: string,
             target: SidebarPropertyDefinitionTarget,
@@ -2393,6 +2402,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
 
+        showFailedMaterializationsOnly: [
+            false,
+            {
+                setShowFailedMaterializationsOnly: (_, { showFailedMaterializationsOnly }) =>
+                    showFailedMaterializationsOnly,
+                locateTable: () => false,
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -3489,6 +3506,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.databaseLoadError,
                 s.allTablesMap,
+                s.showFailedMaterializationsOnly,
             ],
             (
                 searchTerm: string,
@@ -3498,12 +3516,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
                 databaseLoading: boolean,
                 databaseLoadError: string | null,
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                allTablesMap: Record<string, DatabaseSchemaTable>,
+                showFailedMaterializationsOnly: boolean
             ): TreeDataItem[] => {
                 const sourceData = searchTerm ? searchTreeData : treeData
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
-                    return sourceData
+                    return showFailedMaterializationsOnly ? filterFailedMaterializations(sourceData) : sourceData
                 }
 
                 const flattenedTables: TreeDataItem[] = []

@@ -45,6 +45,11 @@ After that request, catalog reloads also restore complete fields for consumers o
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
 
+In PostHog Warehouse, **Failed materializations only** narrows the sidebar to materialized views whose latest run has status `Failed`.
+This includes views paused after repeated failures. Matching views retain their folders and expandable columns.
+The filter combines with sidebar search and does not apply to direct connections.
+Locating a table clears the filter so the requested table can appear.
+
 ## Saved-query writes
 
 The saved-query API accepts `sync_frequency` on create and update.

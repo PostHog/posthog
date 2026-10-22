@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonCheckbox } from '@posthog/lemon-ui'
+
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 
 import { queryDatabaseLogic } from './queryDatabaseLogic'
@@ -9,9 +11,8 @@ interface TreeSearchFieldProps {
 }
 
 export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.Element {
-    const { treeRef } = useValues(queryDatabaseLogic)
-    const { searchTerm } = useValues(queryDatabaseLogic)
-    const { setSearchTerm, clearSearch } = useActions(queryDatabaseLogic)
+    const { treeRef, searchTerm, connectionId, showFailedMaterializationsOnly } = useValues(queryDatabaseLogic)
+    const { setSearchTerm, clearSearch, setShowFailedMaterializationsOnly } = useActions(queryDatabaseLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -25,13 +26,24 @@ export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.
     }
 
     return (
-        <SearchAutocomplete
-            inputPlaceholder={placeholder}
-            includeNegation
-            defaultValue={searchTerm}
-            onKeyDown={(e) => handleKeyDown(e)}
-            onClear={() => clearSearch()}
-            onChange={(value) => setSearchTerm(value)}
-        />
+        <>
+            <SearchAutocomplete
+                inputPlaceholder={placeholder}
+                includeNegation
+                defaultValue={searchTerm}
+                onKeyDown={(e) => handleKeyDown(e)}
+                onClear={() => clearSearch()}
+                onChange={(value) => setSearchTerm(value)}
+            />
+            {!connectionId && (
+                <LemonCheckbox
+                    label="Failed materializations only"
+                    checked={showFailedMaterializationsOnly}
+                    onChange={setShowFailedMaterializationsOnly}
+                    data-attr="sql-editor-failed-materializations-filter"
+                    size="small"
+                />
+            )}
+        </>
     )
 }
