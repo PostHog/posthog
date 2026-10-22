@@ -81,6 +81,7 @@ _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
         "x-auth-token",
         "x-metabase-session",
         "ob-token-v1",
+        "kalshi-access-signature",
         "cookie",
         "set-cookie",
         "proxy-authorization",

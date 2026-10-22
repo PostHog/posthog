@@ -58,3 +58,13 @@ class PipelineSafePointHandler:
 def source_items_are_framework_output(items: Any) -> bool:
     """Whether the pipeline iterates the REST framework's own generator, with no source wrapper around it."""
     return isinstance(items, Resource)
+
+
+def framework_cursor_covers_buffered_rows(items: Any) -> bool:
+    """Whether the REST framework saved, before the page handed on last, a state that fetches the page after it.
+
+    Then the cursor the pipeline confirmed covers every row it still buffers. A wrapped resource applies
+    the state only when the wrapper asks for the next page, a resource built without a resume hook never
+    saves one, and the last page of a listing has no next page.
+    """
+    return isinstance(items, Resource) and items.last_page_advanced_cursor
