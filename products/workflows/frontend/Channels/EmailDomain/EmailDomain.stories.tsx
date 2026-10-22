@@ -89,6 +89,9 @@ export default meta
 
 type Story = StoryObj<DomainPageArgs>
 
+// The checking step keeps its spinner while it polls, so the snapshot cannot wait for loaders to clear.
+const pollingStory = { testOptions: { waitForLoadersToDisappear: false } }
+
 export const DomainStep: Story = { render: () => <NewDomainPage /> }
 
 export const SettingsNotStarted: Story = {
@@ -114,10 +117,12 @@ export const SettingsUnknownHost: Story = { args: { host: 'unknown' } }
 
 export const Verifying: Story = {
     args: { host: 'route53', seed: (backend) => backend.publishRecords(DOMAIN, halfPublished) },
+    parameters: pollingStory,
 }
 
 export const VerifyingRecordsFound: Story = {
     args: { host: 'cloudflare', seed: (backend) => backend.publishRecords(DOMAIN) },
+    parameters: pollingStory,
 }
 
 export const VerifyingPollingStopped: Story = {
@@ -155,6 +160,7 @@ export const VerifyingFailed: Story = {
             backend.sesReports(DOMAIN, 'failed')
         },
     },
+    parameters: pollingStory,
 }
 
 export const Ready: Story = { args: { host: 'cloudflare', seed: (backend) => backend.verifyDomain(DOMAIN) } }
