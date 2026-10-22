@@ -79,6 +79,7 @@ export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_
 
 // metadata rows for sent message assets (rendered emails stored in object storage)
 export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
+export const KAFKA_EMAIL_STATUS = `${prefix}clickhouse_email_status${suffix}`
 
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`

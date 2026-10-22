@@ -1,4 +1,4 @@
-import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
+import { AppMetricsOutput, EmailStatusOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -61,6 +61,7 @@ export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
     | HogInvocationResultsOutput
+    | EmailStatusOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
 
@@ -188,6 +189,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
+        | 'EMAIL_STATUS_TOPIC'
+        | 'EMAIL_STATUS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
         | 'CDP_DLQ_ENABLED'
