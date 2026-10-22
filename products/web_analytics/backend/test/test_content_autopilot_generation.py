@@ -791,10 +791,19 @@ class TestFetchSitePage(SimpleTestCase):
             (
                 "twin_linking_to_other_pages_by_their_markdown_copies",
                 "# Session replay\n\nSee the [dashboard](https://example.com/docs/dashboard.md), "
-                "[heatmaps](/docs/heatmaps.md#setup) and the [README](https://github.com/example/repo/README.md).",
+                "[heatmaps](/docs/heatmaps.md#setup) and the [README](https://github.com/example/repo/README.md). "
+                "Get the [guide](/download?file=guide.md) or read [setup](/docs/guide#example.md).",
                 "See the [dashboard](https://example.com/docs/dashboard), [heatmaps](/docs/heatmaps#setup) "
-                "and the [README](https://github.com/example/repo/README.md).",
+                "and the [README](https://github.com/example/repo/README.md). "
+                "Get the [guide](/download?file=guide.md) or read [setup](/docs/guide#example.md).",
                 ("dashboard.md", "heatmaps.md"),
+            ),
+            (
+                "twin_with_only_a_title_and_metadata",
+                "# Session replay\n\nCanonical URL: https://example.com/docs/session-replay\n\n"
+                "> **Cloud region:** This page uses US Cloud hosts.",
+                "Session replay records every click, scroll and console error in the browser.",
+                ("Canonical URL", "Products Pricing"),
             ),
             (
                 "stub_twin_linking_to_its_page",

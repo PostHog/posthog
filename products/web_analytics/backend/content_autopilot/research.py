@@ -111,7 +111,7 @@ _CODE_LANGUAGE_RE = re.compile(r"(?:^|\s)lang(?:uage)?-([\w+#.-]+)")
 _CODE_BLOCK_TOKEN_RE = re.compile(r"\x00code-block-(\d+)\x00")
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _TWIN_METADATA_RE = re.compile(r"^canonical url:", re.IGNORECASE)
-_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^)\s]+?)\.md(?=[#?)\s])")
+_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^)\s?#]+?)\.md(?=[#?)\s])")
 
 
 def _code_language(attrs: list[tuple[str, str | None]]) -> str:
@@ -294,6 +294,10 @@ def _from_first_h1(markdown: str) -> str:
 
 
 def _is_stub_twin(markdown: str, url: str) -> bool:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    if not any(line.strip() for line in lines[heading[0] + 1 if heading else 0 :]):
+        return True
     return _links_to_page(markdown, url) and len(markdown.split()) <= MAX_STUB_TWIN_WORDS
 
 

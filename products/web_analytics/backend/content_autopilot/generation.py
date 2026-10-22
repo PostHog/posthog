@@ -311,7 +311,7 @@ def _draft_from_payload(payload: dict[str, Any], *, original_markdown: str = "")
         new_markdown = "\n\n".join(edit.markdown for edit in edits)
         unplaced = applied.unplaced
         if heading := first_h1(markdown.splitlines()):
-            title = heading[1]
+            title = sanitize_user_text(heading[1], 300)
     else:
         markdown = strip_llm_framing_markers(str(payload.get("markdown", "")), 400_000)
         new_markdown = markdown
