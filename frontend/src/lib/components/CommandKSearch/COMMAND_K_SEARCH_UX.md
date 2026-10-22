@@ -63,6 +63,7 @@ The input is always in exactly one mode, decided from the token under the cursor
 ### Empty mode
 
 - Sections in this fixed order: **Recents** (5), **Starred**, **Products**.
+  With the `today-rail-nav` flag on, **Products** comes first: **Products**, **Recents** (5), **Starred**.
 - Same data sources as today (`recentItemsModel`, `projectTreeDataLogic` shortcuts, `getTreeItemsProducts()`).
 - Zero network requests on open. Everything comes from already-loaded models.
 - First row is highlighted.

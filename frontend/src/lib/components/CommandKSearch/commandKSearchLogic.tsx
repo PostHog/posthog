@@ -27,6 +27,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -97,6 +98,7 @@ export interface commandKSearchLogicValues {
     starredItems: SearchItem[] // searchListsLogic
     currentTeamId: number | null // teamLogic
     isDarkModeOn: boolean // themeLogic
+    todayRailEnabled: boolean // todayShellLogic
     user: UserType | null // userLogic
     askAiQuestion: string | null
     chipSelection: ChipSelection
@@ -308,7 +310,8 @@ export interface commandKSearchLogicMeta {
             localQuery: string,
             themeItem: SearchItem | null,
             askAiQuestion: string | null,
-            viewAll: ViewAll | null
+            viewAll: ViewAll | null,
+            todayRailEnabled: boolean
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -361,6 +364,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ['groupTypes', 'aggregationLabel'],
             themeLogic,
             ['isDarkModeOn'],
+            todayShellLogic,
+            ['todayRailEnabled'],
         ],
         actions: [
             commandLogic,
@@ -618,6 +623,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.themeItem,
                 s.askAiQuestion,
                 s.viewAll,
+                s.todayRailEnabled,
             ],
             (
                 mode: CommandKMode,
@@ -629,7 +635,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 localQuery: string,
                 themeItem: SearchItem | null,
                 askAiQuestion: string | null,
-                viewAll: ViewAll | null
+                viewAll: ViewAll | null,
+                todayRailEnabled: boolean
             ): CommandKSection[] =>
                 buildSections({
                     mode,
@@ -642,6 +649,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     themeItem,
                     askAiQuestion,
                     viewAll,
+                    productsFirst: todayRailEnabled,
                 }),
         ],
         selectableRows: [

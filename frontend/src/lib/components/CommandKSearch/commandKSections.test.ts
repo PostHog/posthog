@@ -48,6 +48,7 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     themeItem: null,
     askAiQuestion: null,
     viewAll: null,
+    productsFirst: false,
     ...overrides,
 })
 
@@ -72,6 +73,20 @@ describe('buildSections', () => {
         expect(keys).toHaveLength(limit)
         expect(new Set(keys).size).toBe(limit)
         expect(keys[0]).toBe(`${sectionKey}/dashboard:1`)
+    })
+
+    test.each([
+        [false, ['recents', 'starred', 'products']],
+        [true, ['products', 'recents', 'starred']],
+    ])('orders the empty palette with productsFirst=%s', (productsFirst, expectedKeys) => {
+        const local = {
+            ...emptyLocal(),
+            recents: [dashboard('recent', '1')],
+            starred: [dashboard('starred', '2')],
+            products: [{ id: 'product', name: 'Product analytics', category: 'tools' }],
+        }
+        const sections = buildSections(input('empty', { local, productsFirst }))
+        expect(sections.map((section) => section.key)).toEqual(expectedKeys)
     })
 
     test.each([

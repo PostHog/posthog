@@ -73,6 +73,7 @@ export function Command(): JSX.Element {
                 onItemSelect={handleItemSelect}
                 onAskAiClick={handleAskAiClick}
                 showAskAiLink
+                productsFirst={todayRailEnabled}
             >
                 {todayRailEnabled ? (
                     <div className="flex items-center">

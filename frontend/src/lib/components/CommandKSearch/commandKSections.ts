@@ -224,6 +224,8 @@ export interface SectionsInput {
     themeItem: SearchItem | null
     askAiQuestion: string | null
     viewAll: ViewAll | null
+    /** Puts Products above Recents and Starred in empty mode. */
+    productsFirst: boolean
 }
 
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
@@ -265,18 +267,19 @@ function rankedResultsSections(
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
-        return [
-            readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT)),
-            readySection('starred', itemRows('starred', local.starred)),
-            // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
-            readySection(
+        const recents = readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT))
+        const starred = readySection('starred', itemRows('starred', local.starred))
+        // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
+        const products = readySection(
+            'products',
+            itemRows(
                 'products',
-                itemRows(
-                    'products',
-                    local.products.filter((item) => !item.parentName)
-                )
-            ),
-        ].filter((section) => section.rows.length > 0)
+                local.products.filter((item) => !item.parentName)
+            )
+        )
+        return (input.productsFirst ? [products, recents, starred] : [recents, starred, products]).filter(
+            (section) => section.rows.length > 0
+        )
     }
 
     const remoteSectionFor = (source: RemoteSource): CommandKSection | null => {

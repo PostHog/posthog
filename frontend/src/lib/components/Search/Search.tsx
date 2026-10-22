@@ -300,6 +300,8 @@ export interface SearchRootProps {
     defaultSearchValue?: string
     /** Optional suggested items shown above recents/tools */
     suggestedItems?: SearchItem[]
+    /** Show products above recents and starred */
+    productsFirst?: boolean
 }
 
 function SearchRoot({
@@ -312,6 +314,7 @@ function SearchRoot({
     className = '',
     defaultSearchValue = '',
     suggestedItems = EMPTY_SUGGESTED_ITEMS,
+    productsFirst = false,
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
@@ -483,7 +486,9 @@ function SearchRoot({
         }
 
         // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create']
+        const orderedCategories = productsFirst
+            ? ['suggested', 'tools', 'recents', 'starred', 'create']
+            : ['suggested', 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -512,7 +517,7 @@ function SearchRoot({
         }
 
         return groups
-    }, [filteredItems, allCategories, searchValue])
+    }, [filteredItems, allCategories, searchValue, productsFirst])
 
     // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
     // When searchValue changes, items update immediately; async result arrivals are batched.
