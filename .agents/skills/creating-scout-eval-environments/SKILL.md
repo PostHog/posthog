@@ -1,240 +1,87 @@
 ---
 name: creating-scout-eval-environments
 description: >
-  Reconstructs private, isolated PostHog scout evaluation environments from complete
-  LLM traces, then runs whole scout sessions through existing Scout trials. Use when
-  building a reusable local benchmark from recorded tool reads and starting context.
-  Requires a PostHog checkout and an already provisioned devbox.
+  Creates private, portable Parquet bundles for isolated scout evaluation
+  environments from a saved scout or a draft skill and target project. Exports a
+  minimal real-data slice by default, or reconstructs from LLM traces when asked.
+  Includes supported starting context and uses devbox:prepare-eval-env to restore
+  and validate the environment. Requires a PostHog checkout.
 ---
 
 # Creating scout evaluation environments
 
-Use real local PostHog services and existing Scout trials. Keep reconstruction,
-scout execution, and independent validation separate. This workflow prepares data
-and resets; provision the devbox through the existing devbox workflow.
+Turn a scout's task into the smallest sufficient private data bundle. Use one
+shared restore format for two explicit routes. A saved scout does not need prior
+runs; a draft skill needs a target project and configuration.
 
-Read `products/signals/ARCHITECTURE.md`, the scout authoring lifecycle reference,
-and `docs/internal/scout-online-evals-devbox.md` before changing runtime settings.
-Run development commands from the repository root through `.codex/with-flox`.
+Use the repository's [skill writing guide](../writing-skills/SKILL.md) when
+changing this workflow. Read the [online trial guide](../../../docs/internal/scout-online-evals-devbox.md)
+for local services, routing and trial behavior. Run development commands from the
+repository root through `.codex/with-flox`.
 
-## Establish the evidence boundary
+## Workflow
 
-Keep source traces, case data, assumptions, plans, credentials and exports in an
-ignored private directory or outside Git. Never mount that directory into the
-scout sandbox. Public scripts and this skill describe the workflow only.
+1. **Identify the task and source.** Resolve the scout URL/name and project, or
+   read the draft skill and its files. Read its actual config, instructions,
+   steering, owner notes and dependencies. Use source APIs or MCP for live facts.
+   Ask only for information that cannot be discovered. Never edit the source scout
+   to make export easier.
+2. **Choose the data route.** Default to [a real-data slice](references/real-data.md)
+   of the current source project. Use [trace reconstruction](references/traces.md)
+   only when requested. Do not silently switch routes or mix generated rows into
+   a real-data slice.
+3. **Save a private scope plan.** Include the task window, comparisons, linked
+   records and required starting state. Preserve complete rows and relationships
+   within that scope. Narrow by task needs, not by arbitrary row sampling. Record
+   why each dependency is included and what is unsupported.
+4. **Export or reconstruct, then pack.** Scripts handle pagination, typed Parquet,
+   checksums, stable identities and repeatable writes. Agent judgment chooses the
+   scope and, only on the trace route, fills gaps with documented assumptions.
+   Attach the scout case with `pack --scout-case` so the result is portable.
+5. **Validate before provisioning.** Check bundle structure, references, timezone,
+   cutoff, complete pagination and representative task queries. Reject unsupported
+   tables, integrations or context before declaring the bundle ready. Routine
+   use of this skill does not implement a new adapter or bypass a failed check.
+6. **Create and test a fresh environment when authorized and possible.** Follow
+   [validation and lifecycle](references/validation.md): create a new devbox, run
+   one real Scout trial, inspect its full trace, and repeat only to fix concrete
+   environment failures. Keep a successful devbox running for evaluations.
 
-Before reconstruction, identify source instructions, the pinned skill and files,
-runtime configuration, complete rendered prompt, one-time steering, owner notes,
-metadata, and the last observed state before the session made its first write.
-Preserve earlier reports, memory and runs. Exclude target-session writes.
-Preserve observed organization gates in their real backing rows. In particular,
-the importer creates organizations with AI data processing unapproved; an approved
-cached profile does not satisfy live write gates. Record defaults for unobserved
-organization settings as assumptions.
-Match product feature gates needed by captured tools. Use the existing local
-`POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` comma-separated list, record it with the
-private case, and restart services. A listed tool can still fail its product gate.
+If execution must stop before provisioning, deliver the validated bundle and
+checks that passed, or the concrete dependency preventing a complete bundle.
+Clearly mark the runtime trial as untested. Do not call static checks a successful
+Scout run.
 
-Reserve event exports, reference findings, evaluators and validation summaries
-for independent checking after the first reconstruction is frozen. Extract only
-pre-write reads from raw traces. Tool-call indexes can embed report-write bodies;
-filter operations before displaying them.
+## Shared rules
 
-Treat recorded rows and aggregate results as constraints. Generate missing rows
-consistent with those constraints; record choices and unsupported surfaces in a
-separate assumptions file. Do not describe generated rows as recovered facts.
-Preserve observed list totals, ordering and pagination, not just returned rows.
-Check referenced objects too: a link does not establish its target's full content.
-Use captured fields where available and declare generated backing context and
-unknown fields separately. Keep new context outside the assigned evidence cohort.
-Tools forbidden by the task remain available against local data, so violations
-can still be observed. Never fall back to production to fill a gap.
-Include those tools in the operator's reconstruction preflight, especially member
-and identity lookups. Verify their actual responses before launching the scout.
-Preserve observed names, emails, logins and team memberships in their real backing
-models or local warehouse tables. For missing fields, declare private assumptions
-and check for automatically generated identity placeholders in visible responses.
-Keep public examples and default addresses on reserved domains; do not fetch
-missing identity fields from production.
+- Keep case data, source snapshots, traces, assumptions, bundles, credentials and
+  results in an ignored private directory or outside Git. Only reusable code and
+  independently invented tests belong in Git. Never mount operator evidence or
+  reference answers into the scout sandbox.
+- Preserve actual starting memory, prior reports, notes and history. New scouts
+  may legitimately have none. Preserve full recorded prompts on the trace route;
+  use `prompt_mode="native"` and the ordinary prompt builder for saved/draft
+  scouts without recorded replay. Do not add evaluation disclosures to the task.
+- Preserve the source timezone. Shift all declared timestamps by one delta at
+  first restore. Keep reusable instructions date-neutral where possible and put
+  concrete windows in one-time steering. Do not generate future events to hide
+  clock advance. A receipt reuses its original cutoff; it does not reset writes.
+- Keep normal tools available, including task-forbidden tools, while routing all
+  data reads and writes to the isolated instance. No production fallback. Missing
+  backing state is a gap, not an empty response to manufacture.
+- Score environment fidelity, finding accuracy and scope compliance separately.
+  For trace reconstruction, freeze the first version before opening held-out
+  exports or expected findings. A scout's silence about synthetic data does not
+  prove it believed the environment was production.
+- Paid execution uses a shared budget ledger and local Go gateway. Check spend
+  authorization and routing before launch; bundle creation itself makes no model
+  calls. Keep external credentials out of the bundle.
 
-Compare captured reads of local built-in skills and references with the rendered
-files in `products/posthog_ai/dist/skills/`. Record hashes when they match. If they
-differ, assemble a private overlay containing only the required skill directories
-and set `SANDBOX_LOCAL_SKILLS_HOST_PATH` in the Tasks worker. Never mount raw logs,
-assumptions or validation files alongside those skill files.
+## Implementation map
 
-## Prepare and freeze
-
-Build the existing typed Parquet environment bundle and a private case JSON
-matching `eval_environment/schema.py`. The case carries scout starting state;
-the bundle restores events and governed metrics through `PreparedEnvironment`.
-The trace helpers in `eval_environment/traces.py` extract reusable observations.
-The event recipe supports explicit property omissions on generated rows through
-`generated_property_omissions`; it rejects omissions that target observed rows.
-Match observed timestamp precision and identifier formats on generated rows.
-Explicit timestamps can use deterministic irregular placement while retaining
-known bounds, aggregates and support ordering. `generated_uuid_version` defaults
-to 5 and also supports 7; v7 clock bits use the source timestamp before restore.
-Keep observed rows and identifiers unchanged.
-
-For trace-observed state outside the typed bundle, use a private deterministic
-seed-and-check adapter that restores real models and local storage. Before the
-first plan, extend the freeze through `FrozenEnvironment` and
-`RecordedScoutPrompt`: hash supplemental source files, adapter and receipt into
-both `inputs` and `frozen_inputs`, recompute `runtime_prompt_sha256`, and verify
-the bound prompt. Keep that baseline immutable once a run starts. Run the adapter's
-live-state check before every run or batch; file hashes do not cover database or
-object-storage contents.
-
-```sh
-.codex/with-flox python manage.py scout_eval_environment \
-  --state-dir /private/workspace prepare \
-  --case /private/case/case.json --bundle /private/case
-.codex/with-flox python manage.py scout_eval_environment \
-  --state-dir /private/workspace freeze \
-  --case /private/case/case.json --bundle /private/case
-```
-
-Use a fresh workspace and project for a new baseline. Repeat preparation only
-reuses the exact receipt. Do not reinterpret reuse as reset. Keep the first
-reconstruction immutable before opening held-out validation material.
-
-The first restore defaults its target cutoff to current UTC, rounded backward to
-keep its shift an exact number of seconds. Shift event times,
-state timestamps, declared embedded dates and steering windows by that one delta;
-retain the project's timezone. Keep reusable skill instructions date-neutral
-when they delegate the interval to steering. Supply concrete half-open UTC bounds
-in the trial note. Do not synthesize rows after the cutoff to conceal quiet time.
-Clock time continues advancing during startup and each session.
-
-Freeze writes `runtime-prompt.json`. By default it preserves the recorded full
-prompt, including otherwise tempting guidance, and changes only declared ID/time
-mappings, live run identity and one-time steering. An absent or changed source fails
-closed.
-
-When the user authorizes rewriting the task for ordinary scouting, preserve the
-original prompt privately and declare exact `prompt_transformations` in the
-case: source text, replacement, reason and expected occurrence count. Freeze binds
-those changes too. Rewrite the task skill, its name and steering consistently;
-keep its actual scope and detection rules. Remove evaluation disclosures from the
-agent-facing instructions without adding claims that the data is real. Keep
-isolation in server-side routing, not in instructions asking the scout to act
-privately. Check owner notes, metadata, prior reports and tool responses for leftover
-labels and inconsistent state. Preserve genuine business context; record every
-intentional departure from the trace outside the scout context.
-Declare exact internal project URL-prefix replacements for the prepared local
-project. Verify its project ID before applying that mapping, and preserve external
-links and unrelated source facts.
-
-Restore observed organization and project names through case metadata. Select a
-source-backed or neutral local operator with `prepare --user-id` rather than
-exposing the importer's evaluation-labelled default account. Record assumptions
-for unknown identities separately. Do not rewrite tool failures to hide missing
-capabilities: fix the local state or implement the actual supported operation.
-Preparation also gives the receipt-bound capture guard a neutral, accurate
-event-ingestion label. It preserves the guard's bytecode and frozen receipt;
-`check` verifies both behavior and labels.
-
-Configure backend and relevant workers with:
-
-```dotenv
-SCOUT_EVAL_ENVIRONMENT_FILE=/private/workspace/runtime-prompt.json
-SCOUT_TRIALS_LOCAL_TEAM_ID=<prepared team id>
-```
-
-These switches work only with `DEBUG`; other deployments retain existing trial
-eligibility. The recorded-prompt override targets exactly the prepared scout.
-Restart workers through the normal stack workflow after changing settings.
-
-During paid runs, set `TEMPORAL_DISABLE_HOT_RELOAD=1` and
-`GRANIAN_RELOAD_IGNORE_PATHS=<absolute checkout root>` before starting the worker
-and backend. Source edits and formatter cache writes can otherwise restart the
-backend mid-request and make working tools return transient failures. Keep
-concurrent implementation work out of the evaluated session's runtime.
-
-## Check routing and spend
-
-Use the online trial guide for Docker, OAuth, Temporal and private gateway setup.
-Set MCP's `POSTHOG_API_BASE_URL` explicitly to the local backend. Set sandbox API,
-MCP and gateway URLs explicitly to local services. Verify effective worker and
-container configuration; a value in a shell does not establish another process's
-routing. Keep integration tokens and external MCP connections out of the fixture.
-Verify required services with direct health or client checks too: cached or fallback
-tool responses can succeed while a dependency is unavailable. Use the normal local
-development configuration for Personhog.
-Enable both `signals_scout_suggestions` (rubrics) and `signals_scout` (judges) in
-`SANDBOX_AI_GATEWAY_PRODUCTS`, with a configured mint key. Set
-`SANDBOX_LLM_GATEWAY_URL` explicitly to a local service; ordinary Tasks can fall
-back to it if Go token minting fails. Run `check --probe` to mint and revoke each
-actual product's token without model calls before starting paid work.
-
-```sh
-.codex/with-flox python manage.py scout_eval_environment \
-  --state-dir /private/workspace check --case /private/case/case.json
-```
-
-Use one budget ledger across every environment and attempt. Sandbox, judge and
-report-validation calls all cost money. Inspect effective per-product gateway
-token caps, which override team/default caps. A new report check mints another
-token: the ledger's conservative allowance is not a hard global spending limit.
-Apply a campaign-wide gateway wallet/key budget as well. Unknown spend stays
-reserved until reconciled.
-
-## Prove one session before comparing variants
-
-Prepare exactly one standalone trial first. Planning makes no model calls:
-
-```sh
-.codex/with-flox python manage.py scout_eval_environment \
-  --state-dir /private/workspace run --case /private/case/case.json \
-  --plan /private/first-plan.json --ledger /private/campaign/budget.json
-```
-
-Inspect the plan and budget reservation. Add `--launch` to the same command only
-when execution is authorized. Preserve IDs for transport retries. Poll and export
-the existing run rather than buying another attempt to inspect it:
-
-```sh
-.codex/with-flox python manage.py scout_eval_environment \
-  --state-dir /private/workspace export --case /private/case/case.json \
-  --plan /private/first-plan.json --output /private/first-result.json
-```
-
-Read the full log, including tool responses and available reasoning summaries,
-for missing tools, inconsistent counts or metadata, identity mapping errors,
-unexpected empty responses, and signs the agent suspects fabricated data or knows
-it is being evaluated. Track those two kinds of awareness separately and quote the
-actual evidence. Silence does not prove belief in production data. Distinguish a
-bad reconstruction from a valid scout policy violation. Fix concrete reconstruction
-problems, reset and rebuild into a fresh workspace, then inspect another single run
-before repeating a batch. Keep every earlier frozen input and exported result.
-
-Only after the setup works, run repeated sessions or provide a private JSON list
-of `TrialVariant` objects through `--variants`. Existing Scout comparisons freeze
-starting notes/memory/history and run the saved rubric judges. Adopt or save the
-reviewed rubric after reconstruction is frozen, using the existing rubric tools.
-Decide this before preparation: rubric generation and saving change the config's
-`rubrics` and `updated_at`, and verification compares every `case.config` field
-before each plan and launch. When rubrics will change later, omit both fields from
-`case.config` and keep their source values in private evidence.
-Keep finding accuracy, scope compliance and reconstruction fidelity separate.
-
-Trials keep reports and memory private per run. Keep the underlying project data
-stable for the whole batch because queries and pre-existing report reads are live.
-Configured local trials share a captured starting project profile. Their
-`force_refresh` tool runs the real builder, rolls back shared cache/pruning writes
-and background callbacks, and saves its refreshed view in that run's private
-state. Other trials continue from the original profile snapshot.
-Restore before another batch if anything changed that baseline. Export results
-before a full local reset removes their database references. Use a new workspace
-after `hogli nuke`/the normal reset flow, then rerun the same preparation workflow.
-
-For a data-only reset on a disposable devbox, export results, then use
-`hogli down --timeout 20`, `hogli docker:services:remove -y`, and
-`hogli up -d -y` through `.codex/with-flox`. Prepare into a fresh private workspace
-without seeding demo data. `hogli nuke` also reinstalls dependencies and is the
-broader reset. Local service data is removed, so verify the devbox is disposable.
-
-Reconcile completed gateway spend explicitly before another paid batch. Include
-report validation and judges; do not treat missing usage as zero. Report verified
-behavior, remaining reconstruction assumptions and the total campaign spend.
+- `products/signals/backend/scout_harness/eval_environment/`: source plan/export,
+  trace extraction, deterministic event recipes, scout context and trial helpers.
+- `products/posthog_ai/eval_harness/environment/`: canonical Parquet, portable
+  archive, validation and restore. Its README documents `pack` and `prepare`.
+- `products/signals/backend/facade/eval_environment.py`: scout attachment boundary
+  used by the generic importer.

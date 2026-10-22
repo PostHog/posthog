@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import hashlib
 from pathlib import PurePosixPath
 from typing import Literal, Self
 from uuid import UUID
@@ -104,6 +106,7 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
     skill: ScoutEnvironmentSkill
     config: dict[str, JsonValue] = Field(default_factory=dict)
     steering: str = ""
+    prompt_mode: Literal["recorded", "native"] = "recorded"
     recorded_prompt: str = ""
     prompt_transformations: list[ScoutPromptTransformation] = Field(default_factory=list)
     expected_harness_prompt_version: str | None = None
@@ -112,6 +115,10 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
 
     @model_validator(mode="after")
     def validate_starting_state(self) -> Self:
+        if self.prompt_mode == "native" and (self.recorded_prompt or self.prompt_transformations):
+            raise ValueError(
+                "Native scout environments must use the ordinary harness prompt without recorded overrides."
+            )
         identities = [self.skill.id, *(row.id for row in self.state.records())]
         if len(identities) != len(set(identities)):
             raise ValueError("Starting-state record IDs must be unique.")
@@ -128,6 +135,10 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
             if timestamp and timestamp > self.checkpoint:
                 raise ValueError("The skill version must exist at the checkpoint.")
         return self
+
+    def fingerprint(self) -> str:
+        content = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(content.encode()).hexdigest()
 
 
 class ScoutEnvironmentSeed(EnvironmentModel):

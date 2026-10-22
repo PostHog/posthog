@@ -20,7 +20,7 @@ from products.posthog_ai.eval_harness.environment.cli import load_backend, parse
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
 from products.posthog_ai.eval_harness.environment.storage import file_sha256, require_private_path, workspace_lock
 from products.posthog_ai.eval_harness.environment.transform import EnvironmentTransform
-from products.signals.backend.scout_harness.eval_environment.prompt import RecordedScoutPrompt
+from products.signals.backend.scout_harness.eval_environment.prompt import NativeScoutPrompt, RecordedScoutPrompt
 from products.signals.backend.scout_harness.eval_environment.recipes import EventRecipe
 from products.signals.backend.scout_harness.eval_environment.schema import ScoutEnvironmentCase, ScoutEnvironmentSeed
 from products.signals.backend.scout_harness.eval_environment.traces import load_trace_inputs
@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.eval_environment.trials import (
     TrialVariant,
     write_private_json,
 )
+from products.signals.backend.scout_harness.prompt import HARNESS_PROMPT_VERSION
 
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.environment.restore import EnvironmentReceipt
@@ -82,7 +83,7 @@ class ScoutEnvironmentCommand:
                     write_private_json(seed_path, seed)
             print(json.dumps({"team_id": seed.team_id, "config_id": str(seed.config_id), "paid_calls": 0}))
 
-    def freeze(self, case_path: Path, bundle: Path) -> None:
+    def freeze(self, case_path: Path, bundle: Path, *, extra_inputs: list[Path] | None = None) -> None:
         case_path = require_private_path(case_path)
         case = ScoutEnvironmentCase.model_validate_json(case_path.read_bytes())
         dataset = EnvironmentDataset.load(require_private_path(bundle) / "environment.json")
@@ -108,18 +109,20 @@ class ScoutEnvironmentCommand:
         paths.extend(reference.resolve(dataset.path.parent) for reference in dataset.manifest.events)
         if dataset.manifest.metrics:
             paths.append(dataset.manifest.metrics.resolve(dataset.path.parent))
+        paths.extend(require_private_path(path) for path in extra_inputs or [])
         inputs = {str(require_private_path(path)): file_sha256(path) for path in paths}
         freeze_path = self.workspace / "frozen.json"
         if freeze_path.exists():
             previous = FrozenEnvironment.model_validate_json(freeze_path.read_bytes())
             previous.verify()
+            previous.verify_case(case)
             if previous.inputs != inputs:
                 raise ValueError("This reconstruction was frozen with other inputs. Use a new workspace.")
         else:
             prompt_path = self.workspace / "runtime-prompt.json"
             prompt = self._prompt(case, seed, receipt, inputs)
             write_private_json(prompt_path, prompt)
-            document = FrozenEnvironment.create(paths, seed, runtime_prompt=prompt_path)
+            document = FrozenEnvironment.create(paths, seed, runtime_prompt=prompt_path, case=case)
             write_private_json(freeze_path, document)
         print(json.dumps({"frozen_sha256": file_sha256(freeze_path), "paid_calls": 0}))
 
@@ -129,7 +132,23 @@ class ScoutEnvironmentCommand:
         seed: ScoutEnvironmentSeed,
         receipt: EnvironmentReceipt,
         frozen_inputs: dict[str, str],
-    ) -> RecordedScoutPrompt:
+    ) -> RecordedScoutPrompt | NativeScoutPrompt:
+        if case.prompt_mode == "native":
+            if HARNESS_PROMPT_VERSION == "unknown" or (
+                case.expected_harness_prompt_version is not None
+                and case.expected_harness_prompt_version != HARNESS_PROMPT_VERSION
+            ):
+                raise ValueError("The native case requires a known, matching local harness prompt version.")
+            return NativeScoutPrompt(
+                team_id=seed.team_id,
+                config_id=seed.config_id,
+                skill_name=case.skill.name,
+                skill_version=case.skill.version,
+                allowed_tools=case.skill.allowed_tools,
+                harness_prompt_version=HARNESS_PROMPT_VERSION,
+                frozen_inputs=frozen_inputs,
+                frozen_manifest=str(self.workspace / "frozen.json"),
+            )
         if not case.recorded_prompt or not case.expected_harness_prompt_version:
             raise ValueError("Preserve the full recorded scout prompt and its harness version before freezing.")
         transform = EnvironmentTransform(
@@ -178,6 +197,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         command.add_argument("--case", type=Path, required=True)
         if name in {"prepare", "freeze"}:
             command.add_argument("--bundle", type=Path, required=True)
+        if name == "freeze":
+            command.add_argument(
+                "--extra-input",
+                type=Path,
+                action="append",
+                default=[],
+                help="Private recipe, builder, assumptions or supplemental receipt to bind; repeat for each file",
+            )
         if name == "prepare":
             command.add_argument("--target-cutoff", type=parse_cutoff)
             command.add_argument("--user-id", type=int)
@@ -264,7 +291,7 @@ def execute(args: argparse.Namespace) -> int:
         elif args.command == "prepare":
             command.prepare(args.case, args.bundle, cutoff=args.target_cutoff, user_id=args.user_id)
         elif args.command == "freeze":
-            command.freeze(args.case, args.bundle)
+            command.freeze(args.case, args.bundle, extra_inputs=args.extra_input)
         elif args.command == "reconcile":
             budget = BudgetLedger(args.ledger).settle(args.comparison_id, args.actual_usd)
             print(json.dumps({"committed_usd": str(budget.committed_usd), "limit_usd": str(budget.limit_usd)}))

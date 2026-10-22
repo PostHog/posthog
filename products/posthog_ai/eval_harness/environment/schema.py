@@ -95,13 +95,14 @@ class EnvironmentTextPolicy(EnvironmentModel):
 
 
 class EnvironmentManifest(EnvironmentTextPolicy):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     environment_id: str = Field(pattern=r"^[a-zA-Z0-9_-]+$", max_length=128)
     source_cutoff: AwareDatetime
     checkpoint: AwareDatetime
     timezone: str = "UTC"
     events: list[EnvironmentFile] = Field(default_factory=list)
     metrics: EnvironmentFile | None = None
+    scout: EnvironmentFile | None = None
     event_count: int = Field(ge=0)
     metric_count: int = Field(ge=0)
 
@@ -118,7 +119,9 @@ class EnvironmentManifest(EnvironmentTextPolicy):
     def validate_checkpoint(self) -> Self:
         if self.checkpoint != self.source_cutoff:
             raise ValueError("Environment v1 requires its checkpoint to equal the source cutoff.")
-        references = [*self.events, *([self.metrics] if self.metrics else [])]
+        if self.scout is not None and self.schema_version != 2:
+            raise ValueError("Scout attachments require environment schema version 2.")
+        references = [*self.events, *([self.metrics] if self.metrics else []), *([self.scout] if self.scout else [])]
         if len({file.path for file in references}) != len(references):
             raise ValueError("Environment data file paths must be unique.")
         return self

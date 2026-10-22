@@ -76,6 +76,7 @@ from products.signals.backend.scout_harness.precheck import (
     run_precheck_query,
 )
 from products.signals.backend.scout_harness.profile.schema import Inventory
+from products.signals.backend.scout_harness.profile_version import INVENTORY_SOURCE_VERSION as INVENTORY_SOURCE_VERSION
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
@@ -83,13 +84,6 @@ from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.workflows.backend.facade.api import get_workflow_activity_summary
 
 logger = logging.getLogger(__name__)
-
-# Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
-# rows whose `source_version` doesn't match the current build, so adding a new key here
-# (or restructuring an existing one) without bumping the version would silently mix old
-# and new shapes in the cache. A redaction change bumps it too, so rows built before the
-# redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v18"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without

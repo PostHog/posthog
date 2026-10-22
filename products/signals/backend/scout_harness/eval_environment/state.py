@@ -10,6 +10,7 @@ from django.db import models, transaction
 from pydantic import JsonValue
 from social_django.models import UserSocialAuth
 
+from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.posthog_ai.eval_harness.environment.restore import EnvironmentReceipt, PreparedEnvironment
@@ -30,6 +31,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentSeed,
     ScoutEnvironmentUser,
 )
+from products.signals.backend.scout_harness.eval_environment.support import ScoutEnvironmentSupport
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
@@ -38,74 +40,9 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 class ScoutEnvironmentState:
-    _CONFIG_FIELDS = frozenset(
-        {
-            "display_name",
-            "emit",
-            "model",
-            "allowed_mcp_tools",
-            "tool_preset",
-            "write_scopes",
-            "structured_output_schema",
-            "tags",
-            "run_interval_minutes",
-            "run_cron_schedule",
-            "precheck_query",
-            "precheck_disabled",
-            "rubrics",
-            "lifecycle_locked",
-            "network_access",
-            "created_at",
-            "updated_at",
-            "last_run_at",
-            "enabled",
-            "mcp_gateway_server_ids",
-            "output_destinations",
-            "repositories",
-        }
-    )
-    _REPORT_FIELDS = frozenset(
-        {
-            "status",
-            "status_before_suppression",
-            "total_weight",
-            "signal_count",
-            "signals_at_run",
-            "run_count",
-            "signals_researched",
-            "implemented_at_run_count",
-            "content_revision_count",
-            "implemented_at_revision_count",
-            "corroboration_count",
-            "title",
-            "summary",
-            "error",
-            "charts",
-            "metrics",
-            "suggested_prompts",
-            "promoted_at",
-            "last_run_at",
-            "monitoring_started_at",
-            "first_visible_at",
-            "inbox_notified_at",
-            "latest_actionability",
-            "latest_already_addressed",
-            "billing_exempt_reason",
-        }
-    )
-    _RUN_FIELDS = frozenset(
-        {
-            "skill_name",
-            "skill_version",
-            "summary",
-            "emitted_count",
-            "emitted_finding_ids",
-            "emitted_report_ids",
-            "edited_report_ids",
-            "metadata",
-            "total_spend",
-        }
-    )
+    _CONFIG_FIELDS = ScoutEnvironmentSupport.CONFIG_FIELDS
+    _REPORT_FIELDS = ScoutEnvironmentSupport.REPORT_FIELDS
+    _RUN_FIELDS = ScoutEnvironmentSupport.RUN_FIELDS
 
     def __init__(self, case: ScoutEnvironmentCase, receipt: EnvironmentReceipt) -> None:
         self.case = case
@@ -187,12 +124,72 @@ class ScoutEnvironmentState:
     def _config_values(self) -> dict[str, object]:
         source_config = dict(self.case.config)
         source_config.pop("reasoning_effort", None)
-        for name in ("mcp_gateway_server_ids", "output_destinations", "repositories"):
-            if source_config.get(name):
-                raise ValueError("External scout connections require an isolated local reconstruction adapter.")
+        ScoutEnvironmentSupport.validate_connections(source_config)
         values = self._fields(SignalScoutConfig, source_config, self._CONFIG_FIELDS)
         values.update(enabled=False, status=SignalScoutConfig.Status.PAUSED_BY_USER)
         return values
+
+    @staticmethod
+    def _validate_model_fields(model: type[models.Model], values: dict[str, object]) -> None:
+        fields = {field.attname: field for field in model._meta.concrete_fields}
+        for name, value in values.items():
+            fields[name].run_validators(value)
+
+    @classmethod
+    def validate_input(cls, case: ScoutEnvironmentCase, receipt: EnvironmentReceipt) -> None:
+        ScoutEnvironmentSupport.validate(case)
+        state = cls(case, receipt)
+        for index, source in enumerate(case.users, start=1):
+            state.user_ids[source.id] = index
+            if source.uuid:
+                state.user_ids[str(source.uuid)] = index
+        cls._validate_model_fields(SignalScoutConfig, state._config_values())
+        groups = (
+            (SignalReport, case.state.reports, ScoutEnvironmentSupport.REPORT_FIELDS),
+            (SignalReportArtefact, case.state.report_artefacts, ScoutEnvironmentSupport.ARTEFACT_FIELDS),
+            (SignalScoutNote, case.state.notes, ScoutEnvironmentSupport.NOTE_FIELDS),
+            (SignalScratchpad, case.state.memory, ScoutEnvironmentSupport.MEMORY_FIELDS),
+            (
+                SignalProjectProfile,
+                [case.state.profile] if case.state.profile else [],
+                ScoutEnvironmentSupport.PROFILE_FIELDS,
+            ),
+        )
+        for model, records, allowed in groups:
+            for record in records:
+                cls._validate_model_fields(model, state._fields(model, record.fields, allowed))
+        for record in case.state.runs:
+            fields = {name: value for name, value in record.fields.items() if name in cls._RUN_FIELDS}
+            cls._validate_model_fields(SignalScoutRun, state._fields(SignalScoutRun, fields, cls._RUN_FIELDS))
+            cls._validate_model_fields(
+                TaskRun,
+                state._fields(
+                    TaskRun,
+                    {
+                        "status": record.fields.get("status", TaskRun.Status.COMPLETED),
+                        "created_at": record.fields.get("started_at", record.created_at.isoformat()),
+                        "completed_at": record.fields.get("completed_at"),
+                        "error_message": record.fields.get("error"),
+                    },
+                    frozenset({"status", "created_at", "completed_at", "error_message"}),
+                ),
+            )
+        source_skill = case.skill
+        skill = LLMSkill(name=source_skill.name, metadata=source_skill.metadata)
+        if scout_skill_row_origin(skill) != source_skill.origin:
+            raise ValueError("Scout skill metadata does not preserve its declared origin.")
+        cls._validate_model_fields(
+            LLMSkill, {"license": source_skill.license, "compatibility": source_skill.compatibility}
+        )
+        for path, content in source_skill.files.items():
+            cls._validate_model_fields(
+                LLMSkillFile,
+                {
+                    "path": path,
+                    "content": content,
+                    "content_type": source_skill.file_content_types.get(path, "text/plain"),
+                },
+            )
 
     def _insert(
         self,
@@ -228,7 +225,7 @@ class ScoutEnvironmentState:
 
     def _member_email(self, source: ScoutEnvironmentUser) -> str:
         identifier = self.transform.identity(source.uuid or uuid5(self.case.skill.id, source.id))
-        return source.email or f"member-{identifier.hex}@example.com"
+        return EmailNormalizer.normalize(source.email or f"member-{identifier.hex}@example.com")
 
     def _seed_users(self, team: Team, operator: User) -> None:
         for source in self.case.users:
@@ -236,14 +233,16 @@ class ScoutEnvironmentState:
                 user = operator
                 user.first_name, user.last_name = source.first_name, source.last_name
                 if source.email:
-                    if User.objects.exclude(id=user.id).filter(email=source.email).exists():
+                    if EmailLookupHandler.users_matching_email(
+                        source.email, queryset=User.objects.exclude(id=user.id)
+                    ).exists():
                         raise ValueError("The reconstructed operator email belongs to another local user.")
-                    user.email = source.email
+                    user.email = EmailNormalizer.normalize(source.email)
                 user.save(update_fields=["first_name", "last_name", "email"])
             else:
                 identifier = self.transform.identity(source.uuid or uuid5(self.case.skill.id, source.id))
                 email = self._member_email(source)
-                if User.objects.filter(email=email).exists():
+                if EmailLookupHandler.users_matching_email(email).exists():
                     raise ValueError("A reconstructed user email already exists outside this fresh environment.")
                 user = User(
                     uuid=identifier,
@@ -297,7 +296,8 @@ class ScoutEnvironmentState:
                 content_type=source.file_content_types.get(path, "text/plain"),
             )
         LLMSkill.objects.filter(team_id=team.id, id=row.id).update(
-            updated_at=(source.updated_at or source.created_at or self.case.checkpoint) + self.transform.delta
+            created_at=(source.created_at or self.case.checkpoint) + self.transform.delta,
+            updated_at=(source.updated_at or source.created_at or self.case.checkpoint) + self.transform.delta,
         )
         for owner in source.owners:
             user_id = self._user(owner)
@@ -443,13 +443,13 @@ class ScoutEnvironmentState:
             self._insert(
                 SignalScoutNote,
                 record,
-                frozenset({"skill_name", "content", "created_by_id", "expires_at", "origin"}),
+                ScoutEnvironmentSupport.NOTE_FIELDS,
             )
         for record in self.case.state.memory:
             self._insert(
                 SignalScratchpad,
                 record,
-                frozenset({"key", "content", "created_by_run_id", "created_by_identity", "expires_at"}),
+                ScoutEnvironmentSupport.MEMORY_FIELDS,
             )
         if profile := self.case.state.profile:
             # Local trials read the starting profile through the current-version reader, so another version is unusable.
@@ -458,7 +458,7 @@ class ScoutEnvironmentState:
                     f"The recorded project profile must use source version {INVENTORY_SOURCE_VERSION}; "
                     "rebuild it on this checkout before preparing the environment."
                 )
-            self._insert(SignalProjectProfile, profile, frozenset({"expires_at", "source_version", "payload"}))
+            self._insert(SignalProjectProfile, profile, ScoutEnvironmentSupport.PROFILE_FIELDS)
         identities = {str(source): str(target) for source, target in self.transform.ids.items()}
         identities.update({f"user:{source}": str(target) for source, target in self.user_ids.items()})
         return ScoutEnvironmentSeed(
@@ -517,6 +517,7 @@ class ScoutEnvironmentState:
             or self.receipt.source_cutoff != self.case.source_cutoff
             or self.receipt.timezone != self.case.timezone
             or seed.time_delta_seconds != self.transform.delta.total_seconds()
+            or seed.steering != self.transform.text(self.case.steering)
         ):
             raise ValueError("The scout seed does not belong to this prepared local environment.")
         team = Team.objects.get(id=seed.team_id, organization_id=self.receipt.organization_id, is_demo=False)
@@ -534,7 +535,7 @@ class ScoutEnvironmentState:
             user = User.objects.get(id=self._user(source.id), is_active=True)
             self._assert_values(user, {"first_name": source.first_name, "last_name": source.last_name})
             if (source.email or not source.is_operator) and user.email != (
-                source.email if source.is_operator else self._member_email(source)
+                EmailNormalizer.normalize(source.email or "") if source.is_operator else self._member_email(source)
             ):
                 raise ValueError("The prepared member identity changed.")
             if not OrganizationMembership.objects.filter(
@@ -558,6 +559,11 @@ class ScoutEnvironmentState:
                 "version": source_skill.version,
                 "allowed_tools": source_skill.allowed_tools,
                 "metadata": self.transform.value(source_skill.metadata),
+                "license": source_skill.license,
+                "compatibility": source_skill.compatibility,
+                "created_at": (source_skill.created_at or self.case.checkpoint) + self.transform.delta,
+                "updated_at": (source_skill.updated_at or source_skill.created_at or self.case.checkpoint)
+                + self.transform.delta,
                 "created_by_id": self._user(source_skill.created_by),
                 "deleted": False,
                 "is_latest": True,
@@ -585,12 +591,12 @@ class ScoutEnvironmentState:
         self._verify_records(
             SignalScoutNote,
             self.case.state.notes,
-            frozenset({"skill_name", "content", "created_by_id", "expires_at", "origin"}),
+            ScoutEnvironmentSupport.NOTE_FIELDS,
         )
         self._verify_records(
             SignalScratchpad,
             self.case.state.memory,
-            frozenset({"key", "content", "created_by_run_id", "created_by_identity", "expires_at"}),
+            ScoutEnvironmentSupport.MEMORY_FIELDS,
         )
         self._verify_records(SignalReport, self.case.state.reports, self._REPORT_FIELDS)
         self._verify_records(
@@ -603,7 +609,7 @@ class ScoutEnvironmentState:
         self._verify_records(
             SignalProjectProfile,
             [self.case.state.profile] if self.case.state.profile else [],
-            frozenset({"expires_at", "source_version", "payload"}),
+            ScoutEnvironmentSupport.PROFILE_FIELDS,
         )
         run_records = []
         for record in self.case.state.runs:

@@ -2,6 +2,36 @@
 
 Trials run scout versions in parallel, then judge them against the same saved rubric. Versions can change the prompt, model or reasoning effort.
 
+## Preparing a portable scout environment
+
+Use the internal [creating-scout-eval-environments skill](../../.agents/skills/creating-scout-eval-environments/SKILL.md)
+with a saved scout, or a draft skill and target project. It defaults to a minimal
+real-data slice; trace reconstruction is an explicit alternative. No prior scout
+run is required for the real-data route. The source exporter preserves supported
+context, checks complete pagination and rejects unsupported dependencies instead
+of filling them with synthetic data.
+
+The existing Parquet `pack` command accepts `--scout-case <private case.json>`.
+This produces a version-2 archive containing events, optional governed metrics,
+and a checksum-bound scout definition and starting state. The existing
+`hogli devbox:prepare-eval-env` flow validates the attachment before startup,
+restores and verifies it, then freezes the baseline. Event-only version-1 bundles
+continue to work. See the [bundle README](../../products/posthog_ai/eval_harness/environment/README.md)
+for command usage and the skill's real-data reference for current API limits,
+including the required existing project-profile snapshot.
+
+Real-data cases use `prompt_mode="native"`: leave `SCOUT_EVAL_ENVIRONMENT_FILE`
+unset so the runner builds its ordinary prompt from restored context. Freeze
+still binds the case and harness version; the native `runtime-prompt.json` is a
+verification descriptor, not a prompt override. Recorded replay remains explicit
+and follows the instructions below.
+
+From a host able to provision devboxes, create a fresh box for each validation
+attempt. Inspect one real trial before comparing variants. Save diagnostics and
+remove only the workflow-created failed box before retrying; keep a successful
+box running for evaluations. When limited to bundle preparation, report static
+checks separately and leave runtime validation outstanding.
+
 ## Reconstructing an isolated project from traces
 
 For checkout-based reconstruction, use the internal `creating-scout-eval-environments`
@@ -28,6 +58,13 @@ Use the normal local development configuration for Personhog.
 `build-events --recipe <private JSON> --output <new private Parquet>` builds event
 rows from the `EventRecipe` schema in `eval_environment/recipes.py`; it refuses
 to overwrite an existing file. Record reconstruction assumptions separately.
+`extract --run <private run directory> --read-tools <private JSON list> --output
+<private observations JSON>` extracts permitted reads from paginated raw logs up
+to the first unrecognized operation. Review that boundary for completeness.
+An agent combines the observed query results into a saved case and recipe and
+declares missing-data choices. Related traces can be reviewed together; rebuilding
+from the saved recipe needs no further model calls or trace review. Check this by
+building twice and comparing decoded rows before the first restore.
 
 The first restore shifts the data to its target cutoff (near current UTC by default,
 with a whole-second shift so timestamps and textual interval bounds stay aligned).
@@ -35,6 +72,8 @@ Keep explicit UTC interval bounds in one-time trial steering, shift declared
 embedded timestamps consistently, and preserve the project timezone. A restore
 receipt is reusable; it does not reset changed state or move its cutoff again.
 Clock time continues advancing within a session.
+For date-only or minute-only query bounds, supply an explicitly aligned
+`--target-cutoff`; their written precision cannot represent a finer shift.
 
 For a local project whose ID differs from 2, set `SCOUT_TRIALS_LOCAL_TEAM_ID` to
 the prepared project ID. Only `DEBUG` honors this setting; that exact local
@@ -77,6 +116,11 @@ private results alongside the saved judge report. Check the export's per-run
 errors before treating a trace as complete. Trials isolate their report and
 memory writes; the underlying restored project must remain stable for the whole
 comparison.
+Before planning or launching, `check` verifies the frozen files, scout state,
+local routing, governed metric fields and event counts/minimum/maximum timestamps.
+It reads the restored database without repairing it. Event property-level fidelity
+still needs independent task-relevant queries; equal aggregate counts and bounds
+cannot detect every event edit.
 Review tool responses and available reasoning summaries for both evaluation
 awareness and suspected fabricated data. Report the exact evidence separately;
 an absence of remarks does not establish what the scout believed. Fix concrete
@@ -90,6 +134,10 @@ local trial sandboxes keep their existing behavior.
 
 Use one private campaign ledger and reconcile actual usage before another batch.
 The ledger reserves configured scout/judge token caps and report-check allowance.
+Planning only calculates that allowance. Launch reserves it against a digest of
+the complete saved plan, including launch IDs; a pending retry must match exactly.
+Settled reservations cannot be reused. Legacy pending reservations without a plan
+binding must be reconciled from actual usage before creating a new plan.
 Report validation mints additional tokens, so also enforce a campaign-wide gateway
 wallet or credential budget. Per-token limits alone are not a global spend cap.
 Export results before resetting local databases and use a fresh workspace after
@@ -108,12 +156,14 @@ internal project URL prefixes to the verified local project; preserve external
 URLs and unrelated source context.
 
 Restore trace-observed state outside the typed bundle with a private deterministic
-seed-and-check adapter using real models and local storage. Before the first plan,
-use `FrozenEnvironment` and `RecordedScoutPrompt` to bind hashes of supplemental
-source files, adapter and receipt in both `inputs` and `frozen_inputs`, recompute
-`runtime_prompt_sha256`, and verify the prompt. Keep the baseline immutable once
-execution starts. The adapter's live-state check remains mandatory before every
-run or batch because file hashes do not verify database or object-storage contents.
+seed-and-check adapter using real models and local storage. Finish seeding before
+freezing, and pass the event recipe, private builder, assumptions, supplemental
+sources and adapter receipt as repeated `freeze --extra-input <private path>`
+arguments. These hashes bind the reconstruction choices in both freeze documents;
+repeating a freeze requires the same paths and unchanged files. Keep the baseline
+immutable once execution starts. The adapter's live-state check remains mandatory
+before every run or batch because file hashes do not verify database or
+object-storage contents.
 
 Keep the checkout stable during paid runs. Set `TEMPORAL_DISABLE_HOT_RELOAD=1`
 and `GRANIAN_RELOAD_IGNORE_PATHS=<absolute checkout root>` before starting workers

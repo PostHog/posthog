@@ -5,9 +5,10 @@ import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -26,7 +27,7 @@ from products.data_catalog.backend.facade.api import Metric
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
 from products.posthog_ai.eval_harness.environment.events import EnvironmentEvents
 from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrationsPending
-from products.posthog_ai.eval_harness.environment.restore import PreparedEnvironment
+from products.posthog_ai.eval_harness.environment.restore import EnvironmentReceipt, PreparedEnvironment
 from products.posthog_ai.eval_harness.environment.schema import (
     EVENT_TABLE,
     METRIC_TABLE,
@@ -62,6 +63,38 @@ def make_environment(
 
 
 class TestEnvironmentRestoreValidation(SimpleTestCase):
+    @parameterized.expand([None, "pending", "failed"])
+    def test_verification_requires_completed_receipt_without_creating_restore_state(
+        self, phase: Literal["pending", "failed"] | None
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset = make_environment(root / "source")
+            workspace = root / "import"
+            if phase is not None:
+                workspace.mkdir()
+                receipt = EnvironmentReceipt(
+                    phase=phase,
+                    manifest_sha256=dataset.manifest_sha256,
+                    environment_id=dataset.manifest.environment_id,
+                    source_cutoff=SOURCE,
+                    target_cutoff=SOURCE,
+                    timezone="UTC",
+                    databases={},
+                    identity_namespace=uuid4(),
+                    provenance={},
+                )
+                (workspace / "receipt.json").write_text(receipt.model_dump_json())
+            before = (workspace / "receipt.json").read_bytes() if workspace.exists() else None
+            with (
+                override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None),
+                patch.object(PreparedEnvironment, "_reuse") as reuse,
+                self.assertRaisesRegex(ValueError, "completed import receipt"),
+            ):
+                PreparedEnvironment.verify(dataset, workspace)
+            reuse.assert_not_called()
+            self.assertEqual((workspace / "receipt.json").read_bytes() if workspace.exists() else None, before)
+
     @parameterized.expand(
         [
             ({"DEBUG": False},),
@@ -148,10 +181,73 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             )
         )
 
+    @parameterized.expand(["metric", "events"])
+    def test_verification_detects_live_data_drift_without_repairing_it(self, changed: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset = make_environment(
+                root / "source",
+                events=[
+                    EnvironmentEvent(
+                        uuid=uuid4(),
+                        event="delivery",
+                        distinct_id="original-reader",
+                        timestamp=SOURCE - timedelta(minutes=2),
+                        created_at=SOURCE - timedelta(minutes=1),
+                        properties={},
+                    )
+                ],
+                metrics=[
+                    EnvironmentMetric(
+                        id=uuid4(),
+                        created_at=SOURCE - timedelta(minutes=1),
+                        name="delivery_total",
+                        description="Count invented delivery events.",
+                        definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+                        referenced_table_names=["events"],
+                        status="approved",
+                    )
+                ],
+            )
+            workspace = root / "import"
+            result = PreparedEnvironment.restore(dataset, workspace, user_id=self.user.id)
+            receipt_before = result.receipt_path.read_bytes()
+            self.assertEqual(PreparedEnvironment.verify(dataset, workspace).team_id, result.team_id)
+            if changed == "metric":
+                Metric.objects.for_team(result.team_id).update(description="Changed after the restore.")
+                error = "restored metric changed"
+            else:
+                _create_event(
+                    team=Team.objects.get(id=result.team_id),
+                    event="delivery",
+                    distinct_id="additional-reader",
+                    timestamp=result.target_cutoff - timedelta(minutes=1),
+                )
+                error = "event counts or timestamp bounds"
+            with (
+                patch.object(
+                    PreparedEnvironment, "restore", side_effect=AssertionError("verification tried to restore")
+                ),
+                self.assertRaisesRegex(ValueError, error),
+            ):
+                PreparedEnvironment.verify(dataset, workspace)
+            self.assertEqual(result.receipt_path.read_bytes(), receipt_before)
+            if changed == "metric":
+                self.assertEqual(
+                    Metric.objects.for_team(result.team_id).get().description, "Changed after the restore."
+                )
+            else:
+                self.assertEqual(
+                    sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": result.team_id})[
+                        0
+                    ][0],
+                    2,
+                )
+
     def test_restores_events_and_metrics_without_changing_operator_and_reuses_receipt(self) -> None:
         metric_id = uuid4()
         person_id = uuid4()
-        target = datetime.now(UTC).replace(microsecond=345678)
+        target = datetime(2030, 6, 4, 12, 0, 0, 345678, tzinfo=UTC)
         source_time = SOURCE - timedelta(minutes=2)
         event = EnvironmentEvent(
             uuid=uuid4(),

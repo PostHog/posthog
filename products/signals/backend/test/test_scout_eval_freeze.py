@@ -1,11 +1,14 @@
+import os
 import json
 import argparse
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from typing import Literal
 from uuid import uuid4
 
 from unittest import TestCase
@@ -16,10 +19,25 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from parameterized import parameterized
 from pydantic import ValidationError
 
+from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
 from products.posthog_ai.eval_harness.environment.storage import file_sha256
 from products.posthog_ai.eval_harness.environment.transform import EnvironmentTransform
-from products.signals.backend.scout_harness.eval_environment.cli import ScoutEnvironmentCommand, add_arguments, execute
-from products.signals.backend.scout_harness.eval_environment.prompt import RecordedScoutPrompt, read_recorded_prompt
+from products.signals.backend.scout_harness.eval_environment.cli import (
+    ScoutEnvironmentCommand,
+    add_arguments,
+    execute,
+    main,
+)
+from products.signals.backend.scout_harness.eval_environment.prompt import (
+    RecordedScoutPrompt,
+    read_native_prompt,
+    read_recorded_prompt,
+)
+from products.signals.backend.scout_harness.eval_environment.schema import (
+    ScoutEnvironmentCase,
+    ScoutEnvironmentSeed,
+    ScoutEnvironmentSkill,
+)
 from products.signals.backend.scout_harness.eval_environment.trials import (
     EvaluationPlan,
     FrozenEnvironment,
@@ -29,6 +47,109 @@ from products.signals.backend.scout_harness.trial_comparison_types import TrialC
 
 
 class TestScoutEvaluationFreeze(TestCase):
+    @parameterized.expand(
+        [(mode, change) for mode in ("recorded", "native") for change in ("unchanged", "removed", "added", "modified")]
+    )
+    def test_freeze_binds_extra_inputs_and_requires_the_same_inputs_on_reuse(
+        self, mode: Literal["recorded", "native"], change: str
+    ) -> None:
+        self.addCleanup(os.umask, os.umask(0o077))
+        with TemporaryDirectory() as folder:
+            directory = Path(folder)
+            workspace = directory / "state"
+            cutoff = datetime(2030, 1, 1, tzinfo=UTC)
+            dataset = EnvironmentDataset.build(
+                directory / "bundle", environment_id="example", event_paths=[], source_cutoff=cutoff
+            )
+            case = ScoutEnvironmentCase(
+                environment_id="example",
+                source_cutoff=cutoff,
+                checkpoint=cutoff,
+                skill=ScoutEnvironmentSkill(
+                    id=uuid4(), name="example-scout", body="Review example events.", version=1, origin="custom"
+                ),
+                prompt_mode=mode,
+                recorded_prompt=(
+                    "- **team_id**: `2`\n- **run_id**: `source-run`\n"
+                    "- **started_at**: `2030-01-01T00:00:00Z`\n<run_note>\nReview example events.\n</run_note>"
+                )
+                if mode == "recorded"
+                else "",
+                expected_harness_prompt_version="example-version" if mode == "recorded" else None,
+            )
+            case_path = directory / "case.json"
+            write_private_json(case_path, case)
+            seed = ScoutEnvironmentSeed(
+                environment_id=case.environment_id,
+                team_id=7,
+                user_id=7,
+                config_id=uuid4(),
+                skill_id=case.skill.id,
+                identity_map={},
+                time_delta_seconds=0,
+                steering=case.steering,
+            )
+            write_private_json(workspace / "scout-seed.json", seed)
+            write_private_json(workspace / "receipt.json", {"phase": "complete"})
+            extra_inputs = [directory / "recipe.json", directory / "builder.py", directory / "assumptions.md"]
+            for path in extra_inputs:
+                path.write_text("Invented reconstruction input.\n")
+            arguments = [
+                "--state-dir",
+                str(workspace),
+                "freeze",
+                "--case",
+                str(case_path),
+                "--bundle",
+                str(dataset.path.parent),
+            ]
+
+            def freeze(paths: list[Path]) -> int:
+                return main([*arguments, *(argument for path in paths for argument in ("--extra-input", str(path)))])
+
+            with (
+                patch("products.signals.backend.scout_harness.eval_environment.cli.load_backend") as load_backend,
+                redirect_stdout(StringIO()),
+                redirect_stderr(StringIO()),
+            ):
+                load_backend.return_value.read_receipt.return_value = SimpleNamespace(
+                    phase="complete",
+                    target_cutoff=cutoff,
+                    identity_namespace=uuid4(),
+                    manifest_sha256=dataset.manifest_sha256,
+                    environment_id=case.environment_id,
+                    team_id=seed.team_id,
+                )
+                assert freeze(extra_inputs) == 0
+                frozen_path = workspace / "frozen.json"
+                prompt_path = workspace / "runtime-prompt.json"
+                frozen_bytes, prompt_bytes = frozen_path.read_bytes(), prompt_path.read_bytes()
+                frozen = FrozenEnvironment.model_validate_json(frozen_bytes)
+                prompt = read_recorded_prompt(prompt_path) if mode == "recorded" else read_native_prompt(prompt_path)
+                assert frozen.prompt_mode == mode
+                assert frozen.case_sha256 == case.fingerprint()
+                assert frozen.inputs == prompt.frozen_inputs
+                assert {str(path): file_sha256(path) for path in extra_inputs}.items() <= frozen.inputs.items()
+
+                if change == "removed":
+                    extra_inputs.pop()
+                elif change == "added":
+                    additional = directory / "supplemental-receipt.json"
+                    additional.write_text("{}")
+                    extra_inputs.append(additional)
+                elif change == "modified":
+                    extra_inputs[0].write_text("Changed recipe.\n")
+
+                assert freeze(list(reversed(extra_inputs))) == (0 if change == "unchanged" else 1)
+                assert frozen_path.read_bytes() == frozen_bytes
+                assert prompt_path.read_bytes() == prompt_bytes
+                if change == "modified":
+                    with self.assertRaisesRegex(ValueError, "changed"):
+                        if mode == "recorded":
+                            read_recorded_prompt(prompt_path)
+                        else:
+                            read_native_prompt(prompt_path)
+
     @parameterized.expand([(0,), (123000,)])
     def test_default_cutoff_keeps_text_bounds_and_event_timestamps_aligned(self, microsecond: int) -> None:
         source = datetime(2030, 1, 1, microsecond=microsecond, tzinfo=UTC)
@@ -85,7 +206,7 @@ class TestScoutEvaluationFreeze(TestCase):
             )
             write_private_json(prompt_path, prompt)
             frozen = FrozenEnvironment(
-                created_at=datetime.now(UTC),
+                created_at=datetime(2030, 6, 4, 12, tzinfo=UTC),
                 inputs={},
                 team_id=prompt.team_id,
                 config_id=prompt.config_id,

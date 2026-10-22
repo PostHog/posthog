@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.models import User
@@ -194,6 +195,56 @@ class TestScoutEnvironmentState(BaseTest):
         self.assertFalse(SignalScoutConfig.objects.for_team(self.team.id).exists())
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, original_name)
+
+    def test_source_emails_use_normal_account_storage_and_verify_without_changing_the_case(self) -> None:
+        case = self.case.model_copy(
+            update={
+                "users": [
+                    self.case.users[0].model_copy(update={"email": "Owner.Mixed+tag@Example.COM"}),
+                    self.case.users[1].model_copy(update={"email": "Member.Mixed@Example.COM"}),
+                ]
+            }
+        )
+        with patch(
+            "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+            return_value=self.receipt.databases,
+        ):
+            result = ScoutEnvironmentState.seed(case, self.receipt)
+            ScoutEnvironmentState.verify(case, self.receipt, result)
+        self.user.refresh_from_db()
+        member = User.objects.get(id=int(result.identity_map["user:source-member"]))
+        self.assertEqual(self.user.email, "owner.mixed+tag@example.com")
+        self.assertEqual(member.email, "member.mixed@example.com")
+        self.assertEqual(case.users[0].email, "Owner.Mixed+tag@Example.COM")
+        self.assertEqual(case.users[1].email, "Member.Mixed@Example.COM")
+
+    @parameterized.expand(
+        [
+            ("operator", "source-owner", "operator email belongs to another local user"),
+            ("member", "source-member", "user email already exists outside this fresh environment"),
+        ]
+    )
+    def test_rejects_source_email_that_resolves_to_an_existing_account(
+        self, _label: str, source_id: str, message: str
+    ) -> None:
+        User.objects.create_user(email="duplicate@example.com", password=None, first_name="Existing account")
+        before = User.objects.count()
+        case = self.case.model_copy(
+            update={
+                "users": [
+                    source.model_copy(update={"email": "DUPLICATE@EXAMPLE.COM"}) if source.id == source_id else source
+                    for source in self.case.users
+                ]
+            }
+        )
+        with patch(
+            "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+            return_value=self.receipt.databases,
+        ):
+            with self.assertRaisesRegex(ValueError, message):
+                ScoutEnvironmentState.seed(case, self.receipt)
+        self.assertEqual(User.objects.count(), before)
+        self.assertFalse(SignalScoutConfig.objects.for_team(self.team.id).exists())
 
     def test_record_versions_after_checkpoint_are_rejected_but_future_expiry_is_allowed(self) -> None:
         value = self.case.model_dump()

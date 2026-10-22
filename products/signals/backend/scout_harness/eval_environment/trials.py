@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import os
 import json
+import hashlib
 import ipaddress
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Self
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, JsonValue, model_validator
 
 from products.posthog_ai.eval_harness.environment.schema import EnvironmentModel
 from products.posthog_ai.eval_harness.environment.storage import file_sha256, require_private_path, workspace_lock
@@ -67,20 +68,38 @@ class FrozenEnvironment(EnvironmentModel):
     inputs: dict[str, str]
     team_id: int
     config_id: UUID
+    prompt_mode: Literal["recorded", "native"] = "recorded"
+    case_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     runtime_prompt_path: str
     runtime_prompt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
     @classmethod
-    def create(cls, paths: list[Path], seed: ScoutEnvironmentSeed, *, runtime_prompt: Path) -> FrozenEnvironment:
+    def create(
+        cls, paths: list[Path], seed: ScoutEnvironmentSeed, *, runtime_prompt: Path, case: ScoutEnvironmentCase
+    ) -> FrozenEnvironment:
         runtime_prompt = require_private_path(runtime_prompt)
         return cls(
             created_at=datetime.now(UTC),
             inputs={str(require_private_path(path)): file_sha256(path) for path in paths},
             team_id=seed.team_id,
             config_id=seed.config_id,
+            prompt_mode=case.prompt_mode,
+            case_sha256=case.fingerprint(),
             runtime_prompt_path=str(runtime_prompt),
             runtime_prompt_sha256=file_sha256(runtime_prompt),
         )
+
+    @model_validator(mode="after")
+    def validate_native_case(self) -> Self:
+        if self.prompt_mode == "native" and not self.case_sha256:
+            raise ValueError("Native scout environments must bind the complete starting case.")
+        return self
+
+    def verify_case(self, case: ScoutEnvironmentCase) -> None:
+        if self.prompt_mode != case.prompt_mode or (
+            self.case_sha256 is not None and self.case_sha256 != case.fingerprint()
+        ):
+            raise ValueError("The scout case does not match this frozen environment.")
 
     def verify(self) -> None:
         for name, expected in {**self.inputs, self.runtime_prompt_path: self.runtime_prompt_sha256}.items():
@@ -91,6 +110,7 @@ class FrozenEnvironment(EnvironmentModel):
 
 class BudgetReservation(EnvironmentModel):
     reserved_usd: Decimal = Field(gt=0, allow_inf_nan=False)
+    plan_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     status: Literal["reserved", "settled"] = "reserved"
     actual_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
 
@@ -118,13 +138,20 @@ class BudgetLedger:
     def read(self) -> CampaignBudget:
         return CampaignBudget.model_validate_json(self.path.read_bytes()) if self.path.exists() else CampaignBudget()
 
-    def reserve(self, identifier: UUID, amount: Decimal) -> CampaignBudget:
-        reservation = BudgetReservation(reserved_usd=amount)
+    def reserve(self, identifier: UUID, amount: Decimal, *, plan_sha256: str) -> CampaignBudget:
+        reservation = BudgetReservation(reserved_usd=amount, plan_sha256=plan_sha256)
         with workspace_lock(self.path.parent):
             budget = self.read()
             key = str(identifier)
             previous = budget.reservations.get(key)
             if previous is not None:
+                if previous.status == "settled":
+                    raise ValueError("This comparison is already settled. Export its results or create a new plan.")
+                if previous.plan_sha256 is None or previous.plan_sha256 != reservation.plan_sha256:
+                    raise ValueError(
+                        "The pending reservation is not bound to this exact plan. Reconcile the existing reservation "
+                        "before creating a new plan."
+                    )
                 if previous.reserved_usd != amount:
                     raise ValueError("This comparison already has a different budget reservation.")
                 return budget
@@ -142,7 +169,12 @@ class BudgetLedger:
             previous = budget.reservations.get(str(identifier))
             if previous is None:
                 raise ValueError("The comparison has no budget reservation.")
-            settled = BudgetReservation(reserved_usd=previous.reserved_usd, status="settled", actual_usd=actual_usd)
+            settled = BudgetReservation(
+                reserved_usd=previous.reserved_usd,
+                plan_sha256=previous.plan_sha256,
+                status="settled",
+                actual_usd=actual_usd,
+            )
             updated = budget.model_copy(update={"reservations": {**budget.reservations, str(identifier): settled}})
             write_private_json(self.path, updated)
             return updated
@@ -170,6 +202,10 @@ class EvaluationPlan(EnvironmentModel):
     judge_cap_usd: Decimal = Field(gt=0, allow_inf_nan=False)
     report_checks_per_run: int = Field(ge=1)
 
+    def fingerprint(self) -> str:
+        content = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(content.encode()).hexdigest()
+
     def validate_budget(self, request: TrialComparisonRequest, *, scout_cap: Decimal, judge_cap: Decimal) -> None:
         count = sum(len(variant.launch_ids) for variant in request.variants)
         required = count * (scout_cap * (1 + self.report_checks_per_run) + (judge_cap if count > 1 else 0))
@@ -194,40 +230,81 @@ class ScoutEvaluationTrials:
         self.freeze_path = require_private_path(freeze_path)
         self.freeze = FrozenEnvironment.model_validate_json(self.freeze_path.read_bytes())
         self.freeze.verify()
+        self.freeze.verify_case(case)
         if self.freeze.team_id != seed.team_id or self.freeze.config_id != seed.config_id:
             raise ValueError("The frozen reconstruction belongs to another scout environment.")
+
+    def check_prompt_configuration(self) -> None:
+        from django.conf import settings  # noqa: PLC0415 -- Django is initialized by the CLI.
+
+        from products.signals.backend.scout_harness.eval_environment.prompt import (  # noqa: PLC0415
+            NativeScoutPrompt,
+            RecordedScoutPrompt,
+            read_native_prompt,
+            read_recorded_prompt,
+        )
+        from products.signals.backend.scout_harness.prompt import HARNESS_PROMPT_VERSION  # noqa: PLC0415
+
+        self.freeze.verify_case(self.case)
+        configured_prompt = getattr(settings, "SCOUT_EVAL_ENVIRONMENT_FILE", "")
+        prompt: NativeScoutPrompt | RecordedScoutPrompt
+        if self.case.prompt_mode == "native":
+            if configured_prompt:
+                raise ValueError("Unset SCOUT_EVAL_ENVIRONMENT_FILE for native scout prompt generation.")
+            prompt = read_native_prompt(Path(self.freeze.runtime_prompt_path))
+            if prompt.harness_prompt_version != HARNESS_PROMPT_VERSION:
+                raise ValueError("The native scout harness changed. Prepare and freeze a new environment.")
+        else:
+            if not self.case.recorded_prompt or not self.case.expected_harness_prompt_version:
+                raise ValueError("The case must preserve its recorded prompt and harness prompt version.")
+            if (
+                not configured_prompt
+                or str(require_private_path(Path(configured_prompt))) != self.freeze.runtime_prompt_path
+            ):
+                raise ValueError("Set SCOUT_EVAL_ENVIRONMENT_FILE to this environment's frozen runtime-prompt.json.")
+            prompt = read_recorded_prompt(Path(configured_prompt))
+            if prompt.harness_prompt_version != self.case.expected_harness_prompt_version:
+                raise ValueError("The recorded scout harness version does not match the frozen case.")
+        if (
+            prompt.team_id != self.seed.team_id
+            or prompt.config_id != self.seed.config_id
+            or prompt.skill_name != self.case.skill.name
+            or prompt.skill_version != self.case.skill.version
+            or prompt.allowed_tools != self.case.skill.allowed_tools
+        ):
+            raise ValueError("The worker prompt configuration belongs to another evaluation environment.")
 
     def check(self, *, probe_gateway: bool = False) -> dict[str, object]:
         from django.conf import settings  # noqa: PLC0415 -- Django is initialized by the CLI.
 
+        from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset  # noqa: PLC0415
         from products.posthog_ai.eval_harness.environment.guard import assert_local_databases  # noqa: PLC0415
         from products.posthog_ai.eval_harness.environment.restore import PreparedEnvironment  # noqa: PLC0415
         from products.signals.backend.scout_harness.eval_environment.ingestion import (  # noqa: PLC0415
             ScoutEnvironmentIngestion,
         )
-        from products.signals.backend.scout_harness.eval_environment.prompt import read_recorded_prompt  # noqa: PLC0415
         from products.signals.backend.scout_harness.eval_environment.state import ScoutEnvironmentState  # noqa: PLC0415
         from products.signals.backend.scout_harness.skill_loader import load_skill_for_run  # noqa: PLC0415
 
         assert_local_databases()
+        self.freeze.verify()
         receipt = PreparedEnvironment.read_receipt(self.freeze_path.parent)
-        if receipt is None:
-            raise ValueError("The frozen scout environment has no import receipt.")
+        if receipt is None or receipt.phase != "complete":
+            raise ValueError("The frozen scout environment requires a completed import receipt.")
+        manifests = [Path(name) for name, digest in self.freeze.inputs.items() if digest == receipt.manifest_sha256]
+        if len(manifests) != 1:
+            raise ValueError("The completed receipt must identify exactly one frozen environment manifest.")
+        restored = PreparedEnvironment.verify(EnvironmentDataset.load(manifests[0]), self.freeze_path.parent)
+        if restored.team_id != self.seed.team_id or restored.user_id != self.seed.user_id:
+            raise ValueError("The restored data belongs to another scout environment.")
         ScoutEnvironmentState.verify(self.case, receipt, self.seed)
         ScoutEnvironmentIngestion.verify(receipt)
         if not settings.DEBUG:
             raise ValueError("Scout evaluation commands require a local DEBUG environment.")
         self.check_local_routes()
         if not settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
-            raise ValueError("Private scout capture must be enabled before evaluating private traces.")
-        if not self.case.recorded_prompt or not self.case.expected_harness_prompt_version:
-            raise ValueError("The case must preserve its recorded prompt and harness prompt version.")
-        configured_prompt = getattr(settings, "SCOUT_EVAL_ENVIRONMENT_FILE", "")
-        if not configured_prompt:
-            raise ValueError("Set SCOUT_EVAL_ENVIRONMENT_FILE to this environment's frozen runtime-prompt.json.")
-        prompt = read_recorded_prompt(Path(configured_prompt))
-        if prompt.team_id != self.seed.team_id or prompt.config_id != self.seed.config_id:
-            raise ValueError("The worker prompt configuration belongs to another evaluation environment.")
+            raise ValueError("Private scout capture must be enabled before evaluating scout environments.")
+        self.check_prompt_configuration()
         service = self._service()
         skill = load_skill_for_run(service.config.team, self.case.skill.name, version=self.case.skill.version)
         if skill.allowed_tools != self.case.skill.allowed_tools:
@@ -236,13 +313,25 @@ class ScoutEvaluationTrials:
             raise ValueError("This reconstruction requires capabilities unsupported by existing Scout trials.")
         if probe_gateway:
             self.probe_gateway()
-        return {"team_id": self.seed.team_id, "config_id": str(self.seed.config_id), "frozen": True, "paid_calls": 0}
+        return {
+            "team_id": self.seed.team_id,
+            "config_id": str(self.seed.config_id),
+            "frozen": True,
+            "prompt_mode": self.case.prompt_mode,
+            "paid_calls": 0,
+            "restored_data": {
+                "event_count": restored.event_count,
+                "event_validation": "per-event counts and minimum/maximum timestamps",
+                "metric_count": restored.metric_count,
+                "metric_validation": "complete metric row fields",
+            },
+        }
 
     @staticmethod
     def check_local_routes() -> None:
         from django.conf import settings  # noqa: PLC0415 -- Django is initialized by the CLI.
 
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import (  # noqa: PLC0415
+        from products.tasks.backend.facade.gateway import (  # noqa: PLC0415
             resolve_sandbox_ai_product,
             sandbox_product_routed,
         )
@@ -266,11 +355,9 @@ class ScoutEvaluationTrials:
     def probe_gateway(self) -> None:
         from products.tasks.backend.facade.gateway import (  # noqa: PLC0415 -- Django is initialized by the CLI.
             mint_private_gateway_token,
-            revoke_private_gateway_token,
-        )
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import (  # noqa: PLC0415
             mint_scoped_token,
             resolve_sandbox_ai_product,
+            revoke_private_gateway_token,
             revoke_scoped_token,
         )
 
@@ -309,10 +396,7 @@ class ScoutEvaluationTrials:
         return ScoutTrialComparisons(config, user)
 
     def _judge_cap_usd(self) -> Decimal:
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import (  # noqa: PLC0415
-            resolve_sandbox_ai_product,
-            token_cap_usd,
-        )
+        from products.tasks.backend.facade.gateway import resolve_sandbox_ai_product, token_cap_usd  # noqa: PLC0415
 
         product = resolve_sandbox_ai_product("scout_suggestions", "scout:trial_judge", internal=True)
         return Decimal(token_cap_usd(self.seed.team_id, product))
@@ -322,7 +406,7 @@ class ScoutEvaluationTrials:
             TrialComparisonRequest,
             TrialComparisonVariant,
         )
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import token_cap_usd  # noqa: PLC0415
+        from products.tasks.backend.facade.gateway import token_cap_usd  # noqa: PLC0415
 
         self.check()
         if not variants or len({variant.repeats for variant in variants}) != 1:
@@ -383,7 +467,7 @@ class ScoutEvaluationTrials:
             or plan.user_id != self.seed.user_id
         ):
             raise ValueError("The plan does not belong to this frozen environment.")
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import token_cap_usd  # noqa: PLC0415
+        from products.tasks.backend.facade.gateway import token_cap_usd  # noqa: PLC0415
 
         request = TrialComparisonRequest.model_validate(plan.request)
         count = sum(len(variant.launch_ids) for variant in request.variants)
@@ -400,7 +484,7 @@ class ScoutEvaluationTrials:
         service = self._service()
         service.assert_can_start(launch_ids=[launch for variant in request.variants for launch in variant.launch_ids])
         self.probe_gateway()
-        ledger.reserve(plan.comparison_id, plan.reserved_usd)
+        ledger.reserve(plan.comparison_id, plan.reserved_usd, plan_sha256=plan.fingerprint())
         if plan.mode == "trial":
             from products.signals.backend.scout_harness.trial_launch import create_trial_launch  # noqa: PLC0415
             from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415

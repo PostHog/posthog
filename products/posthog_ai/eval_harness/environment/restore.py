@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import json
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID, uuid4
@@ -24,6 +24,11 @@ from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrat
 from products.posthog_ai.eval_harness.environment.ingestion import EnvironmentIngestion
 from products.posthog_ai.eval_harness.environment.schema import EnvironmentMetric, EnvironmentModel
 from products.posthog_ai.eval_harness.environment.transform import EnvironmentTransform
+from products.signals.backend.facade.eval_environment import (
+    preflight_scout_bundle,
+    restore_scout_bundle,
+    verify_scout_bundle,
+)
 
 
 class EnvironmentResult(EnvironmentModel):
@@ -59,6 +64,7 @@ class EnvironmentReceipt(EnvironmentModel):
     created_login: bool = False
     failure_type: str | None = None
     event_ingestion: EnvironmentIngestion | None = None
+    scout_seed_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 @frozen
@@ -222,7 +228,31 @@ class PreparedEnvironment:
         validation = EnvironmentEvents.validate(team.id, EnvironmentEvents.summaries(dataset, transformer))
         if validation != receipt.event_validation:
             raise ValueError("The restored event validation differs from the receipt.")
+        if dataset.manifest.scout:
+            verify_scout_bundle(
+                dataset.manifest.scout.resolve(dataset.path.parent), receipt, workspace, receipt.scout_seed_sha256
+            )
+        elif receipt.scout_seed_sha256 is not None:
+            raise ValueError("The restored scout attachment no longer matches this bundle.")
         return cls._result(receipt, workspace, dataset, reused=True)
+
+    @classmethod
+    def verify(cls, dataset: EnvironmentDataset, workspace: Path) -> EnvironmentResult:
+        """Read an existing restore, checking metric fields and event counts/timestamp bounds without writing."""
+        databases = cls.assert_local()
+        dataset.validate_files()
+        receipt = cls.read_receipt(workspace)
+        if receipt is None or receipt.phase != "complete":
+            raise ValueError("Verification requires a completed import receipt; no restore was started.")
+        if (
+            receipt.manifest_sha256 != dataset.manifest_sha256
+            or receipt.environment_id != dataset.manifest.environment_id
+            or receipt.source_cutoff != dataset.manifest.source_cutoff
+            or receipt.timezone != dataset.manifest.timezone
+            or receipt.databases != databases
+        ):
+            raise ValueError("The completed receipt belongs to different import inputs or databases.")
+        return cls._reuse(receipt, workspace, dataset)
 
     @classmethod
     def restore(
@@ -237,6 +267,8 @@ class PreparedEnvironment:
         dataset.validate_files()
         receipt = cls.read_receipt(workspace)
         cutoff = target_cutoff or (receipt.target_cutoff if receipt else datetime.now(UTC))
+        if target_cutoff is None and receipt is None and dataset.manifest.scout is not None:
+            cutoff -= timedelta(microseconds=(cutoff - dataset.manifest.source_cutoff).microseconds)
         if cutoff.tzinfo is None or cutoff.utcoffset() is None:
             raise ValueError("The target cutoff must include a timezone.")
         cutoff = cutoff.astimezone(UTC)
@@ -272,6 +304,8 @@ class PreparedEnvironment:
             identity_namespace=transformer.namespace,
             provenance=provenance or {},
         )
+        if dataset.manifest.scout:
+            preflight_scout_bundle(dataset.manifest.scout.resolve(dataset.path.parent), receipt)
         receipt_path = workspace / "receipt.json"
         cls._write_private(receipt_path, receipt.model_dump_json(indent=2) + "\n")
         try:
@@ -297,6 +331,11 @@ class PreparedEnvironment:
                 ingested_event=bool(dataset.manifest.event_count), completed_snippet_onboarding=True
             )
             receipt = receipt.model_copy(update={"phase": "complete", "event_validation": validation})
+            if dataset.manifest.scout:
+                seed_sha256 = restore_scout_bundle(
+                    dataset.manifest.scout.resolve(dataset.path.parent), receipt, workspace
+                )
+                receipt = receipt.model_copy(update={"scout_seed_sha256": seed_sha256})
             cls._write_private(receipt_path, receipt.model_dump_json(indent=2) + "\n")
         except BaseException as error:
             failed = receipt.model_copy(update={"phase": "failed", "failure_type": type(error).__name__})

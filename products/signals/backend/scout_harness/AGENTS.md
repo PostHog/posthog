@@ -9,9 +9,11 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 ## What lives here
 
 - `eval_environment/`
-  Private trace-based environment preparation, immutable reconstruction fingerprints,
-  recorded-prompt replay and budgeted launches through existing Scout trials.
-  The `scout_eval_environment` management command is the checkout entry point.
+  Private source-data export and trace reconstruction, portable Scout attachments,
+  immutable inputs, native or recorded prompts, and budgeted Scout trials.
+  `python -m ...eval_environment.source` exports supported source slices without Django;
+  `scout_eval_environment` manages local preparation and trials. Read the
+  `creating-scout-eval-environments` skill when choosing data scope or validating a bundle.
   Case data and validation artifacts stay outside Git and outside scout sandboxes.
 
 - `rubrics.py` / `rubrics_runner.py`

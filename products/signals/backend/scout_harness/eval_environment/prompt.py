@@ -5,7 +5,7 @@ import stat
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self, cast
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -18,19 +18,27 @@ from products.signals.backend.scout_harness.eval_environment.trials import Froze
 from products.signals.backend.scout_harness.prompt import _run_note_section
 
 
-class RecordedScoutPrompt(EnvironmentModel):
+class ScoutRuntimeContext(EnvironmentModel):
     team_id: int
     config_id: UUID
     skill_name: str
     skill_version: int
     allowed_tools: list[str]
-    recorded_prompt: str
-    prompt_transformations: list[ScoutPromptTransformation] = Field(default_factory=list)
     harness_prompt_version: str
-    replacements: dict[str, str] = Field(default_factory=dict)
-    time_strings: list[str] = Field(default_factory=list)
     frozen_inputs: dict[str, str]
     frozen_manifest: str
+
+
+class NativeScoutPrompt(ScoutRuntimeContext):
+    prompt_mode: Literal["native"] = "native"
+
+
+class RecordedScoutPrompt(ScoutRuntimeContext):
+    prompt_mode: Literal["recorded"] = "recorded"
+    recorded_prompt: str
+    prompt_transformations: list[ScoutPromptTransformation] = Field(default_factory=list)
+    replacements: dict[str, str] = Field(default_factory=dict)
+    time_strings: list[str] = Field(default_factory=list)
 
     def transformed_instructions(self) -> str:
         prompt = self.recorded_prompt
@@ -77,13 +85,15 @@ class RecordedScoutPrompt(EnvironmentModel):
         return prompt
 
 
-def read_recorded_prompt(path: Path) -> RecordedScoutPrompt:
+def _read_runtime_prompt[TPrompt: RecordedScoutPrompt | NativeScoutPrompt](
+    path: Path, document_type: type[TPrompt]
+) -> TPrompt:
     path = require_private_path(path)
     mode = path.lstat().st_mode
     if not stat.S_ISREG(mode) or stat.S_IMODE(mode) & 0o077:
-        raise ValueError("Recorded scout prompt must be an owner-only regular private file.")
+        raise ValueError("Scout runtime configuration must be an owner-only regular private file.")
     content = path.read_bytes()
-    document = RecordedScoutPrompt.model_validate_json(content)
+    document = document_type.model_validate_json(content)
     manifest_path = require_private_path(Path(document.frozen_manifest))
     frozen = FrozenEnvironment.model_validate_json(manifest_path.read_bytes())
     frozen.verify()
@@ -93,9 +103,19 @@ def read_recorded_prompt(path: Path) -> RecordedScoutPrompt:
         or frozen.team_id != document.team_id
         or frozen.config_id != document.config_id
         or frozen.inputs != document.frozen_inputs
+        or frozen.prompt_mode != document.prompt_mode
     ):
-        raise ValueError("The recorded scout prompt does not match its frozen reconstruction.")
-    return document
+        raise ValueError("The scout runtime configuration does not match its frozen environment.")
+    # Pydantic constructs the concrete class passed in, while mypy widens Self over the union bound.
+    return cast("TPrompt", document)
+
+
+def read_native_prompt(path: Path) -> NativeScoutPrompt:
+    return _read_runtime_prompt(path, NativeScoutPrompt)
+
+
+def read_recorded_prompt(path: Path) -> RecordedScoutPrompt:
+    return _read_runtime_prompt(path, RecordedScoutPrompt)
 
 
 def recorded_prompt_override(
