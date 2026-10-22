@@ -7,8 +7,13 @@ To run the suite:
 
 from __future__ import annotations
 
+from typing import Any
+
 from products.data_catalog.evals.constants import (
     ACCEPTED_RELATIONSHIP_TARGET_NAME,
+    ACV_CANDIDATES,
+    ACV_TARGET_SCHEMA,
+    ACV_TOTAL,
     ANNOTATED_LEDGER_COLLECTED_USD,
     ANNOTATED_LEDGER_VIEW_NAME,
     ANNOTATION_WRITE_LOST_STAGE,
@@ -26,11 +31,15 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
+    SUBSCRIPTION_CANDIDATES,
+    SUBSCRIPTIONS_ACTIVE_COUNT,
+    SUBSCRIPTIONS_CURRENT_SCHEMA,
     SYNCED_INVOICES_PAID_TOTAL,
     SYNCED_TIME_OFF_APPROVED_COUNT,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
+    AnswerTableQueried,
     AnswerValueStated,
     ColumnAnnotationWritten,
     DeprecationProposed,
@@ -39,18 +48,30 @@ from products.data_catalog.evals.scorers import (
 )
 from products.data_catalog.evals.seeders import (
     seed_accepted_relationship_context,
+    seed_acv_candidate_tables,
     seed_annotated_ledger_view,
     seed_annotation_write_target,
     seed_certification_trust_sources,
     seed_deprecation_candidate_sources,
     seed_instruction_like_column_annotation,
     seed_instruction_like_relationship_context,
+    seed_subscription_snapshot_tables,
     seed_synced_invoices_table,
     seed_synced_time_off_table,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+
+
+def _synced_postgres_names(schema_name: str) -> list[str]:
+    """A synced table answers to its stored name and to the dotted name HogQL builds from the source."""
+    return [f"postgres_{schema_name}", f"postgres.{schema_name}"]
+
+
+def _table_choice(target_schema: str, candidates: tuple[tuple[str, str, Any], ...]) -> dict[str, list[str]]:
+    decoys = [name for schema, _, _ in candidates if schema != target_schema for name in _synced_postgres_names(schema)]
+    return {"tables": _synced_postgres_names(target_schema), "decoys": decoys}
 
 
 async def eval_semantic_discovery(ctx: EvalContext) -> None:
@@ -192,6 +213,36 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             expected={"column_annotation_written": {}},
             setup=seed_annotation_write_target,
         ),
+        # The prompt names no table. Among about 250 catalog tables, four candidates match "ACV" by name, and only
+        # their table descriptions say which one holds signed contracts in USD.
+        SandboxedEvalCase(
+            name="table_description_selects_kpi_source",
+            prompt="What's our total annual contract value (ACV) right now?",
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.tables",
+                    "required_columns": ["description"],
+                },
+                "answer_table_queried": _table_choice(ACV_TARGET_SCHEMA, ACV_CANDIDATES),
+                "answer_value_stated": {"value": ACV_TOTAL},
+            },
+            setup=seed_acv_candidate_tables,
+        ),
+        # Copied from dw_table_relevancy_stale in products/posthog_ai/evals/data_warehouse/eval_information_schema.py.
+        # That case asks only which table to use. This one also computes a KPI from it, and both tables hold rows.
+        SandboxedEvalCase(
+            name="table_relevancy_selects_kpi_source",
+            prompt="How many active subscriptions do we have right now?",
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.tables",
+                    "required_columns": ["description"],
+                },
+                "answer_table_queried": _table_choice(SUBSCRIPTIONS_CURRENT_SCHEMA, SUBSCRIPTION_CANDIDATES),
+                "answer_value_stated": {"value": SUBSCRIPTIONS_ACTIVE_COUNT},
+            },
+            setup=seed_subscription_snapshot_tables,
+        ),
     ]
 
     await SandboxedPublicEval(
@@ -207,6 +258,7 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             DeprecationProposed(),
             AnswerValueStated(),
             ColumnAnnotationWritten(),
+            AnswerTableQueried(),
         ],
         ctx=ctx,
     )

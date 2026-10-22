@@ -32,6 +32,7 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "AnswerTableQueried",
     "AnswerValueStated",
     "CanonicalMetricRun",
     "ColumnAnnotationWritten",
@@ -751,6 +752,10 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         }
 
 
+# A star projection returns every column of the surface, so it reads the required columns without naming them.
+_SELECT_STAR = re.compile(r"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*")
+
+
 class SemanticMetadataQueried(Scorer):
     def _name(self) -> str:
         return "semantic_metadata_queried"
@@ -779,7 +784,7 @@ class SemanticMetadataQueried(Scorer):
             query
             for call in _successful_sql(parser)
             if normalized_surface in (query := _query_text(call))
-            and all(column in query for column in normalized_columns)
+            and (_SELECT_STAR.search(query) or all(column in query for column in normalized_columns))
         ]
         return Score(
             name=self._name(),
@@ -878,6 +883,44 @@ class ColumnAnnotationWritten(Scorer):
             name=self._name(),
             score=0.0 if missing else 1.0,
             metadata={"description": stored, "missing_terms": missing},
+        )
+
+
+def _reads_table(query: str, names: list[str]) -> bool:
+    # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", query) for name in names)
+
+
+class AnswerTableQueried(Scorer):
+    """Binary: did a successful query read the expected table without reading any decoy?
+
+    Every decoy holds different rows, so paired with ``AnswerValueStated`` this shows that the answer came from the
+    expected table. A synced table answers to two names, so ``tables`` lists both.
+    """
+
+    def _name(self) -> str:
+        return "answer_table_queried"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables, decoys = spec.get("tables"), spec.get("decoys")
+        if not isinstance(tables, list) or not tables or not isinstance(decoys, list):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        queries = [_query_text(call) for call in _successful_sql(parser)]
+        matching = [query for query in queries if _reads_table(query, tables) and not _reads_table(query, decoys)]
+        return Score(
+            name=self._name(),
+            score=1.0 if matching else 0.0,
+            metadata={
+                "matching_queries": matching,
+                "candidate_queries": [query for query in queries if _reads_table(query, [*tables, *decoys])],
+            },
         )
 
 

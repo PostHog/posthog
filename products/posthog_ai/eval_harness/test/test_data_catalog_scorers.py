@@ -18,6 +18,7 @@ from products.data_catalog.evals.constants import (
     METRIC_UPDATE_TOOL,
 )
 from products.data_catalog.evals.scorers import (
+    AnswerTableQueried,
     AnswerValueStated,
     CanonicalMetricRun,
     ColumnAnnotationWritten,
@@ -117,6 +118,22 @@ def _sql_log(query: str, *, status: str = "completed") -> str:
             ["certification"],
             "completed",
             1.0,
+        ),
+        (
+            "star_projection_reads_every_column",
+            "SELECT * FROM system.information_schema.tables WHERE position(lower(table_name), 'acv') > 0",
+            "information_schema.tables",
+            ["description"],
+            "completed",
+            1.0,
+        ),
+        (
+            "star_inside_count_is_not_a_projection",
+            "SELECT count(*) FROM system.information_schema.tables",
+            "information_schema.tables",
+            ["description"],
+            "completed",
+            0.0,
         ),
         (
             "relationship_lookup",
@@ -596,12 +613,56 @@ def test_column_annotation_written(
     assert score.score == expected_score
 
 
+_TABLE_CHOICE = {
+    "tables": ["postgres_contracts_acv", "postgres.contracts_acv"],
+    "decoys": ["postgres_contracts_acv_v2", "postgres.contracts_acv_v2"],
+}
+
+
+@parameterized.expand(
+    [
+        ("reads_the_target", [("SELECT sum(acv) FROM postgres_contracts_acv", "completed")], 1.0),
+        ("reads_the_dotted_name", [("SELECT sum(acv) FROM `postgres.contracts_acv`", "completed")], 1.0),
+        (
+            "reads_a_decoy_with_the_target_prefix",
+            [("SELECT sum(acv) FROM postgres_contracts_acv_v2", "completed")],
+            0.0,
+        ),
+        (
+            "mixes_target_and_decoy",
+            [
+                (
+                    "SELECT sum(acv) FROM postgres_contracts_acv UNION ALL SELECT sum(acv) FROM postgres_contracts_acv_v2",
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+        ("failed_target_query", [("SELECT sum(acv) FROM postgres_contracts_acv", "failed")], 0.0),
+        (
+            "decoy_then_target",
+            [
+                ("SELECT sum(acv) FROM postgres_contracts_acv_v2", "completed"),
+                ("SELECT sum(acv) FROM postgres_contracts_acv", "completed"),
+            ],
+            1.0,
+        ),
+    ]
+)
+def test_answer_table_queried(_name: str, queries: list[tuple[str, str]], expected_score: float) -> None:
+    log = _tool_log([("execute-sql", {"query": query}, status) for query, status in queries])
+    score = AnswerTableQueried()._run_eval_sync({"raw_log": log}, {"answer_table_queried": _TABLE_CHOICE})
+
+    assert score.score == expected_score
+
+
 @parameterized.expand(
     [
         (MetricsCatalogBeforeDataDiscovery(), "metrics_catalog_before_data_discovery"),
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
         (AnswerValueStated(), "answer_value_stated"),
+        (AnswerTableQueried(), "answer_table_queried"),
         (ColumnAnnotationWritten(), "column_annotation_written"),
         (MetricDescriptionConcise(), "metric_description_concise"),
         (TrustBadgeShown(), "trust_badge"),

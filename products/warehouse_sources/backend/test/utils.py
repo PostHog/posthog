@@ -135,11 +135,12 @@ def create_synced_table_from_rows(
     table_name: str,
     columns: Mapping[str, Mapping[str, str | bool]],
     rows: Sequence[Sequence[object]],
-    canonical_descriptions: Mapping[str, str],
+    descriptions: Mapping[str, str],
     test_bucket: str,
+    description_source: WarehouseColumnAnnotationDescriptionSource = WarehouseColumnAnnotationDescriptionSource.CANONICAL,
 ) -> SyncedWarehouseTable:
     """Install the state a completed source sync leaves: rows in object storage, the source, schema and table rows,
-    and the canonical annotations the source ships. ``""`` in ``canonical_descriptions`` is the table-level one.
+    and the table's annotations. ``""`` in ``descriptions`` is the table-level one.
     """
     access_key, access_secret = OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
     if not access_key or not access_secret:
@@ -191,10 +192,10 @@ def create_synced_table_from_rows(
             table=table,
             column_name=column_name,
             description=description,
-            description_source=WarehouseColumnAnnotationDescriptionSource.CANONICAL,
-            is_user_edited=False,
+            description_source=description_source,
+            is_user_edited=description_source == WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
         )
         .id
-        for column_name, description in canonical_descriptions.items()
+        for column_name, description in descriptions.items()
     }
     return SyncedWarehouseTable(table_id=table.id, name=table.name, annotation_ids=annotation_ids)

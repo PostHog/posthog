@@ -527,3 +527,63 @@ ANNOTATION_WRITE_ROWS = (
 )
 # Terms the saved description must carry, so a write that drops either stage meaning fails the case.
 ANNOTATION_WRITE_REQUIRED_TERMS = (ANNOTATION_WRITE_WON_STAGE, "won", ANNOTATION_WRITE_LOST_STAGE, "lost")
+
+# Table discovery arms. Each case first installs the information_schema suite's catalog of about 250 tables, then a
+# set of queryable candidates whose names all match the question. Only the table descriptions say which candidate to
+# use, and each candidate holds different rows, so a wrong pick gives a wrong number.
+_SIGNED_CONTRACT_ACV = (120000, 95500, 210000, 64000, 178500, 99000, 312000, 205500)
+ACV_TARGET_SCHEMA = "contracts_acv"
+# (schema name, table description, rows of (contract_id, account_id, acv)).
+ACV_CANDIDATES = (
+    (
+        ACV_TARGET_SCHEMA,
+        "Annual contract value per signed contract, in USD. The source of truth for ACV reporting, reconciled with "
+        "finance every month.",
+        tuple((index + 1, 700 + index, acv) for index, acv in enumerate(_SIGNED_CONTRACT_ACV)),
+    ),
+    (
+        "contracts_acv_v2",
+        "Experimental ACV model under validation. It counts unsigned renewal quotes as contracts, so it overstates "
+        "ACV. Do not use it for reporting.",
+        tuple(
+            (index + 1, 700 + index, acv) for index, acv in enumerate((*_SIGNED_CONTRACT_ACV, 150000, 88000, 240000))
+        ),
+    ),
+    (
+        "contracts_acv_staging",
+        "Raw ACV load before currency conversion. The acv column is in each contract's local currency, not USD.",
+        tuple(
+            (index + 1, 700 + index, acv)
+            for index, acv in enumerate((111000, 88400, 194400, 59300, 165300, 91700, 288900, 190300))
+        ),
+    ),
+    (
+        "crm_contracts_acv",
+        "ACV as sales reps entered it in the CRM. It includes open pipeline deals that are not signed yet.",
+        tuple((index + 1, 700 + index, acv) for index, acv in enumerate((*_SIGNED_CONTRACT_ACV, 175000, 60000))),
+    ),
+)
+ACV_TOTAL = str(sum(_SIGNED_CONTRACT_ACV))
+
+# Copied from the dw_table_relevancy_stale needle in products/posthog_ai/evals/data_warehouse/synthesizer.py: two
+# dimensions with the same schema, where only the annotation says which one is live and which one is frozen.
+SUBSCRIPTIONS_CURRENT_SCHEMA = "dim_subscriptions_snapshot"
+SUBSCRIPTIONS_STALE_SCHEMA = "dim_subscriptions_snapshot_2023"
+_PLANS = ("starter", "growth", "enterprise")
+# (schema name, table description, rows of (subscription_id, account_id, plan, is_active)). The live table has 36
+# active rows out of 45, and the frozen one has 52 active rows out of 60.
+SUBSCRIPTION_CANDIDATES = (
+    (
+        SUBSCRIPTIONS_CURRENT_SCHEMA,
+        "Live subscriptions dimension, refreshed daily. The canonical subscriptions source for current reporting. "
+        f"It replaced the frozen postgres_{SUBSCRIPTIONS_STALE_SCHEMA}.",
+        tuple((index + 1, 1000 + index, _PLANS[index % 3], 0 if index % 5 == 4 else 1) for index in range(45)),
+    ),
+    (
+        SUBSCRIPTIONS_STALE_SCHEMA,
+        "DEPRECATED point-in-time subscriptions snapshot, frozen at the end of 2023 and no longer refreshed. "
+        f"Superseded by postgres_{SUBSCRIPTIONS_CURRENT_SCHEMA}. Do not use it for current reporting.",
+        tuple((index + 1, 1000 + index, _PLANS[index % 3], 0 if index % 7 == 6 else 1) for index in range(60)),
+    ),
+)
+SUBSCRIPTIONS_ACTIVE_COUNT = "36"

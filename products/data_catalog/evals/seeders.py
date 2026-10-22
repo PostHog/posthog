@@ -35,6 +35,7 @@ from products.data_catalog.evals.constants import (
     ACTIVE_CUSTOMERS_METRIC_DESCRIPTION,
     ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME,
     ACTIVE_CUSTOMERS_METRIC_NAME,
+    ACV_CANDIDATES,
     ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
     ANNOTATED_LEDGER_STATUS_DESCRIPTION,
     ANNOTATED_LEDGER_VIEW_DESCRIPTION,
@@ -116,6 +117,7 @@ from products.data_catalog.evals.constants import (
     SIGNED_UP_CUSTOMERS_METRIC_DESCRIPTION,
     SIGNED_UP_CUSTOMERS_METRIC_DISPLAY_NAME,
     SIGNED_UP_CUSTOMERS_METRIC_NAME,
+    SUBSCRIPTION_CANDIDATES,
     SYNCED_INVOICES_DESCRIPTIONS,
     SYNCED_INVOICES_ROWS,
     SYNCED_INVOICES_SCHEMA_NAME,
@@ -147,6 +149,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.posthog_ai.evals.data_warehouse.seeder import seed_warehouse_schema
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -162,6 +165,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "seed_accepted_relationship_context",
+    "seed_acv_candidate_tables",
     "seed_annotated_ledger_view",
     "seed_annotation_write_target",
     "seed_approved_metric",
@@ -178,6 +182,7 @@ __all__ = [
     "seed_mcp_tool_call_fail_pct_metric",
     "seed_operational_metric",
     "seed_proposed_metric",
+    "seed_subscription_snapshot_tables",
     "seed_synced_invoices_table",
     "seed_synced_time_off_table",
     "seed_top_customers_metric",
@@ -708,6 +713,7 @@ def _synced_table(
     columns: dict[str, dict[str, Any]],
     rows: tuple[tuple[Any, ...], ...],
     descriptions: dict[str, str],
+    description_source: WarehouseColumnAnnotationDescriptionSource = WarehouseColumnAnnotationDescriptionSource.CANONICAL,
 ) -> SyncedWarehouseTable:
     synced = create_synced_table_from_rows(
         team,
@@ -716,7 +722,8 @@ def _synced_table(
         table_name=table_name,
         columns=columns,
         rows=rows,
-        canonical_descriptions=descriptions,
+        descriptions=descriptions,
+        description_source=description_source,
         test_bucket="eval_catalog",
     )
     # A table ClickHouse cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
@@ -856,3 +863,50 @@ def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[st
             "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
         }
     }
+
+
+def _seed_candidate_tables(
+    context: CustomPromptSandboxContext,
+    *,
+    candidates: tuple[tuple[str, str, tuple[tuple[Any, ...], ...]], ...],
+    columns: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Install the information_schema suite's catalog, then queryable candidate tables from the team's Postgres."""
+    seed_warehouse_schema(context)
+    team, user = _team_and_user(context)
+    names = []
+    for schema_name, description, rows in candidates:
+        synced = _synced_table(
+            team,
+            user,
+            source_type=ExternalDataSourceType.POSTGRES,
+            schema_name=schema_name,
+            table_name=f"postgres_{schema_name}",
+            columns=columns,
+            rows=rows,
+            descriptions={"": description},
+            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+        )
+        names.append(synced.name)
+    return {"candidate_tables": names}
+
+
+def seed_acv_candidate_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_candidate_tables(
+        context,
+        candidates=ACV_CANDIDATES,
+        columns=dict.fromkeys(("contract_id", "account_id", "acv"), _INTEGER_COLUMN),
+    )
+
+
+def seed_subscription_snapshot_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_candidate_tables(
+        context,
+        candidates=SUBSCRIPTION_CANDIDATES,
+        columns={
+            "subscription_id": _INTEGER_COLUMN,
+            "account_id": _INTEGER_COLUMN,
+            "plan": _STRING_COLUMN,
+            "is_active": _INTEGER_COLUMN,
+        },
+    )
