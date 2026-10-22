@@ -174,7 +174,7 @@ impl ObjectStore for ReadAheadStore {
         location: &Path,
         ranges: &[Range<u64>],
     ) -> object_store::Result<Vec<Bytes>> {
-        let valid = ranges.iter().all(|r| r.start <= r.end);
+        let valid = ranges.iter().all(|r| r.start < r.end);
         let group = match (valid && location == &self.path).then(|| self.group_of(ranges)) {
             Some(Some(group)) => group,
             _ => return self.inner.get_ranges(location, ranges).await,

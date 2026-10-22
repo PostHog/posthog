@@ -217,15 +217,10 @@ impl MultipartPutStore {
             range: Some(GetRange::Bounded(range.clone())),
             ..Default::default()
         };
-        let result = self.inner.get_opts(location, options).await?;
-        // A local file streams in small blocking reads; one read of the range is faster.
-        if matches!(result.payload, GetResultPayload::File(..)) {
-            let bytes = result.bytes().await?;
-            if bytes.len() != dst.len() {
-                return Err(short_read(location, &range, bytes.len()));
-            }
-            dst.copy_from_slice(&bytes);
-            return Ok(());
+        let mut result = self.inner.get_opts(location, options).await?;
+        // A local file would stream in 8 KiB blocking reads; read it straight into `dst`.
+        if let GetResultPayload::File(file, _) = &mut result.payload {
+            return read_file_into(file, location, &range, dst);
         }
         let mut stream = result.into_stream();
         let mut filled = 0usize;
@@ -243,6 +238,30 @@ impl MultipartPutStore {
         }
         Ok(())
     }
+}
+
+fn read_file_into(
+    file: &mut std::fs::File,
+    location: &Path,
+    range: &Range<u64>,
+    dst: &mut [u8],
+) -> object_store::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let generic = |e: std::io::Error| object_store::Error::Generic {
+        store: "deltalite",
+        source: Box::new(e),
+    };
+    file.seek(SeekFrom::Start(range.start)).map_err(generic)?;
+    let mut filled = 0usize;
+    while filled < dst.len() {
+        match file.read(&mut dst[filled..]) {
+            Ok(0) => return Err(short_read(location, range, filled)),
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(generic(e)),
+        }
+    }
+    Ok(())
 }
 
 fn short_read(location: &Path, range: &Range<u64>, got: usize) -> object_store::Error {
@@ -344,7 +363,7 @@ impl ObjectStore for MultipartPutStore {
         location: &Path,
         ranges: &[std::ops::Range<u64>],
     ) -> object_store::Result<Vec<Bytes>> {
-        if !self.splits_reads_of(location) || ranges.iter().any(|r| r.start > r.end) {
+        if !self.splits_reads_of(location) || ranges.iter().any(|r| r.start >= r.end) {
             return self.inner.get_ranges(location, ranges).await;
         }
         let merged = merge_ranges(ranges);
@@ -1002,6 +1021,29 @@ mod tests {
             .unwrap();
         let wrapped = MultipartPutStore::new(store.clone(), reads(1_000, 4));
         assert!(wrapped.get_ranges(&path, &[0..3_000]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn split_ranged_reads_of_local_files_return_the_requested_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let local =
+            Arc::new(object_store::local::LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+        let path = Path::from("data/part-0.parquet");
+        let data = pattern(5_000);
+        local
+            .put(&path, PutPayload::from(data.clone()))
+            .await
+            .unwrap();
+        let wrapped = MultipartPutStore::new(local, reads(1_000, 3));
+        let ranges = [17..2_517, 4_000..5_000];
+        let got = wrapped.get_ranges(&path, &ranges).await.unwrap();
+        for (r, bytes) in ranges.iter().zip(&got) {
+            assert!(
+                bytes.as_ref() == &data[r.start as usize..r.end as usize],
+                "{r:?}"
+            );
+        }
+        assert!(wrapped.get_ranges(&path, &[3_000..6_000]).await.is_err());
     }
 
     /// A log store over an in-memory object store that counts the LIST-based version
