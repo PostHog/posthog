@@ -2442,6 +2442,7 @@ class NodeKind(StrEnum):
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
+    ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
