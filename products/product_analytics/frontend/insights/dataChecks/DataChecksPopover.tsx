@@ -1,7 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId } from 'react'
 
-import { Accordion, Button, Dot, Popover, PopoverContent, PopoverTrigger, Skeleton, Spinner, Text } from '@posthog/quill'
+import {
+    Accordion,
+    Button,
+    Dot,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Skeleton,
+    Spinner,
+    Text,
+} from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
