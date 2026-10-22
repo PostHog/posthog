@@ -1,5 +1,7 @@
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
+import { type Noun } from '~/models/groupsModel'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import { periodTotals } from '../FunnelBarHorizontalChart/funnelBarHorizontalTransforms'
@@ -9,18 +11,24 @@ export interface FunnelBarListValueProps {
     step: FunnelStepWithConversionMetrics
     firstStep: FunnelStepWithConversionMetrics
     period?: 'current' | 'previous'
+    aggregationTargetLabel: Noun
 }
 
-export function FunnelBarListValue({ step, firstStep, period }: FunnelBarListValueProps): JSX.Element {
+export function FunnelBarListValue({
+    step,
+    firstStep,
+    period,
+    aggregationTargetLabel,
+}: FunnelBarListValueProps): JSX.Element {
     const count = period ? periodTotals(step)[period] : step.count
     // Compare bars are scaled to the larger period, so show this period's own conversion.
     const rate = period
         ? funnelConversionRate(count, periodTotals(firstStep)[period])
         : step.conversionRates.fromBasisStep
     return (
-        <>
-            {percentage(rate, 1)}
-            <span className="@max-md:hidden"> · {humanFriendlyNumber(count)}</span>
-        </>
+        <span className="text-secondary" translate="no">
+            <span className="font-semibold text-primary">{percentage(rate, 1)}</span>
+            <span>{` (${humanFriendlyNumber(count)} ${pluralize(count, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)}) converted`}</span>
+        </span>
     )
 }
