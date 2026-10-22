@@ -39,6 +39,8 @@ verification descriptor, not a prompt override. Recorded replay remains explicit
 and follows the instructions below.
 
 Create a fresh devbox and reuse existing provisioning and spend authorization.
+The preparation helper preserves an existing box's startup setting; it defers
+automatic app startup only when creating a box.
 Ask for a paid-trial budget only if the session has no usable remaining budget.
 Check representative task queries, isolation and the full trace from one real
 trial. Fix environment failures; do not rewrite the scout's task or skill to
