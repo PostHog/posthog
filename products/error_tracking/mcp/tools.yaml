@@ -462,6 +462,7 @@ tools:
         description_file: ./prompts/query-error-tracking-issue.md
         system_prompt_hint: Error issue details and impact (error-tracking category)
         ui_app: error-issue
+        reads_ingested_data: events
     query-error-tracking-issue-events:
         operation: error_tracking_query_issue_events_create
         enabled: true
@@ -476,6 +477,7 @@ tools:
         description_file: ./prompts/query-error-tracking-issue-events.md
         system_prompt_hint: Error event samples, stack traces, code variables, and session IDs (error-tracking category)
         ui_app: error-details
+        reads_ingested_data: events
     query-error-tracking-issues-list:
         operation: error_tracking_query_issues_list_create
         enabled: true
@@ -491,6 +493,7 @@ tools:
         description_file: ./prompts/query-error-tracking-issues-list.md
         system_prompt_hint: Error issue filtering and aggregation (error-tracking category)
         ui_app: error-issue-list
+        reads_ingested_data: events
         response:
             include:
                 - id

@@ -53,7 +53,7 @@ fn record_partition_gauges(counts: &HashMap<Topic, u32>) {
         )
         .set(*count as f64);
     }
-    for kind in [Kind::DistinctIds, Kind::MergeEvents] {
+    for kind in [Kind::DistinctIds, Kind::MergeEvents, Kind::Persons] {
         let pair = [Side::Node, Side::Personhog].map(|side| counts.get(&Topic { side, kind }));
         if let [Some(node), Some(personhog)] = pair {
             metrics::gauge!(
@@ -69,6 +69,10 @@ fn record_observation(topic: Topic, report: &ObserveReport) {
     let feed = topic.side.label();
     if report.filtered {
         metrics::counter!("personhog_parity_filtered_total", "feed" => feed, "topic" => topic.kind.label())
+            .increment(1);
+    }
+    if report.sampled_out {
+        metrics::counter!("personhog_parity_sampled_out_total", "feed" => feed, "topic" => topic.kind.label())
             .increment(1);
     }
     if let Some(side) = report.version_tie {
@@ -98,6 +102,10 @@ fn record_sweep(report: &SweepReport) {
         metrics::counter!("personhog_parity_settled_merges_total", "outcome" => outcome.label())
             .increment(*count);
     }
+    for (outcome, count) in &report.person_outcomes {
+        metrics::counter!("personhog_parity_settled_persons_total", "outcome" => outcome.label())
+            .increment(*count);
+    }
     for (agreement, count) in &report.merge_partitions {
         metrics::counter!("personhog_parity_merge_partition_total", "outcome" => agreement.label())
             .increment(*count);
@@ -114,10 +122,16 @@ fn record_sweep(report: &SweepReport) {
         .set(report.pending_mappings as f64);
     metrics::gauge!("personhog_parity_pending_entries", "kind" => "merges")
         .set(report.pending_merges as f64);
+    metrics::gauge!("personhog_parity_pending_entries", "kind" => "persons")
+        .set(report.pending_persons as f64);
     let now = now_ms();
     for side in [Side::Node, Side::Personhog] {
         if let Some(watermark) = report.feed_watermarks_ms[side_index(side)] {
             metrics::gauge!("personhog_parity_watermark_age_seconds", "feed" => side.label())
+                .set((now - watermark).max(0) as f64 / 1000.0);
+        }
+        if let Some(watermark) = report.person_watermarks_ms[side_index(side)] {
+            metrics::gauge!("personhog_parity_person_watermark_age_seconds", "feed" => side.label())
                 .set((now - watermark).max(0) as f64 / 1000.0);
         }
     }

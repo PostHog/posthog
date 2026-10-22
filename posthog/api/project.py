@@ -62,6 +62,7 @@ from posthog.api.team.team_config import (
     TeamFeatureFlagPolicyConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamWorkflowsConfigSerializer,
+    drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
@@ -280,6 +281,7 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
 
 def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
     user_access_control = context.get("user_access_control")
+    drop_cached_workflows_config(team)
     old_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
 
     serializer = TeamWorkflowsConfigSerializer(
@@ -748,7 +750,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",  # Compat with TeamSerializer
             "data_attributes",  # Compat with TeamSerializer
             "person_display_name_properties",  # Compat with TeamSerializer
-            "correlation_config",  # Compat with TeamSerializer
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
@@ -861,7 +862,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",
             "data_attributes",
             "person_display_name_properties",
-            "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",

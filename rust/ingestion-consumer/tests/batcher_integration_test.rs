@@ -45,7 +45,6 @@ async fn purging_a_just_submitted_batch_is_not_fatal() {
     let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
     let (batcher, mut outputs) = one_message_batcher(
@@ -75,7 +74,6 @@ async fn dropping_an_idle_batcher_closes_its_outputs() {
     let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
     let (batcher, mut outputs) = one_message_batcher(

@@ -108,6 +108,8 @@ export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object
         .max(aiObservabilityOfflineExperimentsListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -737,6 +739,8 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -1360,6 +1364,9 @@ export const EvaluationsCreateParams = () => zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
+export const evaluationsCreateBodyOutputConfigDecisionThresholdMin = 0
+export const evaluationsCreateBodyOutputConfigDecisionThresholdMax = 1
+
 export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
 
 export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
@@ -1457,6 +1464,14 @@ export const EvaluationsCreateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
+                decision_threshold: zod
+                    .number()
+                    .min(evaluationsCreateBodyOutputConfigDecisionThresholdMin)
+                    .max(evaluationsCreateBodyOutputConfigDecisionThresholdMax)
+                    .nullish()
+                    .describe(
+                        'Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.'
+                    ),
                 min: zod
                     .number()
                     .nullish()
@@ -1528,7 +1543,7 @@ export const EvaluationsCreateBody = () => zod
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1823,6 +1838,9 @@ export const EvaluationsPartialUpdateParams = () => zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
+export const evaluationsPartialUpdateBodyOutputConfigDecisionThresholdMin = 0
+export const evaluationsPartialUpdateBodyOutputConfigDecisionThresholdMax = 1
+
 export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
 
 export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
@@ -1922,6 +1940,14 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
+                decision_threshold: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyOutputConfigDecisionThresholdMin)
+                    .max(evaluationsPartialUpdateBodyOutputConfigDecisionThresholdMax)
+                    .nullish()
+                    .describe(
+                        'Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.'
+                    ),
                 min: zod
                     .number()
                     .nullish()
@@ -1993,7 +2019,7 @@ export const EvaluationsPartialUpdateBody = () => zod
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -2132,6 +2158,9 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
 })
 
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
+export const evaluationsTestHogCreateBodyOutputConfigDecisionThresholdMin = 0
+export const evaluationsTestHogCreateBodyOutputConfigDecisionThresholdMax = 1
+
 export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
 
 export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
@@ -2173,6 +2202,14 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                ),
+            decision_threshold: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyOutputConfigDecisionThresholdMin)
+                .max(evaluationsTestHogCreateBodyOutputConfigDecisionThresholdMax)
+                .nullish()
+                .describe(
+                    'Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.'
                 ),
             min: zod
                 .number()
@@ -2870,6 +2907,7 @@ export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
 
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
+    created_by: zod.number().optional().describe("Filter by the creator's user ID."),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

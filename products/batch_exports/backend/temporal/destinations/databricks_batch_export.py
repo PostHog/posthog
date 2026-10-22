@@ -5,6 +5,7 @@ import socket
 import typing as t
 import asyncio
 import datetime as dt
+import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -24,7 +25,15 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.security.oob_domains import matched_oob_domain
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ShapeError,
+    validate_external_host,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -319,11 +328,42 @@ class DatabricksClient:
         that case in ``connect_timeout_seconds`` and, unlike wrapping ``sql.connect`` in a timeout,
         leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
         started.
+
+        We also resolve and validate the hostname again here, and connect only to the validated
+        addresses, to prevent SSRF through DNS rebinding.
         """
 
         def probe() -> None:
-            with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
-                pass
+            if is_cloud() and (oob_domain := matched_oob_domain(self.server_hostname)) is not None:
+                # Detection only, so a match is logged and never refused. See posthog/security/crosslang/README.md.
+                self.logger.info("security.oob_domain_seen", domain=oob_domain, guard="databricks_probe")
+
+            addresses = [
+                str(sockaddr[0])
+                for *_, sockaddr in socket.getaddrinfo(self.server_hostname, 443, type=socket.SOCK_STREAM)
+            ]
+            try:
+                validate_external_host(
+                    self.server_hostname, resolved_ips={ipaddress.ip_address(address) for address in addresses}
+                )
+            except ShapeError as err:
+                raise DatabricksConnectionError(INVALID_HOST_MESSAGE, retryable=False) from err
+            except ValueError as err:
+                self.logger.warning(
+                    "Refused to connect to a Databricks host that failed the SSRF check",
+                    reason=str(err),
+                    addresses=addresses,
+                )
+                raise DatabricksConnectionError(UNREACHABLE_HOST_MESSAGE, retryable=False) from err
+
+            errors: list[OSError] = []
+            for address in addresses:
+                try:
+                    with socket.create_connection((address, 443), timeout=self.connect_timeout_seconds):
+                        return
+                except OSError as err:
+                    errors.append(err)
+            raise errors[-1]
 
         try:
             await asyncio.to_thread(probe)

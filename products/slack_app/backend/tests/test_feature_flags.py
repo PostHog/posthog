@@ -34,8 +34,8 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
 
 @pytest.mark.parametrize(
     "gate",
-    [feature_flags.is_slack_app_agent_design_enabled, feature_flags.is_slack_app_project_picker_enabled],
-    ids=["agent design", "project picker"],
+    [feature_flags.is_slack_app_agent_design_enabled],
+    ids=["agent design"],
 )
 @pytest.mark.parametrize(
     ("distinct_id", "expected_identity"),

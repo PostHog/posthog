@@ -92,6 +92,10 @@ Direct connections group tables by schema. Search matches table and folder names
 
 ## Calculated measures in BI mode
 
+Choose **Edit measure expression** from a measure pill to edit its SQL and aggregation together. The editor shows the aggregation applied to each group. Choose **Custom SQL · no extra aggregation** when the expression already contains aggregate functions, such as `sum(revenue) / nullIf(count(), 0)`. This uses the expression directly without wrapping it in Count or Sum. Changes apply together when you select **Update SQL expression**; closing the editor discards the draft.
+
+Worksheet tables offer **Conditional formatting** beside the visualization settings button. It opens the same rule editor used by SQL insights. Rules apply to the table and persist with the worksheet, so copying its query into another insight is unnecessary. This control applies to tables, not pivot tables or charts.
+
 Chart settings offer **Reference lines** for BI line and bar charts. Add a constant target, or choose **Mean**, **Median**, **Minimum**, or **Maximum** across returned marks on the left axis. **Per series** calculates a separate reference for each color group or measure and includes its name in the label. Calculated lines update with the results, after aggregation and table calculations; they exclude missing values and respect result limits. They do not re-aggregate the underlying source rows or apply to the right axis. Calculated lines are hidden on 100% stacked charts, where constant percentage targets remain available.
 
 The **Marks** card offers table calculations per measure: percent of total, running total, difference or percent change from the preceding point, trailing moving average, and rank. **Compute using** selects the dimension to traverse, with the date dimension chosen by default; other dimensions partition the calculation. Moving averages use a trailing window including the current point, in ascending order. Partial windows average available non-null values; **Require a full window** leaves the result empty until every point in the window has a value. Calculations run before the result limit, and zero denominators produce empty cells.
@@ -290,6 +294,29 @@ This changes setup recommendations and diagnostic actions, not report attributio
    6. schema = public
 3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table). For the Postgres-specific `xmin` (cursorless incremental) sync type and its limitations, see the [Postgres source README](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/postgres/README.md)
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
+
+## Validating ad source metric imports
+
+Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
+Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
+See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).
+Custom conversion counts and values remain in the `actions` and `action_values` arrays returned by Meta.
+
+Google Ads exposes daily Search and Display impression share through the optional `campaign_impression_share_stats` table.
+This table omits the click-type segmentation used by `campaign_stats` because impression share does not support that combination.
+The `campaign.labels` resource names in campaign metadata can be matched to `label.resource_name` in label metadata.
+
+TikTok Ads requests `total_landing_page_view`, `engaged_view_15s`, `cta_conversion`, and `cta_purchase` in its campaign, ad group, and ad BASIC reports.
+The CTA fields describe app conversions and purchases attributed to clicks; they do not establish a click-only website purchase metric.
+The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
+Cash spend can arrive later than other performance metrics.
+
+Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
+The conversion window still follows the account's attribution settings.
+
+When validating these changes locally, enable the optional tables and inspect the requested fields in a completed sync.
+Existing historical rows do not acquire newly requested fields until their date range is synced again.
+Unit tests cover request construction and response handling; a live sync is needed to check that the provider accepts each metric combination and returns data for the connected account.
 
 ## Accessing object storage
 
