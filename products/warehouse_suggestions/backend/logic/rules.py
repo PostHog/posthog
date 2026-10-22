@@ -106,7 +106,7 @@ class MaterializeRules:
 
 
 @frozen
-class DematerializeRules:
+class UnmaterializeRules:
     min_runs: int
     min_seconds_saved: float
     min_bytes_saved: float
@@ -143,7 +143,7 @@ class Rules:
     certify: CertifyRules
     deprecate: DeprecateRules
     materialize: MaterializeRules
-    dematerialize: DematerializeRules
+    unmaterialize: UnmaterializeRules
     refresh: RefreshRules
     lifecycle: LifecycleRules
 
@@ -214,7 +214,7 @@ RULES = Rules(
         min_saved_share=0.5,
         incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
     ),
-    dematerialize=DematerializeRules(
+    unmaterialize=UnmaterializeRules(
         min_runs=3,
         min_seconds_saved=600.0,
         min_bytes_saved=float(TERABYTE),
@@ -233,13 +233,13 @@ RULES = Rules(
         kind_order=(
             WarehouseSuggestionKind.MATERIALIZE,
             WarehouseSuggestionKind.DEPRECATE,
-            WarehouseSuggestionKind.DEMATERIALIZE,
+            WarehouseSuggestionKind.UNMATERIALIZE,
             WarehouseSuggestionKind.CERTIFY,
         ),
         first_week_kind_order=(
             WarehouseSuggestionKind.CERTIFY,
             WarehouseSuggestionKind.DEPRECATE,
-            WarehouseSuggestionKind.DEMATERIALIZE,
+            WarehouseSuggestionKind.UNMATERIALIZE,
             WarehouseSuggestionKind.MATERIALIZE,
         ),
     ),

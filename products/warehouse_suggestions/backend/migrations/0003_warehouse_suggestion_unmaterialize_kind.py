@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
                     ("certify", "Certify"),
                     ("deprecate", "Deprecate"),
                     ("materialize", "Materialize"),
-                    ("dematerialize", "Dematerialize"),
+                    ("unmaterialize", "Unmaterialize"),
                 ],
                 max_length=32,
             ),

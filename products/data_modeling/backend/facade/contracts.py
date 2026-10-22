@@ -61,7 +61,7 @@ class SavedQueryDefinition:
     origin: str | None
     created_at: datetime
     refreshes_incrementally: bool = False
-    calls_models: bool = False
+    calls_decision_functions: bool = False
 
 
 @dataclass(frozen=True)

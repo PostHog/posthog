@@ -21,11 +21,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
-    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SourceRef,
     SuggestionDraft,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
@@ -132,12 +132,12 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
     def test_list_dismiss_and_resume(self) -> None:
         low = self._suggest(self.view.id, score=2.0)
         high = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=9.0)
-        dematerialize = ingest_surfaced(
+        unmaterialize = ingest_surfaced(
             self.team.id,
             replace(
-                make_draft(fingerprint="dematerialize:orders", subject_id=self.view.id, score=5.0),
-                kind=WarehouseSuggestionKind.DEMATERIALIZE,
-                payload=DematerializePayload(
+                make_draft(fingerprint="unmaterialize:orders", subject_id=self.view.id, score=5.0),
+                kind=WarehouseSuggestionKind.UNMATERIALIZE,
+                payload=UnmaterializePayload(
                     subject_name="orders",
                     refresh_seconds_per_month=3600.0,
                     refresh_bytes_per_month=0.0,
@@ -153,9 +153,9 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         listed = self.client.get(f"{self.url}/")
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         rows = {row["id"]: row for row in listed.json()["results"]}
-        assert [row_id for row_id in rows if row_id != str(dematerialize.id)] == [str(high.id), str(low.id)]
-        assert rows[str(dematerialize.id)]["payload"]["read_seconds"] == 5.0
-        assert "query_fingerprint" not in rows[str(dematerialize.id)]["payload"]
+        assert [row_id for row_id in rows if row_id != str(unmaterialize.id)] == [str(high.id), str(low.id)]
+        assert rows[str(unmaterialize.id)]["payload"]["read_seconds"] == 5.0
+        assert "query_fingerprint" not in rows[str(unmaterialize.id)]["payload"]
         assert all(row["can_act"] for row in listed.json()["results"])
 
         dismissed = self.client.post(

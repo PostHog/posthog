@@ -2,7 +2,7 @@
 name: reviewing-warehouse-suggestions
 description: >
   Reviews PostHog's warehouse suggestions with a person and acts on them.
-  Explains why a view should be materialized, dematerialized, certified or deprecated using the numbers in the suggestion,
+  Explains why a view should be materialized, unmaterialized, certified or deprecated using the numbers in the suggestion,
   changes a materialize suggestion's refresh mode, keys or interval when the person wants something else,
   then accepts or dismisses it.
   Use when the user asks what PostHog suggests for their data warehouse, whether to materialize a view,
@@ -35,7 +35,7 @@ Do not invent a score or a confidence level.
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
   - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
-- **dematerialize**: this materialized view is read so rarely that refreshing it costs more than computing it on each read.
+- **unmaterialize**: this materialized view is read so rarely that refreshing it costs more than computing it on each read.
   - `refresh_seconds_per_month` and `refresh_bytes_per_month` are what its refreshes cost now.
   - `live_seconds_per_month` and `live_bytes_per_month` estimate what its reads would cost if each one computed the view. The estimate uses a full refresh per read, so it leans high.
   - `read_seconds` is how long one read would take afterwards. Nine in ten of its refreshes finished within this time. Tell the user that reads get slower by about this much, and that each read sees current data instead of the last refresh.

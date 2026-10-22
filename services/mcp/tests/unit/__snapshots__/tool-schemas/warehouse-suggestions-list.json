@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "kind": {
-            "description": "Only return suggestions of this kind.\n\n* `certify` - Certify\n* `deprecate` - Deprecate\n* `materialize` - Materialize\n* `dematerialize` - Dematerialize",
-            "enum": ["certify", "deprecate", "materialize", "dematerialize"],
+            "description": "Only return suggestions of this kind.\n\n* `certify` - Certify\n* `deprecate` - Deprecate\n* `materialize` - Materialize\n* `unmaterialize` - Unmaterialize",
+            "enum": ["certify", "deprecate", "materialize", "unmaterialize"],
             "type": "string"
         },
         "limit": {

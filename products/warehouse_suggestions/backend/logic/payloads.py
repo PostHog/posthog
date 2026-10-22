@@ -7,13 +7,13 @@ from uuid import UUID
 from ..facade.contracts import (
     PAYLOAD_VERSION,
     CertifyPayload,
-    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     MaterializeSuggestionPayload,
     SourceRef,
     SuggestionPayload,
     SuggestionPayloadView,
+    UnmaterializePayload,
     UnsupportedPayloadVersionError,
     VisibleSources,
 )
@@ -39,8 +39,8 @@ def payload_from_json(
         return CertifyPayload(**data)
     if kind == WarehouseSuggestionKind.DEPRECATE:
         return DeprecatePayload(**data)
-    if kind == WarehouseSuggestionKind.DEMATERIALIZE:
-        return DematerializePayload(**data)
+    if kind == WarehouseSuggestionKind.UNMATERIALIZE:
+        return UnmaterializePayload(**data)
     sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
     return MaterializePayload(**{**data, **sources, **_refresh_fields(data)})
 

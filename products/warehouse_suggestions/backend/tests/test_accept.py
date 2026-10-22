@@ -24,11 +24,11 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
-    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionAlreadyDecidedError,
     SuggestionPayload,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
@@ -36,7 +36,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
-from products.warehouse_suggestions.backend.logic.candidates.dematerialize import definition_fingerprint
+from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import definition_fingerprint
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -71,7 +71,7 @@ INCREMENTAL_DAY_PAYLOAD = replace(
     incremental_key="day",
     unique_key=("day",),
 )
-DEMATERIALIZE_PAYLOAD = DematerializePayload(
+UNMATERIALIZE_PAYLOAD = UnmaterializePayload(
     subject_name="orders",
     refresh_seconds_per_month=3600,
     refresh_bytes_per_month=10**9,
@@ -86,7 +86,7 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
     WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
-    WarehouseSuggestionKind.DEMATERIALIZE: DEMATERIALIZE_PAYLOAD,
+    WarehouseSuggestionKind.UNMATERIALIZE: UNMATERIALIZE_PAYLOAD,
 }
 
 
@@ -403,7 +403,7 @@ class TestAcceptSuggestion(APIBaseTest):
             ),
         ]
     )
-    def test_accepting_a_dematerialize_suggestion_turns_the_view_back_into_a_plain_view(
+    def test_accepting_an_unmaterialize_suggestion_turns_the_view_back_into_a_plain_view(
         self,
         _name: str,
         build_before: Callable[[DataWarehouseSavedQuery], list[str]] | None,
@@ -412,10 +412,10 @@ class TestAcceptSuggestion(APIBaseTest):
     ) -> None:
         table = materialize_in_place(self.view)
         queries = build_before(self.view) if build_before is not None else [ORDERS_SQL]
-        payload = replace(DEMATERIALIZE_PAYLOAD, query_fingerprint=definition_fingerprint(queries))
-        draft = make_draft(fingerprint="dematerialize:orders", subject_id=self.view.id)
+        payload = replace(UNMATERIALIZE_PAYLOAD, query_fingerprint=definition_fingerprint(queries))
+        draft = make_draft(fingerprint="unmaterialize:orders", subject_id=self.view.id)
         suggestion = ingest_surfaced(
-            self.team.id, replace(draft, kind=WarehouseSuggestionKind.DEMATERIALIZE, payload=payload)
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.UNMATERIALIZE, payload=payload)
         )
         if change_since is not None:
             change_since(self.view)

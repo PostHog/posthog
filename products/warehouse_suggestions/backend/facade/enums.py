@@ -7,7 +7,7 @@ class WarehouseSuggestionKind(LabeledStrEnum):
     CERTIFY = "certify"
     DEPRECATE = "deprecate"
     MATERIALIZE = "materialize"
-    DEMATERIALIZE = "dematerialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WarehouseSuggestionStatus(LabeledStrEnum):

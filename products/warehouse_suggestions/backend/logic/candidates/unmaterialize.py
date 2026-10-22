@@ -18,7 +18,7 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_sources.backend.facade.api import saved_queries_feeding_consumers
 
-from ...facade.contracts import DematerializePayload
+from ...facade.contracts import UnmaterializePayload
 from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import RefreshRun, Subject, SubjectReads
 from .base import (
@@ -33,7 +33,7 @@ from .base import (
 )
 
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
-CALLS_MODELS_REJECTION = "calls a model per row, which would run on every read"
+CALLS_DECISION_FUNCTIONS_REJECTION = "calls jev() or decide(), which would run a model on every read"
 READ_TIME_QUANTILE = 0.9
 
 
@@ -46,12 +46,12 @@ class EffectiveDefinition:
 @frozen
 class _Proposal:
     saved_query: SavedQueryDefinition
-    payload: DematerializePayload
+    payload: UnmaterializePayload
     score: float
 
 
-class DematerializeCandidate(Candidate):
-    kind = WarehouseSuggestionKind.DEMATERIALIZE
+class UnmaterializeCandidate(Candidate):
+    kind = WarehouseSuggestionKind.UNMATERIALIZE
 
     def evaluate(self, context: CandidateContext) -> CandidateResult:
         proposals: list[_Proposal] = []
@@ -107,11 +107,11 @@ class DematerializeCandidate(Candidate):
     def _propose(
         self, context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads
     ) -> _Proposal | str:
-        rules = context.rules.dematerialize
+        rules = context.rules.unmaterialize
         if saved_query.refreshes_incrementally:
             return INCREMENTAL_REJECTION
-        if saved_query.calls_models:
-            return CALLS_MODELS_REJECTION
+        if saved_query.calls_decision_functions:
+            return CALLS_DECISION_FUNCTIONS_REJECTION
         if context.accepted_recently(WarehouseSuggestionKind.MATERIALIZE, saved_query.id):
             return f"was materialized on a suggestion in the last {context.rules.lifecycle.flip_cooldown_days} days"
         definition = effective_definition(context.team_id, saved_query)
@@ -200,13 +200,13 @@ def _payload(
     runs: Sequence[RefreshRun],
     current_runs: Sequence[RefreshRun],
     definition: EffectiveDefinition,
-) -> DematerializePayload:
+) -> UnmaterializePayload:
     scale = context.month_scale
     reads_per_month = (reads.human_reads + reads.background_reads) * scale
     runs_per_month = len(runs) * scale
     seconds_per_run = mean(run.duration_ms for run in current_runs) / MILLISECONDS_PER_SECOND
     bytes_per_run = mean(run.read_bytes for run in current_runs)
-    return DematerializePayload(
+    return UnmaterializePayload(
         subject_name=saved_query.name,
         refresh_seconds_per_month=runs_per_month * seconds_per_run,
         refresh_bytes_per_month=runs_per_month * bytes_per_run,

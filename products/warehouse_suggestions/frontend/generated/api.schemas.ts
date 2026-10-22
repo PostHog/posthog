@@ -99,7 +99,7 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     lookback_seconds?: number
 }
 
-export interface WarehouseSuggestionDematerializePayloadApi {
+export interface WarehouseSuggestionUnmaterializePayloadApi {
     /** Name of the rarely read materialized view to turn back into a plain view. */
     subject_name: string
     /** Time its refreshes take in a month, in seconds. */
@@ -118,7 +118,7 @@ export type WarehouseSuggestionPayloadApi =
     | WarehouseSuggestionCertifyPayloadApi
     | WarehouseSuggestionDeprecatePayloadApi
     | WarehouseSuggestionMaterializePayloadApi
-    | WarehouseSuggestionDematerializePayloadApi
+    | WarehouseSuggestionUnmaterializePayloadApi
 
 /**
  * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
@@ -155,7 +155,7 @@ export interface WarehouseSuggestionReviewerApi {
  * * `certify` - Certify
  * * `deprecate` - Deprecate
  * * `materialize` - Materialize
- * * `dematerialize` - Dematerialize
+ * * `unmaterialize` - Unmaterialize
  */
 export type WarehouseSuggestionKindEnumApi =
     (typeof WarehouseSuggestionKindEnumApi)[keyof typeof WarehouseSuggestionKindEnumApi]
@@ -164,7 +164,7 @@ export const WarehouseSuggestionKindEnumApi = {
     Certify: 'certify',
     Deprecate: 'deprecate',
     Materialize: 'materialize',
-    Dematerialize: 'dematerialize',
+    Unmaterialize: 'unmaterialize',
 } as const
 
 /**
@@ -243,12 +243,12 @@ export interface WarehouseSuggestionApi {
     created_asset: WarehouseSuggestionApiCreatedAsset
     /** Who accepted or dismissed this suggestion. Null while it is open. */
     reviewed_by: WarehouseSuggestionReviewerApi | null
-    /** What the suggestion proposes: certify, deprecate, materialize or dematerialize the subject. dematerialize turns a rarely read materialized view back into a plain view computed on read.
+    /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
      *
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
-     * * `dematerialize` - Dematerialize */
+     * * `unmaterialize` - Unmaterialize */
     kind: WarehouseSuggestionKindEnumApi
     /** Whether the subject is a saved query (view) or a warehouse table.
      *
@@ -383,7 +383,7 @@ export type WarehouseSuggestionsListParams = {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
-     * * `dematerialize` - Dematerialize
+     * * `unmaterialize` - Unmaterialize
      * @minLength 1
      */
     kind?: WarehouseSuggestionsListKind
@@ -419,7 +419,7 @@ export const WarehouseSuggestionsListKind = {
     Certify: 'certify',
     Deprecate: 'deprecate',
     Materialize: 'materialize',
-    Dematerialize: 'dematerialize',
+    Unmaterialize: 'unmaterialize',
 } as const
 
 export type WarehouseSuggestionsListStatus =

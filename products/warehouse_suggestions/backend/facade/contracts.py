@@ -63,7 +63,7 @@ class MaterializePayload:
 
 
 @frozen
-class DematerializePayload:
+class UnmaterializePayload:
     subject_name: str
     refresh_seconds_per_month: float
     refresh_bytes_per_month: float
@@ -73,7 +73,7 @@ class DematerializePayload:
     query_fingerprint: str
 
 
-SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | DematerializePayload
+SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | UnmaterializePayload
 
 
 @frozen
@@ -101,7 +101,7 @@ class MaterializeSuggestionPayload:
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | DematerializePayload
+SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
 
 
 @frozen
@@ -180,11 +180,11 @@ class AcceptOptions:
 
 
 @frozen
-class DematerializationAsset:
+class UnmaterializationAsset:
     saved_query_id: str
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset | DematerializationAsset
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
 
 
 @frozen

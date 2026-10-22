@@ -94,7 +94,7 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
-FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.DEMATERIALIZE})
+FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
 REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
@@ -128,7 +128,7 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: d
 def _accepted_then_flipped_back(
     context: CandidateContext, drafts_by_fingerprint: Mapping[str, SuggestionDraft], now: datetime
 ) -> list[WarehouseSuggestion]:
-    """Accepted materialize and dematerialize suggestions drafted again, so their view flipped back, past the cooldown."""
+    """Accepted materialize and unmaterialize suggestions drafted again, so their view flipped back, past the cooldown."""
     cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
     return list(
         WarehouseSuggestion.objects.for_team(context.team_id).filter(

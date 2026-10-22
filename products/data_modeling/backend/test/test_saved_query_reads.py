@@ -120,7 +120,7 @@ class TestSavedQueryReads(BaseTest):
                 is_managed=False,
                 origin=None,
                 created_at=plain.created_at,
-                calls_models=True,
+                calls_decision_functions=True,
             ),
         ]
 

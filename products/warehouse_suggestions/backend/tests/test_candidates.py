@@ -16,8 +16,8 @@ from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
-    DematerializePayload,
     MaterializePayload,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
@@ -31,7 +31,6 @@ from products.warehouse_suggestions.backend.logic.candidates.base import (
     CandidateContext,
 )
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
-from products.warehouse_suggestions.backend.logic.candidates.dematerialize import DematerializeCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
     MaterializeCandidate,
@@ -40,6 +39,7 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     interval_basis,
     refresh_cost,
 )
+from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import UnmaterializeCandidate
 from products.warehouse_suggestions.backend.logic.reads import RefreshRun, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
@@ -354,7 +354,7 @@ HOURLY_RUNS = 720
 FIVE_SECONDS_MS = 5_000
 TWENTY_SECONDS_MS = 20_000
 RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
-DEMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.dematerialize"
+UNMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.unmaterialize"
 
 
 def hourly_runs(
@@ -365,7 +365,7 @@ def hourly_runs(
     )
 
 
-def dematerialize_context(
+def unmaterialize_context(
     team_id: int,
     *,
     view_overrides: dict | None = None,
@@ -385,7 +385,7 @@ def dematerialize_context(
     )
 
 
-class TestDematerializeCandidate(BaseTest):
+class TestUnmaterializeCandidate(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.saved_query = DataWarehouseSavedQuery.objects.create(
@@ -431,11 +431,11 @@ class TestDematerializeCandidate(BaseTest):
     def test_proposes_a_rarely_read_view_with_refresh_cost_against_live_cost(self) -> None:
         self._record_jobs(hourly_runs())
 
-        result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
+        result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk))
 
         [draft] = result.drafts
-        assert isinstance(draft.payload, DematerializePayload)
-        assert replace(draft.payload, query_fingerprint="") == DematerializePayload(
+        assert isinstance(draft.payload, UnmaterializePayload)
+        assert replace(draft.payload, query_fingerprint="") == UnmaterializePayload(
             subject_name="orders",
             refresh_seconds_per_month=3600.0,
             refresh_bytes_per_month=720.0 * 10**6,
@@ -449,7 +449,14 @@ class TestDematerializeCandidate(BaseTest):
         [
             ("few_runs", {}, {}, hourly_runs(2), None, "has 2 completed full refreshes"),
             ("incremental", {"refreshes_incrementally": True}, {}, None, None, "refreshes incrementally"),
-            ("calls_a_model", {"calls_models": True}, {}, None, None, "calls a model per row"),
+            (
+                "calls_a_decision_function",
+                {"calls_decision_functions": True},
+                {},
+                None,
+                None,
+                "calls jev() or decide()",
+            ),
             (
                 "materialized_on_a_recent_suggestion",
                 {},
@@ -480,7 +487,7 @@ class TestDematerializeCandidate(BaseTest):
         expected_reason: str,
     ) -> None:
         self._record_jobs(runs or hourly_runs())
-        candidate_context = dematerialize_context(
+        candidate_context = unmaterialize_context(
             self.team.pk,
             view_overrides=view_overrides,
             read_overrides=read_overrides,
@@ -488,7 +495,7 @@ class TestDematerializeCandidate(BaseTest):
             recent_accepts=recent_accepts,
         )
 
-        result = DematerializeCandidate().evaluate(candidate_context)
+        result = UnmaterializeCandidate().evaluate(candidate_context)
 
         [rejection] = result.rejections
         assert (result.drafts, expected_reason in rejection.reason) == ((), True), rejection.reason
@@ -511,7 +518,7 @@ class TestDematerializeCandidate(BaseTest):
         if query_changed:
             self._log_query_change(days_ago(5))
 
-        result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk, runs=slow + fast))
+        result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk, runs=slow + fast))
 
         assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
             (),
@@ -531,8 +538,8 @@ class TestDematerializeCandidate(BaseTest):
     )
     def test_rejects_a_view_others_rely_on(self, _name: str, lookup: str, found: object, expected_reason: str) -> None:
         self._record_jobs(hourly_runs())
-        with patch(f"{DEMATERIALIZE_MODULE}.{lookup}", return_value=found):
-            result = DematerializeCandidate().evaluate(dematerialize_context(self.team.pk))
+        with patch(f"{UNMATERIALIZE_MODULE}.{lookup}", return_value=found):
+            result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk))
 
         assert (result.drafts, [rejection.reason for rejection in result.rejections]) == ((), [expected_reason])
 
@@ -543,22 +550,22 @@ class TestDematerializeCandidate(BaseTest):
             team_id=self.team.pk,
         )
 
-        result = DematerializeCandidate().evaluate(candidate_context)
+        result = UnmaterializeCandidate().evaluate(candidate_context)
 
         assert (result.drafts, result.rejections) == ((), ())
 
 
-class TestMaterializeAfterDematerialize(SimpleTestCase):
-    def test_a_view_dematerialized_on_a_recent_suggestion_is_not_proposed_again(self) -> None:
+class TestMaterializeAfterUnmaterialize(SimpleTestCase):
+    def test_a_view_unmaterialized_on_a_recent_suggestion_is_not_proposed_again(self) -> None:
         candidate_context = context(
             team_reads({view_subject(VIEW_ID): busy_reads()}),
             views=[view(VIEW_ID)],
-            recent_accepts={WarehouseSuggestionKind.DEMATERIALIZE: frozenset({VIEW_ID})},
+            recent_accepts={WarehouseSuggestionKind.UNMATERIALIZE: frozenset({VIEW_ID})},
         )
 
         result = MaterializeCandidate().evaluate(candidate_context)
 
         assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
             (),
-            ["was dematerialized on a suggestion in the last 30 days"],
+            ["was unmaterialized on a suggestion in the last 30 days"],
         )

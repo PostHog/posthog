@@ -12,13 +12,13 @@ from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
 from ..facade.contracts import (
     AcceptOptions,
     CertifyPayload,
-    DematerializePayload,
     DeprecatePayload,
     MaterializeSuggestionPayload,
     Suggestion,
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    UnmaterializePayload,
     VisibleSources,
 )
 from ..facade.enums import (
@@ -128,10 +128,10 @@ class MaterializePayloadSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="WarehouseSuggestionDematerializePayload")
-class DematerializePayloadSerializer(DataclassSerializer):
+@extend_schema_serializer(component_name="WarehouseSuggestionUnmaterializePayload")
+class UnmaterializePayloadSerializer(DataclassSerializer):
     class Meta:
-        dataclass = DematerializePayload
+        dataclass = UnmaterializePayload
         exclude = ["query_fingerprint"]
         extra_kwargs = {
             "subject_name": {"help_text": "Name of the rarely read materialized view to turn back into a plain view."},
@@ -155,7 +155,7 @@ PAYLOAD_SERIALIZERS: dict[type, type[DataclassSerializer]] = {
     CertifyPayload: CertifyPayloadSerializer,
     DeprecatePayload: DeprecatePayloadSerializer,
     MaterializeSuggestionPayload: MaterializePayloadSerializer,
-    DematerializePayload: DematerializePayloadSerializer,
+    UnmaterializePayload: UnmaterializePayloadSerializer,
 }
 
 
@@ -230,8 +230,8 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
-        help_text="What the suggestion proposes: certify, deprecate, materialize or dematerialize the subject. "
-        "dematerialize turns a rarely read materialized view back into a plain view computed on read.",
+        help_text="What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. "
+        "unmaterialize turns a rarely read materialized view back into a plain view computed on read.",
     )
     subject_kind = serializers.ChoiceField(
         choices=WarehouseSuggestionSubjectKind.choices,

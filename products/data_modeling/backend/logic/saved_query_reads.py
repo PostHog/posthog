@@ -148,12 +148,12 @@ def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> 
         origin=saved_query.origin,
         created_at=saved_query.created_at,
         refreshes_incrementally=get_incremental_config(saved_query) is not None,
-        calls_models=calls_models(hogql),
+        calls_decision_functions=calls_decision_functions(hogql),
     )
 
 
-def calls_models(hogql: str) -> bool:
-    """Whether the query calls a model per row, assuming it does when the query does not parse."""
+def calls_decision_functions(hogql: str) -> bool:
+    """Whether the query calls `jev()` or `decide()`, assuming it does when the query does not parse."""
     lowered = hogql.lower()
     if not any(name in lowered for name in DECISION_FUNCTIONS):
         return False

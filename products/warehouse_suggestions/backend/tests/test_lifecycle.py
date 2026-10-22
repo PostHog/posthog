@@ -11,11 +11,11 @@ from parameterized import parameterized
 
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
-    DematerializePayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionDraft,
     SuggestionPayload,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
@@ -48,7 +48,7 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         live_sources=(),
         unknown_sources=(),
     ),
-    WarehouseSuggestionKind.DEMATERIALIZE: DematerializePayload(
+    WarehouseSuggestionKind.UNMATERIALIZE: UnmaterializePayload(
         subject_name="orders",
         refresh_seconds_per_month=3600,
         refresh_bytes_per_month=0,
@@ -186,7 +186,7 @@ class TestApplyRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("dematerialized_by_a_suggestion", 60, True, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("unmaterialized_by_a_suggestion", 60, True, WarehouseSuggestionStatus.PROPOSED, 1),
             ("stopped_by_a_deprecate_or_a_manual_revert", 60, False, WarehouseSuggestionStatus.PROPOSED, 1),
             ("accepted_inside_the_cooldown", 10, False, WarehouseSuggestionStatus.ACCEPTED, 0),
         ]
@@ -195,7 +195,7 @@ class TestApplyRun(BaseTest):
         self,
         _name: str,
         accepted_days_ago: int,
-        dematerialized_by_a_suggestion: bool,
+        unmaterialized_by_a_suggestion: bool,
         expected_status: WarehouseSuggestionStatus,
         reproposed: int,
     ) -> None:
@@ -203,14 +203,14 @@ class TestApplyRun(BaseTest):
         ctx = self._context(view_id)
         materialize = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)
         first_run = [materialize]
-        if dematerialized_by_a_suggestion:
-            first_run.append(self._draft(ctx, WarehouseSuggestionKind.DEMATERIALIZE, view_id, 1))
+        if unmaterialized_by_a_suggestion:
+            first_run.append(self._draft(ctx, WarehouseSuggestionKind.UNMATERIALIZE, view_id, 1))
         apply_run(ctx, self.team, first_run, NOW - timedelta(days=accepted_days_ago), surface=True)
         suggestions = WarehouseSuggestion.objects.for_team(self.team.pk)
         suggestions.filter(kind=WarehouseSuggestionKind.MATERIALIZE).update(
             status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=accepted_days_ago)
         )
-        suggestions.filter(kind=WarehouseSuggestionKind.DEMATERIALIZE).update(
+        suggestions.filter(kind=WarehouseSuggestionKind.UNMATERIALIZE).update(
             status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=40)
         )
 
