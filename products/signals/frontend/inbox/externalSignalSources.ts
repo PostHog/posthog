@@ -143,6 +143,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'ticket',
     },
     {
+        source: 'decagon',
+        label: 'Decagon',
+        category: 'Support',
+        watches: 'Monitor customer messages in AI agent conversations',
+        dwSourceType: 'Decagon',
+        requiredTables: ['conversations'],
+        sourceType: 'ticket',
+    },
+    {
         source: 'front',
         label: 'Front',
         category: 'Support',
@@ -158,6 +167,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor incoming support tickets',
         dwSourceType: 'Gorgias',
         requiredTables: ['tickets'],
+        sourceType: 'ticket',
+    },
+    {
+        source: 'helpscout',
+        label: 'Help Scout',
+        category: 'Support',
+        watches: 'Monitor open support conversations',
+        dwSourceType: 'HelpScout',
+        requiredTables: ['conversations'],
         sourceType: 'ticket',
     },
     {
@@ -194,6 +212,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor incoming support conversations',
         dwSourceType: 'Intercom',
         requiredTables: ['conversations'],
+        sourceType: 'ticket',
+    },
+    {
+        source: 'vitally',
+        label: 'Vitally',
+        category: 'Support',
+        watches: 'Monitor incoming customer conversations',
+        dwSourceType: 'Vitally',
+        requiredTables: ['Conversations'],
         sourceType: 'ticket',
     },
     {

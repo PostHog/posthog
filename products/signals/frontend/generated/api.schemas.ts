@@ -3381,6 +3381,25 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
+export interface HelpscoutConversationSignalExtraApi {
+    number: string | null
+    status: string | null
+    state: string | null
+    type: string | null
+    created_at: string | null
+}
+
+export interface DecagonConversationSignalExtraApi {
+    csat_rating: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface VitallyConversationSignalExtraApi {
+    external_url: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -3528,6 +3547,9 @@ export type SignalExtraApi =
     | Dynamics365TicketSignalExtraApi
     | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
+    | HelpscoutConversationSignalExtraApi
+    | DecagonConversationSignalExtraApi
+    | VitallyConversationSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
