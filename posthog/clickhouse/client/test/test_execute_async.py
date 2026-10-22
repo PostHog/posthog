@@ -81,7 +81,7 @@ class TestQueryStatusManager(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (ClickHouseAtCapacity, 3, "clickhouse_at_capacity"),
+            (ClickHouseAtCapacity, 5, "clickhouse_at_capacity"),
             (ConcurrencyLimitExceeded, 11, "clickhouse_at_capacity"),
             (QueryRanConcurrently, 11, "query_ran_concurrently"),
             (RuntimeError, 1, None),
@@ -111,7 +111,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertEqual(result.error_code, error_code)
         self.assertIsNotNone(result.end_time)
 
-    @parameterized.expand([0, 1, 2])
+    @parameterized.expand([0, 1, 2, 3, 4])
     def test_process_query_task_recovers_from_capacity_errors(self, failures):
         from posthog.tasks.tasks import process_query_task
 

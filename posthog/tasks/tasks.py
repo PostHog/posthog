@@ -496,7 +496,7 @@ def process_query_task(
         )
     except ClickHouseAtCapacity as exc:
         # A remote capacity failure can arrive after other shards have done expensive work.
-        if self.request.retries >= 2:
+        if self.request.retries >= 4:
             raise
         raise self.retry(exc=exc, countdown=exc.wait)
 
