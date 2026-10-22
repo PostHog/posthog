@@ -254,10 +254,11 @@ if [[ "$prepare" -eq 0 ]]; then
         protected_environment_names+=(CODEX_SANDBOX_NETWORK_DISABLED)
     fi
     runtime_env+=("PYTEST_ADDOPTS=${PYTEST_ADDOPTS:--p no:xdist}")
-    # Read eval credentials at invocation time, never from the toolchain cache.
+    # Read runtime credentials at invocation time, never from the toolchain cache.
     for name in \
         ANTHROPIC_API_KEY \
         BRAINTRUST_API_KEY \
+        GH_TOKEN \
         LLM_GATEWAY_ANTHROPIC_API_KEY \
         LLM_GATEWAY_OPENAI_API_KEY \
         MODAL_TOKEN_ID \
