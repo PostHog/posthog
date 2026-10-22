@@ -37,6 +37,7 @@ UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
+EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -124,6 +125,31 @@ def promotion_event(
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
     )
+
+
+def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
+    """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
+    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps."""
+    block = metadata.get("vs_baseline") or {}
+    context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
+    return [
+        TrainingEvent(
+            event=EXPERIMENT_COMPARED_EVENT,
+            properties={
+                **context,
+                "baseline_model_name": block.get("baseline"),
+                "seeds": len(block.get("seeds", [])),
+                "head": head,
+                **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{
+                    f"{read}_{key}": (grade.get(read) or {}).get(key)
+                    for read in ("within_team", "pooled")
+                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+                },
+            },
+        )
+        for head, grade in (block.get("heads") or {}).items()
+    ]
 
 
 def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
