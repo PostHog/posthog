@@ -282,7 +282,9 @@ export function TaskComposer({
                                                 attachmentsKey={attachmentsKey}
                                                 dropTargetRef={groupRef}
                                                 onAddRepository={
-                                                    repositoryEnabled ? () => setRepositoryRequested(true) : undefined
+                                                    repositoryEnabled && !showRepositoryChip
+                                                        ? () => setRepositoryRequested(true)
+                                                        : undefined
                                                 }
                                             />
                                             <QuillAttachedContextPicker />
