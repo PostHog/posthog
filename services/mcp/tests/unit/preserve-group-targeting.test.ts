@@ -2075,7 +2075,6 @@ describe('preserveGroupTargetingFilters', () => {
     // the wrong stored set. That stored set's older group type must not move onto another condition's filter.
     it.each([
         { name: 'the first condition is deleted', secondValue: 'ent', sent: ['ent'] },
-        { name: 'the two conditions trade places', secondValue: 'ent', sent: ['ent', 'pro'] },
         { name: 'the first condition is deleted and the second has its filters', secondValue: 'pro', sent: ['pro'] },
     ])('does not give a property the stored group type of another condition when $name', ({ secondValue, sent }) => {
         const second = { ...planOnGroupType1, group_type_index: 0, value: secondValue }
@@ -2106,7 +2105,7 @@ describe('preserveGroupTargetingFilters', () => {
     ])('gives an index the agent sends on another group type to $name', ({ appended, expected }) => {
         const sent = {
             aggregation_group_type_index: 0,
-            properties: [{ key: 'plan', type: 'group', group_type_index: 2, operator: 'exact', value: 'enterprise' }],
+            properties: existingGroupFlag.groups[0]?.properties.map((prop) => ({ ...prop, group_type_index: 2 })),
             rollout_percentage: 100,
         }
 

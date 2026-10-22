@@ -395,9 +395,10 @@ function groupTypeIndexFor(
     source: PropertySource | undefined,
     setGroupTypeIndex: number
 ): number | undefined {
-    const keepsOwnIndex = (index: number | null | undefined): index is number =>
-        !!source?.keepsGroupTypes && isPresentGroupIndex(index) && index !== source.aggregation
-    const mergedIndex = (index: number | null | undefined): number => (keepsOwnIndex(index) ? index : setGroupTypeIndex)
+    const mergedIndex = (index: number | null | undefined): number =>
+        source?.keepsGroupTypes && isPresentGroupIndex(index) && index !== source.aggregation
+            ? index
+            : setGroupTypeIndex
     if (isPresentGroupIndex(prop.group_type_index)) {
         return mergedIndex(prop.group_type_index)
     }
@@ -540,10 +541,11 @@ function typeSetProperties(
     matchedSets: ExistingSet[],
     keepsSourceGroupTypes: boolean
 ): FlagConditionGroup {
-    const sourceOf = (set: ExistingSet): PropertySource => ({
-        aggregation: set.aggregation,
+    // A matched set aggregates on persons, like the source, so one PropertySource serves every reading.
+    const source: PropertySource | undefined = sourceSet && {
+        aggregation: sourceSet.aggregation,
         keepsGroupTypes: keepsSourceGroupTypes,
-    })
+    }
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
         out.properties = out.properties.map((prop) => {
@@ -563,26 +565,20 @@ function typeSetProperties(
                     sourceHoldsKey ? candidates : fallbackCandidatesByKey?.get(key),
                     crossSetPropsByKey.get(key),
                     setGroupTypeIndex,
-                    sourceHoldsKey && sourceSet ? sourceOf(sourceSet) : undefined
+                    sourceHoldsKey ? source : undefined
                 )
             }
             // The set either moved from one of the matched sets or copies its filters in place. Each
             // reading types the property from a different person set. Only a type that every reading
             // gives is safe.
-            const fromSource = mergeProperty(
-                prop,
-                candidates,
-                undefined,
-                setGroupTypeIndex,
-                sourceSet && sourceOf(sourceSet)
-            )
+            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, source)
             const allAgree = matchedSets.every((matched) => {
                 const fromMatched = mergeProperty(
                     prop,
                     matched.propsByKey.get(key),
                     undefined,
                     setGroupTypeIndex,
-                    sourceOf(matched)
+                    source
                 )
                 return hasSameTypeAndGroupIndex(fromMatched, fromSource)
             })
@@ -704,20 +700,14 @@ function matchSetsByPositionAndContent(
             )
             .map((sameTyping) => sameTyping.set)
     })
-    const setsPerFilterSignature = new Map<string, number>()
-    for (const existingSet of existingSets) {
-        if (existingSet) {
-            const signature = filterSignature(existingSet.propsByKey)
-            setsPerFilterSignature.set(signature, (setsPerFilterSignature.get(signature) ?? 0) + 1)
-        }
-    }
+    const signatures = existingSets.map((existingSet) => existingSet && filterSignature(existingSet.propsByKey))
     const keepsSourceGroupTypes = sourceSets.map((sourceSet, index) => {
         const group = incomingGroups[index]
         return (
             !!sourceSet &&
+            signatures.filter((signature) => signature === signatures[index]).length === 1 &&
             isRecord(group) &&
-            keepsFilters(group, sourceSet) &&
-            setsPerFilterSignature.get(filterSignature(sourceSet.propsByKey)) === 1
+            keepsFilters(group, sourceSet)
         )
     })
     return { sourceSets, matchedPersonSets, keepsSourceGroupTypes }
@@ -785,11 +775,12 @@ export function preserveGroupTargetingFilters(
         const storedAggregations = new Set(aggregations.filter((aggregation) => aggregation !== undefined))
         const mixedAggregation = storedAggregations.size > 1
         const aggregatesOnPersonsOnly = storedAggregations.size === 1 && storedAggregations.has(null)
-        const sourcesById = carriesConditionIds
-            ? sourcesByConditionId(conditionIds, existingSets, existingFlagGroupIndex)
-            : undefined
-        const { sourceSets, matchedPersonSets, keepsSourceGroupTypes }: SetSources = sourcesById
-            ? { sourceSets: sourcesById, matchedPersonSets: [], keepsSourceGroupTypes: sourcesById.map(() => true) }
+        const { sourceSets, matchedPersonSets, keepsSourceGroupTypes }: SetSources = carriesConditionIds
+            ? {
+                  sourceSets: sourcesByConditionId(conditionIds, existingSets, existingFlagGroupIndex),
+                  matchedPersonSets: [],
+                  keepsSourceGroupTypes: conditionIds.map(() => true),
+              }
             : matchSetsByPositionAndContent(result.groups, existingSets, mixedAggregation)
 
         const storedSetPropsFor = (index: number): (Map<string, FlagProperty[]> | undefined)[] =>
