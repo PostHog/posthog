@@ -105,11 +105,11 @@ CREATE OR REPLACE TABLE {database}.logs_distributed AS {database}.{table_name} E
 
 
 def WRITABLE_LOGS34_TABLE_SQL():
-    # The write path for the Kafka MV, hosted on the ingestion-events nodes: a Distributed table over
+    # The write path for the Kafka MV, hosted on the ingestion nodes: a Distributed table over
     # the logs cluster's `logs34`. The columns are spelled out (rather than `AS logs34`) because
-    # `logs34` is not local on the events nodes — only this Distributed front is. Keep the column list
+    # `logs34` is not local on the ingestion nodes — only this Distributed front is. Keep the column list
     # byte-identical to `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here).
-    # `CLICKHOUSE_LOGS_WRITE_CLUSTER`, not `CLICKHOUSE_LOGS_CLUSTER`: the events node reaches the logs
+    # `CLICKHOUSE_LOGS_WRITE_CLUSTER`, not `CLICKHOUSE_LOGS_CLUSTER`: the ingestion node reaches the logs
     # cluster under its own name, and the latter's default resolves to the data node from there.
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {kafka_num_consumers(4)},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
     kafka_thread_per_consumer = 1,
@@ -327,8 +327,8 @@ FROM {db}.{KAFKA_TABLE_NAME}"""
 def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
-    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0305 passes
-    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion-events nodes —
+    # logs nodes, where `logs34` is local) keeps working when replayed. Migrations 0305 and 0359 pass
+    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion nodes —
     # because `logs34` itself is not local there.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_table}

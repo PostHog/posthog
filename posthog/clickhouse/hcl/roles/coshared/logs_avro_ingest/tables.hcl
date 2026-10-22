@@ -1,5 +1,5 @@
-# The Kafka ingest for logs. dev runs this on its ingestion-apm nodes, the prod
-# clusters on their ingestion-events nodes.
+# The Kafka ingest for logs. The cloud envs run it on their ingestion-apm nodes,
+# the multinode stack on its ingestion-events node.
 database "posthog" {
   table "kafka_logs_avro" {
     column "uuid" {
@@ -58,7 +58,7 @@ database "posthog" {
       topic_list           = "clickhouse_logs"
       group_name           = "clickhouse-logs-avro-new"
       format               = "Avro"
-      num_consumers        = 8
+      num_consumers        = 4
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
