@@ -8,7 +8,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -26,6 +26,8 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     PersonsOnEventsMode,
+    StickinessActorsQuery,
+    StickinessQuery,
 )
 
 from posthog.hogql.context import HogQLContext
@@ -37,7 +39,7 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner, get_query_runner_or_none
 from posthog.models import Organization, Team, User
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
@@ -177,6 +179,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
                 side_effect={
                     "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
                     "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+                    "CLICKHOUSE_NATIVE_EVENTS_ASYNC": True,
                 }.get,
             )
         )
@@ -187,15 +190,28 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             )
         )
 
+    def _enqueue(self, runner: QueryRunner) -> dict:
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner.enqueue_async_calculation(
+                cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None), user=self.user
+            )
+        self.runner_state = enqueue.call_args.kwargs.get("runner_state")
+        return enqueue.call_args.kwargs["query_json"]
+
     @parameterized.expand(
         [(kind, True, None) for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery")]
         + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [(kind, None, True) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [(kind, None, None) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [("EventsQuery", choice, None) for choice in (None, False, True)]
+        + [("InsightActorsQuery", None, None, True)]
     )
-    def test_actor_queries_inherit_the_source_route_unless_explicitly_overridden(
-        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None
+    def test_actor_queries_keep_the_selected_route_when_reconstructed_by_the_worker(
+        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None, constructor_override: bool = False
     ) -> None:
         modifiers = self.modifiers.model_copy(update={"useNewEventsCluster": source_choice})
         source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
@@ -222,15 +238,44 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             query.modifiers = self.modifiers.model_copy(
                 update={"useNewEventsSchema": wrapper_choice, "useNewEventsCluster": wrapper_choice}
             )
+        if constructor_override:
+            modifiers.forceClickhouseDataSkippingIndexes = ["example_index"]
         original = query.model_dump()
-        runner = get_query_runner(query, self.team, user=self.user)
-        native = source_choice if wrapper_choice is None else wrapper_choice
-        self.assertEqual(runner.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
-        self.assertIs(bool(runner.modifiers.useNewEventsSchema), bool(native))
-        self.assertIs(runner.modifiers.useNewEventsCluster, native)
+        request = get_query_runner(
+            query,
+            self.team,
+            user=self.user,
+            modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": False})
+            if constructor_override
+            else None,
+        )
+        queued = self._enqueue(request)
+        old_worker = get_query_runner(queued, self.team, user=self.user)
+        worker = get_query_runner(
+            self.runner_state["query"] if self.runner_state else queued,
+            self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers.model_validate(self.runner_state["modifiers"]) if self.runner_state else None,
+        )
+        if constructor_override:
+            self.assertIsNone(request.modifiers.forceClickhouseDataSkippingIndexes)
+            self.assertEqual(old_worker.modifiers, request.modifiers)
+            self.assertEqual(worker.modifiers, request.modifiers)
+        native = False if constructor_override else source_choice if wrapper_choice is None else wrapper_choice
+        self.assertEqual(worker.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
+        self.assertIs(worker.modifiers.useNewEventsSchema, bool(native))
+        self.assertIs(worker.modifiers.useNewEventsCluster, native)
         if kind == "EventsQuery":
-            self.assertIs(runner.modifiers.convertToProjectTimezone, False)
+            self.assertIs(worker.modifiers.convertToProjectTimezone, False)
         self.assertEqual(query.model_dump(), original)
+        with (
+            patch.object(request, "_get_property_access_restrictions", return_value=None),
+            patch.object(worker, "_get_property_access_restrictions", return_value=None),
+            patch.object(request, "_products_modifiers_for_cache", return_value={}),
+            patch.object(worker, "_products_modifiers_for_cache", return_value={}),
+            patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
+        ):
+            self.assertEqual(request.get_cache_key(), worker.get_cache_key())
 
 
 class TestActorExecutionUserContext(APIBaseTest):
@@ -290,3 +335,32 @@ class TestActorExecutionUserContext(APIBaseTest):
         runner.set_user(other_user)
         assert source_runner() is child
         assert execution_context().user is other_user
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+class TestNativeActorSourceExecution(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
+
+    @parameterized.expand(
+        [
+            (
+                FunnelsActorsQuery(
+                    source=FunnelsQuery(series=[EventsNode(event="a"), EventsNode(event="b")]), funnelStep=1
+                ),
+            ),
+            (StickinessActorsQuery(source=StickinessQuery(series=[EventsNode(event="a")]), day=1),),
+        ]
+    )
+    def test_specialized_actor_sources_execute_on_the_native_cluster(
+        self, actors: FunnelsActorsQuery | StickinessActorsQuery
+    ) -> None:
+        native = HogQLQueryModifiers(useNewEventsSchema=True, useNewEventsCluster=True)
+        source = actors.source.model_copy(update={"modifiers": native})
+        query = ActorsQuery(source=actors.model_copy(update={"source": source}))
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            get_query_runner(query, self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+        self.assertIn("events_json", execute.call_args.args[0])
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)

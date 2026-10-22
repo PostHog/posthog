@@ -82,6 +82,11 @@ CONSTANCE_CONFIG = {
         "Project IDs eligible for explicit native events cluster query opt-ins. This does not change query defaults.",
         list[int],
     ),
+    "CLICKHOUSE_NATIVE_EVENTS_ASYNC": (
+        False,
+        "Allow queued (async) native events cluster queries. Turn this on only after every query worker runs a version that keeps the native route, because older workers read the legacy cluster.",
+        bool,
+    ),
     "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS": (
         [],
         "Project IDs whose precompute builds read the native-JSON events table (events_json). Builds that read $feature_flag_called keep reading the legacy events table. Results built from each table are stored separately.",
@@ -464,6 +469,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "CLICKHOUSE_NATIVE_EVENTS_HOST",
     "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
+    "CLICKHOUSE_NATIVE_EVENTS_ASYNC",
     "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",

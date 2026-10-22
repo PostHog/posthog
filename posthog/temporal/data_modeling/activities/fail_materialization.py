@@ -103,7 +103,10 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
 
 @activity.defn
 async def fail_materialization_activity(inputs: FailMaterializationInputs) -> str | None:
-    """Mark materialization as failed and update node properties."""
+    """Mark materialization as failed and update node properties.
+
+    Returns the job's run mode, or None when the run failed before choosing one.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     _, job = await _fail_node_and_data_modeling_job(inputs)
@@ -119,13 +122,13 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
     await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
     # error-specific recovery: revert on unknown table, else suspend the node after repeated failures
     if not inputs.update_node:
-        return None
+        return job.run_mode
     error = inputs.error
     saved_query = None
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
-            return None
+            return job.run_mode
 
         if "Unknown table" in error:
             await logger.ainfo(
@@ -166,4 +169,4 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
             await logger.aexception(
                 f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
             )
-    return None
+    return job.run_mode

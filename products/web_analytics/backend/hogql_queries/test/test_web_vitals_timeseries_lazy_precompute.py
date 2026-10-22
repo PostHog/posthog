@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -77,6 +77,26 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
+    @parameterized.expand([(False,), (None,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_async_native_source_preserves_constructor_override(self, override: bool | None) -> None:
+        query = _vitals_query(
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
+            source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
+        )
+        original_payload = query.model_dump()
+        runner = WebVitalsQueryRunner(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=override)
+        )
+        original = runner.query
+        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
+            runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
+        self.assertIs(runner.query, original)
+        worker = WebVitalsQueryRunner(query=enqueue.call_args.kwargs["query_json"], team=self.team)
+        self.assertIs(worker.modifiers.useNewEventsCluster, override)
+        self.assertIs(worker.modifiers.useNewEventsSchema, False)
+        self.assertEqual(query.model_dump(), original_payload)
+
     @parameterized.expand([(path, outer) for path in ("runner", "source_fallback") for outer in (False, True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_wrapper_cluster_choice_overrides_the_source(self, path: str, outer: bool) -> None:

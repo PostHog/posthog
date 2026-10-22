@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -15,16 +16,20 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
     InsightActorsQueryOptions,
 )
 
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_BASELINE_DISPLAY,
     BREAKDOWN_BASELINE_STRING_LABEL,
     BREAKDOWN_NULL_DISPLAY,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -113,6 +118,27 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
             sorted(items[2:]),
             sorted([("Firefox", "Firefox"), (BREAKDOWN_NULL_DISPLAY, "")]),
         )
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_breakdown_options_execute_their_funnel_on_the_selected_cluster(self, native: bool) -> None:
+        source = self._funnels_query(breakdown_filter=BreakdownFilter(breakdown="$browser", breakdown_type="event"))
+        source.modifiers = HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native)
+        query = InsightActorsQueryOptions(source=FunnelsActorsQuery(source=source, funnelStep=1))
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            response = InsightActorsQueryOptionsRunner(query=query, team=self.team, user=self.user).run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+            )
+
+        assert response is not None
+        assert execute.called
+        for call in execute.call_args_list:
+            assert call.kwargs["workload"] == (Workload.NEW_EVENTS_CLUSTER if native else Workload.DEFAULT)
+            assert ("events_json" in call.args[0]) is native
 
     def test_steps_multi_property_breakdown_options_are_json_encoded(self):
         journeys_for(

@@ -25,6 +25,7 @@ from typing import (
     get_origin,
 )
 
+from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -55,6 +56,7 @@ from posthog.schema import (
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
+    ExperimentQuery,
     FilterLogicalOperator,
     FunnelsActorsQuery,
     FunnelsQuery,
@@ -94,6 +96,7 @@ from posthog.schema import (
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyValuesQuery,
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
@@ -117,6 +120,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     WebVitalsQuery,
 )
@@ -137,7 +141,6 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
-from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,
@@ -192,8 +195,11 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
+    events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
+    get_new_events_cluster_host_or_none,
+    native_events_async_enabled,
     new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
@@ -385,6 +391,14 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
+
+NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+    {
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    }
+)
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -1882,6 +1896,30 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
     }
 
 
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
+
+
 def _pin_events_route(run: _RunMethod) -> _RunMethod:
     @wraps(run)
     def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
@@ -1951,6 +1989,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(query, self.query_type)
 
         _modifiers = modifiers or extract_modifiers(query)
+        self._explicit_events_route = events_route_is_explicit(team.modifiers, _modifiers)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
@@ -1987,6 +2026,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
         for child in self._child_runners():
             child.set_user(self.user)
+
+    def _should_pin_events_route(self) -> bool:
+        """The worker must rebuild the request's resolved events route and cache payload.
+
+        A legacy query with no route choice stays unpinned while no native host is set, so its payload
+        stays identical to what workers without native routing expect.
+        """
+        if not self._reads_events_route():
+            return False
+        return bool(
+            self.modifiers.useNewEventsSchema or self._explicit_events_route or get_new_events_cluster_host_or_none()
+        )
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2108,13 +2159,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
-    def _query_json_with_events_schema(self) -> dict[str, Any]:
-        query_json = self.query.model_dump()
-        # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
-            return with_pinned_events_route(query_json, self.modifiers)
-        return query_json
-
     def enqueue_async_calculation(
         self,
         *,
@@ -2123,6 +2167,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
+        if self.modifiers.useNewEventsCluster and not native_events_async_enabled():
+            raise ExposedHogQLError(
+                "Native events cluster queries require synchronous execution until async support is enabled. "
+                "Use refresh=force_blocking."
+            )
+
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
@@ -2143,6 +2193,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+        query_json = self.query.model_dump()
+        modifier_sources = [query_json]
+        while isinstance(source := modifier_sources[-1].get("source"), dict):
+            modifier_sources.append(source)
+        if self._modifiers_override_provided:
+            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
+            for source in modifier_sources:
+                if "modifiers" in source:
+                    source["modifiers"] = self.modifiers.model_dump()
+        elif self._should_pin_events_route():
+            query_json = with_pinned_events_route(query_json, self.modifiers)
 
         return enqueue_process_query_task(
             team=self.team,
@@ -2150,7 +2211,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self._query_json_with_events_schema(),
+            query_json=query_json,
+            runner_state={"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
+            if self._modifiers_override_provided
+            else None,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
@@ -2429,10 +2493,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
+            if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+                raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
