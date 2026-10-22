@@ -224,11 +224,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
                         ),
-                    tint: zod
-                        .boolean()
-                        .optional()
-                        .describe('Whether to show a soft background behind the group. Defaults to true.'),
-                    rail: zod
+                    color: zod
                         .union([
                             zod
                                 .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
@@ -239,7 +235,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional()
                         .describe(
-                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                            'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
                         ),
                 })
             )
@@ -361,11 +357,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
                         ),
-                    tint: zod
-                        .boolean()
-                        .optional()
-                        .describe('Whether to show a soft background behind the group. Defaults to true.'),
-                    rail: zod
+                    color: zod
                         .union([
                             zod
                                 .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
@@ -376,7 +368,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                         ])
                         .optional()
                         .describe(
-                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                            'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
                         ),
                 })
             )
@@ -598,11 +590,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
                         ),
-                    tint: zod
-                        .boolean()
-                        .optional()
-                        .describe('Whether to show a soft background behind the group. Defaults to true.'),
-                    rail: zod
+                    color: zod
                         .union([
                             zod
                                 .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
@@ -613,7 +601,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         ])
                         .optional()
                         .describe(
-                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                            'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
                         ),
                 })
             )
@@ -1973,11 +1961,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
                         ),
-                    tint: zod
-                        .boolean()
-                        .optional()
-                        .describe('Whether to show a soft background behind the group. Defaults to true.'),
-                    rail: zod
+                    color: zod
                         .union([
                             zod
                                 .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
@@ -1988,7 +1972,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional()
                         .describe(
-                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                            'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
                         ),
                 })
             )
@@ -2117,11 +2101,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
                         ),
-                    tint: zod
-                        .boolean()
-                        .optional()
-                        .describe('Whether to show a soft background behind the group. Defaults to true.'),
-                    rail: zod
+                    color: zod
                         .union([
                             zod
                                 .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
@@ -2132,7 +2112,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional()
                         .describe(
-                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                            'Color of a dot before the group heading. Null or omitted shows no dot.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
                         ),
                 })
             )

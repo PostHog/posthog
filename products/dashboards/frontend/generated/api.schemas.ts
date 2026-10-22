@@ -299,10 +299,10 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
  * * `orange` - Orange
  * * `red` - Red
  */
-export type DashboardTileGroupRailEnumApi =
-    (typeof DashboardTileGroupRailEnumApi)[keyof typeof DashboardTileGroupRailEnumApi]
+export type DashboardTileGroupColorEnumApi =
+    (typeof DashboardTileGroupColorEnumApi)[keyof typeof DashboardTileGroupColorEnumApi]
 
-export const DashboardTileGroupRailEnumApi = {
+export const DashboardTileGroupColorEnumApi = {
     Blue: 'blue',
     Purple: 'purple',
     Green: 'green',
@@ -319,9 +319,7 @@ export interface DashboardTileGroupApi {
     title?: string
     /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
     collapsed?: boolean
-    /** Whether to show a soft background behind the group. Defaults to true. */
-    tint?: boolean
-    /** Color of a line on the left edge of the group. Null or omitted shows no line.
+    /** Color of a dot before the group heading. Null or omitted shows no dot.
      *
      * * `blue` - Blue
      * * `purple` - Purple
@@ -329,7 +327,7 @@ export interface DashboardTileGroupApi {
      * * `yellow` - Yellow
      * * `orange` - Orange
      * * `red` - Red */
-    rail?: DashboardTileGroupRailEnumApi | null
+    color?: DashboardTileGroupColorEnumApi | null
 }
 
 /**

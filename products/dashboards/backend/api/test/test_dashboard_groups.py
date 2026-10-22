@@ -20,13 +20,13 @@ class TestStoredGroups(SimpleTestCase):
                 "group_titles_win_because_only_an_older_server_writes_them",
                 {
                     "group_titles": {"plans": "New title"},
-                    "groups": {"plans": {"title": "Old title", "rail": "green"}, "regions": {}},
+                    "groups": {"plans": {"title": "Old title", "color": "green"}, "regions": {}},
                 },
-                {"plans": {"title": "New title", "rail": "green"}, "regions": {}},
+                {"plans": {"title": "New title", "color": "green"}, "regions": {}},
             ),
             (
                 "invalid_settings_keep_the_group_title",
-                {"group_titles": {"plans": "Plans"}, "groups": {"plans": {"rail": "pink"}}},
+                {"group_titles": {"plans": "Plans"}, "groups": {"plans": {"color": "pink"}}},
                 {"plans": {"title": "Plans"}},
             ),
             (
@@ -38,7 +38,7 @@ class TestStoredGroups(SimpleTestCase):
                 "invalid_entries_are_dropped",
                 {
                     "groups": {
-                        "plans": {"rail": "pink"},
+                        "plans": {"color": "pink"},
                         "regions": "Regions",
                         "nulls\u0000": {},
                         "kept": {"collapsed": True, "title": ""},
@@ -48,7 +48,7 @@ class TestStoredGroups(SimpleTestCase):
             ),
             (
                 "settings_equal_to_defaults_are_dropped",
-                {"groups": {"plans": {"title": "Plans", "collapsed": False, "tint": True, "rail": None}}},
+                {"groups": {"plans": {"title": "Plans", "collapsed": False, "color": None}}},
                 {"plans": {"title": "Plans"}},
             ),
         ]

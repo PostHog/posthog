@@ -34,7 +34,7 @@ class LayoutCompaction(models.TextChoices):
 DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
-class DashboardTileGroupRail(models.TextChoices):
+class DashboardTileGroupColor(models.TextChoices):
     BLUE = "blue", "Blue"
     PURPLE = "purple", "Purple"
     GREEN = "green", "Green"

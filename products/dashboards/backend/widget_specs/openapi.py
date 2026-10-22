@@ -16,7 +16,7 @@ from products.dashboards.backend.constants import (
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
-    DashboardTileGroupRail,
+    DashboardTileGroupColor,
 )
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
@@ -43,7 +43,7 @@ BADGE_HELP_TEXT = (
 )
 
 
-DASHBOARD_TILE_GROUP_DEFAULTS = {"collapsed": False, "tint": True, "rail": None}
+DASHBOARD_TILE_GROUP_DEFAULTS = {"collapsed": False, "color": None}
 
 
 # No field has a default, so a write stores only the settings the client sent.
@@ -61,15 +61,11 @@ class DashboardTileGroupSerializer(serializers.Serializer):
             "browser keeps that choice and it wins over this default."
         ),
     )
-    tint = serializers.BooleanField(
-        required=False,
-        help_text="Whether to show a soft background behind the group. Defaults to true.",
-    )
-    rail = serializers.ChoiceField(
-        choices=DashboardTileGroupRail.choices,
+    color = serializers.ChoiceField(
+        choices=DashboardTileGroupColor.choices,
         required=False,
         allow_null=True,
-        help_text="Color of a line on the left edge of the group. Null or omitted shows no line.",
+        help_text="Color of a dot before the group heading. Null or omitted shows no dot.",
     )
 
 

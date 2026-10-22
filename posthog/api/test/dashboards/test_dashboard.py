@@ -737,7 +737,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "grid_spacing": "relaxed",
                 "groups": {
-                    "plans": {"title": "Pricing plans", "collapsed": True, "tint": False, "rail": "purple"},
+                    "plans": {"title": "Pricing plans", "collapsed": True, "color": "purple"},
                     "regions": {},
                 },
             },
@@ -748,8 +748,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "tile_spacing": "relaxed",
                 "group_titles": {"plans": "Pricing plans"},
                 "groups": {
-                    "plans": {"title": "Pricing plans", "collapsed": True, "tint": False, "rail": "purple"},
-                    "regions": {"collapsed": False, "tint": True, "rail": None},
+                    "plans": {"title": "Pricing plans", "collapsed": True, "color": "purple"},
+                    "regions": {"collapsed": False, "color": None},
                 },
             },
         )
@@ -758,7 +758,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         plans_only = {
             "tile_spacing": "relaxed",
             "group_titles": {"plans": "Plans"},
-            "groups": {"plans": {"title": "Plans", "collapsed": False, "tint": True, "rail": None}},
+            "groups": {"plans": {"title": "Plans", "collapsed": False, "color": None}},
         }
         self.assertEqual(updated["customization"], plans_only)
         self.assertEqual(
@@ -783,7 +783,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self, _name: str, titles: dict[str, str] | None, expected_titles: dict[str, str]
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        settings = {"collapsed": True, "tint": False, "rail": "purple"}
+        settings = {"collapsed": True, "color": "purple"}
         Dashboard.objects.filter(id=dashboard_id).update(
             customization={
                 "tile_spacing": "relaxed",
@@ -800,7 +800,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(updated["customization"].get("group_titles", {}), expected_titles)
         self.assertEqual(
             updated["customization"]["groups"],
-            {key: {"collapsed": False, "tint": True, "rail": None, **group} for key, group in stored_groups.items()},
+            {key: {"collapsed": False, "color": None, **group} for key, group in stored_groups.items()},
         )
         self.assertEqual(
             Dashboard.objects.get(id=dashboard_id).customization, {"tile_spacing": "relaxed", "groups": stored_groups}
@@ -882,7 +882,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-        stripped = {"plans": {"title": "Pricing plans", "collapsed": False, "tint": True, "rail": None}}
+        stripped = {"plans": {"title": "Pricing plans", "collapsed": False, "color": None}}
         self.assertEqual(updated["customization"], {"groups": stripped, "group_titles": {"plans": "Pricing plans"}})
         self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
         self.assertEqual(dashboard["customization"]["groups"], stripped)
@@ -895,7 +895,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("null_character_key", {"plans\u0000": {}}),
             ("too_many_groups", {f"group-{index}": {} for index in range(101)}),
             ("title_too_long", {"plans": {"title": "t" * 201}}),
-            ("unknown_rail", {"plans": {"rail": "pink"}}),
+            ("unknown_color", {"plans": {"color": "pink"}}),
             ("settings_not_an_object", {"plans": "Pricing plans"}),
         ]
     )

@@ -27939,10 +27939,10 @@ export namespace Schemas {
      * * `orange` - Orange
      * * `red` - Red
      */
-    export type DashboardTileGroupRailEnum = typeof DashboardTileGroupRailEnum[keyof typeof DashboardTileGroupRailEnum];
+    export type DashboardTileGroupColorEnum = typeof DashboardTileGroupColorEnum[keyof typeof DashboardTileGroupColorEnum];
 
 
-    export const DashboardTileGroupRailEnum = {
+    export const DashboardTileGroupColorEnum = {
       Blue: 'blue',
       Purple: 'purple',
       Green: 'green',
@@ -27959,9 +27959,7 @@ export namespace Schemas {
       title?: string;
       /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
       collapsed?: boolean;
-      /** Whether to show a soft background behind the group. Defaults to true. */
-      tint?: boolean;
-      /** Color of a line on the left edge of the group. Null or omitted shows no line.
+      /** Color of a dot before the group heading. Null or omitted shows no dot.
        *
        * * `blue` - Blue
        * * `purple` - Purple
@@ -27969,7 +27967,7 @@ export namespace Schemas {
        * * `yellow` - Yellow
        * * `orange` - Orange
        * * `red` - Red */
-      rail?: DashboardTileGroupRailEnum | null;
+      color?: DashboardTileGroupColorEnum | null;
     }
 
     /**
