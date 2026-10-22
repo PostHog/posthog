@@ -873,7 +873,7 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestRunMetricQueryInParallel(SimpleTestCase):
-    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time(self) -> None:
+    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time_and_close_their_connections(self) -> None:
         # Each query waits until all three run, so a serial run breaks the barrier.
         barrier = threading.Barrier(3, timeout=5)
         anchor = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
@@ -891,6 +891,7 @@ class TestRunMetricQueryInParallel(SimpleTestCase):
             override_settings(IN_UNIT_TESTING=False),
             patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
             patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.connection") as connection,
         ):
             series = run_metric_query(
                 team=Team(id=1),
@@ -908,6 +909,8 @@ class TestRunMetricQueryInParallel(SimpleTestCase):
             ("a", "ms", [1.0]),
             ("b", "ms", [1.0]),
         ]
+        # Each worker closes the Postgres connection that it opened.
+        assert connection.close.call_count == 3
 
 
 class TestOutputUnit(SimpleTestCase):

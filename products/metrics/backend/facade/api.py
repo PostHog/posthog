@@ -14,6 +14,7 @@ from functools import partial
 from typing import Any
 
 from django.conf import settings
+from django.db import connection
 
 import structlog
 
@@ -332,6 +333,14 @@ def _evaluate_formula(
     return result
 
 
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        # The query reads Postgres in the worker thread, and request cleanup only closes the request thread's connection.
+        connection.close()
+
+
 def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
@@ -390,7 +399,9 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         for item in work:
             item()
     else:
-        run_in_parallel_threads(work, thread_name_prefix="metrics_clauses")
+        run_in_parallel_threads(
+            [partial(_closing_connection, item) for item in work], thread_name_prefix="metrics_clauses"
+        )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
