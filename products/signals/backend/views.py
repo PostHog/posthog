@@ -205,6 +205,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
@@ -781,8 +782,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one. "
             "Use 'monitoring' when implementation is complete and outcome verification is pending. "
-            "New entry requires the organization rollout and the implementation-completion service. "
-            "Entry is unavailable until that service is integrated. Manual completion records caller "
+            "Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. "
+            "Without applicable checks the report resolves directly. Manual completion records caller "
             "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
         ),
     )
@@ -3740,12 +3741,20 @@ class SignalReportViewSet(
                     )
                 effective_target = report.restore_target_status()
 
-            # Entry must atomically snapshot the implementation attempt before checks are armed.
             if target_status == SignalReport.Status.MONITORING and report.status != SignalReport.Status.MONITORING:
-                return (
-                    SignalReportBulkStateOutcome.SKIPPED,
-                    "Implementation completion is unavailable. Resolve the report manually or try again later.",
-                )
+                try:
+                    complete_implementation(
+                        team_id=self.team.id,
+                        report_id=report.id,
+                        monitoring_started_at=timezone.now(),
+                        attribution=self._request_attribution(),
+                        actor_user=self.request.user if isinstance(self.request.user, User) else None,
+                        close_pr_on_resolve=True,
+                    )
+                except (InvalidStatusTransition, ValueError):
+                    return SignalReportBulkStateOutcome.SKIPPED, None
+                report.refresh_from_db()
+                return SignalReportBulkStateOutcome.TRANSITIONED, None
 
             effective_snooze_for = snooze_for if target == "potential" else None
 

@@ -162,12 +162,37 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             team_id=self.team.id, report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @parameterized.expand([("cancelled",), ("expired",)])
-    def test_monitoring_entry_rechecks_eligibility_after_a_lock_wait(self, outcome: str) -> None:
+    @parameterized.expand(
+        [(outcome, entry) for outcome in ("cancelled", "expired") for entry in ("service", "single", "bulk")]
+    )
+    def test_monitoring_entry_rechecks_eligibility_after_a_lock_wait(self, outcome: str, entry: str) -> None:
         now = timezone.now()
         SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(status=SignalReport.Status.READY)
         checks = SignalReportCheck.objects.for_team(self.team.id).filter(id=self.check.id)
         checks.update(expires_at=now + timedelta(days=1))
+
+        def enter_monitoring() -> object:
+            if entry == "service":
+                return complete_implementation(
+                    team_id=self.team.id, report_id=self.report.id, monitoring_started_at=now
+                )
+            client = APIClient()
+            client.force_authenticate(self.user)
+            url = (
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+                if entry == "bulk"
+                else f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+            )
+            response = client.post(
+                url,
+                {"state": "monitoring", **({"ids": [str(self.report.id)]} if entry == "bulk" else {})},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+            result = response.json()["results"][0] if entry == "bulk" else response.json()
+            assert result["status"] == SignalReport.Status.RESOLVED
+            return None
+
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
@@ -175,12 +200,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
         ):
             with transaction.atomic():
                 checks.select_for_update().get()
-                future = self._start_write(
-                    executor,
-                    lambda: complete_implementation(
-                        team_id=self.team.id, report_id=self.report.id, monitoring_started_at=now
-                    ),
-                )
+                future = self._start_write(executor, enter_monitoring)
                 self._assert_write_waits(future)
                 if outcome == "cancelled":
                     assert cancel_check(

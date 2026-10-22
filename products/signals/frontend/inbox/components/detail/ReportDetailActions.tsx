@@ -190,7 +190,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       icon: <IconClock />,
                       loading: reportStateSaving,
                       tooltip: 'PostHog watches to make sure the fix works',
-                      disabledReason: 'Implementation completion is not available yet.',
                       onClick: () => changeReportState('monitoring'),
                   },
               ]
