@@ -1454,6 +1454,7 @@ class ExperimentExposureHealthCheckStatus(StrEnum):
 
 
 class ExperimentExposureHealthFindingActionKind(StrEnum):
+    OPEN_FEATURE_FLAG = "open_feature_flag"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
