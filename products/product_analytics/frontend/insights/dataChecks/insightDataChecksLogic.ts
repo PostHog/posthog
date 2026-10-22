@@ -29,7 +29,14 @@ import type {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { isEventsNode, isInsightQueryWithSeries, isInsightVizNode, shouldQueryBeAsync } from '~/queries/utils'
+import {
+    isActionsNode,
+    isEventsNode,
+    isGroupNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    shouldQueryBeAsync,
+} from '~/queries/utils'
 import { SidePanelTab } from '~/types'
 import type { AnyPropertyFilter, InsightLogicProps, TeamPublicType, TeamType } from '~/types'
 
@@ -303,6 +310,15 @@ const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blo
 const DATA_CHECKS_TIMEOUT_MS = 120_000
 const LABEL_OPEN_MS = 2500
 const YIELDED_TO_CHART = 'yielded to chart'
+
+function isEventsOrActionsNode(node: Node): boolean {
+    return isEventsNode(node) || isActionsNode(node)
+}
+
+function readsEvents(series: Node): boolean {
+    return isEventsOrActionsNode(series) || (isGroupNode(series) && series.nodes.every(isEventsOrActionsNode))
+}
+
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -445,7 +461,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
                 removesBotTraffic(currentTeam?.test_account_filters ?? []),
         ],
-        // The server only checks insights whose series are all events, so no request goes out for the rest.
+        // The server only checks insights whose series all read events, so no request goes out for a data warehouse series.
         // Compared by value, so a render that rebuilds the same query is not a new query.
         checkedQuery: [
             (s) => [s.query, s.featureFlags, s.hasOverrides],
@@ -455,7 +471,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     return null
                 }
                 const source = query.source
-                if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(isEventsNode)) {
+                if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(readsEvents)) {
                     return null
                 }
                 return { kind: NodeKind.InsightVizNode, source }

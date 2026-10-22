@@ -87,7 +87,7 @@ def _with_team_metric_types(query: dict[str, Any], catalog: MetricCatalog) -> di
     return resolved
 
 
-def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
+def fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
     """Spread the boxes of each row across the full width again, after some panels of the row were dropped."""
     rows: dict[int, list[tuple[int, GridLayout]]] = defaultdict(list)
     for index, layout in boxes:
@@ -128,7 +128,7 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
             dropped.append(panel)
         else:
             kept.append((panel, query))
-    layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
+    layouts = fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
     tiles: list[NewInsightTile | NewTextTile] = []
     for index, (panel, query) in enumerate(kept):
         layout = layouts.get(index, panel.layout).clamped(

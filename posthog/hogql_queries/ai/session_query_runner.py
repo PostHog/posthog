@@ -30,7 +30,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import merge_heavy_properties
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, with_global_in_subqueries
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -282,7 +282,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             ORDER BY first_timestamp DESC
             """,
         )
-        return cast(ast.SelectQuery, query)
+        return cast(ast.SelectQuery, with_global_in_subqueries(query))
 
     def get_cache_payload(self) -> dict[str, Any]:
         payload = {**super().get_cache_payload(), "schema_version": 2}

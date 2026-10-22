@@ -358,7 +358,6 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     has_active_subscription = serializers.BooleanField(required=False)
-    deactivated = serializers.BooleanField(required=False)
     is_annual_plan_customer = serializers.BooleanField(required=False)
     free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
