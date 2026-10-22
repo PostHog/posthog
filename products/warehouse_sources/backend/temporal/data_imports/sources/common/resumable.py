@@ -70,8 +70,11 @@ class ResumableSourceManager(Generic[ResumableData]):
         pending: dict[str, str] | None = None,
         staged: dict[str, str] | None = None,
         write_fence: _WriteFence | None = None,
+        commit_listeners: list[collections.abc.Callable[[], None]] | None = None,
     ):
         self._inputs = inputs
+        # Shared with the siblings: a commit through any namespace is progress of the same run.
+        self._commit_listeners = commit_listeners if commit_listeners is not None else []
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
@@ -99,6 +102,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             pending=self._pending,
             staged=self._staged,
             write_fence=self._write_fence,
+            commit_listeners=self._commit_listeners,
         )
 
     def revoke_writes(self, timeout_seconds: float) -> bool:
@@ -202,10 +206,15 @@ class ResumableSourceManager(Generic[ResumableData]):
                 break
             self._staged[key] = json_data
 
+    def on_commit(self, listener: collections.abc.Callable[[], None]) -> None:
+        """Call `listener` after each commit that wrote a cursor, from whichever thread commits."""
+        self._commit_listeners.append(listener)
+
     def commit(self) -> None:
         """Persist every confirmed cursor, across namespaces."""
         if not self._staged:
             return
+        wrote = False
         with self._write_fence.writing(), self._get_redis() as redis_client:
             for key, json_data in list(self._staged.items()):
                 self._logger.debug(f"Saving resumable source state. key={key}")
@@ -214,6 +223,10 @@ class ResumableSourceManager(Generic[ResumableData]):
                     functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
                 )
                 del self._staged[key]
+                wrote = True
+        if wrote:
+            for listener in self._commit_listeners:
+                listener()
 
     @contextmanager
     def committing(self) -> collections.abc.Iterator[None]:
