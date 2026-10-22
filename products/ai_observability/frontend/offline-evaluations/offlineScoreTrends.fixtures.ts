@@ -1,6 +1,7 @@
 import type { OfflineHistoryPointApi, ScoreDefinitionApi, ScoreDefinitionVersionApi } from '../generated/api.schemas'
 
 export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
+    tags: [],
     id: '10000000-0000-4000-8000-000000000001',
     name: 'Answer relevance',
     description: 'Relevance to the question, scored from 0 to 5.',
@@ -11,6 +12,7 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     config: { min: 0, max: 5 },
     created_by: null,
     created_at: '2026-01-01T10:00:00Z',
+    updated_by: null,
     updated_at: null,
     team: 1,
 }
@@ -28,11 +30,13 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
 export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {
     return {
         experiment: {
+            tags: [],
             id: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
             name: `Answer evaluation ${index}`,
             run_source: index % 2 === 0 ? 'ci' : 'local',
             status: 'completed',
             started_at: `2026-01-${String(index).padStart(2, '0')}T10:00:00Z`,
+            created_by: null,
             created_at: '2026-01-20T12:00:00Z',
             finished_at: '2026-01-20T12:05:00Z',
             expected_item_count: 100,

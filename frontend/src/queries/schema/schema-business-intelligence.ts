@@ -150,6 +150,10 @@ export interface BIPaneSettings {
 
 export interface BIConfig {
     source: BIDataSource | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQuery
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
     /** Named dimension sequences saved with the worksheet; imports are independent copies. */

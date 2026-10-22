@@ -14,11 +14,12 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
+    AsyncClient,
     Client as DjangoClient,
     RequestFactory,
     SimpleTestCase,
 )
-from django.urls import reverse
+from django.urls import path, reverse
 
 import structlog
 from loginas import settings as la_settings
@@ -30,6 +31,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.middleware import (
     ActivityLoggingMiddleware,
@@ -431,9 +433,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # indexed lookup on posthog_taggeditem per page load, and the organization it
         # serializes comes off the user's current_organization foreign key, which carries
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
-        cls.base_app_num_queries = 56
+        # +5: the app context also serializes the team's five extension configs, and each
+        # request reads them on its own Team instance, one primary-key lookup each.
+        cls.base_app_num_queries = 61
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        # A page load creates any missing config row, which adds an insert per config to its first
+        # count. Create the rows here so that each count covers only the lookups.
+        for team in (cls.team, cls.second_team):
+            for config in (
+                "revenue_analytics_config",
+                "marketing_analytics_config",
+                "customer_analytics_config",
+                "workflows_config",
+                "feature_flag_policy_config",
+            ):
+                getattr(team, config)
 
         # some teams have non-standard API tokens
         cls.third_team = create_team(organization=cls.organization, name="Third Life")
@@ -580,16 +595,18 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_cohorts_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
         self,
-    ):
+        path: str,
+    ) -> None:
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
         ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
-            response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
+            response_app = self.client.get(f"/{path}/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -600,10 +617,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_project_unchanged_when_creating_feature_flag(self):
+    def test_project_unchanged_when_creating_feature_flag(self, path: str) -> None:
         with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
-            response_app = self.client.get(f"/feature_flags/new")
+            response_app = self.client.get(f"/{path}/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -1172,6 +1190,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
+            (
+                "persons_properties_timeline",
+                "persons/00000000-0000-0000-0000-000000000000/properties_timeline/",
+                {},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -2617,6 +2640,30 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["source"] == expected_source
     assert captured["product"] is None
     assert captured["feature"] is None
+
+
+def _http_request_id_probe(request: HttpRequest) -> HttpResponse:
+    return HttpResponse(str(get_query_tags().http_request_id))
+
+
+urlpatterns = [path("api/_http_request_id_probe/", _http_request_id_probe)]
+
+
+@pytest.mark.parametrize(
+    "header_value,expected_tag",
+    [
+        pytest.param("0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", "0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", id="uuid"),
+        # django-structlog binds the client's X-Request-ID header without checking that it is a UUID.
+        pytest.param("not-a-uuid", "None", id="not_a_uuid"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value, expected_tag):
+    # AsyncClient runs settings.MIDDLEWARE through the ASGI handler, as production does.
+    # There, django-structlog binds request_id on the event loop. CHQueries reads it from a worker thread.
+    response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
+
+    assert response.content.decode() == expected_tag
 
 
 @parameterized.expand(

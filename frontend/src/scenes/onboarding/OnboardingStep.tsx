@@ -1,17 +1,18 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
 import { stepKeyToTitle } from './onboardingFlowUtils'
 import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepFooterStartContext } from './OnboardingStepFooterStartContext'
 
 export const OnboardingStep = ({
     stepKey,
@@ -47,11 +48,11 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey, flowVariant } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const footerStart = useContext(OnboardingStepFooterStartContext)
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -71,14 +72,14 @@ export const OnboardingStep = ({
 
     const skip = (): void => {
         setPendingAdvance('skip')
-        reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
+        reportOnboardingStepSkipped(stepKey, flowVariant, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
     }
 
     const next = (): void => {
         setPendingAdvance('continue')
-        reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
+        reportOnboardingStepCompleted(stepKey, flowVariant, currentStepProductKey ?? undefined)
         onContinue?.()
         advance()
     }
@@ -106,7 +107,8 @@ export const OnboardingStep = ({
                     </div>
                 )}
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
+                <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
+                    {footerStart && <div className="mr-auto">{footerStart}</div>}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?

@@ -6,8 +6,8 @@ comparison, one artefact, with no sandbox, no scout enrolment, and no LLM. An ``
 a run to decide it, so it is handed to ``report_check_agent`` and closed later by the tool that run
 calls.
 
-Both lanes end in ``record_check_verdict``, which is the only writer of a check's outcome: one
-artefact appended and one row advanced or retired, whatever decided the verdict.
+Terminal results go through ``record_check_verdict``. Monitoring metric observations use
+``report_check_monitoring`` to save measurements without concluding the check or report.
 
 The comparison is the alerts product's, not a second one written here, so a check and an alert word
 a breach the same way and there is one place where "is this value out of bounds?" is decided.
@@ -23,35 +23,45 @@ from typing import cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, Window
-from django.db.models.functions import RowNumber
+from django.db.models import (
+    Case,
+    DateTimeField,
+    DurationField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Q,
+    Value,
+    When,
+    Window,
+)
+from django.db.models.functions import Coalesce, Greatest, Least, RowNumber
 from django.utils import timezone
 
 import structlog
 
-from posthog.schema import (
-    AlertCondition,
-    AlertConditionType,
-    InsightsThresholdBounds,
-    InsightThreshold,
-    InsightThresholdType,
-)
-
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.evaluation import (
-    ComparableSeries,
-    ExtractionResult,
-    SeriesPoint,
-    evaluate_threshold,
-)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.report_check_artefacts import write_check_expired
+from products.signals.backend.report_check_evaluation import (
+    CheckVerdict,
+    describe_comparison,
+    errored_check_explanation,
+    evaluate_check_value,
+)
+from products.signals.backend.report_check_monitoring import (
+    MonitoringWindowClosed,
+    measure_monitoring_check,
+    record_monitoring_observation,
+)
 from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
@@ -60,19 +70,19 @@ from products.signals.backend.report_check_timing import metric_check_ready_at, 
 from products.signals.backend.report_checks import (
     AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_SOAK_HOURS,
+    DEFAULT_MONITORING_INTERVAL_MINUTES,
     MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
-    CheckComparison,
+    MIN_CHECK_INTERVAL_MINUTES,
     CheckConfigValidationError,
-    CheckInconclusiveReason,
-    CheckOutcome,
     MetricThresholdConfig,
     check_schedule_expires_at,
     parse_check_config,
     soak_minutes_from_gap,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
-from products.signals.backend.report_metric_refresh import measure_metric
+from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
 
 logger = structlog.get_logger(__name__)
@@ -88,8 +98,6 @@ MAX_CHECK_EXPIRIES_PER_TICK = 500
 # An errored run retries on the next window instead of retiring the check, so a transient query
 # failure does not end a soak. It does not consume `runs_remaining`.
 CHECK_ERROR_RETRY_AFTER = timedelta(hours=6)
-# Same bound the scout runner puts on a stored failure reason.
-MAX_CHECK_ERROR_REASON_LENGTH = 300
 # Weight of the signal a failed check on a resolved report emits. High enough to promote on its own:
 # a fix that stopped holding is a finding somebody already decided was worth fixing once.
 CHECK_FAILURE_SIGNAL_WEIGHT = 1.0
@@ -105,26 +113,13 @@ class CheckRunSummary:
     failed: int
     errored: int
     inconclusive: int = 0
+    observed: int = 0
     # An `agent` check the tick started a scout run for, and one the fleet could not take yet.
     # Neither is an outcome: both rows are still active and still owe a verdict.
     dispatched: int = 0
     deferred: int = 0
     # An `agent` check stopped because its project has no scout to run it.
     cancelled: int = 0
-
-
-@frozen
-class CheckVerdict:
-    outcome: CheckOutcome
-    explanation: str
-    observed_value: float | None = None
-    # Required on an `inconclusive` verdict and refused on any other, so a stored reason always
-    # explains the outcome next to it.
-    reason: CheckInconclusiveReason | None = None
-
-    def __post_init__(self) -> None:
-        if (self.outcome == "inconclusive") != (self.reason is not None):
-            raise ValueError("an `inconclusive` verdict needs a reason, and no other verdict takes one")
 
 
 @frozen
@@ -159,71 +154,6 @@ def resolve_check_query(config: MetricThresholdConfig, report: SignalReport) -> 
     raise ValueError(f"the report has no metric `{config.metric_id}` to measure")
 
 
-def _threshold_for(comparison: CheckComparison) -> InsightThreshold:
-    """The alerts threshold whose breach is exactly this comparison's failure.
-
-    The alerts comparator breaches on `value < lower` or `value > upper`, so `gte` is a lower bound,
-    `lte` an upper one, and `between` both.
-    """
-    if comparison.operator == "between":
-        assert comparison.bounds is not None
-        bounds = InsightsThresholdBounds(lower=comparison.bounds.lower, upper=comparison.bounds.upper)
-    elif comparison.operator == "gte":
-        bounds = InsightsThresholdBounds(lower=comparison.value)
-    else:
-        bounds = InsightsThresholdBounds(upper=comparison.value)
-    return InsightThreshold(type=InsightThresholdType.ABSOLUTE, bounds=bounds)
-
-
-def _describe_comparison(comparison: CheckComparison) -> str:
-    if comparison.operator == "between":
-        assert comparison.bounds is not None
-        return f"between {comparison.bounds.lower} and {comparison.bounds.upper}"
-    return f"at most {comparison.value}" if comparison.operator == "lte" else f"at least {comparison.value}"
-
-
-def evaluate_check_value(*, comparison: CheckComparison, observed_value: float, subject: str) -> CheckVerdict:
-    """Compare one measured value against the check's expectation."""
-
-    result = ExtractionResult(
-        series=[
-            ComparableSeries(label=subject, points=[SeriesPoint(date=None, value=observed_value)], current_index=0)
-        ],
-        subject=subject,
-        framed=False,
-    )
-    evaluation = evaluate_threshold(
-        result,
-        AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE),
-        _threshold_for(comparison),
-    )
-    if evaluation.breaches:
-        return CheckVerdict(outcome="failed", explanation=evaluation.breaches[0], observed_value=observed_value)
-    return CheckVerdict(
-        outcome="passed",
-        explanation=f"{subject} ({observed_value}) is {_describe_comparison(comparison)}, as expected",
-        observed_value=observed_value,
-    )
-
-
-def _errored_explanation(error: Exception, *, subject: str) -> str:
-    """The line a report reader sees when a run could not be measured.
-
-    It opens with the check's title, as the passed and failed lines do, so a report carrying several
-    checks does not log entries a reader cannot tell apart.
-
-    Our own validation and resolution failures name something the reader can act on, so they are
-    kept. Anything else is reduced to the fixed line: a query error can carry generated SQL and a
-    server stack trace, which `ExposedCHQueryError` exists to keep out of user-facing text, and the
-    artefact log is permanent and rendered as written. `logger.exception` above holds the whole
-    error either way.
-    """
-    reason = str(error).strip() if isinstance(error, ValueError | TimeoutError) else ""
-    if not reason:
-        return f"{subject} could not be measured."
-    return f"{subject} could not be measured: {reason[:MAX_CHECK_ERROR_REASON_LENGTH]}"
-
-
 def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     """Run one check and return its verdict. Never raises: a failure to measure is an `errored` verdict."""
 
@@ -252,10 +182,12 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
                 },
             }
         tag_queries(trigger="signals_report_check")
-        measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
+        measurement = measure_metric(
+            query, check.report.team, deadline=deadline, include_series=False, ch_user=ClickHouseUser.SIGNALS
+        )
     except Exception as error:
         logger.exception("signals.report_check.measurement_failed", check_id=str(check.id), team_id=check.team_id)
-        return CheckVerdict(outcome="errored", explanation=_errored_explanation(error, subject=check.title))
+        return CheckVerdict(outcome="errored", explanation=errored_check_explanation(error, subject=check.title))
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
@@ -322,6 +254,7 @@ def record_check_verdict(
     run_id: str | None = None,
     skill_name: str | None = None,
     refusal_reason: str | None = None,
+    lane_can_emit_report: bool | None = None,
 ) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
@@ -331,6 +264,7 @@ def record_check_verdict(
     `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
     has neither, so it keeps the `system()` attribution the executor writes under. `skill_name` and
     `refusal_reason` name the scout and the gate when the fleet refused to run an `agent` check.
+    `lane_can_emit_report` says whether that run held `emit_report`, and None when nobody knows.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -404,14 +338,14 @@ def record_check_verdict(
                 reason=verdict.reason,
                 observed_value=verdict.observed_value,
                 baseline_value=config.baseline_value if config is not None else None,
-                threshold=_describe_comparison(config.comparison) if config is not None else None,
+                threshold=describe_comparison(config.comparison) if config is not None else None,
                 run_id=run_id,
             ),
             attribution=attribution or ArtefactAttribution.system(),
         )
-        if _should_resurface(current, verdict):
+        if _should_resurface(current, verdict, lane_can_emit_report=lane_can_emit_report):
             baseline = config.baseline_value if config is not None else None
-            threshold = _describe_comparison(config.comparison) if config is not None else None
+            threshold = describe_comparison(config.comparison) if config is not None else None
             transaction.on_commit(lambda: resurface_failed_check(current, verdict, baseline, threshold))
         # Post-commit, so a rolled-back verdict is never counted as one, and after the artefact so
         # the event describes a result a reader can already see on the report. The team comes off
@@ -430,19 +364,24 @@ def record_check_verdict(
         )
 
 
-def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
+def _should_resurface(
+    check: SignalReportCheck, verdict: CheckVerdict, *, lane_can_emit_report: bool | None = None
+) -> bool:
     """Whether this verdict has to become a fresh report, because nothing else will carry it.
 
-    An `agent` check has a scout in the loop that can author one. A `metric_threshold` check has
-    nobody, so a breach on a report the inbox no longer lists is an artefact on a closed item that
-    no reader will open. Only a resolved report qualifies: a breach on a report still being worked
-    lands where the person working it already looks.
+    A `metric_threshold` check has nobody in the loop, so a breach on a report the inbox no longer
+    lists is an artefact on a closed item that no reader will open. An `agent` check has a scout in
+    the loop, and the check brief tells a lane that holds `emit_report` to author the follow-up
+    itself. A lane known to lack `emit_report` cannot, so its verdict takes the metric path. An
+    unknown lane stays with the scout, because a second report for one relapse is a duplicate. Only
+    a resolved report qualifies: a breach on a report still being worked lands where the person
+    working it already looks.
     """
-    return (
-        verdict.outcome == "failed"
-        and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
-        and check.report.effective_status == SignalReport.Status.RESOLVED
-    )
+    if verdict.outcome != "failed" or check.report.effective_status != SignalReport.Status.RESOLVED:
+        return False
+    if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+        return True
+    return check.kind == SignalReportCheck.Kind.AGENT and lane_can_emit_report is False
 
 
 def resurface_failed_check(
@@ -498,17 +437,127 @@ def resurface_failed_check(
         logger.exception("signals.report_check.resurface_failed", check_id=str(check.id), team_id=check.team_id)
 
 
-def expire_overdue_checks(now: datetime) -> int:
+def _monitoring_metric_filter(disabled_organizations: frozenset[UUID], *, started_before: datetime | None = None) -> Q:
+    reports = SignalReport.objects.filter(
+        id=OuterRef("report_id"),
+        team_id=OuterRef("team_id"),
+        status=SignalReport.Status.MONITORING,
+        monitoring_started_at__isnull=False,
+    ).exclude(team__organization_id__in=disabled_organizations)
+    if started_before is not None:
+        reports = reports.filter(monitoring_started_at__lte=started_before)
+    # Joined UPDATE filters become an ID subquery, so PostgreSQL cannot recheck stale check guards after a lock wait.
+    return Q(Exists(reports), kind=SignalReportCheck.Kind.METRIC_THRESHOLD, config__monitoring__isnull=False) & ~Q(
+        config__monitoring=None
+    )
+
+
+def _completed_check_runs(check: SignalReportCheck, start: datetime) -> int:
+    completed = 0
+    results = (
+        SignalReportArtefact.objects.using("default")
+        .filter(
+            team_id=check.team_id,
+            report_id=check.report_id,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            created_at__gte=start,
+        )
+        .values_list("content", flat=True)
+    )
+    for content in results.iterator(chunk_size=100):
+        try:
+            result = CheckResult.model_validate_json(content)
+        except ValueError:
+            continue
+        if result.check_id == str(check.id) and result.outcome == "passed":
+            completed += 1
+    return completed
+
+
+def _resolved_monitoring_expiry(check: SignalReportCheck) -> datetime:
+    start = check.report.monitoring_started_at
+    if (
+        check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD
+        or not check.config.get("monitoring")
+        or start is None
+        or check.measurement_start_at != start
+        or check.expires_at != start + MAX_CHECK_HORIZON
+    ):
+        return check.expires_at
+    if check.monitoring_fallback_expires_at is not None:
+        return check.monitoring_fallback_expires_at
+    ready_at = start + timedelta(minutes=check.soak_minutes or 0)
+    try:
+        config = cast(MetricThresholdConfig, parse_check_config(check.kind, check.config))
+        query = resolve_check_query(config, check.report)
+        ready_at = max(ready_at, metric_check_ready_at(query, check.report.team, start))
+    except (CheckConfigValidationError, ValueError):
+        pass
+    runs = check.runs_remaining
+    if check.run_interval_minutes and check.last_outcome is not None:
+        runs += _completed_check_runs(check, start)
+    return check_schedule_expires_at(
+        next_run_at=ready_at,
+        run_interval_minutes=check.run_interval_minutes,
+        runs_remaining=runs,
+        start_at=start,
+    )
+
+
+def _restore_resolved_monitoring_expiries(now: datetime, disabled_organizations: frozenset[UUID]) -> None:
+    if not disabled_organizations:
+        return
+    candidates = (
+        SignalReportCheck.all_teams.filter(
+            _monitoring_metric_filter(frozenset()),
+            report__team__organization_id__in=disabled_organizations,
+            status=SignalReportCheck.Status.ACTIVE,
+            measurement_start_at=F("report__monitoring_started_at"),
+            expires_at=ExpressionWrapper(
+                F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
+            ),
+        )
+        .filter(Q(monitoring_fallback_expires_at__isnull=True) | ~Q(monitoring_fallback_expires_at=F("expires_at")))
+        .select_related("report__team")
+        .order_by("expires_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
+    )
+    for check in candidates:
+        expires_at = _resolved_monitoring_expiry(check)
+        period = SignalReport.objects.filter(
+            id=OuterRef("report_id"),
+            team_id=OuterRef("team_id"),
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=check.report.monitoring_started_at,
+        )
+        SignalReportCheck.objects.for_team(check.team_id).filter(
+            Exists(period),
+            id=check.id,
+            status=SignalReportCheck.Status.ACTIVE,
+            updated_at=check.updated_at,
+            expires_at=check.expires_at,
+        ).update(expires_at=expires_at, monitoring_fallback_expires_at=expires_at, updated_at=now)
+
+
+def expire_overdue_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID] | None = None) -> int:
     """Retire open checks whose horizon passed without a run. Returns how many were retired.
 
     Pending rows are swept too, so a check waiting on a report that never resolves retires at the
     horizon instead of waiting forever for a clock that will not start.
     """
 
+    expiry_filter = Q(expires_at__lte=now)
+    if disabled_monitoring_organization_ids is not None:
+        monitoring = _monitoring_metric_filter(disabled_monitoring_organization_ids) & Q(
+            status=SignalReportCheck.Status.ACTIVE
+        )
+        expiry_filter = (expiry_filter & ~monitoring) | (
+            _monitoring_metric_filter(disabled_monitoring_organization_ids, started_before=now - MAX_CHECK_HORIZON)
+            & Q(status=SignalReportCheck.Status.ACTIVE)
+        )
     overdue = list(
         # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
         # a copied-in query, and a full tick hydrates five hundred rows.
-        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).only(
+        SignalReportCheck.all_teams.filter(expiry_filter, status__in=SignalReportCheck.OPEN_STATUSES).only(
             "id", "team_id", "report_id", "kind", "title", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
@@ -518,9 +567,9 @@ def expire_overdue_checks(now: datetime) -> int:
     # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
     # status alone would retire a check that has just been given a clock.
     expired = SignalReportCheck.all_teams.filter(
+        expiry_filter,
         id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
-        expires_at__lte=now,
     ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
         _log_expired_checks(overdue, now, expired)
@@ -577,6 +626,7 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
 def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved_status_filter: Q | None = None) -> int:
     parked = 0
     team_filters: dict[int, Q] = {}
+    monitoring_enabled: dict[int, bool] = {}
     for check in active:
         status_filter = resolved_status_filter
         if status_filter is None:
@@ -595,6 +645,16 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
                 if check.last_run_at is not None or check.dispatched_at is not None
                 else soak_minutes_from_gap(check.next_run_at, check.created_at)
             )
+        preserve_monitoring_errors = False
+        if (
+            check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            and check.config.get("monitoring")
+            and check.measurement_start_at is not None
+            and check.measurement_start_at == check.report.monitoring_started_at
+        ):
+            if check.team_id not in monitoring_enabled:
+                monitoring_enabled[check.team_id] = team_report_monitoring_enabled(check.team_id)
+            preserve_monitoring_errors = monitoring_enabled[check.team_id]
         parked += (
             SignalReportCheck.objects.for_team(check.team_id)
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
@@ -605,7 +665,10 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
                 measurement_start_at=None,
                 next_run_at=now + timedelta(minutes=soak_minutes),
                 expires_at=now + MAX_CHECK_HORIZON,
-                consecutive_errors=0,
+                monitoring_fallback_expires_at=F("monitoring_fallback_expires_at")
+                if check.report.monitoring_started_at is not None
+                else None,
+                consecutive_errors=F("consecutive_errors") if preserve_monitoring_errors else 0,
                 consecutive_inconclusive=0,
                 dispatched_at=None,
                 updated_at=now,
@@ -615,8 +678,17 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
 
 
 def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
+    new_period = SignalReport.objects.filter(id=report_id, team_id=team_id, monitoring_started_at__isnull=True)
+    SignalReportCheck.objects.for_team(team_id).filter(
+        Exists(new_period),
+        report_id=report_id,
+        status=SignalReportCheck.Status.PENDING,
+        monitoring_fallback_expires_at__isnull=False,
+    ).update(monitoring_fallback_expires_at=None, updated_at=now)
     return _park_checks(
-        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE),
+        SignalReportCheck.objects.for_team(team_id)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE)
+        .select_related("report"),
         now,
     )
 
@@ -633,8 +705,8 @@ def park_checks_on_unresolved_reports(
     through `arm_pending_checks` with a fresh soak, and the expiry sweep retires it if the report
     never resolves.
 
-    A dated row keeps the gap its author left as its soak. The error streak and any open dispatch
-    are cleared, so retry accounting starts again after the next resolve.
+    A dated row keeps the gap its author left as its soak. An interrupted Monitoring period keeps
+    its error streak so restoring it cannot postpone a retry or reset the error budget.
     """
     candidates = SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
     if disabled_monitoring_organization_ids is None:
@@ -645,14 +717,108 @@ def park_checks_on_unresolved_reports(
         disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
     )
     active = list(
-        candidates.exclude(status_filter).only(
-            "id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at"
+        candidates.exclude(status_filter)
+        .select_related("report")
+        .only(
+            "id",
+            "team_id",
+            "created_at",
+            "next_run_at",
+            "soak_minutes",
+            "last_run_at",
+            "dispatched_at",
+            "kind",
+            "config",
+            "measurement_start_at",
+            "report__monitoring_started_at",
         )[:MAX_CHECK_PARKS_PER_TICK]
     )
     parked = _park_checks(active, now, resolved_status_filter=status_filter)
     if parked:
         logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
     return parked
+
+
+def _monitoring_window_end_expression() -> ExpressionWrapper:
+    return ExpressionWrapper(
+        F("report__monitoring_started_at") + Coalesce("soak_minutes", Value(0)) * Value(timedelta(minutes=1)),
+        output_field=DateTimeField(),
+    )
+
+
+def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset[UUID]) -> None:
+    cadence = ExpressionWrapper(
+        Greatest(
+            Coalesce("run_interval_minutes", Value(DEFAULT_MONITORING_INTERVAL_MINUTES)),
+            Value(MIN_CHECK_INTERVAL_MINUTES),
+        )
+        * Value(timedelta(minutes=1)),
+        output_field=DurationField(),
+    )
+    candidates = (
+        SignalReportCheck.all_teams.filter(
+            _monitoring_metric_filter(disabled_organizations),
+            status=SignalReportCheck.Status.ACTIVE,
+        )
+        .annotate(_monitoring_ends_at=_monitoring_window_end_expression())
+        .annotate(
+            _monitoring_next_run_at=Least(
+                F("_monitoring_ends_at"),
+                ExpressionWrapper(
+                    Greatest(
+                        Coalesce("last_run_at", F("report__monitoring_started_at")), F("report__monitoring_started_at")
+                    )
+                    + Case(
+                        When(
+                            last_run_at__gte=F("report__monitoring_started_at"),
+                            consecutive_errors__gt=0,
+                            then=Value(CHECK_ERROR_RETRY_AFTER),
+                        ),
+                        default=cadence,
+                        output_field=DurationField(),
+                    ),
+                    output_field=DateTimeField(),
+                ),
+            ),
+            _monitoring_expires_at=ExpressionWrapper(
+                F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
+            ),
+        )
+        .exclude(
+            measurement_start_at=F("report__monitoring_started_at"),
+            next_run_at=F("_monitoring_next_run_at"),
+            expires_at=F("_monitoring_expires_at"),
+        )
+        .select_related("report")
+        .order_by("report__monitoring_started_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
+    )
+    for check in candidates:
+        start = check.report.monitoring_started_at
+        assert start is not None
+        period = SignalReport.objects.filter(
+            id=OuterRef("report_id"),
+            team_id=OuterRef("team_id"),
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=start,
+        )
+        SignalReportCheck.objects.for_team(check.team_id).filter(
+            Exists(period),
+            id=check.id,
+            status=SignalReportCheck.Status.ACTIVE,
+            updated_at=check.updated_at,
+        ).update(
+            next_run_at=check._monitoring_next_run_at,
+            measurement_start_at=start,
+            expires_at=check._monitoring_expires_at,
+            monitoring_fallback_expires_at=check.expires_at
+            if (
+                check.monitoring_fallback_expires_at is None
+                and check.measurement_start_at == start
+                and check.expires_at < start + MAX_CHECK_HORIZON
+            )
+            else check.monitoring_fallback_expires_at,
+            updated_at=now,
+        )
 
 
 def collect_due_checks(
@@ -674,15 +840,18 @@ def collect_due_checks(
     if disabled_monitoring_organization_ids is None:
         disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(eligible_checks)
     candidates = (
-        eligible_checks.filter(
+        eligible_checks.annotate(_monitoring_ends_at=_monitoring_window_end_expression())
+        .filter(
             report_status_filter(
                 [SignalReport.Status.RESOLVED],
                 field="report__status",
                 disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
+            )
+            | (
+                _monitoring_metric_filter(disabled_monitoring_organization_ids)
+                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON, _monitoring_ends_at__gt=now)
             ),
-            # A check re-measures a fix, so it runs only while its report is resolved. The park step
-            # moves any other active row back to `pending`; this filter keeps a row it has not reached
-            # yet out of the tick.
+            # Agent and legacy metric checks must stay dormant until the report resolves.
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -700,6 +869,12 @@ def collect_due_checks(
     per_team: dict[int, int] = {}
     due: list[SignalReportCheck] = []
     for check in candidates:
+        if (
+            check.report.status == SignalReport.Status.MONITORING
+            and check.team.organization_id in disabled_monitoring_organization_ids
+            and _resolved_monitoring_expiry(check) <= now
+        ):
+            continue
         taken = per_team.get(check.team_id, 0)
         if taken >= MAX_CHECK_RUNS_PER_TEAM_PER_TICK:
             continue
@@ -749,15 +924,18 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     """
 
     now = now or timezone.now()
-    expired = expire_overdue_checks(now)
     candidate_checks = SignalReportCheck.all_teams.filter(
         Q(status=SignalReportCheck.Status.ACTIVE) | Q(status=SignalReportCheck.Status.PENDING, expires_at__gt=now)
     )
     disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
+    _prepare_monitoring_metrics(now, disabled_organizations)
+    _restore_resolved_monitoring_expiries(now, disabled_organizations)
+    expired = expire_overdue_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {
+        "observed": 0,
         "passed": 0,
         "failed": 0,
         "errored": 0,
@@ -769,6 +947,30 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     for check in collect_due_checks(now, limit=limit, disabled_monitoring_organization_ids=disabled_organizations):
         if time.monotonic() >= deadline:
             break
+        if (
+            check.report.status == SignalReport.Status.MONITORING
+            and check.team.organization_id not in disabled_organizations
+            and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            and check.config.get("monitoring")
+            and check.report.monitoring_started_at is not None
+        ):
+            try:
+                observation = measure_monitoring_check(check, now=now, deadline=deadline)
+                counts["observed"] += int(record_monitoring_observation(check, observation))
+            except (MetricQueryBudgetExhausted, MonitoringWindowClosed):
+                counts["deferred"] += 1
+            except Exception:
+                logger.exception(
+                    "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id
+                )
+            continue
+        if (
+            check.report.status == SignalReport.Status.MONITORING
+            and check.team.organization_id in disabled_organizations
+            and _resolved_monitoring_expiry(check) != check.expires_at
+        ):
+            counts["deferred"] += 1
+            continue
         if check.kind == SignalReportCheck.Kind.AGENT:
             # Deferred: the agent lane reaches the scout harness and the Temporal client, and this
             # module is imported by the REST route load, which never dispatches anything.
@@ -785,10 +987,11 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             start_at = check.measurement_start_at or now
             try:
-                query = resolve_check_query(
-                    cast(MetricThresholdConfig, parse_check_config(check.kind, check.config)), check.report
-                )
+                config = cast(MetricThresholdConfig, parse_check_config(check.kind, check.config))
+                query = resolve_check_query(config, check.report)
                 ready_at = metric_check_ready_at(query, check.report.team, start_at)
+                if config.monitoring is not None:
+                    ready_at = max(ready_at, start_at + timedelta(minutes=check.soak_minutes or 0))
             except (CheckConfigValidationError, ValueError):
                 ready_at = now
             if check.measurement_start_at is None or now < ready_at:

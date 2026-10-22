@@ -1410,7 +1410,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             FLAG_CALL_TIMESTAMP,
             "variant-a",
             "",
-            "",
+            "full",
         ]
 
     @parameterized.expand(

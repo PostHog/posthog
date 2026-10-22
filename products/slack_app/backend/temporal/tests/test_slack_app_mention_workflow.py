@@ -7,19 +7,15 @@ from typing import Any, Literal
 import pytest
 
 from temporalio import activity
-from temporalio.api.enums.v1 import EventType
-from temporalio.client import WorkflowHistory
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal import derive_mention_workflow_id, slack_app_mention
-from products.slack_app.backend.temporal.posthog_code_slack_mention import (
-    LegacyPostHogCodeSlackMentionWorkflow,
-    SlackAppMentionProcessingWorkflow,
-)
 from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -39,15 +35,19 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
+    untagged_question: bool = False,
     text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
+    # A top-level post is its own thread root.
+    thread_ts = ts if untagged_question else "100.0"
     return PostHogCodeSlackMentionWorkflowInputs(
-        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": text},
+        event={"channel": "C1", "ts": ts, "thread_ts": thread_ts, "user": "U1", "text": text},
         integration_id=1,
         slack_team_id="T1",
         slack_event_id=event_id,
         user_id=42,
         untagged_followup=untagged,
+        untagged_question=untagged_question,
     )
 
 
@@ -80,6 +80,13 @@ class _Recorder:
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
+        # ts -> mapping lookup result; missing means the forward result.
+        self.has_task_results: dict[str, bool] = {}
+        # ts per project route and thread fetch call, in execution order.
+        self.project_route_calls: list[str | None] = []
+        self.thread_fetches: list[str] = []
+        # When set, the model override, project route and thread fetch fakes wait on it.
+        self.new_thread_barrier: asyncio.Barrier | None = None
         # ts -> thread snapshot; missing means a one-message thread. An empty list is what
         # a deleted trigger message reads as.
         self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
@@ -96,6 +103,11 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # True makes discovery report that the team is out of AI credits.
+        self.discover_usage_limited = False
+        self.untagged_question_verdict: bool | Literal["raise"] = True
+        # True holds an untagged question back on a private offer.
+        self.untagged_question_awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -124,6 +136,16 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return rec.awaiting_confirmation
 
+    @activity.defn(name="classify_untagged_question_activity")
+    async def classify_untagged_question(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        if rec.untagged_question_verdict == "raise":
+            raise ApplicationError("classifier down", non_retryable=True)
+        return rec.untagged_question_verdict
+
+    @activity.defn(name="request_untagged_question_confirmation_activity")
+    async def request_untagged_question_confirmation(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
+        return rec.untagged_question_awaiting_confirmation
+
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -141,11 +163,22 @@ def _fake_activities(rec: _Recorder) -> list:
             return True
         return False
 
+    async def wait_for_new_thread_steps() -> None:
+        if rec.new_thread_barrier is not None:
+            await asyncio.wait_for(rec.new_thread_barrier.wait(), timeout=10)
+
+    @activity.defn(name="posthog_code_thread_has_task_activity")
+    async def has_task(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> bool:
+        ts = inputs.event["ts"]
+        return rec.has_task_results.get(ts, rec.forward_results.get(ts, False))
+
     @activity.defn(name="collect_posthog_code_thread_messages_activity")
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
     ) -> list[SlackThreadMessage]:
         ts = inputs.event["ts"]
+        rec.thread_fetches.append(ts)
+        await wait_for_new_thread_steps()
         return rec.thread_messages.get(ts, [SlackThreadMessage(user="U1", text=inputs.event["text"])])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
@@ -178,7 +211,9 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
-        return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
+        return SlackRepoSelectionOutcome(
+            status="failed", repository=None, reason="agent crashed", usage_limited=rec.discover_usage_limited
+        )
 
     @activity.defn(name="post_posthog_code_repo_picker_activity")
     async def post_picker(
@@ -209,10 +244,13 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_slack_app_model_override_activity")
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
+        await wait_for_new_thread_steps()
         return rec.model_overrides.get(input.event_text)
 
     @activity.defn(name="classify_slack_app_project_route_activity")
     async def classify_project_route(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+        rec.project_route_calls.append(input.thread_ts)
+        await wait_for_new_thread_steps()
         return rec.project_routes.get(input.event_text)
 
     @activity.defn(name="classify_slack_app_model_router_activity")
@@ -267,6 +305,9 @@ def _fake_activities(rec: _Recorder) -> list:
         quota,
         classify_followup,
         request_confirmation,
+        has_task,
+        classify_untagged_question,
+        request_untagged_question_confirmation,
         forward,
         collect,
         cascade,
@@ -331,11 +372,7 @@ class _Harness:
         self._worker_cm = Worker(
             self.env.client,
             task_queue=self.task_queue,
-            workflows=[
-                SlackAppMentionWorkflow,
-                SlackAppMentionProcessingWorkflow,
-                LegacyPostHogCodeSlackMentionWorkflow,
-            ],
+            workflows=[SlackAppMentionWorkflow, SlackAppMentionProcessingWorkflow],
             activities=_fake_activities(self.rec),
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
@@ -440,6 +477,34 @@ async def test_model_override_reaches_a_followup_without_creating_a_task():
     assert rec.forwarded_with_override == {"1.1": override}
     assert rec.created == []
     assert rec.router_inputs == []
+    assert rec.project_route_calls == []
+    assert rec.thread_fetches == []
+
+
+@pytest.mark.asyncio
+async def test_new_thread_steps_run_at_the_same_time():
+    rec = _Recorder()
+    rec.new_thread_barrier = asyncio.Barrier(3)
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", "org/auto-repo")]
+    assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
+async def test_mention_whose_task_mapping_disappears_before_the_forward_still_creates_a_task():
+    rec = _Recorder()
+    rec.has_task_results["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.forwarded == []
+    assert rec.created == [("1.1", "org/auto-repo")]
 
 
 @pytest.mark.asyncio
@@ -507,42 +572,6 @@ async def test_untagged_followup_forwards_without_task_creation_or_reactions():
     assert rec.processing_marked == []
 
 
-def _child_workflow_types(history: WorkflowHistory) -> list[str]:
-    return [
-        event.start_child_workflow_execution_initiated_event_attributes.workflow_type.name
-        for event in history.events
-        if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
-    ]
-
-
-@pytest.mark.asyncio
-async def test_child_type_rename_replays_runs_started_before_the_patch(monkeypatch):
-    original_patched = slack_app_mention.workflow.patched
-
-    def legacy_patched(patch_id: str) -> bool:
-        if patch_id == slack_app_mention._PATCH_ID_MENTION_PROCESSING_RENAME:
-            return False
-        return original_patched(patch_id)
-
-    rec = _Recorder()
-    async with _Harness(rec) as h:
-        monkeypatch.setattr(slack_app_mention.workflow, "patched", legacy_patched)
-        legacy_handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
-        await asyncio.wait_for(legacy_handle.result(), timeout=30)
-        legacy_history = await legacy_handle.fetch_history()
-
-        monkeypatch.setattr(slack_app_mention.workflow, "patched", original_patched)
-        new_handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.2"))
-        await asyncio.wait_for(new_handle.result(), timeout=30)
-        new_history = await new_handle.fetch_history()
-
-    assert _child_workflow_types(legacy_history) == ["posthog-code-slack-mention-processing"]
-    assert _child_workflow_types(new_history) == ["slack-app-mention-processing"]
-    replayer = Replayer(workflows=[SlackAppMentionWorkflow], workflow_runner=UnsandboxedWorkflowRunner())
-    await replayer.replay_workflow(legacy_history)
-    await replayer.replay_workflow(new_history)
-
-
 @pytest.mark.asyncio
 async def test_idle_exit_then_signal_with_start_processes_in_fresh_run():
     rec = _Recorder()
@@ -587,6 +616,21 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+    rec.discover_usage_limited = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert not rec.picker_posted.is_set()
+    assert rec.created == []
+    assert rec.internal_errors == []
 
 
 @pytest.mark.asyncio
@@ -652,3 +696,33 @@ async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
 
     assert rec.created == []
     assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "verdict,awaiting_confirmation,expect_created",
+    [
+        # Nobody asked, so a failure says nothing in the channel either.
+        ("raise", False, False),
+        (False, False, False),
+        (True, True, False),
+        (True, False, True),
+    ],
+)
+async def test_untagged_question_stays_silent_until_its_mode_lets_it_answer(
+    verdict, awaiting_confirmation, expect_created
+):
+    rec = _Recorder()
+    rec.untagged_question_verdict = verdict
+    rec.untagged_question_awaiting_confirmation = awaiting_confirmation
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", untagged_question=True)
+        )
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.internal_errors == []
+    assert rec.queued_marked == []
+    assert rec.processing_marked == []
+    assert bool(rec.created) is expect_created

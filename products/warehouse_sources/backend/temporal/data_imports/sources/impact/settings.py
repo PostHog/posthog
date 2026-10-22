@@ -48,7 +48,7 @@ class NestedTableConfig:
     line_number_field: str = "LineNumber"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ImpactEndpointConfig:
     name: str
     # Path relative to https://api.impact.com/Advertisers/{account_sid}. When campaign_id_in_path is
@@ -64,6 +64,9 @@ class ImpactEndpointConfig:
     # Contracts nests the campaign in the path (/Campaigns/{campaign_id}/Contracts) and, unlike the
     # action endpoints, doesn't echo it back on each row, so the fan-out injects CampaignId itself.
     campaign_id_in_path: bool = False
+    # Survey responses sit two levels down (program -> survey -> responses), so the fan-out lists each
+    # program's surveys first. `path` then takes both `{campaign_id}` and `{survey_id}`.
+    requires_survey_fanout: bool = False
     # The action endpoints cap their date filter at a 45-day span, so history is walked in bounded
     # windows.
     date_windowed: bool = False
@@ -171,6 +174,18 @@ IMPACT_ENDPOINTS: dict[str, ImpactEndpointConfig] = {
             "Partner contracts and their payout terms (EventPayouts, PayoutGroups, Tiers, Rules) "
             "per campaign. The terms needed to reconcile expected affiliate cost against invoices. "
             "Impact returns active contracts by default. Full refresh only."
+        ),
+    ),
+    "SurveyResponses": ImpactEndpointConfig(
+        name="SurveyResponses",
+        path="/Programs/{campaign_id}/Surveys/{survey_id}/Responses",
+        data_key="Responses",
+        primary_keys=["SurveyId", "Id"],
+        requires_survey_fanout=True,
+        description=(
+            "Partner answers to your program surveys, one row per question per partner user (Impact "
+            "keeps only the latest answer). Fetched per survey on every campaign. Requires API "
+            "version 14. Full refresh only."
         ),
     ),
     "InvoiceLineItems": ImpactEndpointConfig(

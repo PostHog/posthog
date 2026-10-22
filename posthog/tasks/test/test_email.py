@@ -64,8 +64,9 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
@@ -1457,6 +1458,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("inactive@example.com", is_active=False)
 
         digest_data = {
             "team_id": self.team.id,
@@ -1491,6 +1493,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == self.user.email
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
@@ -2696,15 +2699,81 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
+        # Pausing keeps `is_materialized` and the table but clears the cadence, so it can't retry.
+        paused = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="paused_orders_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+            table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
+        )
+        # Tiered views keep their cadence on the node only, with the column empty.
+        tiered = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tiered_daily_active_users",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+        )
+        tiered_node = sync_saved_query_to_dag(tiered)
+        assert tiered_node is not None
+        set_declared_target(tiered_node, dt.timedelta(hours=1))
+        for sq in (paused, tiered):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                last_run_at=timezone.now() - dt.timedelta(hours=1),
+            )
+
+        # A success breaks the streak, so only the three failures after it count.
+        ongoing = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="nightly_revenue_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(days=1),
+            is_materialized=True,
+        )
+        streak_started_at = timezone.now() - dt.timedelta(days=3)
+        for status, run_at in [
+            ("FAILED", timezone.now() - dt.timedelta(days=9)),
+            ("COMPLETED", timezone.now() - dt.timedelta(days=6)),
+            ("FAILED", streak_started_at),
+            ("FAILED", timezone.now() - dt.timedelta(days=2)),
+            ("FAILED", timezone.now() - dt.timedelta(hours=1)),
+        ]:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=ongoing,
+                status=getattr(DataModelingJob.Status, status),
+                error="Code: 60. DB::Exception: Unknown table expression identifier",
+                last_run_at=run_at,
+            )
+
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
-        html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + unscheduled_cases:
-            assert name in html
-        assert html.count("Will retry") == len(failed_cases)
-        assert html.count("Not scheduled") == len(unscheduled_cases)
-        assert "action required" not in html
+        message = mocked_email_messages[0]
+        assert message.subject == (
+            f"PostHog: 3 materialized views need action, 4 started failing, 1 is still failing in {self.team.name}"
+        )
+        sections = {s["key"]: [v["name"] for v in s["views"]] for s in message.properties["sections"]}
+        assert list(sections) == ["action", "new", "ongoing"]
+        assert sorted(sections["action"]) == sorted([*(name for name, _ in unscheduled_cases), paused.name])
+        assert sorted(sections["new"]) == sorted([*(name for name, _ in failed_cases), tiered.name])
+        assert sections["ongoing"] == ["nightly_revenue_rollup"]
+        ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
+        assert ongoing_row["failed_runs"] == 3
+        assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+
+        html = message.html_body
+        assert html.count("Not scheduled.") == len(unscheduled_cases)
+        assert html.count("Paused.") == 1
+        assert html.count("First failed") == len(failed_cases) + 1
+        assert "3 failed runs" in html
+        assert "select Resume" not in html
 
     @parameterized.expand(
         [
@@ -2946,16 +3015,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]
         assert [(v["name"], v["suspended"]) for v in views] == expected_rows
-        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
-        assert "Will retry" in html
+        assert "Started failing" in html
         if expected_has_suspended:
-            assert "action required" in html
+            assert "select Resume" in html
             assert "Memory limit (for query) exceeded" in html
             assert "has been suspended after" not in html
         else:
-            assert "action required" not in html
+            assert "select Resume" not in html
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:

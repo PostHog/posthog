@@ -1,6 +1,7 @@
 agent-feedback
 alert-simulate
 apm-attribute-breakdown
+apm-service-health
 apm-spans-aggregate
 apm-spans-duration-histogram
 apm-spans-sparkline
@@ -9,6 +10,7 @@ dashboard-insights-run
 data-catalog-metric-run
 engineering-analytics-sources
 execute-sql
+experiment-migrate
 experiment-stats
 experiment-timeseries-results
 external-data-sync-logs
@@ -23,6 +25,9 @@ logs-count-ranges
 logs-patterns
 logs-patterns-diff
 logs-sparkline-query
+notebooks-add-cell
+notebooks-create-markdown
+notebooks-update-cell
 org-member-get-github-login
 pr-lifecycle
 pull-requests

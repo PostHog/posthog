@@ -3,6 +3,9 @@
 Commands for emitting signals, tracking pipeline processing, and inspecting grouping results.
 Use these to test grouping strategies against real signal data end-to-end.
 
+For offline grouping and scout safety evaluations with mocked infrastructure, use the
+[pytest suites](../../eval/AGENTS.md), which publish results to offline experiments.
+
 ## Full flow
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.
