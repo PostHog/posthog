@@ -1074,7 +1074,10 @@ describe('LogsIngestionConsumer', () => {
             }
             consumer = await createLogsIngestionConsumer(
                 hub,
-                { LOGS_INTERNAL_ENABLED_TEAMS: String(team.id), LOGS_INTERNAL_SIGNING_KEYS: SIGNING_KEY },
+                {
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+                },
                 { samplingRulesCache: dropEverything as SamplingRulesCache }
             )
             // A quota-limited team with a drop-everything rule shows the bypass: an internal batch is
@@ -2556,8 +2559,8 @@ describe('LogsIngestionConsumer', () => {
             const key = 'internal-logs-test-key'
             await consumer.stop()
             consumer = createTracesIngestionConsumer({
-                LOGS_INTERNAL_SIGNING_KEYS: key,
-                LOGS_INTERNAL_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: key,
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
             })
             await consumer.start()
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)

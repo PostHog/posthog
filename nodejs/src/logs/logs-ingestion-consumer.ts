@@ -442,8 +442,8 @@ export class LogsIngestionConsumer {
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.internalLogsVerifier = new InternalLogsVerifier(
-            mergedConfig.LOGS_INTERNAL_SIGNING_KEYS,
-            mergedConfig.LOGS_INTERNAL_ENABLED_TEAMS
+            mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
+            mergedConfig.LOGS_INTERNAL_INGESTION_ENABLED_TEAMS
         )
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
