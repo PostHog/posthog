@@ -94,6 +94,7 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_END_PLACEHOLDER,
 )
 _DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.|'')*'")
 _DATE_FUNCTION_LITERAL = re.compile(r"\bto(?:Date|DateTime)\w*\s*\(\s*'([^']*)'")
 _BRACKETED_NAME = re.compile(r"[{<][^{}<>]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
@@ -234,10 +235,11 @@ class ReportWindow:
 
 
 def unknown_placeholder_tokens(hogql: str) -> list[str]:
-    tokens = [token for token in _DOUBLE_BRACE_TOKEN.findall(hogql) if token not in WINDOW_PLACEHOLDERS]
+    tokens = _DOUBLE_BRACE_TOKEN.findall(_STRING_LITERAL.sub("''", hogql))
     for literal in _DATE_FUNCTION_LITERAL.findall(hogql):
+        tokens.extend(_DOUBLE_BRACE_TOKEN.findall(literal))
         tokens.extend(_BRACKETED_NAME.findall(_DOUBLE_BRACE_TOKEN.sub("", literal)))
-    return list(dict.fromkeys(tokens))
+    return [token for token in dict.fromkeys(tokens) if token not in WINDOW_PLACEHOLDERS]
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
