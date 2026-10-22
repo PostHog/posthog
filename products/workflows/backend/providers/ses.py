@@ -91,6 +91,8 @@ RECOMMENDATIONS_PAGE_SIZE = 100
 # The account findings walk runs in a background task, so it can wait out SES throttling. Adaptive
 # mode adds a client-side rate limiter that slows the following pages after a throttle response.
 RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 8})
+# The status endpoint is polled and holds a request worker, so its reads fail fast and the next poll retries.
+STATUS_READ_CONFIG = Config(connect_timeout=2, read_timeout=5, retries={"mode": "standard", "max_attempts": 2})
 
 
 @frozen
@@ -398,6 +400,8 @@ class SESProvider:
     ses_v2_client: "SESV2Client"
     ses_v2_metrics_client: "SESV2Client"
     ses_v2_recommendations_client: "SESV2Client"
+    ses_status_client: "SESClient"
+    ses_v2_status_client: "SESV2Client"
 
     def __init__(self):
         # Initialize the boto3 clients
@@ -406,6 +410,7 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            config=STATUS_READ_CONFIG,
         )
         self.ses_client = boto3.client(
             "ses",
@@ -431,6 +436,20 @@ class SESProvider:
                 read_timeout=METRIC_READ_TIMEOUT_SECONDS,
                 retries={"max_attempts": 1},
             ),
+        )
+        self.ses_status_client = boto3.client(
+            "ses",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=STATUS_READ_CONFIG,
+        )
+        self.ses_v2_status_client = boto3.client(
+            "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=STATUS_READ_CONFIG,
         )
         self.ses_v2_recommendations_client = boto3.client(
             "sesv2",
@@ -555,12 +574,21 @@ class SESProvider:
             return "identity"
         return "account"
 
+    # The cache only saves an STS call, so a cache outage falls back to STS instead of failing SES calls.
     @cached_property
     def _aws_account_id(self) -> str:
-        account_id: str | None = cache.get(AWS_ACCOUNT_ID_CACHE_KEY)
-        if account_id is None:
-            account_id = self.sts_client.get_caller_identity()["Account"]
+        try:
+            cached: str | None = cache.get(AWS_ACCOUNT_ID_CACHE_KEY)
+        except Exception:
+            logger.warning("Could not read the cached AWS account id", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
+        account_id = self.sts_client.get_caller_identity()["Account"]
+        try:
             cache.set(AWS_ACCOUNT_ID_CACHE_KEY, account_id, AWS_ACCOUNT_ID_CACHE_SECONDS)
+        except Exception:
+            logger.warning("Could not cache the AWS account id", exc_info=True)
         return account_id
 
     def _identity_arn(self, domain: str) -> str:
@@ -576,9 +604,9 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-    def _list_identity_tenants(self, domain: str) -> set[str]:
+    def _list_identity_tenants(self, domain: str, client: "SESV2Client | None" = None) -> set[str]:
         try:
-            resp = self.ses_v2_client.list_resource_tenants(ResourceArn=self._identity_arn(domain))
+            resp = (client or self.ses_v2_client).list_resource_tenants(ResourceArn=self._identity_arn(domain))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
@@ -788,7 +816,9 @@ class SESProvider:
             raise EmailProviderUnavailableError(f"Could not read the SES state of {domain}") from error
 
     def _check_email_domain(self, domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
-        identity = self._read_identity_state(domain).for_mail_from_domain(f"{mail_from_subdomain}.{domain}")
+        identity = self._read_identity_state(domain, self.ses_status_client).for_mail_from_domain(
+            f"{mail_from_subdomain}.{domain}"
+        )
         if identity.verification_token is None:
             return build_email_domain_check(provider_status=EmailDomainSetupStatus.NOT_STARTED, records=())
 
@@ -804,7 +834,7 @@ class SESProvider:
         is_ready = (
             identity.is_ready(dmarc_published=dmarc_published)
             and published.every_lookup_answered
-            and self._is_associated_with_team(domain, team_id)
+            and self._is_associated_with_team(domain, team_id, self.ses_v2_status_client)
         )
         return build_email_domain_check(
             provider_status=identity.setup_status(is_ready=is_ready),
@@ -819,8 +849,8 @@ class SESProvider:
     def _ses_region(self) -> str:
         return getattr(settings, "SES_REGION", "us-east-1")
 
-    def _is_associated_with_team(self, domain: str, team_id: int) -> bool:
-        return self._tenant_name_for_team(team_id) in self._list_identity_tenants(domain)
+    def _is_associated_with_team(self, domain: str, team_id: int, client: "SESV2Client | None" = None) -> bool:
+        return self._tenant_name_for_team(team_id) in self._list_identity_tenants(domain, client)
 
     def _read_identity_state_or_unknown(self, domain: str) -> "_SESIdentityState":
         try:
@@ -829,14 +859,13 @@ class SESProvider:
             logger.warning("Could not read the SES identity attributes for %s", domain, exc_info=True)
             return _SESIdentityState.unknown()
 
-    def _read_identity_state(self, domain: str) -> "_SESIdentityState":
-        id_for_domain = self.ses_client.get_identity_verification_attributes(Identities=[domain])[
-            "VerificationAttributes"
-        ].get(domain)
-        dkim_for_domain = self.ses_client.get_identity_dkim_attributes(Identities=[domain])["DkimAttributes"].get(
+    def _read_identity_state(self, domain: str, client: "SESClient | None" = None) -> "_SESIdentityState":
+        ses = client or self.ses_client
+        id_for_domain = ses.get_identity_verification_attributes(Identities=[domain])["VerificationAttributes"].get(
             domain
         )
-        mail_from_for_domain = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])[
+        dkim_for_domain = ses.get_identity_dkim_attributes(Identities=[domain])["DkimAttributes"].get(domain)
+        mail_from_for_domain = ses.get_identity_mail_from_domain_attributes(Identities=[domain])[
             "MailFromDomainAttributes"
         ].get(domain)
         return _SESIdentityState(

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -456,6 +457,52 @@ class EmailDomainCheck:
     @property
     def is_verified(self) -> bool:
         return self.status == EmailDomainSetupStatus.VERIFIED
+
+    # The Django cache pickles what it stores, so the check goes in as a JSON string of plain values.
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "status": self.status.value,
+                "steps": [{"key": step.key.value, "state": step.state.value} for step in self.steps],
+                "records": [
+                    {
+                        "kind": record.kind.value,
+                        "hostname": record.hostname,
+                        "type": record.type.value,
+                        "value": record.value,
+                        "priority": record.priority,
+                        "status": record.status.value,
+                    }
+                    for record in self.records
+                ],
+                "every_dns_lookup_answered": self.every_dns_lookup_answered,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, raw: str) -> "EmailDomainCheck":
+        data = json.loads(raw)
+        return cls(
+            status=EmailDomainSetupStatus(data["status"]),
+            steps=tuple(
+                EmailDomainStatusStep(
+                    key=EmailDomainSetupStepKey(step["key"]), state=EmailDomainSetupStepState(step["state"])
+                )
+                for step in data["steps"]
+            ),
+            records=tuple(
+                EmailDomainStatusRecord(
+                    kind=EmailDomainSetupRecordKind(record["kind"]),
+                    hostname=str(record["hostname"]),
+                    type=EmailDomainSetupRecordType(record["type"]),
+                    value=str(record["value"]),
+                    priority=None if record["priority"] is None else int(record["priority"]),
+                    status=EmailDomainSetupRecordStatus(record["status"]),
+                )
+                for record in data["records"]
+            ),
+            every_dns_lookup_answered=bool(data["every_dns_lookup_answered"]),
+        )
 
 
 class EmailProviderUnavailableError(Exception):
